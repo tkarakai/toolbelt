@@ -1,0 +1,32 @@
+{
+	"id": "processes",
+	"name": "Processes",
+	"icon": "activity",
+	"version": "0.0.1",
+	"description": "The processes you started in your terminals.",
+	"protocol": 0,
+	"entry": "index.ts",
+	"screens": [
+		{
+			"id": "processes",
+			"title": "Processes",
+			"icon": "list",
+			"default": true
+		},
+		{
+			"id": "kept",
+			"title": "Kept",
+			"icon": "bookmark"
+		},
+		{
+			"id": "settings",
+			"title": "Settings",
+			"icon": "settings"
+		}
+	],
+	"quickView": true,
+	"repo": "https://github.com/tkarakai/toolbelt-ps",
+	"cli": {
+		"command": "ps"
+	}
+}

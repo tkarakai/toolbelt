@@ -1,0 +1,24 @@
+{
+	"id": "showcase",
+	"name": "Showcase",
+	"icon": "sparkles",
+	"version": "0.0.1",
+	"description": "Every component Toolbelt can draw.",
+	"protocol": 0,
+	"entry": "index.ts",
+	"screens": [
+		{
+			"id": "table",
+			"title": "Live table",
+			"icon": "table",
+			"default": true
+		},
+		{
+			"id": "components",
+			"title": "Components",
+			"icon": "layout-grid"
+		}
+	],
+	"quickView": true,
+	"repo": "https://github.com/tkarakai/toolbelt"
+}
