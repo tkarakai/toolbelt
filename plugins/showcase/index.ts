@@ -1,6 +1,7 @@
 // Showcase: every node type, and a table of N rows that all change every second — the
-// renderer's stress test. N is adjustable on the Components screen.
-import { definePlugin, type Row, type Tone } from "../../src/sdk";
+// renderer's stress test. N is adjustable on the Components screen. The Tasks screen has the
+// nodes for long-running work: cards, progress, logs, markdown and a dialog.
+import { definePlugin, type LogLine, type Node, type Row, type Tone } from "../../src/sdk";
 
 const names = ["api", "web", "worker", "scheduler", "search", "mailer", "billing", "auth", "cache", "gateway", "metrics", "uploads"];
 const regions = ["eu-west", "us-east", "ap-south"];
@@ -8,6 +9,43 @@ let rowCount = 500;
 let tick = 0;
 let query = "";
 let paused = false;
+let nextTickAt = Date.now() + 1000;
+
+// Tasks screen: a fake build that logs a line per second and restarts when done.
+const log: LogLine[] = [];
+let buildStarted = Date.now();
+let dialogOpen = false;
+const steps = ["Resolving packages", "Downloading", "Verifying checksums", "Compiling", "Linking", "Running tests", "Done"];
+function stepBuild() {
+	const i = Math.floor((Date.now() - buildStarted) / 1000);
+	if (i >= 30) {
+		buildStarted = Date.now();
+		log.length = 0;
+		return;
+	}
+	const step = steps[Math.min(steps.length - 1, Math.floor(i / 5))];
+	log.push({ at: Date.now(), text: `${step}… (${i + 1}/30)`, tone: i % 11 === 10 ? "warning" : undefined });
+}
+const notes = `## 2.0.0
+
+**Breaking:** the \`legacy\` flag is gone.
+
+- Faster startup ([#120](https://github.com/tkarakai/toolbelt))
+- New \`log\` component
+  - follows the newest line
+  - stops following when you scroll up
+
+## 1.9.2
+
+1. Fixed a crash on wake
+2. Smaller download
+
+> Upgrading from 1.x? Read the migration guide first.
+
+| Platform | Status |
+|---|---|
+| macOS 15 | ✅ |
+| macOS 14 | ✅ |`;
 
 type Job = { id: string; name: string; region: string; cpu: number; mem: number; status: Tone; started: number };
 const jobs: Job[] = [];
@@ -42,7 +80,9 @@ const ctx = definePlugin({
 		setInterval(() => {
 			if (paused) return;
 			step();
-			ctx.invalidate("screen:table", "quick");
+			stepBuild();
+			nextTickAt = Date.now() + 1000;
+			ctx.invalidate("screen:table", "screen:tasks", "quick");
 			ctx.badge(jobs.filter((j) => j.status === "danger").length || null);
 		}, 1000);
 	},
@@ -56,6 +96,7 @@ const ctx = definePlugin({
 					cpu: { text: `${j.cpu.toFixed(1)}%`, tone: j.status === "success" ? "default" : j.status },
 					mem: `${j.mem.toFixed(0)} MB`,
 					uptime: ago(Date.now() - j.started),
+					started: { text: "", at: j.started, tone: "muted" },
 					tags: { text: "", chips: [j.region, j.cpu > 60 ? "hot" : "ok"] },
 				},
 				// API jobs run replicas: nested rows the person can expand.
@@ -90,11 +131,16 @@ const ctx = definePlugin({
 							{ key: "cpu", title: "CPU", align: "right", mono: true },
 							{ key: "mem", title: "Memory", align: "right", mono: true, optional: true },
 							{ key: "uptime", title: "Uptime", align: "right", mono: true },
+							{ key: "started", title: "Started", align: "right", optional: true },
 						],
 						rows,
 						actions: [
 							{ id: "restart", label: "Restart", icon: "rotate-cw", inline: true },
 							{ id: "stop", label: "Stop", icon: "square", tone: "destructive", confirm: "Stop this job?" },
+						],
+						bulkActions: [
+							{ id: "restart-many", label: "Restart", icon: "rotate-cw" },
+							{ id: "stop-many", label: "Stop", icon: "square", tone: "destructive", confirm: "Stop the selected jobs?" },
 						],
 						empty: { title: "No jobs match", description: "Try a different filter.", icon: "search-x" },
 					},
@@ -111,6 +157,7 @@ const ctx = definePlugin({
 						{ label: "Jobs", value: String(jobs.length), hint: "in the live table" },
 						{ label: "Hot", value: String(jobs.filter((j) => j.cpu > 60).length), hint: "over 60% CPU" },
 						{ label: "Ticks", value: String(tick) },
+						{ label: "Next tick", value: "", at: nextTickAt, hint: "a relative time, drawn by Toolbelt" },
 					],
 				},
 				{
@@ -131,6 +178,47 @@ const ctx = definePlugin({
 				{ type: "text", text: "Text, in a muted tone, for notes and explanations.", tone: "muted" },
 			],
 		}),
+		"screen:tasks": (): Node => {
+			const elapsed = (Date.now() - buildStarted) / 30_000;
+			return {
+				type: "page",
+				summary: "Long-running work",
+				actions: [{ id: "open-dialog", label: "Review release", icon: "file-text", primary: true }],
+				children: [
+					{
+						type: "card",
+						id: "build",
+						title: "Building toolbelt-demo",
+						description: "A card with actions, details, progress and a log that follows the newest line.",
+						actions: [{ id: "restart-build", label: "Restart", icon: "rotate-cw" }],
+						children: [
+							{ type: "details", items: [{ label: "Command", value: "bun run build", mono: true }, { label: "Folder", value: "~/dev/demo", mono: true }, { label: "Status", value: "Running", tone: "info" }] },
+							{ type: "progress", label: steps[Math.min(steps.length - 1, Math.floor(elapsed * 6))], value: Math.min(1, elapsed), at: buildStarted },
+							{ type: "log", id: "build-log", lines: log, follow: true, empty: "Waiting for output…" },
+						],
+					},
+					{ type: "card", title: "Waiting for something", tone: "warning", children: [{ type: "progress", label: "Working… (no value: indeterminate)", at: buildStarted }] },
+					{ type: "card", title: "Release notes", description: "Markdown: headings, lists, links, code, quotes, tables", children: [{ type: "markdown", text: notes }] },
+				],
+				dialog: dialogOpen
+					? {
+							id: "review",
+							title: "Update demo 1.9.1 → 2.0.0",
+							description: "A plugin-driven dialog: content and buttons come from the plugin.",
+							wide: true,
+							children: [
+								{ type: "text", text: "Version 2.0.0 is a major update and may change how it works.", tone: "warning" },
+								{ type: "card", title: "What will run", children: [{ type: "log", id: "cmd", lines: [{ text: "$ brew upgrade demo" }] }] },
+								{ type: "markdown", text: notes },
+							],
+							actions: [
+								{ id: "skip", label: "Skip this version" },
+								{ id: "update", label: "Update now", icon: "download", primary: true },
+							],
+						}
+					: undefined,
+			};
+		},
 		quick: () => {
 			const hot = [...jobs].sort((a, b) => b.cpu - a.cpu).slice(0, 6);
 			return {
@@ -141,7 +229,7 @@ const ctx = definePlugin({
 					{
 						type: "list",
 						id: "hot",
-						items: hot.map((j) => ({ id: j.id, title: j.name, subtitle: j.region, dot: j.status, meta: `${j.cpu.toFixed(0)}%`, actions: [{ id: "restart", label: "Restart", icon: "rotate-cw" }] })),
+						items: hot.map((j) => ({ id: j.id, title: j.name, subtitle: `${j.region} · ${j.cpu.toFixed(0)}%`, dot: j.status, metaAt: j.started, actions: [{ id: "restart", label: "Restart", icon: "rotate-cw" }] })),
 					},
 				],
 			};
@@ -154,7 +242,19 @@ const ctx = definePlugin({
 			rowCount = Number(payload.value);
 			ensureJobs();
 		} else if (name === "field" && payload?.field === "paused") paused = !!payload.value;
-		else if (name === "restart" || name === "stop") {
+		else if (name === "restart-many" || name === "stop-many") {
+			const ids: string[] = payload?.rowIds ?? [];
+			for (const j of jobs) if (ids.includes(j.id) && name === "restart-many") j.started = Date.now();
+			ctx.toast(`${name === "restart-many" ? "Restarted" : "Stopped"} ${ids.length} jobs`, "success");
+		} else if (name === "open-dialog") dialogOpen = true;
+		else if (name === "dialog-close") dialogOpen = false;
+		else if (name === "update" || name === "skip") {
+			dialogOpen = false;
+			ctx.toast(name === "update" ? "Updating (not really)" : "Skipped 2.0.0", "success");
+		} else if (name === "restart-build") {
+			buildStarted = Date.now();
+			log.length = 0;
+		} else if (name === "restart" || name === "stop") {
 			const j = jobs.find((x) => x.id === payload?.rowId);
 			if (j) {
 				if (name === "restart") j.started = Date.now();

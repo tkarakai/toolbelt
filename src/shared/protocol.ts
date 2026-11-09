@@ -16,6 +16,12 @@
 // node maps to shadcn/ui components, so all plugins look like one app. UI state that has to
 // feel instant (typing, selection, scroll, column widths) stays in Toolbelt; the plugin only
 // hears about meaningful events.
+//
+// Times are epoch milliseconds (`at`); Toolbelt shows them relative to now ("in 2h 14m",
+// "5m ago") and keeps them current, so a countdown doesn't need a render every second.
+//
+// Each plugin gets a folder of its own for data: the `TOOLBELT_DATA_DIR` environment variable
+// (`~/Library/Application Support/Toolbelt/data/<id>/`).
 
 export const PROTOCOL_VERSION = 0;
 
@@ -60,6 +66,8 @@ export type Cell =
 			chips?: string[];
 			/** Render the text as a badge. */
 			badge?: boolean;
+			/** A moment (epoch ms), shown relative to now and kept current; replaces `text`. */
+			at?: number;
 	  };
 
 export type Column = {
@@ -83,6 +91,9 @@ export type Action = {
 	confirm?: string;
 	/** Show as a button in the row (otherwise only in the row's menu). */
 	inline?: boolean;
+	/** The main action of a toolbar, card or dialog: drawn as a filled button. */
+	primary?: boolean;
+	disabled?: boolean;
 };
 
 export type Row = {
@@ -103,6 +114,23 @@ export type Field =
 	| { type: "switch"; id: string; label: string; value: boolean; description?: string }
 	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string };
 
+/** A line of output in a `log`. */
+export type LogLine = { text: string; at?: number; tone?: Tone };
+
+/**
+ * A modal the plugin opens by putting it on its page, and closes by taking it off. Its actions
+ * arrive as events with `{ dialog: id }`; Esc, the close button and Cancel send `dialog-close`.
+ */
+export type Dialog = {
+	id: string;
+	title: string;
+	description?: string;
+	children: Node[];
+	actions?: Action[];
+	/** Room for release notes, logs, tables. */
+	wide?: boolean;
+};
+
 export type Node =
 	| { type: "stack"; direction?: "row" | "column"; gap?: number; children: Node[] }
 	| {
@@ -114,6 +142,8 @@ export type Node =
 			/** Muted text in the toolbar ("12 processes"). */
 			summary?: string;
 			children: Node[];
+			/** A modal over the page, while present. */
+			dialog?: Dialog;
 	  }
 	| {
 			type: "table";
@@ -121,19 +151,39 @@ export type Node =
 			columns: Column[];
 			rows: Row[];
 			actions?: Action[];
+			/**
+			 * Rows get checkboxes, and these actions apply to the checked ones: the event's payload
+			 * is `{ rowIds }`. Which rows are checked is Toolbelt's business until then.
+			 */
+			bulkActions?: Action[];
 			/** Shown when there are no rows. */
 			empty?: { title: string; description?: string; icon?: string };
 	  }
 	| {
 			type: "list";
 			id: string;
-			items: { id: string; title: string; subtitle?: string; dot?: Tone; meta?: string; actions?: Action[] }[];
+			/** `metaAt` shows a moment (epoch ms) relative to now instead of `meta`. */
+			items: { id: string; title: string; subtitle?: string; dot?: Tone; meta?: string; metaAt?: number; actions?: Action[] }[];
 			empty?: { title: string; description?: string; icon?: string };
 	  }
-	| { type: "stats"; items: { label: string; value: string; hint?: string }[] }
+	/** `at` shows a moment (epoch ms) relative to now instead of `value`. */
+	| { type: "stats"; items: { label: string; value: string; at?: number; hint?: string; tone?: Tone }[] }
 	| { type: "form"; id: string; title?: string; description?: string; fields: Field[] }
 	| { type: "empty"; title: string; description?: string; icon?: string }
-	| { type: "text"; text: string; tone?: Tone; mono?: boolean };
+	| { type: "text"; text: string; tone?: Tone; mono?: boolean }
+	/** A titled box. Its actions arrive with `{ rowId: id }`. */
+	| { type: "card"; id?: string; title?: string; description?: string; tone?: Tone; actions?: Action[]; children: Node[] }
+	/** Label / value pairs. */
+	| { type: "details"; items: { label: string; value: string; mono?: boolean; tone?: Tone }[] }
+	/** Output of a command: monospace, scrolls; `follow` keeps the newest line in view. */
+	| { type: "log"; id: string; lines: LogLine[]; follow?: boolean; empty?: string }
+	/** `value` from 0 to 1; without one, "working…". `at`: when it started (shows elapsed time). */
+	| { type: "progress"; label?: string; value?: number; at?: number; tone?: Tone }
+	/**
+	 * Markdown (release notes, descriptions): headings, paragraphs, lists, quotes, code, emphasis,
+	 * links (opened in the browser). Raw HTML is shown as text, never interpreted.
+	 */
+	| { type: "markdown"; text: string };
 
 export type HostMessage =
 	| { type: "hello"; protocol: number; plugin: { id: string }; host: { name: string; version: string } }
@@ -148,8 +198,10 @@ export type PluginMessage =
 
 /** Events Toolbelt sends, by `name`. */
 export type EventPayloads = {
-	/** A table/list action: `name` is the action id. */
-	action: { rowId?: string };
+	/** A table/list/card/dialog action: `name` is the action id. */
+	action: { rowId?: string; rowIds?: string[]; dialog?: string };
+	/** The person closed a dialog (Esc, close button, Cancel). */
+	"dialog-close": { dialog: string };
 	search: { query: string };
 	/** A form field changed. */
 	field: { form: string; field: string; value: string | boolean };

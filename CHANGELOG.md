@@ -16,3 +16,9 @@
 - The popover shortcut works without extra permissions and can be changed on Toolbelt's page.
 - The popover hangs from the menu bar like a macOS menu; the window's header drags it; the
   collapsed sidebar's corner is one continuous bar.
+- Plugins can show long-running work: cards with actions, label/value details, progress bars
+  (with elapsed time), command logs that follow the newest line, and Markdown (release notes;
+  links open in the browser, raw HTML is never interpreted). Plugins can open their own dialogs,
+  tables can have checkboxes with actions for the selected rows, and times can be shown
+  relative to now ("in 2h 14m"), kept current by Toolbelt. Each plugin gets a data folder
+  (`TOOLBELT_DATA_DIR`). The Showcase plugin has a *Tasks* tab with all of these.

@@ -57,8 +57,10 @@ export type Transport = {
 };
 
 /** Inside Toolbelt: Electrobun's RPC. In a plain browser (scripts/preview.ts): a WebSocket. */
+const inApp = (window as { __electrobunWebviewId?: number }).__electrobunWebviewId !== undefined;
+
 function connect(): Transport {
-	if ((window as { __electrobunWebviewId?: number }).__electrobunWebviewId !== undefined) {
+	if (inApp) {
 		const r = Electroview.defineRPC<ToolbeltRPC>({ maxRequestTime: 10_000, handlers: { requests: {}, messages: handlers as never } });
 		new Electroview({ rpc: r });
 		return r as unknown as Transport;
@@ -118,6 +120,13 @@ export function useSurface(plugin: string, surface: string): Node | null {
 		};
 	}, [plugin, surface, k]);
 	return useSyncExternalStore(subscribe, () => state.trees[k] ?? null);
+}
+
+/** Open a web link in the person's browser (only http, https and mailto). */
+export function openUrl(url: string) {
+	if (!/^(https?:|mailto:)/i.test(url)) return;
+	if (inApp) void rpc.request.openUrl({ url });
+	else window.open(url, "_blank", "noopener,noreferrer");
 }
 
 export const sendEvent = (plugin: string, surface: string, name: string, payload?: unknown) => void rpc.request.event({ plugin, surface, name, payload });

@@ -141,3 +141,13 @@
     background: transparent;
   }
 }
+
+/* The `progress` node without a value: a bar sweeping across. */
+@keyframes tb-indeterminate {
+	from {
+		left: -33%;
+	}
+	to {
+		left: 100%;
+	}
+}

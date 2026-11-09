@@ -1,5 +1,6 @@
-// Test plugin: renders a counter; the `bump` event increments it; `boom` crashes.
-import { definePlugin } from "../../../src/sdk";
+// Test plugin: renders a counter; the `bump` event increments it; `boom` crashes; `where`
+// toasts its data folder.
+import { dataDir, definePlugin } from "../../../src/sdk";
 
 let n = 0;
 definePlugin({
@@ -10,6 +11,7 @@ definePlugin({
 	},
 	onEvent(_s, name, _p, ctx) {
 		if (name === "boom") process.exit(3);
+		if (name === "where") return ctx.toast(`data ${dataDir()}`);
 		if (name === "bump") n++;
 		ctx.badge(n);
 		ctx.toast(`now ${n}`);

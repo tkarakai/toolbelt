@@ -1,11 +1,14 @@
 // The plugin host against real child processes (fixtures in test/fixtures).
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PluginHost, discover, pluginDirs } from "../src/bun/host";
 import type { Node } from "../src/shared/protocol";
 import type { PluginInfo } from "../src/shared/rpc";
 
 const fixtures = join(import.meta.dir, "fixtures");
+const data = mkdtempSync(join(tmpdir(), "toolbelt-host-"));
 
 /** Resolve when `check` passes, polling. */
 async function until<T>(check: () => T | undefined | false, ms = 5000): Promise<T> {
@@ -40,7 +43,7 @@ describe("PluginHost", () => {
 		const trees: { plugin: string; surface: string; tree: Node }[] = [];
 		const toasts: string[] = [];
 		let plugins: PluginInfo[] = [];
-		host = new PluginHost({ dirs: [join(fixtures, "echo"), join(fixtures, "crash")], bun: process.execPath, host: { name: "test", version: "0" } });
+		host = new PluginHost({ dirs: [join(fixtures, "echo"), join(fixtures, "crash")], bun: process.execPath, host: { name: "test", version: "0" }, data });
 		host.subscribe({ plugins: (l) => (plugins = l), tree: (plugin, surface, tree) => trees.push({ plugin, surface, tree }), toast: (_p, t) => toasts.push(t) });
 		host.start();
 		return { trees, toasts, plugins: () => plugins };
@@ -59,6 +62,13 @@ describe("PluginHost", () => {
 
 		// A second viewer gets the cached tree right away.
 		expect(host!.open("echo", "screen:main")).toEqual({ type: "text", text: "count 1" });
+	});
+
+	test("each plugin gets its own data folder", async () => {
+		const s = start();
+		host!.event("echo", "screen:main", "where");
+		await until(() => s.toasts.includes(`data ${join(data, "echo")}`));
+		expect(existsSync(join(data, "echo"))).toBe(true);
 	});
 
 	test("closed surfaces stop rendering", async () => {

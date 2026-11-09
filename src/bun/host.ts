@@ -1,6 +1,6 @@
 // Finds plugins, starts each as a Bun child process, and relays its UI trees to the web views.
 // No Electrobun imports here, so it can be tested on its own.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PROTOCOL_VERSION, parseManifest, splitLines, type HostMessage, type Manifest, type Node, type PluginMessage } from "../shared/protocol";
 import type { PluginInfo, PluginState } from "../shared/rpc";
@@ -49,7 +49,7 @@ class PluginProcess {
 	constructor(
 		readonly manifest: Manifest,
 		readonly dir: string,
-		private readonly opts: { bun: string; env: Record<string, string | undefined>; host: { name: string; version: string } },
+		private readonly opts: { bun: string; env: Record<string, string | undefined>; host: { name: string; version: string }; data: string },
 		private readonly changed: () => void,
 		private readonly listener: Listener,
 	) {}
@@ -64,9 +64,15 @@ class PluginProcess {
 		this.error = undefined;
 		this.stderrTail = [];
 		const entry = resolve(this.dir, this.manifest.entry);
+		const data = join(this.opts.data, this.manifest.id);
+		try {
+			mkdirSync(data, { recursive: true });
+		} catch (e) {
+			this.log(`can't create its data folder ${data}: ${(e as Error).message}`);
+		}
 		const proc = Bun.spawn([this.opts.bun, entry], {
 			cwd: this.dir,
-			env: { ...this.opts.env, TOOLBELT_PLUGIN: this.manifest.id, TOOLBELT_PROTOCOL: String(PROTOCOL_VERSION) },
+			env: { ...this.opts.env, TOOLBELT_PLUGIN: this.manifest.id, TOOLBELT_PROTOCOL: String(PROTOCOL_VERSION), TOOLBELT_DATA_DIR: data },
 			stdin: "pipe",
 			stdout: "pipe",
 			stderr: "pipe",
@@ -195,14 +201,15 @@ export class PluginHost {
 	private plugins = new Map<string, PluginProcess>();
 	private listeners = new Set<Listener>();
 
-	constructor(private readonly opts: { dirs: string[]; bun: string; env?: Record<string, string | undefined>; host: { name: string; version: string } }) {}
+	/** `data`: the folder that holds each plugin's data folder (`<data>/<id>/`). */
+	constructor(private readonly opts: { dirs: string[]; bun: string; env?: Record<string, string | undefined>; host: { name: string; version: string }; data: string }) {}
 
 	start() {
 		for (const { manifest, dir } of discover(this.opts.dirs)) {
 			const p = new PluginProcess(
 				manifest,
 				dir,
-				{ bun: this.opts.bun, env: this.opts.env ?? process.env, host: this.opts.host },
+				{ bun: this.opts.bun, env: this.opts.env ?? process.env, host: this.opts.host, data: this.opts.data },
 				() => this.emitPlugins(),
 				{
 					plugins: () => {},
@@ -255,6 +262,9 @@ export class PluginHost {
 		this.listeners.forEach((l) => l.plugins(list));
 	}
 }
+
+/** Toolbelt's folder: settings, plugins, plugin data. `TOOLBELT_CONFIG_DIR` overrides it. */
+export const configDir = (home: string, env: Record<string, string | undefined> = process.env) => env.TOOLBELT_CONFIG_DIR ?? join(home, "Library/Application Support/Toolbelt");
 
 /** Where plugins live: bundled ones, the person's installed ones, and `TOOLBELT_PLUGINS`. */
 export function pluginDirs(opts: { bundled?: string; home: string; extra?: string }) {

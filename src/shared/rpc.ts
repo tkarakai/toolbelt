@@ -23,6 +23,8 @@ export type ToolbeltRPC = {
 			close: { params: Surface; response: true };
 			event: { params: Surface & { name: string; payload?: unknown }; response: true };
 			restartPlugin: { params: { plugin: string }; response: true };
+			/** Open a link in the default browser (http, https, mailto). */
+			openUrl: { params: { url: string }; response: boolean };
 			settings: { params: {}; response: { shortcut: string; shortcutLabel: string; shortcutError: string | null } };
 			setShortcut: { params: { accelerator: string }; response: { ok: boolean; error?: string; label?: string } };
 			pauseShortcut: { params: { paused: boolean }; response: true };
