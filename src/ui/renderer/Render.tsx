@@ -259,7 +259,7 @@ function PageDialog({ dialog, emit }: { dialog?: DialogNode; emit: Emit }) {
 					<DialogTitle>{d.title}</DialogTitle>
 					{d.description && <DialogDescription>{d.description}</DialogDescription>}
 				</DialogHeader>
-				<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-6 py-4">
+				<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-6 py-4 [&>*]:shrink-0">
 					{d.children.map((c, i) => (
 						<Render key={i} node={c} emit={emit} />
 					))}
