@@ -4,7 +4,7 @@ import Electrobun, { BrowserView, BrowserWindow, Screen, Tray, Updater, Utils, A
 import { PATHS } from "electrobun/main";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { PluginHost, pluginDirs } from "./host";
+import { PluginHost, configDir, pluginDirs } from "./host";
 import { clearHotKey, displayAccelerator, setHotKey } from "./hotkey";
 import { loadSettings, saveSettings, type Settings } from "./settings";
 import { setTrayHighlighted } from "./tray-highlight";
@@ -23,6 +23,7 @@ const host = new PluginHost({
 	dirs: pluginDirs({ bundled: join(PATHS.RESOURCES_FOLDER, "app/plugins"), home: homedir(), extra: process.env.TOOLBELT_PLUGINS }),
 	bun: process.execPath,
 	host: { name: "Toolbelt", version: pkg.version },
+	data: join(configDir(homedir()), "data"),
 });
 
 let debugReport: (id: number, value: unknown) => void = () => {};
@@ -52,6 +53,7 @@ function makeRPC() {
 					host.event(plugin, surface, name, payload);
 					return true;
 				},
+				openUrl: ({ url }) => /^(https?:|mailto:)/i.test(url) && Utils.openExternal(url),
 				restartPlugin: ({ plugin }) => {
 					host.restart(plugin);
 					return true;

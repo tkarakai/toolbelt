@@ -166,3 +166,13 @@ mark.hit {
   border-radius: 2px;
   padding: 0 1px;
 }
+
+/* The `progress` node without a value: a bar sweeping across. */
+@keyframes tb-indeterminate {
+	from {
+		left: -33%;
+	}
+	to {
+		left: 100%;
+	}
+}

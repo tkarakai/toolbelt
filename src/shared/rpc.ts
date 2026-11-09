@@ -25,6 +25,8 @@ export type ToolbeltRPC = {
 			restartPlugin: { params: { plugin: string }; response: true };
 			settings: { params: {}; response: { shortcut: string; shortcutLabel: string; shortcutError: string | null; theme: string; mode: "system" | "light" | "dark" } };
 			setAppearance: { params: { theme?: string; mode?: string }; response: true };
+			/** Open a link in the default browser (http, https, mailto). */
+			openUrl: { params: { url: string }; response: boolean };
 			setShortcut: { params: { accelerator: string }; response: { ok: boolean; error?: string; label?: string } };
 			pauseShortcut: { params: { paused: boolean }; response: true };
 		};

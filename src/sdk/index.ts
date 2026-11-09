@@ -10,7 +10,13 @@
 // called. Unchanged trees aren't sent again.
 import { PROTOCOL_VERSION, splitLines, type HostMessage, type Node, type PluginMessage } from "../shared/protocol";
 
-export type { Node, Cell, Column, Row, Action, Field, Tone, EventPayloads } from "../shared/protocol";
+export type { Node, Cell, Column, Row, Action, Field, Tone, EventPayloads, Dialog, LogLine } from "../shared/protocol";
+export { duration, relative } from "../shared/time";
+
+/** This plugin's own folder for data (settings, state, logs). Toolbelt creates it. */
+export function dataDir(): string {
+	return process.env.TOOLBELT_DATA_DIR ?? `${process.env.TMPDIR ?? "/tmp"}/toolbelt-data/${process.env.TOOLBELT_PLUGIN ?? "plugin"}`;
+}
 
 export type Context = {
 	/** Re-render open surfaces (all, or the ones named). */
