@@ -3,14 +3,19 @@
 //
 // Keyboard (tables): ↑/↓ move · →/← expand/collapse (← again: to the parent) · ↵ first action
 // · . row menu · esc clear. Pages: ⌘F or / to filter, esc back to the list.
-import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronRight, MoreHorizontal, Search, X } from "lucide-react";
-import type { Action, Cell, Column, Field, Node, Row, Tone } from "../../shared/protocol";
+import type { Action, Cell, Column, Dialog as DialogNode, Field, Node, Row, Tone } from "../../shared/protocol";
+import { duration, refreshEvery, relative } from "../../shared/time";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/icon";
+import { openUrl } from "@/lib/store";
 import { isTyping, usePersisted, useUIState } from "@/lib/uistate";
+import { parseMarkdown, safeHref, type Block, type Inline } from "./markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -59,6 +64,44 @@ export function Dot({ tone = "default", className }: { tone?: Tone; className?: 
 	return <span className={cn("inline-block size-2 shrink-0 rounded-full", dotColor[tone], className)} />;
 }
 
+/** A moment shown relative to now ("in 2h 14m"), redrawn as often as its wording changes. */
+export function When({ at, className }: { at: number; className?: string }) {
+	const [, tick] = useState(0);
+	useEffect(() => {
+		const t = setTimeout(() => tick((n) => n + 1), refreshEvery(at));
+		return () => clearTimeout(t);
+	});
+	return (
+		<time dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString()} className={className}>
+			{relative(at)}
+		</time>
+	);
+}
+
+/** Time since `at`, counting up. */
+function Elapsed({ at }: { at: number }) {
+	const [, tick] = useState(0);
+	useEffect(() => {
+		const t = setTimeout(() => tick((n) => n + 1), 1000);
+		return () => clearTimeout(t);
+	});
+	return <span className="tabular-nums">{duration(Date.now() - at)}</span>;
+}
+
+/** Buttons for toolbar, card and dialog actions. */
+function ActionButtons({ actions, onRun, size = "sm" }: { actions: Action[]; onRun: (a: Action) => void; size?: "sm" | "default" }) {
+	return (
+		<>
+			{actions.map((a) => (
+				<Button key={a.id} size={size} disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onClick={() => onRun(a)}>
+					{a.icon && <Icon name={a.icon} />}
+					{a.label}
+				</Button>
+			))}
+		</>
+	);
+}
+
 export function Render({ node, emit }: { node: Node; emit: Emit }): ReactNode {
 	switch (node.type) {
 		case "page":
@@ -82,7 +125,17 @@ export function Render({ node, emit }: { node: Node; emit: Emit }): ReactNode {
 		case "empty":
 			return <EmptyState title={node.title} description={node.description} icon={node.icon} />;
 		case "text":
-			return <p className={cn("text-sm leading-relaxed", textTone[node.tone ?? "default"], node.mono && "font-mono")}>{node.text}</p>;
+			return <p className={cn("text-sm leading-relaxed whitespace-pre-line", textTone[node.tone ?? "default"], node.mono && "font-mono")}>{node.text}</p>;
+		case "card":
+			return <CardNode node={node} emit={emit} />;
+		case "details":
+			return <Details items={node.items} />;
+		case "log":
+			return <Log node={node} />;
+		case "progress":
+			return <ProgressNode node={node} />;
+		case "markdown":
+			return <Markdown text={node.text} />;
 		default:
 			return <EmptyState title="Unknown component" description={`This Toolbelt can't draw “${(node as { type: string }).type}” yet.`} icon="puzzle" />;
 	}
@@ -133,6 +186,7 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 
 	const words = (node.highlight ?? []).filter((w) => w.trim().length > 0);
 	const highlight = useMemo(() => (words.length ? new RegExp(`(${words.map(escape).sort((a, b) => b.length - a.length).join("|")})`, "ig") : null), [words.join("\n")]);
+	const { run, dialog: confirm } = useConfirm(emit);
 	const hasToolbar = node.search || node.actions?.length || node.summary;
 	// Pages without a table read better as a centered column.
 	const narrow = !node.children.some((c) => c.type === "table");
@@ -172,12 +226,7 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 					)}
 					{node.summary && <span className="truncate text-sm text-muted-foreground tabular-nums">{node.summary}</span>}
 					<div className="ml-auto flex items-center gap-2">
-						{node.actions?.map((a) => (
-							<Button key={a.id} variant="outline" size="sm" onClick={() => emit(a.id)}>
-								{a.icon && <Icon name={a.icon} />}
-								{a.label}
-							</Button>
-						))}
+						<ActionButtons actions={node.actions ?? []} onRun={(a) => run(a)} />
 					</div>
 				</div>
 			)}
@@ -188,8 +237,41 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 					))}
 				</div>
 			</div>
+			{confirm}
+			<PageDialog dialog={node.dialog} emit={emit} />
 		</div>
 		</HighlightContext.Provider>
+	);
+}
+
+/** The plugin's modal: open while the page has one. */
+function PageDialog({ dialog, emit }: { dialog?: DialogNode; emit: Emit }) {
+	// Keep the last dialog while the close animation plays.
+	const last = useRef(dialog);
+	if (dialog) last.current = dialog;
+	const d = dialog ?? last.current;
+	if (!d) return null;
+	const close = () => emit("dialog-close", { dialog: d.id });
+	return (
+		<Dialog open={!!dialog} onOpenChange={(o) => !o && dialog && close()}>
+			<DialogContent className={cn("flex max-h-[85vh] flex-col gap-0 p-0", d.wide ? "sm:max-w-3xl" : "sm:max-w-lg")}>
+				<DialogHeader className="border-b px-6 pt-6 pb-4">
+					<DialogTitle>{d.title}</DialogTitle>
+					{d.description && <DialogDescription>{d.description}</DialogDescription>}
+				</DialogHeader>
+				<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-6 py-4 [&>*]:shrink-0">
+					{d.children.map((c, i) => (
+						<Render key={i} node={c} emit={emit} />
+					))}
+				</div>
+				<DialogFooter className="mx-0 mb-0 px-6 py-4">
+					<Button variant="outline" onClick={close}>
+						Cancel
+					</Button>
+					<ActionButtons size="default" actions={d.actions ?? []} onRun={(a) => emit(a.id, { dialog: d.id })} />
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -202,7 +284,9 @@ function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
 		<div className="flex min-w-0 items-center gap-2.5">
 			{cell.dot && <Dot tone={cell.dot} />}
 			<div className="min-w-0">
-				{cell.text &&
+				{cell.at !== undefined ? (
+					<When at={cell.at} className={cn("block truncate", mono && "font-mono text-[0.8rem] tabular-nums", textTone[cell.tone ?? "default"])} />
+				) : cell.text &&
 					(cell.badge ? (
 						<Badge variant="secondary"><Hl text={cell.text} /></Badge>
 					) : (
@@ -233,14 +317,15 @@ function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
 	);
 }
 
-type Confirm = { action: Action; rowId?: string } | null;
+type Confirm = { action: Action; payload?: Record<string, unknown> } | null;
 
 function useConfirm(emit: Emit) {
 	const [pending, setPending] = useState<Confirm>(null);
 	const run = useCallback(
-		(action: Action, rowId?: string) => {
-			if (action.confirm) setPending({ action, rowId });
-			else emit(action.id, { rowId });
+		(action: Action, rowId?: string, extra?: Record<string, unknown>) => {
+			const payload = { ...(rowId !== undefined && { rowId }), ...extra };
+			if (action.confirm) setPending({ action, payload });
+			else emit(action.id, payload);
 		},
 		[emit],
 	);
@@ -259,7 +344,7 @@ function useConfirm(emit: Emit) {
 						variant={pending?.action.tone === "destructive" ? "destructive" : "default"}
 						autoFocus
 						onClick={() => {
-							if (pending) emit(pending.action.id, { rowId: pending.rowId });
+							if (pending) emit(pending.action.id, pending.payload);
 							setPending(null);
 						}}
 					>
@@ -272,7 +357,7 @@ function useConfirm(emit: Emit) {
 	return { run, dialog };
 }
 
-type Run = (a: Action, rowId?: string) => void;
+type Run = (a: Action, rowId?: string, extra?: Record<string, unknown>) => void;
 
 function RowActions({ actions, rowId, run, menuOpen, setMenuOpen }: { actions: Action[]; rowId: string; run: Run; menuOpen: boolean; setMenuOpen: (open: boolean) => void }) {
 	if (!actions.length) return null;
@@ -315,11 +400,16 @@ function RowActions({ actions, rowId, run, menuOpen, setMenuOpen }: { actions: A
 type Visible = { row: Row; depth: number; parent?: string; group?: string };
 
 const TableRow = memo(
-	function TableRow({ v, columns, actions, selected, expanded, menuOpen, onSelect, onToggle, onMenu, run }: { v: Visible; sig: string; columns: Column[]; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; run: Run }) {
+	function TableRow({ v, columns, actions, selected, expanded, menuOpen, checked, onSelect, onToggle, onMenu, onCheck, run }: { v: Visible; sig: string; columns: Column[]; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onCheck?: (id: string) => void; run: Run }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
 		return (
 			<tr data-row-id={row.id} data-selected={selected} onClick={() => onSelect(row.id)} onDoubleClick={() => hasChildren && onToggle(row.id)} className={cn("group/row cursor-default transition-colors hover:bg-muted/50 data-[selected=true]:bg-selected data-[selected=true]:text-selected-foreground [&>td]:border-b [&>td]:border-border/50", depth > 0 && "bg-muted/20")}>
+				{onCheck && (
+					<td className="w-0 pl-4" onClick={(e) => e.stopPropagation()}>
+						{depth === 0 && <Checkbox tabIndex={-1} checked={!!checked} onCheckedChange={() => onCheck(row.id)} aria-label="Select row" />}
+					</td>
+				)}
 				{columns.map((c, i) => (
 					<td key={c.key} className={cn("h-12 px-3 align-middle text-sm", i === 0 && "pl-3", c.align === "right" && "text-right", c.grow ? "w-full max-w-0" : "whitespace-nowrap", c.optional && "hidden @4xl:table-cell")}>
 						{i === 0 ? (
@@ -347,7 +437,7 @@ const TableRow = memo(
 			</tr>
 		);
 	},
-	(a, b) => a.sig === b.sig && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.columns === b.columns && a.actions === b.actions && a.run === b.run,
+	(a, b) => a.sig === b.sig && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.actions === b.actions && a.run === b.run,
 );
 
 function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emit: Emit }) {
@@ -368,6 +458,14 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		};
 	}, [allActions]);
 	const toggle = useCallback((id: string) => setExpanded((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])), [setExpanded]);
+
+	// Checked rows (tables with bulk actions): only top-level rows that still exist count.
+	const bulk = useMemo(() => node.bulkActions ?? [], [JSON.stringify(node.bulkActions ?? [])]);
+	const [checkedList, setChecked] = useUIState<string[]>(`${node.id}:checked`, []);
+	const rowIds = useMemo(() => new Set(node.rows.map((r) => r.id)), [node.rows]);
+	const checked = useMemo(() => new Set(checkedList.filter((id) => rowIds.has(id))), [checkedList, rowIds]);
+	const check = useCallback((id: string) => setChecked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])), [setChecked]);
+	const allChecked = checked.size > 0 && checked.size === rowIds.size;
 
 	// Groups in order of first appearance; within them, rows flattened with expanded children.
 	const groups = useMemo(() => {
@@ -432,6 +530,9 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				case "Escape":
 					if (selected) (e.preventDefault(), setSelected(null));
 					break;
+				case " ":
+					if (bulk.length && cur && cur.depth === 0) (e.preventDefault(), check(cur.row.id));
+					break;
 				case "Home":
 				case "End":
 					if (flat.length) (e.preventDefault(), select(flat[e.key === "Home" ? 0 : flat.length - 1].row.id));
@@ -440,16 +541,33 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [flat, selected, expanded, toggle, select, actionsFor, run, setSelected]);
+	}, [flat, selected, expanded, toggle, select, actionsFor, run, setSelected, bulk, check]);
 
 	if (!node.rows.length) return node.empty ? <EmptyState {...node.empty} /> : null;
 
 	return (
 		<div className="@container flex min-h-0 flex-1">
-			<div className="min-w-0 flex-1 overflow-auto">
+			<div className="flex min-w-0 flex-1 flex-col">
+				{checked.size > 0 && (
+					<div className="flex shrink-0 items-center gap-2 border-b bg-muted/40 px-4 py-2">
+						<span className="text-sm tabular-nums">{checked.size} selected</span>
+						<Button variant="ghost" size="sm" onClick={() => setChecked([])}>
+							Clear
+						</Button>
+						<div className="ml-auto flex items-center gap-2">
+							<ActionButtons actions={bulk} onRun={(a) => run(a, undefined, { rowIds: [...checked] })} />
+						</div>
+					</div>
+				)}
+			<div className="min-h-0 min-w-0 flex-1 overflow-auto">
 				<table className="w-full border-separate border-spacing-0 text-left">
 					<thead className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
 						<tr>
+							{bulk.length > 0 && (
+								<th className="w-0 border-b pl-4">
+									<Checkbox checked={allChecked ? true : checked.size ? "indeterminate" : false} onCheckedChange={() => setChecked(allChecked ? [] : [...rowIds])} aria-label="Select all" />
+								</th>
+							)}
 							{columns.map((c, i) => (
 								<th key={c.key} className={cn("h-9 border-b px-3 text-xs font-medium text-muted-foreground", i === 0 && "pl-9", c.align === "right" && "text-right", c.optional && "hidden @4xl:table-cell")}>
 									{c.title}
@@ -462,7 +580,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						<tbody key={g.name ?? ""}>
 							{g.name !== undefined && (
 								<tr>
-									<td colSpan={columns.length + 1} className="border-b bg-muted/40 px-6 py-1.5">
+									<td colSpan={columns.length + 1 + (bulk.length ? 1 : 0)} className="border-b bg-muted/40 px-6 py-1.5">
 										<div className="flex items-center gap-2 text-xs">
 											<span className="truncate font-mono font-medium text-foreground/80"><Hl text={g.name} /></span>
 											<span className="text-muted-foreground tabular-nums">{g.rows.filter((v) => v.depth === 0).length}</span>
@@ -483,12 +601,15 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 									onSelect={select}
 									onToggle={toggle}
 									onMenu={setMenuFor}
+									checked={checked.has(v.row.id)}
+									onCheck={bulk.length ? check : undefined}
 									run={run}
 								/>
 							))}
 						</tbody>
 					))}
 				</table>
+			</div>
 			</div>
 			{current?.row.details && <Inspector row={current.row} actions={actionsFor(current.row)} run={run} onClose={() => setSelected(null)} />}
 			{dialog}
@@ -587,7 +708,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 						<div className="truncate text-sm font-medium">{it.title}</div>
 						{it.subtitle && <div className="truncate font-mono text-xs text-muted-foreground">{it.subtitle}</div>}
 					</div>
-					{it.meta && <span className="text-xs text-muted-foreground tabular-nums group-data-[active=true]/row:hidden">{it.meta}</span>}
+					{(it.meta || it.metaAt !== undefined) && <span className="text-xs text-muted-foreground tabular-nums group-data-[active=true]/row:hidden">{it.metaAt !== undefined ? <When at={it.metaAt} /> : it.meta}</span>}
 					{it.actions && it.actions.length > 0 && (
 						<div className="hidden items-center gap-0.5 group-data-[active=true]/row:flex">
 							{it.actions.map((a, i) => (
@@ -619,7 +740,7 @@ function Stats({ node }: { node: Extract<Node, { type: "stats" }> }) {
 				<Card key={s.label} className="gap-1 py-4">
 					<CardHeader className="px-4">
 						<CardDescription className="text-xs">{s.label}</CardDescription>
-						<CardTitle className="text-2xl font-semibold tabular-nums">{s.value}</CardTitle>
+						<CardTitle className={cn("text-2xl font-semibold tabular-nums", textTone[s.tone ?? "default"])}>{s.at !== undefined ? <When at={s.at} /> : s.value}</CardTitle>
 					</CardHeader>
 					{s.hint && <CardContent className="px-4 text-xs text-muted-foreground">{s.hint}</CardContent>}
 				</Card>
@@ -682,4 +803,233 @@ function TextField({ id, field, onChange }: { id: string; field: Extract<Field, 
 	const [v, setV] = useState(field.value);
 	useEffect(() => setV(field.value), [field.value]);
 	return <Input id={id} className="w-64" value={v} placeholder={field.placeholder} onChange={(e) => setV(e.target.value)} onBlur={() => v !== field.value && onChange(v)} onKeyDown={(e) => e.key === "Enter" && onChange(v)} />;
+}
+
+// ── cards, details, logs, progress ───────────────────────────────────────
+const cardTone: Record<Tone, string> = {
+	default: "",
+	muted: "bg-muted/30",
+	success: "border-emerald-500/40",
+	warning: "border-amber-500/50 bg-amber-500/5",
+	danger: "border-red-500/50 bg-red-500/5",
+	info: "border-sky-500/40 bg-sky-500/5",
+};
+
+function CardNode({ node, emit }: { node: Extract<Node, { type: "card" }>; emit: Emit }) {
+	const { run, dialog } = useConfirm(emit);
+	const hasHeader = node.title || node.description || node.actions?.length;
+	return (
+		<Card className={cn("gap-3 py-4", cardTone[node.tone ?? "default"])}>
+			{hasHeader && (
+				<CardHeader className="flex items-start gap-3 px-4">
+					<div className="min-w-0 flex-1 space-y-1">
+						{node.title && <CardTitle className="text-sm">{node.title}</CardTitle>}
+						{node.description && <CardDescription className="text-xs">{node.description}</CardDescription>}
+					</div>
+					{node.actions && node.actions.length > 0 && (
+						<div className="flex shrink-0 items-center gap-2">
+							<ActionButtons actions={node.actions} onRun={(a) => run(a, node.id)} />
+						</div>
+					)}
+				</CardHeader>
+			)}
+			{node.children.length > 0 && (
+				<CardContent className="flex flex-col gap-3 px-4">
+					{node.children.map((c, i) => (
+						<Render key={i} node={c} emit={emit} />
+					))}
+				</CardContent>
+			)}
+			{dialog}
+		</Card>
+	);
+}
+
+function Details({ items }: { items: Extract<Node, { type: "details" }>["items"] }) {
+	return (
+		<dl className="grid grid-cols-[minmax(7rem,max-content)_1fr] gap-x-4 gap-y-2 text-sm">
+			{items.map((d) => (
+				<div key={d.label} className="contents">
+					<dt className="text-muted-foreground">{d.label}</dt>
+					<dd className={cn("min-w-0 break-words select-text", d.mono && "font-mono text-[0.8rem]", textTone[d.tone ?? "default"])}>{d.value}</dd>
+				</div>
+			))}
+		</dl>
+	);
+}
+
+/** Command output. With `follow`, stays scrolled to the newest line unless the person scrolled up. */
+function Log({ node }: { node: Extract<Node, { type: "log" }> }) {
+	const box = useRef<HTMLDivElement>(null);
+	const pinned = useRef(true);
+	useLayoutEffect(() => {
+		const el = box.current;
+		if (el && node.follow && pinned.current) el.scrollTop = el.scrollHeight;
+	}, [node.lines, node.follow]);
+	if (!node.lines.length) return <p className="text-sm text-muted-foreground">{node.empty ?? "No output."}</p>;
+	return (
+		<div
+			ref={box}
+			onScroll={(e) => {
+				const el = e.currentTarget;
+				pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+			}}
+			className="max-h-80 overflow-auto rounded-md border bg-muted/40 px-3 py-2 font-mono text-[0.75rem] leading-relaxed select-text"
+		>
+			{node.lines.map((l, i) => (
+				<div key={i} className={cn("break-all whitespace-pre-wrap", textTone[l.tone ?? "default"])}>
+					{l.at !== undefined && <span className="mr-2 text-muted-foreground/70">{new Date(l.at).toLocaleTimeString(undefined, { hour12: false })}</span>}
+					{l.text}
+				</div>
+			))}
+		</div>
+	);
+}
+
+function ProgressNode({ node }: { node: Extract<Node, { type: "progress" }> }) {
+	const known = typeof node.value === "number";
+	return (
+		<div className="space-y-1.5">
+			<div className="flex items-center gap-2 text-xs text-muted-foreground">
+				<span className={cn("min-w-0 flex-1 truncate", textTone[node.tone ?? "default"])}>{node.label ?? "Working…"}</span>
+				{known && <span className="tabular-nums">{Math.round(node.value! * 100)}%</span>}
+				{node.at !== undefined && <Elapsed at={node.at} />}
+			</div>
+			{known ? (
+				<Progress value={Math.max(0, Math.min(1, node.value!)) * 100} />
+			) : (
+				<div className="relative h-1 w-full overflow-hidden rounded-full bg-muted">
+					<div className="absolute inset-y-0 w-1/3 animate-[tb-indeterminate_1.4s_ease-in-out_infinite] rounded-full bg-primary" />
+				</div>
+			)}
+		</div>
+	);
+}
+
+// ── markdown ─────────────────────────────────────────────────────────────
+function Markdown({ text }: { text: string }) {
+	const blocks = useMemo(() => parseMarkdown(text), [text]);
+	return <div className="space-y-3 text-sm leading-relaxed break-words select-text">{blocks.map((b, i) => <MdBlock key={i} b={b} />)}</div>;
+}
+
+const headingSize = ["", "text-lg font-semibold", "text-base font-semibold", "text-sm font-semibold", "text-sm font-medium", "text-sm font-medium", "text-xs font-medium uppercase text-muted-foreground"];
+
+function MdBlock({ b }: { b: Block }): ReactNode {
+	switch (b.t) {
+		case "heading":
+			return (
+				<div role="heading" aria-level={b.level} className={cn(headingSize[b.level], "pt-1")}>
+					<MdInline nodes={b.children} />
+				</div>
+			);
+		case "paragraph":
+			return (
+				<p>
+					<MdInline nodes={b.children} />
+				</p>
+			);
+		case "code":
+			return <pre className="overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-[0.75rem]">{b.text}</pre>;
+		case "quote":
+			return (
+				<blockquote className="space-y-3 border-l-2 pl-3 text-muted-foreground">
+					{b.children.map((c, i) => (
+						<MdBlock key={i} b={c} />
+					))}
+				</blockquote>
+			);
+		case "rule":
+			return <hr className="border-border" />;
+		case "list": {
+			const Tag = b.ordered ? "ol" : "ul";
+			return (
+				<Tag start={b.ordered ? b.start : undefined} className={cn("space-y-1 pl-5", b.ordered ? "list-decimal" : "list-disc")}>
+					{b.items.map((item, i) => (
+						<li key={i} className="space-y-1 [&>p]:inline">
+							{item.map((c, j) => (
+								<MdBlock key={j} b={c} />
+							))}
+						</li>
+					))}
+				</Tag>
+			);
+		}
+		case "table":
+			return (
+				<div className="overflow-auto">
+					<table className="w-full border-collapse text-left text-xs">
+						<thead>
+							<tr>
+								{b.head.map((c, i) => (
+									<th key={i} className="border-b px-2 py-1 font-medium">
+										<MdInline nodes={c} />
+									</th>
+								))}
+							</tr>
+						</thead>
+						<tbody>
+							{b.rows.map((r, i) => (
+								<tr key={i}>
+									{r.map((c, j) => (
+										<td key={j} className="border-b border-border/50 px-2 py-1">
+											<MdInline nodes={c} />
+										</td>
+									))}
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			);
+	}
+}
+
+function MdInline({ nodes }: { nodes: Inline[] }): ReactNode {
+	return nodes.map((n, i) => {
+		switch (n.t) {
+			case "text":
+				return n.text;
+			case "code":
+				return (
+					<code key={i} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.8em]">
+						{n.text}
+					</code>
+				);
+			case "strong":
+				return (
+					<strong key={i} className="font-semibold">
+						<MdInline nodes={n.children} />
+					</strong>
+				);
+			case "em":
+				return (
+					<em key={i}>
+						<MdInline nodes={n.children} />
+					</em>
+				);
+			case "del":
+				return (
+					<del key={i}>
+						<MdInline nodes={n.children} />
+					</del>
+				);
+			case "link":
+				return safeHref(n.href) ? (
+					<a
+						key={i}
+						href={n.href}
+						title={n.href}
+						className="text-sky-600 underline-offset-2 hover:underline dark:text-sky-400"
+						onClick={(e) => {
+							e.preventDefault();
+							openUrl(n.href);
+						}}
+					>
+						<MdInline nodes={n.children} />
+					</a>
+				) : (
+					<MdInline key={i} nodes={n.children} />
+				);
+		}
+	});
 }

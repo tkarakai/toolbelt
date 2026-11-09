@@ -17,6 +17,11 @@
 			"id": "components",
 			"title": "Components",
 			"icon": "layout-grid"
+		},
+		{
+			"id": "tasks",
+			"title": "Tasks",
+			"icon": "list-checks"
 		}
 	],
 	"quickView": true,
