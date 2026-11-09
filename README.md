@@ -19,3 +19,41 @@ Status: early. The first plugin is **Toolbelt Processes**
 [running](https://github.com/tkarakai/running).
 
 Built with [Electrobun](https://github.com/blackboardsh/electrobun) (Bun + the system web view).
+
+## Development
+
+```sh
+bun install
+bun run dev        # build and launch Toolbelt (menu bar icon; ⌃⌥⇧T opens the popover)
+bun run preview    # the UI in a browser with the real plugins: http://localhost:5174
+bun run typecheck && bun test
+bun run build      # artifacts/: the .dmg and the update bundle
+```
+
+Toolbelt starts in the menu bar only; click the belt icon, press the shortcut, or "Open
+Toolbelt" for the window. The first run downloads Electrobun's build tool (Hutch) through the
+pinned `electrobun` npm package, which checks its SHA-256.
+
+## Writing a plugin
+
+A plugin is a folder with a `toolbelt.json` and a program. The program describes its screens;
+Toolbelt draws them.
+
+```ts
+import { definePlugin } from "toolbelt/sdk"; // for now: src/sdk in this repo
+
+let count = 0;
+definePlugin({
+  render: {
+    "screen:main": () => ({ type: "page", actions: [{ id: "bump", label: "Bump" }],
+                            children: [{ type: "text", text: `Clicked ${count} times` }] }),
+    quick: () => ({ type: "stats", items: [{ label: "Clicks", value: String(count) }] }),
+  },
+  onEvent: (_surface, name, _payload, ctx) => { if (name === "bump") count++; ctx.invalidate(); },
+});
+```
+
+The protocol and every component are in [`src/shared/protocol.ts`](src/shared/protocol.ts);
+[`plugins/showcase`](plugins/showcase) uses all of them. Toolbelt finds plugins in
+`~/Library/Application Support/Toolbelt/plugins/<id>/`, in its bundle, and in the folders listed
+in `TOOLBELT_PLUGINS` (colon-separated).

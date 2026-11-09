@@ -6,3 +6,5 @@ artifacts/
 *.tsbuildinfo
 .DS_Store
 *.tmp
+build-plugins/
+.cottontail-tmp/

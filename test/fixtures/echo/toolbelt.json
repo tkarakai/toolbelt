@@ -1,0 +1,2 @@
+{ "id": "echo", "name": "Echo", "icon": "repeat", "version": "1.0.0", "protocol": 0, "entry": "index.ts",
+  "screens": [{ "id": "main", "title": "Main", "default": true }], "quickView": true }

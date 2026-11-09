@@ -14,11 +14,48 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  BUN_VERSION: 1.4.4
   GITLEAKS_VERSION: 8.30.1
   ACTIONLINT_VERSION: 1.7.12
   ZIZMOR_VERSION: 1.32.0
 
 jobs:
+  test:
+    # macOS: the app is a macOS app (Electrobun + WKWebView).
+    name: Test and build
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Electrobun devkit (pinned bootstrap, checksum-verified Hutch)
+        run: bunx electrobun prepare
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Tests
+        run: bun test
+      - name: Build the app (dmg + update bundle)
+        run: |
+          bun run build
+          ls -la artifacts
+          # The update bundle has the UI, the built-in plugins and the Bun runtime.
+          tar -tf artifacts/stable-macos-arm64-Toolbelt.app.tar.zst > "$RUNNER_TEMP/bundle.txt"
+          for f in app/views/ui/index.html app/plugins/processes/toolbelt.json app/plugins/showcase/toolbelt.json MacOS/bun; do
+            grep -q "Contents/.*$f$" "$RUNNER_TEMP/bundle.txt" || { echo "::error::missing $f in the update bundle"; exit 1; }
+          done
+          grep -q '"identifier":"io.github.tkarakai.toolbelt"' artifacts/stable-macos-arm64-update.json
+          # Ad-hoc signed. (Electrobun's self-extracting launcher fails `codesign --verify --strict`:
+          # "code has no resources but signature indicates they must be present".)
+          codesign -dv build/stable-macos-arm64/Toolbelt.app 2>&1 | grep -q 'Signature=adhoc'
+
   secrets:
     name: Secrets
     runs-on: ubuntu-latest
@@ -80,7 +117,7 @@ jobs:
     # Single required status check for the branch ruleset.
     name: CI
     if: always()
-    needs: [secrets, workflows]
+    needs: [test, secrets, workflows]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}

@@ -1,3 +1,27 @@
 # Changelog
 
 ## Unreleased
+
+- The spike: Toolbelt as an Electrobun app — a main window with a sidebar of tools that
+  collapses to icons, each tool's tabs, tables with groups, row actions and an inspector,
+  forms and stats, all drawn with shadcn/ui; a menu bar icon whose popover lists the tools and
+  shows their quick views; ⌃⌥⇧T opens it from anywhere. Plugins are Bun programs speaking a
+  JSON-lines protocol (v0). Two built in: *Processes* (drives
+  [running](https://github.com/tkarakai/running)'s engine) and *Showcase*.
+- Keyboard everywhere: ⌘1…9 switch tools (hold ⌘ to see the numbers), ⌥⌘1…9 and ⌃⇥ switch
+  tabs, ⌘F or / filters, ↑/↓/→/← move through and expand rows, ↵ runs a row's main action,
+  `.` opens its menu; the popover works with ↑/↓/↵/←/esc and ⌘↵ opens the window. ⌘W closes it.
+- Rows can have children: a command's other processes expand under it.
+- The details drawer is resizable; filters, expanded rows and selection are kept per screen.
+- The popover shortcut works without extra permissions and can be changed on Toolbelt's page.
+- The popover hangs from the menu bar like a macOS menu; the window's header drags it; the
+  collapsed sidebar's corner is one continuous bar.
+- Themes: Graphite, Nord, Solarized, Gruvbox, Catppuccin, Tokyo Night and Rosé Pine, each light
+  and dark, with Light / Dark / System — every one checked for WCAG AA contrast. Selected rows
+  and items stand out in the theme's selection color.
+- Search matches much more (PID, ports, folders, agent, branch, child processes…), tolerates a
+  typo, and highlights the hits.
+- Processes: AI agents show working / idle time, model and tokens; Restart and Force stop.
+- A real app icon. The menu bar icon stays highlighted while the popover is open.
+- ⌘Q quits, ⌘, opens Toolbelt's settings, ⌘B toggles the sidebar (menu items); ⌘ hints show
+  instantly; double-clicking the title bar zooms the window.
