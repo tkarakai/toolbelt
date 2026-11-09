@@ -22,6 +22,8 @@ export default {
 		watchIgnore: ["dist/**", "build-plugins/**"],
 		mac: {
 			bundleCEF: false,
+			// bun scripts/make-app-icon.ts
+			icons: "icon.iconset",
 		},
 	},
 	runtime: {

@@ -6,7 +6,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { PluginHost, pluginDirs } from "./host";
 import { clearHotKey, displayAccelerator, setHotKey } from "./hotkey";
-import { loadSettings, saveSettings } from "./settings";
+import { loadSettings, saveSettings, type Settings } from "./settings";
+import { setTrayHighlighted } from "./tray-highlight";
 import type { ToolbeltRPC } from "../shared/rpc";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -55,7 +56,13 @@ function makeRPC() {
 					host.restart(plugin);
 					return true;
 				},
-				settings: () => ({ shortcut: settings.shortcut, shortcutLabel: displayAccelerator(settings.shortcut), shortcutError }),
+				settings: () => ({ shortcut: settings.shortcut, shortcutLabel: displayAccelerator(settings.shortcut), shortcutError, theme: settings.theme, mode: settings.mode }),
+				setAppearance: ({ theme, mode }) => {
+					settings = { ...settings, ...(theme ? { theme } : {}), ...(mode ? { mode: mode as Settings["mode"] } : {}) };
+					saveSettings(settings);
+					views.forEach((v) => v.send.settingsChanged({}));
+					return true;
+				},
 				setShortcut: ({ accelerator }) => {
 					const error = setHotKey(accelerator, togglePopover);
 					if (error) {
@@ -83,6 +90,12 @@ function makeRPC() {
 				},
 				hidePopover: () => hidePopover(),
 				closeWindow: () => win?.close(),
+				// Double-clicking the title area: zoom like a native title bar.
+				zoomWindow: () => {
+					if (!win) return;
+					if (win.isMaximized()) win.unmaximize();
+					else win.maximize();
+				},
 				debugReport: ({ id, value }) => debugReport(id, value),
 				quit: () => Utils.quit(),
 			},
@@ -166,18 +179,20 @@ function showPopover() {
 	// Like a macOS menu: hanging from the menu bar, left edge just left of the icon (and kept on
 	// screen). Window frames are top-left based, but tray bounds come back in Cocoa's bottom-left
 	// coordinates — flip them.
-	const x = Math.round(Math.min(Math.max(b.x - 5, display.workArea.x + 4), display.workArea.x + display.workArea.width - POPOVER.width - 4));
+	const x = Math.round(Math.min(Math.max(b.x - 2, display.workArea.x + 4), display.workArea.x + display.workArea.width - POPOVER.width - 4));
 	const trayBottom = b.height ? display.bounds.height - b.y : display.workArea.y;
-	const y = Math.round(trayBottom + 2);
+	const y = Math.round(trayBottom - 1);
 	popover.setFrame(x, y, POPOVER.width, POPOVER.height);
 	popover.show();
 	popover.activate();
+	setTrayHighlighted(true);
 	popoverShownAt = Date.now();
 	popRPC.send.popoverShown({});
 }
 
 function hidePopover() {
 	if (popover.isVisible()) popover.hide();
+	setTrayHighlighted(false);
 }
 
 const togglePopover = () => (popover.isVisible() ? hidePopover() : showPopover());
@@ -195,17 +210,22 @@ if (shortcutError) console.error(`shortcut: ${shortcutError}`);
 ApplicationMenu.setApplicationMenu([
 	{
 		submenu: [
-			{ label: "Open Toolbelt", action: "open-window", accelerator: "o" },
+			{ label: "Open Toolbelt", action: "open-window", accelerator: "CommandOrControl+O" },
+			{ label: "Settings…", action: "settings", accelerator: "CommandOrControl+," },
 			{ type: "separator" },
-			{ role: "hide" },
-			{ role: "hideOthers" },
+			{ role: "hide", accelerator: "CommandOrControl+H" },
+			{ role: "hideOthers", accelerator: "CommandOrControl+Option+H" },
 			{ type: "separator" },
-			{ label: "Quit Toolbelt", role: "quit", accelerator: "q" },
+			{ label: "Quit Toolbelt", role: "quit", accelerator: "CommandOrControl+Q" },
 		],
 	},
 	{
 		label: "Edit",
 		submenu: [{ role: "undo" }, { role: "redo" }, { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }],
+	},
+	{
+		label: "View",
+		submenu: [{ label: "Toggle Sidebar", action: "toggle-sidebar", accelerator: "CommandOrControl+B" }],
 	},
 	{
 		label: "Window",
@@ -216,7 +236,10 @@ ApplicationMenu.setApplicationMenu([
 	},
 ]);
 Electrobun.events.on("application-menu-clicked", (e: any) => {
-	if (e?.data?.action === "open-window") showWindow();
+	const action = e?.data?.action;
+	if (action === "open-window") showWindow();
+	if (action === "settings") showWindow("toolbelt");
+	if (action === "toggle-sidebar") winRPC?.send.command({ name: "toggleSidebar" });
 });
 // Clicking the Dock icon while the window is closed (shouldn't happen, but be kind).
 Electrobun.events.on("reopen", () => showWindow());

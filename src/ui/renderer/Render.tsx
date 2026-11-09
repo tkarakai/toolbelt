@@ -3,7 +3,7 @@
 //
 // Keyboard (tables): ↑/↓ move · →/← expand/collapse (← again: to the parent) · ↵ first action
 // · . row menu · esc clear. Pages: ⌘F or / to filter, esc back to the list.
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronRight, MoreHorizontal, Search, X } from "lucide-react";
 import type { Action, Cell, Column, Field, Node, Row, Tone } from "../../shared/protocol";
 import { cn } from "@/lib/utils";
@@ -41,6 +41,19 @@ const textTone: Record<Tone, string> = {
 	danger: "text-red-600 dark:text-red-400",
 	info: "text-sky-600 dark:text-sky-400",
 };
+
+// ── search hits ──────────────────────────────────────────────────────────
+const HighlightContext = createContext<RegExp | null>(null);
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Text with the page's highlight words marked. */
+export function Hl({ text }: { text: string }) {
+	const re = useContext(HighlightContext);
+	if (!re || !text) return <>{text}</>;
+	const parts = text.split(re);
+	if (parts.length === 1) return <>{text}</>;
+	return <>{parts.map((p, i) => (i % 2 ? <mark key={i} className="hit">{p}</mark> : p))}</>;
+}
 
 export function Dot({ tone = "default", className }: { tone?: Tone; className?: string }) {
 	return <span className={cn("inline-block size-2 shrink-0 rounded-full", dotColor[tone], className)} />;
@@ -91,13 +104,13 @@ export function EmptyState({ title, description, icon }: { title: string; descri
 
 // ── page: toolbar + content ──────────────────────────────────────────────
 function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emit }) {
-	// The filter text is remembered per surface; re-send it when we come back, so the plugin and
-	// the box always agree (even if the plugin restarted meanwhile).
+	// The filter text is remembered per surface; send it whenever the page opens, so the plugin
+	// and the box always agree (after a plugin restart, or a reload that forgot the text).
 	const [query, setQuery] = useUIState("search", "");
 	const input = useRef<HTMLInputElement>(null);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 	useEffect(() => {
-		if (node.search && query) emit("search", { query });
+		if (node.search) emit("search", { query });
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 	const onQuery = (q: string) => {
@@ -118,10 +131,13 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 		return () => window.removeEventListener("keydown", onKey);
 	}, [node.search]);
 
+	const words = (node.highlight ?? []).filter((w) => w.trim().length > 0);
+	const highlight = useMemo(() => (words.length ? new RegExp(`(${words.map(escape).sort((a, b) => b.length - a.length).join("|")})`, "ig") : null), [words.join("\n")]);
 	const hasToolbar = node.search || node.actions?.length || node.summary;
 	// Pages without a table read better as a centered column.
 	const narrow = !node.children.some((c) => c.type === "table");
 	return (
+		<HighlightContext.Provider value={highlight}>
 		<div className="flex h-full min-h-0 flex-col">
 			{hasToolbar && (
 				<div className={cn("flex w-full shrink-0 items-center gap-3 px-6 pt-4 pb-3", narrow && "mx-auto max-w-4xl")}>
@@ -173,13 +189,14 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 				</div>
 			</div>
 		</div>
+		</HighlightContext.Provider>
 	);
 }
 
 // ── table: groups, nested rows, actions, inspector ───────────────────────
 function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
 	if (cell === undefined || cell === null) return <span className="text-muted-foreground/50">—</span>;
-	if (typeof cell !== "object") return <span className={cn(col.mono && "font-mono text-[0.8rem] tabular-nums")}>{cell}</span>;
+	if (typeof cell !== "object") return <span className={cn(col.mono && "font-mono text-[0.8rem] tabular-nums")}><Hl text={String(cell)} /></span>;
 	const mono = cell.mono ?? col.mono;
 	return (
 		<div className="flex min-w-0 items-center gap-2.5">
@@ -187,17 +204,17 @@ function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
 			<div className="min-w-0">
 				{cell.text &&
 					(cell.badge ? (
-						<Badge variant="secondary">{cell.text}</Badge>
+						<Badge variant="secondary"><Hl text={cell.text} /></Badge>
 					) : (
-						<div className={cn("truncate", mono && "font-mono text-[0.8rem] tabular-nums", textTone[cell.tone ?? "default"])}>{cell.text}</div>
+						<div className={cn("truncate", mono && "font-mono text-[0.8rem] tabular-nums", textTone[cell.tone ?? "default"])}><Hl text={cell.text} /></div>
 					))}
-				{cell.sub && <div className="truncate text-xs text-muted-foreground">{cell.sub}</div>}
+				{cell.sub && <div className="truncate text-xs text-muted-foreground"><Hl text={cell.sub} /></div>}
 			</div>
 			{cell.chips && cell.chips.length > 0 && (
 				<div className="flex shrink-0 flex-nowrap gap-1">
 					{cell.chips.slice(0, 3).map((c) => (
 						<Badge key={c} variant="outline" className="font-mono text-[0.7rem] font-normal">
-							{c}
+							<Hl text={c} />
 						</Badge>
 					))}
 					{cell.chips.length > 3 && (
@@ -265,7 +282,7 @@ function RowActions({ actions, rowId, run, menuOpen, setMenuOpen }: { actions: A
 			{inline.map((a) => (
 				<Tooltip key={a.id}>
 					<TooltipTrigger asChild>
-						<Button variant="ghost" size="icon-sm" tabIndex={-1} className="text-muted-foreground opacity-0 group-hover/row:opacity-100 group-data-[selected=true]/row:opacity-100 hover:text-foreground" onClick={() => run(a, rowId)} aria-label={a.label}>
+						<Button variant="ghost" size="icon-sm" tabIndex={-1} className="text-muted-foreground opacity-0 group-hover/row:opacity-100 group-data-[selected=true]/row:opacity-100 hover:text-foreground group-data-[selected=true]/row:hover:bg-selected-foreground/15 group-data-[selected=true]/row:hover:text-selected-foreground" onClick={() => run(a, rowId)} aria-label={a.label}>
 							<Icon name={a.icon} />
 						</Button>
 					</TooltipTrigger>
@@ -274,7 +291,7 @@ function RowActions({ actions, rowId, run, menuOpen, setMenuOpen }: { actions: A
 			))}
 			<DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
 				<DropdownMenuTrigger asChild>
-					<Button variant="ghost" size="icon-sm" tabIndex={-1} className="text-muted-foreground data-[state=open]:bg-accent" aria-label="More">
+					<Button variant="ghost" size="icon-sm" tabIndex={-1} className="text-muted-foreground data-[state=open]:bg-accent group-data-[selected=true]/row:hover:bg-selected-foreground/15 group-data-[selected=true]/row:hover:text-selected-foreground" aria-label="More">
 						<MoreHorizontal />
 					</Button>
 				</DropdownMenuTrigger>
@@ -302,7 +319,7 @@ const TableRow = memo(
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
 		return (
-			<tr data-row-id={row.id} data-selected={selected} onClick={() => onSelect(row.id)} onDoubleClick={() => hasChildren && onToggle(row.id)} className={cn("group/row cursor-default transition-colors hover:bg-muted/50 data-[selected=true]:bg-accent [&>td]:border-b [&>td]:border-border/50", depth > 0 && "bg-muted/20")}>
+			<tr data-row-id={row.id} data-selected={selected} onClick={() => onSelect(row.id)} onDoubleClick={() => hasChildren && onToggle(row.id)} className={cn("group/row cursor-default transition-colors hover:bg-muted/50 data-[selected=true]:bg-selected data-[selected=true]:text-selected-foreground [&>td]:border-b [&>td]:border-border/50", depth > 0 && "bg-muted/20")}>
 				{columns.map((c, i) => (
 					<td key={c.key} className={cn("h-12 px-3 align-middle text-sm", i === 0 && "pl-3", c.align === "right" && "text-right", c.grow ? "w-full max-w-0" : "whitespace-nowrap", c.optional && "hidden @4xl:table-cell")}>
 						{i === 0 ? (
@@ -447,7 +464,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 								<tr>
 									<td colSpan={columns.length + 1} className="border-b bg-muted/40 px-6 py-1.5">
 										<div className="flex items-center gap-2 text-xs">
-											<span className="truncate font-mono font-medium text-foreground/80">{g.name}</span>
+											<span className="truncate font-mono font-medium text-foreground/80"><Hl text={g.name} /></span>
 											<span className="text-muted-foreground tabular-nums">{g.rows.filter((v) => v.depth === 0).length}</span>
 										</div>
 									</td>
@@ -516,7 +533,7 @@ function Inspector({ row, actions, run, onClose }: { row: Row; actions: Action[]
 				{row.details!.map((d) => (
 					<div key={d.label} className="space-y-1">
 						<dt className="text-xs text-muted-foreground">{d.label}</dt>
-						<dd className={cn("break-words select-text", d.mono && "font-mono text-[0.8rem]")}>{d.value}</dd>
+						<dd className={cn("break-words select-text", d.mono && "font-mono text-[0.8rem]")}><Hl text={d.value} /></dd>
 					</div>
 				))}
 			</dl>
@@ -564,7 +581,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 	return (
 		<div className="flex flex-col">
 			{node.items.map((it) => (
-				<div key={it.id} data-item-id={it.id} data-active={it.id === active} onMouseEnter={() => setActive(it.id)} className="group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-accent">
+				<div key={it.id} data-item-id={it.id} data-active={it.id === active} onMouseEnter={() => setActive(it.id)} className="group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground">
 					{it.dot && <Dot tone={it.dot} />}
 					<div className="min-w-0 flex-1">
 						<div className="truncate text-sm font-medium">{it.title}</div>
@@ -576,7 +593,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 							{it.actions.map((a, i) => (
 								<Tooltip key={a.id}>
 									<TooltipTrigger asChild>
-										<Button variant="ghost" size="icon-xs" tabIndex={-1} onClick={() => run(a, it.id)} aria-label={a.label}>
+										<Button variant="ghost" size="icon-xs" tabIndex={-1} className="hover:bg-selected-foreground/15 hover:text-selected-foreground" onClick={() => run(a, it.id)} aria-label={a.label}>
 											<Icon name={a.icon} />
 										</Button>
 									</TooltipTrigger>

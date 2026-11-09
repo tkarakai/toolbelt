@@ -1,6 +1,6 @@
 // Showcase: every node type, and a table of N rows that all change every second — the
 // renderer's stress test. N is adjustable on the Components screen.
-import { definePlugin, type Row, type Tone } from "../../src/sdk";
+import { definePlugin, search, type Row, type Tone } from "../../src/sdk";
 
 const names = ["api", "web", "worker", "scheduler", "search", "mailer", "billing", "auth", "cache", "gateway", "metrics", "uploads"];
 const regions = ["eu-west", "us-east", "ap-south"];
@@ -34,7 +34,11 @@ const ago = (ms: number) => {
 	return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 };
 
-const visible = () => jobs.filter((j) => !query || j.name.includes(query) || j.region.includes(query));
+let lastSearch = search("");
+const visible = () => {
+	lastSearch = search(query);
+	return jobs.filter((j) => lastSearch.test([j.name, j.id, j.region, j.cpu > 60 ? "hot" : "ok"]));
+};
 
 const ctx = definePlugin({
 	start(ctx) {
@@ -79,6 +83,7 @@ const ctx = definePlugin({
 				type: "page",
 				search: { placeholder: "Filter jobs…" },
 				summary: `${rows.length} jobs · tick ${tick}`,
+				highlight: lastSearch.highlight(),
 				actions: [{ id: paused ? "resume" : "pause", label: paused ? "Resume" : "Pause", icon: paused ? "play" : "pause" }],
 				children: [
 					{

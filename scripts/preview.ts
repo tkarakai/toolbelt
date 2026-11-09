@@ -6,6 +6,11 @@ import { homedir } from "node:os";
 import { join, normalize } from "node:path";
 import { PluginHost, pluginDirs } from "../src/bun/host";
 import type { ServerWebSocket } from "bun";
+import { DEFAULTS, type Settings } from "../src/bun/settings";
+import { displayAccelerator } from "../src/bun/hotkey";
+
+// Settings live in memory here (the preview doesn't touch the app's settings file).
+let settings: Settings = { ...DEFAULTS };
 
 const port = Number(process.env.PORT ?? 5174);
 const host = new PluginHost({ dirs: pluginDirs({ bundled: "build-plugins", home: homedir(), extra: process.env.TOOLBELT_PLUGINS }), bun: process.execPath, host: { name: "Toolbelt preview", version: "0.0.0" } });
@@ -45,6 +50,13 @@ Bun.serve<{ opened: Set<string> }>({
 					case "close": ws.data.opened.delete(`${p.plugin}\n${p.surface}`); host.close(p.plugin, p.surface); return reply(true);
 					case "event": host.event(p.plugin, p.surface, p.name, p.payload); return reply(true);
 					case "restartPlugin": host.restart(p.plugin); return reply(true);
+					case "settings": return reply({ ...settings, shortcutLabel: displayAccelerator(settings.shortcut), shortcutError: null });
+					case "setAppearance":
+						settings = { ...settings, ...(p.theme ? { theme: p.theme } : {}), ...(p.mode ? { mode: p.mode } : {}) };
+						broadcast("settingsChanged", {});
+						return reply(true);
+					case "setShortcut": settings = { ...settings, shortcut: p.accelerator }; broadcast("settingsChanged", {}); return reply({ ok: true, label: displayAccelerator(p.accelerator) });
+					case "pauseShortcut": return reply(true);
 				}
 			} catch (e) {
 				ws.send(JSON.stringify({ kind: "response", id: m.id, error: (e as Error).message }));

@@ -6,6 +6,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+    --color-selected: var(--selected);
+    --color-selected-foreground: var(--selected-foreground);
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
@@ -49,6 +51,8 @@
 }
 
 :root {
+    --selected: #27272a;
+    --selected-foreground: #fafafa;
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -84,6 +88,8 @@
 }
 
 .dark {
+    --selected: #e4e4e7;
+    --selected-foreground: #09090b;
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
@@ -140,4 +146,23 @@
   html[data-surface="popover"], html[data-surface="popover"] body {
     background: transparent;
   }
+}
+
+/* Inside a selected row or active item, secondary text and outlines follow the selection colors.
+   Unlayered on purpose, so they win over Tailwind's utility classes. */
+[data-selected="true"] .text-muted-foreground,
+[data-active="true"] .text-muted-foreground {
+  color: color-mix(in oklab, var(--selected-foreground) 75%, transparent);
+}
+[data-selected="true"] [data-slot="badge"] {
+  color: var(--selected-foreground);
+  background: transparent;
+  border-color: color-mix(in oklab, var(--selected-foreground) 35%, transparent);
+}
+/* Search hits. */
+mark.hit {
+  background: #fde047;
+  color: #1c1917;
+  border-radius: 2px;
+  padding: 0 1px;
 }

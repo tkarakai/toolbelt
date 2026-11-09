@@ -16,3 +16,12 @@
 - The popover shortcut works without extra permissions and can be changed on Toolbelt's page.
 - The popover hangs from the menu bar like a macOS menu; the window's header drags it; the
   collapsed sidebar's corner is one continuous bar.
+- Themes: Graphite, Nord, Solarized, Gruvbox, Catppuccin, Tokyo Night and Rosé Pine, each light
+  and dark, with Light / Dark / System — every one checked for WCAG AA contrast. Selected rows
+  and items stand out in the theme's selection color.
+- Search matches much more (PID, ports, folders, agent, branch, child processes…), tolerates a
+  typo, and highlights the hits.
+- Processes: AI agents show working / idle time, model and tokens; Restart and Force stop.
+- A real app icon. The menu bar icon stays highlighted while the popover is open.
+- ⌘Q quits, ⌘, opens Toolbelt's settings, ⌘B toggles the sidebar (menu items); ⌘ hints show
+  instantly; double-clicking the title bar zooms the window.

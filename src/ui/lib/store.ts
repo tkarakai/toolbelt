@@ -32,6 +32,15 @@ type NavListener = (plugin: string, screen?: string) => void;
 const navListeners = new Set<NavListener>();
 const shownListeners = new Set<() => void>();
 const settingsListeners = new Set<() => void>();
+const commandListeners = new Set<(name: string) => void>();
+
+/** App-menu commands sent to this window (toggleSidebar…). */
+export function useCommand(fn: (name: string) => void) {
+	useEffect(() => {
+		commandListeners.add(fn);
+		return () => void commandListeners.delete(fn);
+	}, [fn]);
+}
 
 const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
 	plugins: (plugins) => set({ plugins }),
@@ -46,6 +55,7 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
 	navigate: ({ plugin, screen }) => navListeners.forEach((l) => l(plugin, screen)),
 	popoverShown: () => shownListeners.forEach((l) => l()),
 	settingsChanged: () => settingsListeners.forEach((l) => l()),
+	command: ({ name }) => commandListeners.forEach((l) => l(name)),
 };
 
 type Messages = ToolbeltRPC["webview"]["messages"];

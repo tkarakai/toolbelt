@@ -113,6 +113,8 @@ export type Node =
 			actions?: Action[];
 			/** Muted text in the toolbar ("12 processes"). */
 			summary?: string;
+			/** Words to mark on the page (search hits), case-insensitive. */
+			highlight?: string[];
 			children: Node[];
 	  }
 	| {

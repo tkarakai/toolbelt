@@ -5,7 +5,7 @@
 // Where running is: RUNNING_CORE_SCRIPT, else ~/dev/projects/running/src/serve.ts.
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { definePlugin, type Context, type Node, type Row, type Tone } from "../../src/sdk";
+import { definePlugin, search, type Context, type Node, type Row, type Search, type Tone } from "../../src/sdk";
 
 const script = process.env.RUNNING_CORE_SCRIPT ?? `${homedir()}/dev/projects/running/src/serve.ts`;
 
@@ -14,10 +14,11 @@ type Listen = { pid: number; port: number; host: string };
 type ProcRow = {
 	pid: number; kind: string; command: string; argvCommand: string; displayArgv: string[]; cwd: string; listen: Listen[];
 	where: string; termLabel: string; tty: string; stat: string; etimeSec: number; rssKb: number; cpu: number; pidCount: number;
-	exe?: string; source: string; keptIndex?: number; agent?: { harness: string; title?: string };
+	exe?: string; source: string; keptIndex?: number; agent?: Agent;
 	members: Member[];
 };
 type Member = { pid: number; ppid: number; depth: number; displayArgv: string[]; argvCommand: string; cwd: string; listen: Listen[]; tty: string; stat: string; etimeSec: number; rssKb: number; cpu: number; pidCount: number };
+type Agent = { harness: string; title?: string; model?: string; tokens?: number; costUsd?: number; lastActive?: number; status?: "working" | "idle" | "new"; branch?: string; resume?: string; sessionId?: string };
 type KeptDTO = { index: number; name?: string; command: string; cwd: string; note: string; ports: number[]; line: string; livePid?: number };
 type Probe = { pid: number; port: number; pending: boolean; web?: boolean; url?: string; title?: string };
 type Snapshot = { at: number; rows: ProcRow[]; kept: KeptDTO[]; probes: Probe[]; branches: Record<string, string | null>; sort: { key: string; desc: boolean } };
@@ -95,25 +96,49 @@ const dur = (s: number) => (s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.fl
 const mem = (kb: number) => (kb > 1024 * 1024 ? `${(kb / 1024 / 1024).toFixed(1)} GB` : `${Math.round(kb / 1024)} MB`);
 const name = (r: ProcRow) => r.agent?.title || r.command || r.argvCommand;
 const webUrl = (r: { listen: Listen[] }) => snap?.probes.find((p) => p.pid && r.listen.some((l) => l.pid === p.pid && l.port === p.port) && p.web)?.url;
-const statusOf = (r: ProcRow): Tone => (r.listen.length ? "success" : r.stat.includes("T") ? "warning" : "info");
+const statusOf = (r: ProcRow): Tone => (r.agent ? (r.agent.status === "working" ? "info" : "muted") : r.listen.length ? "success" : r.stat.includes("T") ? "warning" : "info");
+/** "working", "idle 12m" — like running's agent rows. lastActive is epoch ms or s. */
+const agentState = (a: Agent) => {
+	if (a.status === "working") return "working";
+	if (a.status === "new") return "new";
+	if (!a.lastActive) return "idle";
+	const ms = a.lastActive > 1e12 ? a.lastActive : a.lastActive * 1000;
+	return `idle ${dur(Math.max(0, (Date.now() - ms) / 1000))}`;
+};
+const stateLabel = (stat: string) => (stat.includes("Z") ? "zombie" : stat.includes("T") ? "paused" : stat.startsWith("D") ? "waiting on disk" : "");
 
-const matches = (r: ProcRow) => !query || `${name(r)} ${r.cwd} ${r.listen.map((l) => l.port).join(" ")} ${r.where}`.toLowerCase().includes(query);
+/** Everything a person might type to find a process. */
+function searchable(r: ProcRow): (string | number | undefined)[] {
+	const a = r.agent;
+	return [
+		name(r), r.command, r.argvCommand, r.cwd, tildify(r.cwd), r.pid, r.kind, r.where, r.termLabel, r.tty, r.exe, stateLabel(r.stat),
+		...r.listen.flatMap((l) => [`:${l.port}`, l.host]),
+		snap?.branches[r.cwd] ?? undefined, webUrl(r),
+		...(snap?.probes.filter((p) => r.listen.some((l) => l.pid === p.pid && l.port === p.port)).map((p) => p.title) ?? []),
+		a?.harness, a?.title, a?.model, a && agentState(a), a?.branch, a?.sessionId,
+		...r.members.flatMap((m) => [m.pid, m.argvCommand, tildify(m.cwd), ...m.listen.map((l) => `:${l.port}`)]),
+	];
+}
+
+let lastSearch: Search = search("");
 
 function processRows(): Row[] {
-	return (snap?.rows ?? []).filter(matches).map((r) => {
+	lastSearch = search(query);
+	return (snap?.rows ?? []).filter((r) => lastSearch.test(searchable(r))).map((r) => {
 		const url = webUrl(r);
+		const a = r.agent;
 		return {
 			id: String(r.pid),
 			group: tildify(r.cwd) || "—",
 			cells: {
-				name: { text: name(r), sub: [r.agent ? r.agent.harness : r.kind, r.pidCount > 1 ? `${r.pidCount} processes` : ""].filter(Boolean).join(" · "), dot: statusOf(r), mono: !r.agent },
+				name: { text: name(r), sub: [a ? a.harness : r.kind, a ? agentState(a) : stateLabel(r.stat), r.pidCount > 1 ? `${r.pidCount} processes` : ""].filter(Boolean).join(" · "), dot: statusOf(r), mono: !a },
 				ports: { text: "", chips: r.listen.map((l) => `:${l.port}`) },
 				where: { text: r.termLabel || r.where || "", tone: "muted" },
 				cpu: `${r.cpu.toFixed(1)}%`,
 				mem: mem(r.rssKb),
 				uptime: dur(r.etimeSec),
 			},
-			actions: ["focus", ...(url ? ["open"] : []), "stop"],
+			actions: ["focus", ...(url ? ["open"] : []), "restart", "stop", "kill"],
 			children: memberRows(r),
 			details: [
 				{ label: "Command", value: r.argvCommand, mono: true },
@@ -125,6 +150,14 @@ function processRows(): Row[] {
 				{ label: "CPU · Memory", value: `${r.cpu.toFixed(1)}% · ${mem(r.rssKb)}` },
 				{ label: "Running for", value: dur(r.etimeSec) },
 				...(snap?.branches[r.cwd] ? [{ label: "Git branch", value: snap.branches[r.cwd]!, mono: true }] : []),
+				...(a
+					? [
+							{ label: "Agent", value: [a.harness, a.model].filter(Boolean).join(" · ") },
+							{ label: "Status", value: agentState(a) },
+							...(a.tokens ? [{ label: "Tokens", value: a.tokens.toLocaleString() + (a.costUsd ? ` · $${a.costUsd.toFixed(2)}` : "") }] : []),
+							...(a.resume ? [{ label: "Resume with", value: a.resume, mono: true }] : []),
+						]
+					: []),
 			],
 		};
 	});
@@ -147,7 +180,7 @@ function memberRows(r: ProcRow): Row[] | undefined {
 				mem: mem(m.rssKb),
 				uptime: dur(m.etimeSec),
 			},
-			actions: [...(url ? ["open"] : []), "stop"],
+			actions: [...(url ? ["open"] : []), "stop", "kill"],
 			details: [
 				{ label: "Command", value: m.argvCommand, mono: true },
 				{ label: "Directory", value: tildify(m.cwd), mono: true },
@@ -207,6 +240,7 @@ const ctx = definePlugin({
 				type: "page",
 				search: { placeholder: "Filter by command, folder, port…" },
 				summary: snap ? `${rows.length} of ${snap.rows.length} processes` : "Loading…",
+				highlight: lastSearch.highlight(),
 				actions: [{ id: "refresh", label: "Refresh", icon: "refresh-cw" }],
 				children: [
 					{
@@ -224,9 +258,11 @@ const ctx = definePlugin({
 						actions: [
 							{ id: "focus", label: "Show in terminal", icon: "square-terminal", inline: true },
 							{ id: "open", label: "Open in browser", icon: "globe", inline: true },
+							{ id: "restart", label: "Restart", icon: "rotate-cw", confirm: "Stop it and run the same command again, in its terminal if that's still open." },
 							{ id: "stop", label: "Stop", icon: "square", tone: "destructive", confirm: "Stop this process (SIGTERM)?" },
+							{ id: "kill", label: "Force stop", icon: "octagon-x", tone: "destructive", confirm: "Force stop it now (SIGKILL)? It gets no chance to clean up." },
 						],
-						empty: { title: snap ? "Nothing running" : "Loading…", description: snap ? "Processes you start in your terminals show up here." : undefined, icon: "terminal" },
+						empty: { title: snap ? (query ? "No process matches" : "Nothing running") : "Loading…", description: snap ? "Processes you start in your terminals show up here." : undefined, icon: "terminal" },
 					},
 				],
 			};
@@ -320,6 +356,17 @@ const ctx = definePlugin({
 					if (url) await call("openUrl", { url });
 					break;
 				}
+				case "restart": {
+					if (!row) break;
+					const res = await call<{ ok: boolean; message?: string }>("restart", { pid: row.pid, terminal });
+					c.toast(res.message ?? (res.ok ? "Restarted" : "Couldn't restart"), res.ok ? "success" : "error");
+					break;
+				}
+				case "kill":
+					if (!row) break;
+					await call("kill", found?.member ? { pid: row.pid, child: pid, force: true } : { pid, force: true });
+					c.toast(`Force-stopped ${found?.member ? found.member.argvCommand : name(row)}`, "success");
+					break;
 				case "stop":
 					if (!row) break;
 					await call("kill", found?.member ? { pid: row.pid, child: pid } : { pid });

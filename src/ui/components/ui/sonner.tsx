@@ -1,11 +1,18 @@
 "use client"
 
-import { useTheme } from "next-themes"
+import { useEffect, useState } from "react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
+  // Toolbelt sets the `dark` class itself (lib/theme.ts); follow it rather than next-themes.
+  const [theme, setTheme] = useState(() => (document.documentElement.classList.contains("dark") ? "dark" : "light"))
+  useEffect(() => {
+    const root = document.documentElement
+    const o = new MutationObserver(() => setTheme(root.classList.contains("dark") ? "dark" : "light"))
+    o.observe(root, { attributes: true, attributeFilter: ["class"] })
+    return () => o.disconnect()
+  }, [])
 
   return (
     <Sonner

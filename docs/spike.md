@@ -12,6 +12,8 @@ React app, the plugin protocol and host don't import Electrobun.
 | ![](spike/window-table.png) | ![](spike/window-collapsed.png) |
 | **Settings-style page (stats, form, list)** | **Menu bar popover → quick view** |
 | ![](spike/window-components.png) | ![](spike/popover.png) ![](spike/quickview.png) |
+| **Themes (Toolbelt page)** | |
+| ![](spike/appearance.png) | |
 
 (Screenshots from `bun run preview` — the same UI and plugins as the app, in Chrome.)
 
@@ -71,6 +73,24 @@ virtualize long tables. The protocol leaves room for both (`render` → `patch`)
 - Traffic-light placement over the sidebar, expanded and collapsed.
 - A self-update round trip, and Gatekeeper on a downloaded `.dmg`.
 - Multiple displays (the popover uses the primary display).
+
+## What `running` has that Processes doesn't yet
+
+Inventory of the running repo (2026-11-09). Already ported: the list, children, ports, focus,
+open URL, stop, force stop, restart, agent status / idle / model / tokens, kept list + start, sort.
+
+| Worth bringing over | Notes |
+|---|---|
+| **Output view** (peek) | Terminal scrollback or log files, and an agent's conversation (`peek`, `source: "@transcript"`). Needs a streaming log component. |
+| **Keep / edit / forget / reorder** | `keepDraft` → `keep`, `edit`, `forget` + undo (`restoreKept`), `move`. Needs a form dialog with env-var checkboxes (secrets masked). |
+| **Grouping by terminal** | running groups by terminal app / tmux pane, then folder + branch. |
+| **"N left running"** | A job whose launcher exited, named from the command log (`leaderGone`, `source`). |
+| **Why it survived kill -9** | `whyAlive`: zombie, waiting on disk, respawned. |
+| **Hidden app/system servers** | running hides them until `a`; Processes shows all. |
+| **Copy `cd dir && command`** | `copyLine` — needs a clipboard action in the protocol. |
+| **Shell integration status** | `running init` (zsh hook + command log) and `hello.shell`; a setup card. |
+| **CPU / memory sparklines** | From Running.app. |
+| **CLI** | running has only the TUI and `init`; `tb ps` needs `--json` commands built fresh. |
 
 ## Next
 

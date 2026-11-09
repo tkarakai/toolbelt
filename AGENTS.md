@@ -29,6 +29,12 @@ protocol; Toolbelt renders them. See `README.md`.
   `components/ui/` is shadcn's (add more with `bunx shadcn@latest add …`; it once rewrote
   imports to an npm package called `cn` — check the diff).
 - `plugins/` — built-in plugins, bundled to `build-plugins/` by `scripts/build-plugins.ts`.
+- `src/ui/themes.ts` — palettes (light + dark each); `test/themes.test.ts` enforces WCAG AA for
+  every text/background pairing. Add a theme there, and the test tells you if it's readable.
+  Use the `selected` / `selected-foreground` tokens for selection, not `accent` (that's hover).
+- `src/sdk/search.ts` — plugin search (substring or one typo, plus `highlight()` for the page).
+- `src/bun/tray-highlight.ts` — keeps the menu bar icon highlighted via the ObjC runtime
+  (Electrobun has no API); best effort, logs and gives up if the view tree changes.
 - UI state that must feel instant (typing, selection, scroll) stays in the renderer; plugins
   get events (`search`, action ids, `field`).
 

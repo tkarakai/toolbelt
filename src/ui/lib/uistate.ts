@@ -48,10 +48,10 @@ export function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
 }
 
 /**
- * True while only the given modifiers are held for a moment (default ⌘) — for showing shortcut
- * hints. Any other key, or letting go, hides them.
+ * True while only the given modifiers are held (default ⌘; instantly, or after `delay` ms) — for
+ * showing shortcut hints. Any other key, or letting go, hides them.
  */
-export function useHeldModifiers(want: { meta?: boolean; alt?: boolean } = { meta: true }, delay = 350): boolean {
+export function useHeldModifiers(want: { meta?: boolean; alt?: boolean } = { meta: true }, delay = 0): boolean {
 	const [held, setHeld] = useState(false);
 	useEffect(() => {
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -64,7 +64,8 @@ export function useHeldModifiers(want: { meta?: boolean; alt?: boolean } = { met
 		const down = (e: KeyboardEvent) => {
 			const isModifier = e.key === "Meta" || e.key === "Alt";
 			if (isModifier && matches(e)) {
-				if (!timer) timer = setTimeout(() => setHeld(true), delay);
+				if (delay === 0) setHeld(true);
+				else if (!timer) timer = setTimeout(() => setHeld(true), delay);
 			} else reset();
 		};
 		const up = (e: KeyboardEvent) => {

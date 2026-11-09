@@ -82,9 +82,9 @@ export default function Popover() {
 								data-active={i === active}
 								onMouseEnter={() => setActive(i)}
 								onClick={() => pick(p)}
-								className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left outline-none data-[active=true]:bg-accent"
+								className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left outline-none data-[active=true]:bg-selected data-[active=true]:text-selected-foreground"
 							>
-								<div className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-background">
+								<div className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-background text-foreground">
 									<Icon name={p.manifest.icon} className="size-4" />
 								</div>
 								<div className="min-w-0 flex-1">
@@ -99,7 +99,7 @@ export default function Popover() {
 										{p.badge}
 									</Badge>
 								)}
-								<ChevronRight className={cn("size-4 text-muted-foreground/50", i === active && "text-muted-foreground")} />
+								<ChevronRight className={cn("size-4 text-muted-foreground/50", i === active && "text-selected-foreground")} />
 							</button>
 						))}
 					</div>

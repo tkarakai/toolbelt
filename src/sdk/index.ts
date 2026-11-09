@@ -119,3 +119,4 @@ export function definePlugin(def: PluginDefinition, io: { write?: (line: string)
 
 	return ctx;
 }
+export { search, editDistance, type Search } from "./search";

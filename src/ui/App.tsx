@@ -4,12 +4,13 @@
 // Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · ⌥⌘1…9 tabs (hold ⌥⌘) · ⌃⇥ / ⌃⇧⇥ next and
 // previous tab · ⌘B sidebar · ⌘W closes the window (app menu).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { PanelLeft, RotateCw, Settings2 } from "lucide-react";
+import { Check, Monitor, Moon, PanelLeft, RotateCw, Settings2, Sun } from "lucide-react";
 import { defaultScreen, type Manifest } from "../shared/protocol";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
 import { cn } from "@/lib/utils";
-import { committed, rpc, sendEvent, useNavigate, usePlugins, useSettings, useSurface } from "@/lib/store";
+import { committed, rpc, sendEvent, useCommand, useNavigate, usePlugins, useSettings, useSurface } from "@/lib/store";
+import { THEMES, tokens } from "./themes";
 import { SurfaceContext, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { EmptyState, Render, Dot } from "@/renderer/Render";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,21 @@ const TOOLBELT = "toolbelt";
 const TRAFFIC_LIGHTS_END = 80;
 const RAIL = 48; // --sidebar-width-icon
 const inApp = (window as { __electrobunWebviewId?: number }).__electrobunWebviewId !== undefined;
+/** The active sidebar item uses the selection colors. */
+const ACTIVE = "data-[active=true]:bg-selected data-[active=true]:text-selected-foreground data-[active=true]:hover:bg-selected data-[active=true]:hover:text-selected-foreground";
+
+/** Double-clicking empty title-bar space zooms the window, like a native title bar. */
+function zoomOnDoubleClick(e: React.MouseEvent) {
+	if ((e.target as HTMLElement).closest("button, [role=tab], [role=tablist], input, a")) return;
+	rpc.send.zoomWindow({});
+}
+
+/** App-menu commands for the sidebar (⌘B is a menu item, so the web view never sees it). */
+function SidebarCommands() {
+	const { toggleSidebar } = useSidebar();
+	useCommand(useCallback((name: string) => name === "toggleSidebar" && toggleSidebar(), [toggleSidebar]));
+	return null;
+}
 
 function parseHash(): { plugin?: string; screen?: string } {
 	const [, plugin, screen] = location.hash.replace(/^#/, "").split("/");
@@ -128,10 +144,11 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 	const { state, setOpen } = useSidebar();
 	const hints = useHeldModifiers({ meta: true });
 	return (
-		<Sidebar collapsible="icon" className="border-r-0">
+		<Sidebar collapsible="icon" className="group-data-[side=left]:border-r-0">
+			<SidebarCommands />
 			{/* Room for the traffic lights; the strip drags the window. Collapsed, it joins the pane
 			    header so the buttons sit on one continuous bar. */}
-			<SidebarHeader className="electrobun-webkit-app-region-drag h-12 shrink-0 flex-row items-center justify-end px-3 group-data-[collapsible=icon]:border-b group-data-[collapsible=icon]:bg-background">
+			<SidebarHeader onDoubleClick={zoomOnDoubleClick} className="electrobun-webkit-app-region-drag h-12 shrink-0 flex-row items-center justify-end px-3 group-data-[collapsible=icon]:border-b group-data-[collapsible=icon]:bg-background">
 				{state === "expanded" && <CollapseButton />}
 			</SidebarHeader>
 			<SidebarContent>
@@ -141,7 +158,7 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 						<SidebarMenu>
 							{plugins.map((p, i) => (
 								<SidebarMenuItem key={p.manifest.id}>
-									<SidebarMenuButton isActive={current === p.manifest.id} tooltip={`${p.manifest.name}  ⌘${i + 1}`} onClick={() => go(p.manifest.id)} className="h-9">
+									<SidebarMenuButton isActive={current === p.manifest.id} tooltip={`${p.manifest.name}  ⌘${i + 1}`} onClick={() => go(p.manifest.id)} className={cn("h-9", ACTIVE)}>
 										<Icon name={p.manifest.icon} />
 										<span className="truncate">{p.manifest.name}</span>
 										{p.state !== "running" && <Dot tone={p.state === "crashed" ? "danger" : "warning"} className="ml-auto group-data-[collapsible=icon]:hidden" />}
@@ -165,7 +182,7 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 			<SidebarFooter>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Toolbelt" onClick={() => go(TOOLBELT)}>
+						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Toolbelt  ⌘," onClick={() => go(TOOLBELT)} className={ACTIVE}>
 							<Settings2 />
 							<span>Toolbelt</span>
 						</SidebarMenuButton>
@@ -224,7 +241,7 @@ function PaneHeader({ manifest, children }: { manifest: Pick<Manifest, "name" | 
 	const { state } = useSidebar();
 	const collapsed = state === "collapsed";
 	return (
-		<header className="electrobun-webkit-app-region-drag flex h-12 shrink-0 items-center gap-3 border-b pr-6" style={{ paddingLeft: collapsed ? TRAFFIC_LIGHTS_END - RAIL : 24 }}>
+		<header onDoubleClick={zoomOnDoubleClick} className="electrobun-webkit-app-region-drag flex h-12 shrink-0 items-center gap-3 border-b pr-6" style={{ paddingLeft: collapsed ? TRAFFIC_LIGHTS_END - RAIL : 24 }}>
 			{collapsed && (
 				<div className="-ml-1">
 					<CollapseButton />
@@ -316,6 +333,7 @@ function ToolbeltPage({ plugins }: { plugins: PluginInfo[] }) {
 			<PaneHeader manifest={{ name: "Toolbelt", icon: "settings-2" }} />
 			<div className="min-h-0 flex-1 overflow-auto">
 				<div className="mx-auto max-w-4xl space-y-6 px-6 py-6">
+					<AppearanceSetting />
 					<Card>
 						<CardHeader>
 							<CardTitle>Menu bar</CardTitle>
@@ -367,7 +385,8 @@ function ToolbeltPage({ plugins }: { plugins: PluginInfo[] }) {
 							<Shortcut label="Filter" keys={["⌘F", "/"]} />
 							<Shortcut label="Move through rows · expand / collapse" keys={["↑", "↓", "→", "←"]} />
 							<Shortcut label="Row: main action · all actions · deselect" keys={["↵", ".", "esc"]} />
-							<Shortcut label="Close the window" keys={["⌘W"]} />
+							<Shortcut label="Toolbelt settings (this page)" keys={["⌘,"]} />
+							<Shortcut label="Close the window · quit Toolbelt" keys={["⌘W", "⌘Q"]} />
 						</CardContent>
 					</Card>
 				</div>
@@ -439,5 +458,76 @@ function ShortcutSetting() {
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+/** Theme swatches (each shows its light and dark half) and the light / dark / system switch. */
+function AppearanceSetting() {
+	const [settings, reload] = useSettings();
+	const set = async (v: { theme?: string; mode?: string }) => {
+		await rpc.request.setAppearance(v);
+		reload();
+	};
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>Appearance</CardTitle>
+				<CardDescription>Every theme has a light and a dark version, and keeps text at WCAG AA contrast or better.</CardDescription>
+			</CardHeader>
+			<CardContent className="space-y-5">
+				<div className="flex items-center justify-between gap-6">
+					<div className="text-sm font-medium">Mode</div>
+					<Tabs value={settings?.mode ?? "system"} onValueChange={(mode) => void set({ mode })}>
+						<TabsList>
+							<TabsTrigger value="light" className="gap-1.5 px-3">
+								<Sun />
+								Light
+							</TabsTrigger>
+							<TabsTrigger value="dark" className="gap-1.5 px-3">
+								<Moon />
+								Dark
+							</TabsTrigger>
+							<TabsTrigger value="system" className="gap-1.5 px-3">
+								<Monitor />
+								System
+							</TabsTrigger>
+						</TabsList>
+					</Tabs>
+				</div>
+				<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+					{THEMES.map((t) => {
+						const active = (settings?.theme ?? "graphite") === t.id;
+						return (
+							<button
+								key={t.id}
+								onClick={() => void set({ theme: t.id })}
+								aria-pressed={active}
+								className={cn("group overflow-hidden rounded-xl border text-left outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring", active ? "ring-2 ring-selected ring-offset-2 ring-offset-background" : "hover:shadow-md")}
+							>
+								<div className="flex h-20">
+									{(["light", "dark"] as const).map((m) => {
+										const p = tokens(t[m]);
+										return (
+											<div key={m} className="flex flex-1 flex-col gap-1.5 p-2.5" style={{ background: p.background }}>
+												<div className="h-1.5 w-3/4 rounded-full" style={{ background: p.foreground }} />
+												<div className="h-1.5 w-1/2 rounded-full" style={{ background: p["muted-foreground"] }} />
+												<div className="mt-auto flex items-center gap-1">
+													<div className="h-3 flex-1 rounded" style={{ background: p.selected }} />
+													<div className="size-3 rounded-full" style={{ background: p.primary }} />
+												</div>
+											</div>
+										);
+									})}
+								</div>
+								<div className="flex items-center justify-between border-t px-3 py-2 text-sm">
+									<span className="font-medium">{t.name}</span>
+									{active && <Check className="size-4" />}
+								</div>
+							</button>
+						);
+					})}
+				</div>
+			</CardContent>
+		</Card>
 	);
 }

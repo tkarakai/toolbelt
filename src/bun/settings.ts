@@ -7,9 +7,12 @@ import { join } from "node:path";
 export type Settings = {
 	/** Global shortcut for the menu bar popover, Electron-style ("Control+Option+Shift+T"). */
 	shortcut: string;
+	/** Color theme id (src/ui/themes.ts). */
+	theme: string;
+	mode: "system" | "light" | "dark";
 };
 
-export const DEFAULTS: Settings = { shortcut: "Control+Option+Shift+T" };
+export const DEFAULTS: Settings = { shortcut: "Control+Option+Shift+T", theme: "graphite", mode: "system" };
 
 const dir = () => process.env.TOOLBELT_CONFIG_DIR ?? join(homedir(), "Library/Application Support/Toolbelt");
 const file = () => join(dir(), "settings.json");

@@ -23,7 +23,8 @@ export type ToolbeltRPC = {
 			close: { params: Surface; response: true };
 			event: { params: Surface & { name: string; payload?: unknown }; response: true };
 			restartPlugin: { params: { plugin: string }; response: true };
-			settings: { params: {}; response: { shortcut: string; shortcutLabel: string; shortcutError: string | null } };
+			settings: { params: {}; response: { shortcut: string; shortcutLabel: string; shortcutError: string | null; theme: string; mode: "system" | "light" | "dark" } };
+			setAppearance: { params: { theme?: string; mode?: string }; response: true };
 			setShortcut: { params: { accelerator: string }; response: { ok: boolean; error?: string; label?: string } };
 			pauseShortcut: { params: { paused: boolean }; response: true };
 		};
@@ -32,6 +33,7 @@ export type ToolbeltRPC = {
 			showWindow: { plugin?: string; screen?: string };
 			hidePopover: {};
 			closeWindow: {};
+			zoomWindow: {};
 			/** Debug channel: the value of a script the main process evaluated in this view. */
 			debugReport: { id: number; value: unknown };
 			quit: {};
@@ -48,6 +50,8 @@ export type ToolbeltRPC = {
 			/** Popover: it was just shown (reset to the list, focus search). */
 			popoverShown: {};
 			settingsChanged: {};
+			/** From the app menu: a command for the window (toggleSidebar…). */
+			command: { name: string };
 		};
 	}>;
 };
