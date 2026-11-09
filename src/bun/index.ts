@@ -1,15 +1,17 @@
 // Toolbelt's main process: the menu bar icon and its popover, the main window, the global
 // shortcut, and the plugin host that feeds both web views.
-import Electrobun, { BrowserView, BrowserWindow, GlobalShortcut, Screen, Tray, Updater, Utils, ApplicationMenu } from "electrobun/main";
+import Electrobun, { BrowserView, BrowserWindow, Screen, Tray, Updater, Utils, ApplicationMenu } from "electrobun/main";
 import { PATHS } from "electrobun/main";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { PluginHost, pluginDirs } from "./host";
+import { clearHotKey, displayAccelerator, setHotKey } from "./hotkey";
+import { loadSettings, saveSettings } from "./settings";
 import type { ToolbeltRPC } from "../shared/rpc";
 import pkg from "../../package.json" with { type: "json" };
 
 const POPOVER = { width: 380, height: 520 };
-const SHORTCUT = "Control+Option+Shift+T";
+let settings = loadSettings();
 
 const channel = await Updater.localInfo.channel();
 const devServer = channel === "dev" && (await fetch("http://localhost:5173", { method: "HEAD" }).then(() => true, () => false));
@@ -53,6 +55,26 @@ function makeRPC() {
 					host.restart(plugin);
 					return true;
 				},
+				settings: () => ({ shortcut: settings.shortcut, shortcutLabel: displayAccelerator(settings.shortcut), shortcutError }),
+				setShortcut: ({ accelerator }) => {
+					const error = setHotKey(accelerator, togglePopover);
+					if (error) {
+						// Put the working one back.
+						setHotKey(settings.shortcut, togglePopover);
+						return { ok: false, error };
+					}
+					settings = { ...settings, shortcut: accelerator };
+					saveSettings(settings);
+					shortcutError = null;
+					views.forEach((v) => v.send.settingsChanged({}));
+					return { ok: true, label: displayAccelerator(accelerator) };
+				},
+				// While the window records a new shortcut, the current one mustn't swallow the keys.
+				pauseShortcut: ({ paused }) => {
+					if (paused) clearHotKey();
+					else setHotKey(settings.shortcut, togglePopover);
+					return true;
+				},
 			},
 			messages: {
 				showWindow: ({ plugin, screen }) => {
@@ -60,6 +82,7 @@ function makeRPC() {
 					showWindow(plugin, screen);
 				},
 				hidePopover: () => hidePopover(),
+				closeWindow: () => win?.close(),
 				debugReport: ({ id, value }) => debugReport(id, value),
 				quit: () => Utils.quit(),
 			},
@@ -140,11 +163,12 @@ let popoverShownAt = 0;
 function showPopover() {
 	const b = tray.getBounds();
 	const display = Screen.getPrimaryDisplay();
-	const x = Math.round(Math.min(Math.max(b.x + b.width / 2 - POPOVER.width / 2, display.workArea.x + 8), display.workArea.x + display.workArea.width - POPOVER.width - 8));
-	// Just below the icon. Window frames are top-left based, but tray bounds come back in
-	// Cocoa's bottom-left coordinates — flip them.
+	// Like a macOS menu: hanging from the menu bar, left edge just left of the icon (and kept on
+	// screen). Window frames are top-left based, but tray bounds come back in Cocoa's bottom-left
+	// coordinates — flip them.
+	const x = Math.round(Math.min(Math.max(b.x - 5, display.workArea.x + 4), display.workArea.x + display.workArea.width - POPOVER.width - 4));
 	const trayBottom = b.height ? display.bounds.height - b.y : display.workArea.y;
-	const y = Math.round(trayBottom + 6);
+	const y = Math.round(trayBottom + 2);
 	popover.setFrame(x, y, POPOVER.width, POPOVER.height);
 	popover.show();
 	popover.activate();
@@ -164,7 +188,8 @@ popover.on("blur", () => {
 	if (Date.now() - popoverShownAt > 150) hidePopover();
 });
 
-if (!GlobalShortcut.register(SHORTCUT, togglePopover)) console.error(`could not register ${SHORTCUT}`);
+let shortcutError = setHotKey(settings.shortcut, togglePopover);
+if (shortcutError) console.error(`shortcut: ${shortcutError}`);
 
 // ── app menu (Edit gives copy/paste/select-all in the web views) ─────────
 ApplicationMenu.setApplicationMenu([
@@ -184,7 +209,10 @@ ApplicationMenu.setApplicationMenu([
 	},
 	{
 		label: "Window",
-		submenu: [{ role: "minimize" }, { role: "close" }],
+		submenu: [
+			{ role: "minimize", accelerator: "CommandOrControl+M" },
+			{ label: "Close Window", role: "close", accelerator: "CommandOrControl+W" },
+		],
 	},
 ]);
 Electrobun.events.on("application-menu-clicked", (e: any) => {
@@ -238,7 +266,8 @@ if (channel === "dev" && process.env.TOOLBELT_DEBUG_PORT) {
 			}
 			return Response.json({
 				popover: { visible: popover.isVisible(), frame: popover.getFrame() },
-				window: win ? { visible: win.isVisible(), frame: win.getFrame() } : null,
+				window: win ? { visible: win.isVisible(), frame: win.getFrame(), buttons: win.getWindowButtonPosition() } : null,
+				shortcut: { accelerator: settings.shortcut, error: shortcutError },
 				tray: tray.getBounds(),
 				display: Screen.getPrimaryDisplay(),
 				dock: Utils.isDockIconVisible(),

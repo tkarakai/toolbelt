@@ -8,3 +8,11 @@
   shows their quick views; ⌃⌥⇧T opens it from anywhere. Plugins are Bun programs speaking a
   JSON-lines protocol (v0). Two built in: *Processes* (drives
   [running](https://github.com/tkarakai/running)'s engine) and *Showcase*.
+- Keyboard everywhere: ⌘1…9 switch tools (hold ⌘ to see the numbers), ⌥⌘1…9 and ⌃⇥ switch
+  tabs, ⌘F or / filters, ↑/↓/→/← move through and expand rows, ↵ runs a row's main action,
+  `.` opens its menu; the popover works with ↑/↓/↵/←/esc and ⌘↵ opens the window. ⌘W closes it.
+- Rows can have children: a command's other processes expand under it.
+- The details drawer is resizable; filters, expanded rows and selection are kept per screen.
+- The popover shortcut works without extra permissions and can be changed on Toolbelt's page.
+- The popover hangs from the menu bar like a macOS menu; the window's header drags it; the
+  collapsed sidebar's corner is one continuous bar.

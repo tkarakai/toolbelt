@@ -94,6 +94,8 @@ export type Row = {
 	actions?: string[];
 	/** Shown in the inspector when the row is selected. */
 	details?: { label: string; value: string; mono?: boolean }[];
+	/** Rows nested under this one (a process's children); the person expands them. */
+	children?: Row[];
 };
 
 export type Field =

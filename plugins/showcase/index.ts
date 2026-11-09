@@ -58,6 +58,15 @@ const ctx = definePlugin({
 					uptime: ago(Date.now() - j.started),
 					tags: { text: "", chips: [j.region, j.cpu > 60 ? "hot" : "ok"] },
 				},
+				// API jobs run replicas: nested rows the person can expand.
+				children: j.name.startsWith("api")
+					? [1, 2].map((n) => ({
+							id: `${j.id}-r${n}`,
+							cells: { name: { text: `replica ${n}`, sub: `${j.id}-r${n}`, dot: j.status }, cpu: `${(j.cpu / 2).toFixed(1)}%`, mem: `${(j.mem / 2).toFixed(0)} MB`, uptime: ago(Date.now() - j.started) },
+							actions: ["restart"],
+							details: [{ label: "Replica of", value: j.name }],
+						}))
+					: undefined,
 				details: [
 					{ label: "ID", value: j.id, mono: true },
 					{ label: "Region", value: j.region },

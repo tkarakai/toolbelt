@@ -24,7 +24,7 @@ browser preview for screenshots.
 |---|---|
 | Menu bar icon, no native menu | ✅ `Tray` with a template PNG; a click emits `tray-clicked` |
 | Popover under the icon | ✅ Borderless, transparent, always-on-top window placed from `tray.getBounds()` |
-| Global shortcut | ✅ `GlobalShortcut.register("Control+Option+Shift+T")` |
+| Global shortcut | ⚠️ Electrobun's `GlobalShortcut` registers but never fires without Accessibility permission (it's an `NSEvent` global monitor). Replaced with Carbon `RegisterEventHotKey` over `bun:ffi` (`src/bun/hotkey.ts`) — no permission, configurable in Toolbelt's page |
 | Dock icon only while the window is open | ✅ `Utils.setDockIconVisible` on open / close (state read back: `true` → `false`) |
 | Plugins as Bun child processes | ✅ Started with the app's bundled Bun (`process.execPath`), also in the release build |
 | Driving `running`'s engine from a plugin | ✅ 20 live processes, grouped by folder, actions wired |
@@ -50,6 +50,8 @@ virtualize long tables. The protocol leaves room for both (`render` → `patch`)
 
 ## Quirks found
 
+- **Global shortcuts**: see above — `GlobalShortcut` silently needs Accessibility access.
+
 - **Coordinates**: window frames are top-left based, `Tray.getBounds()` is Cocoa bottom-left.
   The popover flips the tray's y.
 - **Hutch lock**: `electrobun build` waits silently while `electrobun dev` runs.
@@ -67,7 +69,6 @@ virtualize long tables. The protocol leaves room for both (`render` → `patch`)
 - How the popover looks and feels: rounded transparent corners, shadow, dismissal when clicking
   elsewhere (wired to the window's `blur`), focus behavior.
 - Traffic-light placement over the sidebar, expanded and collapsed.
-- Pressing ⌃⌥⇧T for real (registration succeeded).
 - A self-update round trip, and Gatekeeper on a downloaded `.dmg`.
 - Multiple displays (the popover uses the primary display).
 

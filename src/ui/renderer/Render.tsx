@@ -1,10 +1,14 @@
 // Turns a plugin's UI tree into shadcn/ui components. Every node type in shared/protocol.ts
 // has one renderer here; plugins never ship their own components.
+//
+// Keyboard (tables): ↑/↓ move · →/← expand/collapse (← again: to the parent) · ↵ first action
+// · . row menu · esc clear. Pages: ⌘F or / to filter, esc back to the list.
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { MoreHorizontal, Search, X } from "lucide-react";
+import { ChevronRight, MoreHorizontal, Search, X } from "lucide-react";
 import type { Action, Cell, Column, Field, Node, Row, Tone } from "../../shared/protocol";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/icon";
+import { isTyping, usePersisted, useUIState } from "@/lib/uistate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +17,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -86,13 +91,33 @@ export function EmptyState({ title, description, icon }: { title: string; descri
 
 // ── page: toolbar + content ──────────────────────────────────────────────
 function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emit }) {
-	const [query, setQuery] = useState("");
+	// The filter text is remembered per surface; re-send it when we come back, so the plugin and
+	// the box always agree (even if the plugin restarted meanwhile).
+	const [query, setQuery] = useUIState("search", "");
+	const input = useRef<HTMLInputElement>(null);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+	useEffect(() => {
+		if (node.search && query) emit("search", { query });
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 	const onQuery = (q: string) => {
 		setQuery(q);
 		clearTimeout(timer.current);
 		timer.current = setTimeout(() => emit("search", { query: q }), 120);
 	};
+	useEffect(() => {
+		if (!node.search) return;
+		const onKey = (e: KeyboardEvent) => {
+			if ((e.metaKey && e.key === "f") || (e.key === "/" && !isTyping(e))) {
+				e.preventDefault();
+				input.current?.focus();
+				input.current?.select();
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [node.search]);
+
 	const hasToolbar = node.search || node.actions?.length || node.summary;
 	// Pages without a table read better as a centered column.
 	const narrow = !node.children.some((c) => c.type === "table");
@@ -105,14 +130,28 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 							<InputGroupAddon>
 								<Search />
 							</InputGroupAddon>
-							<InputGroupInput placeholder={node.search.placeholder} value={query} onChange={(e) => onQuery(e.target.value)} onKeyDown={(e) => e.key === "Escape" && onQuery("")} />
-							{query && (
-								<InputGroupAddon align="inline-end">
+							<InputGroupInput
+								ref={input}
+								placeholder={node.search.placeholder}
+								value={query}
+								onChange={(e) => onQuery(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Escape") {
+										if (query) onQuery("");
+										else input.current?.blur();
+									}
+									if (e.key === "ArrowDown" || e.key === "Enter") input.current?.blur(); // on to the list
+								}}
+							/>
+							<InputGroupAddon align="inline-end">
+								{query ? (
 									<InputGroupButton size="icon-xs" onClick={() => onQuery("")} aria-label="Clear">
 										<X />
 									</InputGroupButton>
-								</InputGroupAddon>
-							)}
+								) : (
+									<Kbd>/</Kbd>
+								)}
+							</InputGroupAddon>
 						</InputGroup>
 					)}
 					{node.summary && <span className="truncate text-sm text-muted-foreground tabular-nums">{node.summary}</span>}
@@ -126,8 +165,8 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 					</div>
 				</div>
 			)}
-			<div className="min-h-0 flex-1 overflow-auto">
-				<div className={cn("flex min-h-full flex-col gap-6", narrow && "mx-auto w-full max-w-4xl px-6 py-4")}>
+			<div className={cn("min-h-0 flex-1", narrow ? "overflow-auto" : "flex")}>
+				<div className={cn("flex min-h-0 min-w-0 flex-1 flex-col gap-6", narrow && "mx-auto w-full max-w-4xl px-6 py-4")}>
 					{node.children.map((c, i) => (
 						<Render key={i} node={c} emit={emit} />
 					))}
@@ -137,7 +176,7 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 	);
 }
 
-// ── table with groups, row actions and an inspector ──────────────────────
+// ── table: groups, nested rows, actions, inspector ───────────────────────
 function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
 	if (cell === undefined || cell === null) return <span className="text-muted-foreground/50">—</span>;
 	if (typeof cell !== "object") return <span className={cn(col.mono && "font-mono text-[0.8rem] tabular-nums")}>{cell}</span>;
@@ -216,7 +255,9 @@ function useConfirm(emit: Emit) {
 	return { run, dialog };
 }
 
-function RowActions({ actions, rowId, run }: { actions: Action[]; rowId: string; run: (a: Action, rowId?: string) => void }) {
+type Run = (a: Action, rowId?: string) => void;
+
+function RowActions({ actions, rowId, run, menuOpen, setMenuOpen }: { actions: Action[]; rowId: string; run: Run; menuOpen: boolean; setMenuOpen: (open: boolean) => void }) {
 	if (!actions.length) return null;
 	const inline = actions.filter((a) => a.inline);
 	return (
@@ -224,20 +265,20 @@ function RowActions({ actions, rowId, run }: { actions: Action[]; rowId: string;
 			{inline.map((a) => (
 				<Tooltip key={a.id}>
 					<TooltipTrigger asChild>
-						<Button variant="ghost" size="icon-sm" className="text-muted-foreground opacity-0 group-hover/row:opacity-100 group-data-[selected=true]/row:opacity-100 hover:text-foreground" onClick={() => run(a, rowId)} aria-label={a.label}>
+						<Button variant="ghost" size="icon-sm" tabIndex={-1} className="text-muted-foreground opacity-0 group-hover/row:opacity-100 group-data-[selected=true]/row:opacity-100 hover:text-foreground" onClick={() => run(a, rowId)} aria-label={a.label}>
 							<Icon name={a.icon} />
 						</Button>
 					</TooltipTrigger>
 					<TooltipContent>{a.label}</TooltipContent>
 				</Tooltip>
 			))}
-			<DropdownMenu>
+			<DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
 				<DropdownMenuTrigger asChild>
-					<Button variant="ghost" size="icon-sm" className="text-muted-foreground data-[state=open]:bg-accent" aria-label="More">
+					<Button variant="ghost" size="icon-sm" tabIndex={-1} className="text-muted-foreground data-[state=open]:bg-accent" aria-label="More">
 						<MoreHorizontal />
 					</Button>
 				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="w-48">
+				<DropdownMenuContent align="end" className="w-52">
 					{actions.map((a, i) => (
 						<div key={a.id}>
 							{a.tone === "destructive" && i > 0 && <DropdownMenuSeparator />}
@@ -253,26 +294,50 @@ function RowActions({ actions, rowId, run }: { actions: Action[]; rowId: string;
 	);
 }
 
+/** A row as displayed: flattened from the tree, with its depth and parent. */
+type Visible = { row: Row; depth: number; parent?: string; group?: string };
+
 const TableRow = memo(
-	function TableRow({ row, columns, actions, selected, onSelect, run }: { row: Row; sig: string; columns: Column[]; actions: Action[]; selected: boolean; onSelect: (id: string) => void; run: (a: Action, rowId?: string) => void }) {
+	function TableRow({ v, columns, actions, selected, expanded, menuOpen, onSelect, onToggle, onMenu, run }: { v: Visible; sig: string; columns: Column[]; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; run: Run }) {
+		const { row, depth } = v;
+		const hasChildren = !!row.children?.length;
 		return (
-			<tr data-row-id={row.id} data-selected={selected} onClick={() => onSelect(row.id)} className="group/row cursor-default transition-colors [&>td]:border-b [&>td]:border-border/50 hover:bg-muted/50 data-[selected=true]:bg-accent">
+			<tr data-row-id={row.id} data-selected={selected} onClick={() => onSelect(row.id)} onDoubleClick={() => hasChildren && onToggle(row.id)} className={cn("group/row cursor-default transition-colors hover:bg-muted/50 data-[selected=true]:bg-accent [&>td]:border-b [&>td]:border-border/50", depth > 0 && "bg-muted/20")}>
 				{columns.map((c, i) => (
-					<td key={c.key} className={cn("h-12 px-3 align-middle text-sm", i === 0 && "pl-6", c.align === "right" && "text-right", c.grow ? "w-full max-w-0" : "whitespace-nowrap", c.optional && "hidden @4xl:table-cell")}>
-						<CellView cell={row.cells[c.key]} col={c} />
+					<td key={c.key} className={cn("h-12 px-3 align-middle text-sm", i === 0 && "pl-3", c.align === "right" && "text-right", c.grow ? "w-full max-w-0" : "whitespace-nowrap", c.optional && "hidden @4xl:table-cell")}>
+						{i === 0 ? (
+							<div className="flex min-w-0 items-center" style={{ paddingLeft: depth * 20 }}>
+								<button
+									tabIndex={-1}
+									aria-label={expanded ? "Collapse" : "Expand"}
+									onClick={(e) => (e.stopPropagation(), onToggle(row.id))}
+									className={cn("mr-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground", !hasChildren && "invisible")}
+								>
+									<ChevronRight className={cn("size-3.5 transition-transform", expanded && "rotate-90")} />
+								</button>
+								<div className="min-w-0 flex-1">
+									<CellView cell={row.cells[c.key]} col={c} />
+								</div>
+							</div>
+						) : (
+							<CellView cell={row.cells[c.key]} col={c} />
+						)}
 					</td>
 				))}
 				<td className="w-0 pr-4 pl-1 whitespace-nowrap">
-					<RowActions actions={actions} rowId={row.id} run={run} />
+					<RowActions actions={actions} rowId={row.id} run={run} menuOpen={menuOpen} setMenuOpen={(o) => onMenu(o ? row.id : null)} />
 				</td>
 			</tr>
 		);
 	},
-	(a, b) => a.sig === b.sig && a.selected === b.selected && a.columns === b.columns && a.actions === b.actions && a.run === b.run,
+	(a, b) => a.sig === b.sig && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.columns === b.columns && a.actions === b.actions && a.run === b.run,
 );
 
 function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emit: Emit }) {
-	const [selected, setSelected] = useState<string | null>(null);
+	const [selected, setSelected] = useUIState<string | null>(`${node.id}:selected`, null);
+	const [expandedList, setExpanded] = useUIState<string[]>(`${node.id}:expanded`, []);
+	const expanded = useMemo(() => new Set(expandedList), [expandedList]);
+	const [menuFor, setMenuFor] = useState<string | null>(null);
 	const { run, dialog } = useConfirm(emit);
 	const columns = useMemo(() => node.columns, [JSON.stringify(node.columns)]);
 	const allActions = useMemo(() => node.actions ?? [], [JSON.stringify(node.actions ?? [])]);
@@ -285,48 +350,91 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 			return cache.get(k)!;
 		};
 	}, [allActions]);
+	const toggle = useCallback((id: string) => setExpanded((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])), [setExpanded]);
 
+	// Groups in order of first appearance; within them, rows flattened with expanded children.
 	const groups = useMemo(() => {
-		const out: { name: string | undefined; rows: Row[] }[] = [];
+		const out: { name: string | undefined; rows: Visible[] }[] = [];
 		const byName = new Map<string | undefined, (typeof out)[number]>();
+		const walk = (r: Row, depth: number, into: Visible[], parent?: string) => {
+			into.push({ row: r, depth, parent, group: r.group });
+			if (r.children && expanded.has(r.id)) for (const c of r.children) walk(c, depth + 1, into, r.id);
+		};
 		for (const r of node.rows) {
 			let g = byName.get(r.group);
 			if (!g) byName.set(r.group, (g = { name: r.group, rows: [] })), out.push(g);
-			g.rows.push(r);
+			walk(r, 0, g.rows);
 		}
 		return out;
-	}, [node.rows]);
+	}, [node.rows, expanded]);
 	const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
-	const current = flat.find((r) => r.id === selected) ?? null;
+	const current = flat.find((v) => v.row.id === selected) ?? null;
 
-	// ↑/↓ move the selection, Esc clears it.
+	const select = useCallback(
+		(id: string | null) => {
+			setSelected(id);
+			if (id) requestAnimationFrame(() => document.querySelector(`[data-row-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest" }));
+		},
+		[setSelected],
+	);
+
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if ((e.target as HTMLElement)?.closest("input, textarea, [role=dialog], [role=menu]")) return;
-			if (e.key === "Escape") setSelected(null);
-			if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-			e.preventDefault();
-			const i = flat.findIndex((r) => r.id === selected);
-			const next = flat[Math.max(0, Math.min(flat.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
-			if (next) {
-				setSelected(next.id);
-				document.querySelector(`[data-row-id="${CSS.escape(next.id)}"]`)?.scrollIntoView({ block: "nearest" });
+			if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+			const i = flat.findIndex((v) => v.row.id === selected);
+			const cur = flat[i];
+			switch (e.key) {
+				case "ArrowDown":
+				case "ArrowUp": {
+					e.preventDefault();
+					const next = i < 0 ? flat[e.key === "ArrowDown" ? 0 : flat.length - 1] : flat[Math.max(0, Math.min(flat.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
+					if (next) select(next.row.id);
+					break;
+				}
+				case "ArrowRight":
+					if (cur?.row.children?.length) {
+						e.preventDefault();
+						if (!expanded.has(cur.row.id)) toggle(cur.row.id);
+						else select(cur.row.children[0].id);
+					}
+					break;
+				case "ArrowLeft":
+					if (!cur) break;
+					e.preventDefault();
+					if (expanded.has(cur.row.id)) toggle(cur.row.id);
+					else if (cur.parent) select(cur.parent);
+					break;
+				case "Enter": {
+					const a = cur && actionsFor(cur.row).find((x) => x.inline);
+					if (a) (e.preventDefault(), run(a, cur.row.id));
+					break;
+				}
+				case ".":
+					if (cur && actionsFor(cur.row).length) (e.preventDefault(), setMenuFor(cur.row.id));
+					break;
+				case "Escape":
+					if (selected) (e.preventDefault(), setSelected(null));
+					break;
+				case "Home":
+				case "End":
+					if (flat.length) (e.preventDefault(), select(flat[e.key === "Home" ? 0 : flat.length - 1].row.id));
+					break;
 			}
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [flat, selected]);
+	}, [flat, selected, expanded, toggle, select, actionsFor, run, setSelected]);
 
 	if (!node.rows.length) return node.empty ? <EmptyState {...node.empty} /> : null;
 
 	return (
 		<div className="@container flex min-h-0 flex-1">
-			<div className="min-w-0 flex-1">
+			<div className="min-w-0 flex-1 overflow-auto">
 				<table className="w-full border-separate border-spacing-0 text-left">
 					<thead className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
 						<tr>
 							{columns.map((c, i) => (
-								<th key={c.key} className={cn("h-9 border-b px-3 text-xs font-medium text-muted-foreground", i === 0 && "pl-6", c.align === "right" && "text-right", c.optional && "hidden @4xl:table-cell")}>
+								<th key={c.key} className={cn("h-9 border-b px-3 text-xs font-medium text-muted-foreground", i === 0 && "pl-9", c.align === "right" && "text-right", c.optional && "hidden @4xl:table-cell")}>
 									{c.title}
 								</th>
 							))}
@@ -340,29 +448,61 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 									<td colSpan={columns.length + 1} className="border-b bg-muted/40 px-6 py-1.5">
 										<div className="flex items-center gap-2 text-xs">
 											<span className="truncate font-mono font-medium text-foreground/80">{g.name}</span>
-											<span className="text-muted-foreground tabular-nums">{g.rows.length}</span>
+											<span className="text-muted-foreground tabular-nums">{g.rows.filter((v) => v.depth === 0).length}</span>
 										</div>
 									</td>
 								</tr>
 							)}
-							{g.rows.map((r) => (
-								<TableRow key={r.id} row={r} sig={JSON.stringify(r)} columns={columns} actions={actionsFor(r)} selected={r.id === selected} onSelect={setSelected} run={run} />
+							{g.rows.map((v) => (
+								<TableRow
+									key={v.row.id}
+									v={v}
+									sig={JSON.stringify(v.row) + v.depth}
+									columns={columns}
+									actions={actionsFor(v.row)}
+									selected={v.row.id === selected}
+									expanded={expanded.has(v.row.id)}
+									menuOpen={menuFor === v.row.id}
+									onSelect={select}
+									onToggle={toggle}
+									onMenu={setMenuFor}
+									run={run}
+								/>
 							))}
 						</tbody>
 					))}
 				</table>
 			</div>
-			{current?.details && <Inspector row={current} actions={actionsFor(current)} run={run} onClose={() => setSelected(null)} />}
+			{current?.row.details && <Inspector row={current.row} actions={actionsFor(current.row)} run={run} onClose={() => setSelected(null)} />}
 			{dialog}
 		</div>
 	);
 }
 
-function Inspector({ row, actions, run, onClose }: { row: Row; actions: Action[]; run: (a: Action, rowId?: string) => void; onClose: () => void }) {
+/** The details drawer on the right; drag its left edge to resize (remembered). */
+function Inspector({ row, actions, run, onClose }: { row: Row; actions: Action[]; run: Run; onClose: () => void }) {
+	const [width, setWidth] = usePersisted("toolbelt.inspectorWidth", 320);
 	const title = row.cells[Object.keys(row.cells)[0]];
 	const text = title && typeof title === "object" ? title.text : String(title ?? row.id);
+	const onPointerDown = (e: React.PointerEvent) => {
+		e.preventDefault();
+		const el = e.currentTarget as HTMLElement;
+		el.setPointerCapture(e.pointerId);
+		const startX = e.clientX;
+		const startW = width;
+		document.body.style.cursor = "col-resize";
+		const move = (ev: PointerEvent) => setWidth(Math.round(Math.max(260, Math.min(720, startW + startX - ev.clientX))));
+		const up = () => {
+			document.body.style.cursor = "";
+			el.removeEventListener("pointermove", move);
+			el.removeEventListener("pointerup", up);
+		};
+		el.addEventListener("pointermove", move);
+		el.addEventListener("pointerup", up);
+	};
 	return (
-		<aside className="sticky top-0 hidden h-[calc(100svh-6.5rem)] w-80 shrink-0 flex-col border-l bg-muted/20 @3xl:flex">
+		<aside className="relative hidden shrink-0 flex-col border-l bg-muted/20 @3xl:flex" style={{ width }}>
+			<div onPointerDown={onPointerDown} onDoubleClick={() => setWidth(320)} className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-1 after:w-px after:transition-colors hover:after:bg-ring/60" />
 			<div className="flex items-start gap-2 border-b px-4 py-3">
 				<div className="min-w-0 flex-1">
 					<div className="text-xs text-muted-foreground">Details</div>
@@ -372,7 +512,7 @@ function Inspector({ row, actions, run, onClose }: { row: Row; actions: Action[]
 					<X />
 				</Button>
 			</div>
-			<dl className="flex-1 space-y-3 overflow-auto px-4 py-4 text-sm">
+			<dl className="min-h-0 flex-1 space-y-3 overflow-auto px-4 py-4 text-sm">
 				{row.details!.map((d) => (
 					<div key={d.label} className="space-y-1">
 						<dt className="text-xs text-muted-foreground">{d.label}</dt>
@@ -386,6 +526,7 @@ function Inspector({ row, actions, run, onClose }: { row: Row; actions: Action[]
 						<Button key={a.id} size="sm" variant={a.tone === "destructive" ? "destructive" : "outline"} onClick={() => run(a, row.id)}>
 							{a.icon && <Icon name={a.icon} />}
 							{a.label}
+							{a.inline && a === actions.find((x) => x.inline) && <Kbd className="ml-1">↵</Kbd>}
 						</Button>
 					))}
 				</div>
@@ -395,29 +536,54 @@ function Inspector({ row, actions, run, onClose }: { row: Row; actions: Action[]
 }
 
 // ── compact list (quick views) ───────────────────────────────────────────
-function List({ node, emit }: { node: Extract<Node, { type: "list" }>; emit: Emit }) {
+/** ↑/↓ move through the items, ↵ runs the item's first action. `keyboard` turns it on. */
+function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "list" }>; emit: Emit; keyboard?: boolean }) {
 	const { run, dialog } = useConfirm(emit);
+	const [active, setActive] = useUIState<string | null>(`${node.id}:active`, null);
+	useEffect(() => {
+		if (!keyboard) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+			const i = node.items.findIndex((it) => it.id === active);
+			if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+				e.preventDefault();
+				const next = node.items[i < 0 ? 0 : Math.max(0, Math.min(node.items.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
+				if (next) {
+					setActive(next.id);
+					requestAnimationFrame(() => document.querySelector(`[data-item-id="${CSS.escape(next.id)}"]`)?.scrollIntoView({ block: "nearest" }));
+				}
+			} else if (e.key === "Enter" && i >= 0) {
+				const a = node.items[i].actions?.[0];
+				if (a) (e.preventDefault(), run(a, node.items[i].id));
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [keyboard, node.items, active, setActive, run]);
 	if (!node.items.length) return node.empty ? <EmptyState {...node.empty} /> : null;
 	return (
 		<div className="flex flex-col">
 			{node.items.map((it) => (
-				<div key={it.id} className="group/row flex items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-accent">
+				<div key={it.id} data-item-id={it.id} data-active={it.id === active} onMouseEnter={() => setActive(it.id)} className="group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-accent">
 					{it.dot && <Dot tone={it.dot} />}
 					<div className="min-w-0 flex-1">
 						<div className="truncate text-sm font-medium">{it.title}</div>
 						{it.subtitle && <div className="truncate font-mono text-xs text-muted-foreground">{it.subtitle}</div>}
 					</div>
-					{it.meta && <span className="text-xs text-muted-foreground tabular-nums group-hover/row:hidden">{it.meta}</span>}
+					{it.meta && <span className="text-xs text-muted-foreground tabular-nums group-data-[active=true]/row:hidden">{it.meta}</span>}
 					{it.actions && it.actions.length > 0 && (
-						<div className="hidden items-center gap-0.5 group-hover/row:flex">
-							{it.actions.map((a) => (
+						<div className="hidden items-center gap-0.5 group-data-[active=true]/row:flex">
+							{it.actions.map((a, i) => (
 								<Tooltip key={a.id}>
 									<TooltipTrigger asChild>
-										<Button variant="ghost" size="icon-xs" onClick={() => run(a, it.id)} aria-label={a.label}>
+										<Button variant="ghost" size="icon-xs" tabIndex={-1} onClick={() => run(a, it.id)} aria-label={a.label}>
 											<Icon name={a.icon} />
 										</Button>
 									</TooltipTrigger>
-									<TooltipContent>{a.label}</TooltipContent>
+									<TooltipContent>
+										{a.label}
+										{i === 0 && " ↵"}
+									</TooltipContent>
 								</Tooltip>
 							))}
 						</div>

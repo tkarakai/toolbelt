@@ -15,8 +15,9 @@ type ProcRow = {
 	pid: number; kind: string; command: string; argvCommand: string; displayArgv: string[]; cwd: string; listen: Listen[];
 	where: string; termLabel: string; tty: string; stat: string; etimeSec: number; rssKb: number; cpu: number; pidCount: number;
 	exe?: string; source: string; keptIndex?: number; agent?: { harness: string; title?: string };
-	members: { pid: number }[];
+	members: Member[];
 };
+type Member = { pid: number; ppid: number; depth: number; displayArgv: string[]; argvCommand: string; cwd: string; listen: Listen[]; tty: string; stat: string; etimeSec: number; rssKb: number; cpu: number; pidCount: number };
 type KeptDTO = { index: number; name?: string; command: string; cwd: string; note: string; ports: number[]; line: string; livePid?: number };
 type Probe = { pid: number; port: number; pending: boolean; web?: boolean; url?: string; title?: string };
 type Snapshot = { at: number; rows: ProcRow[]; kept: KeptDTO[]; probes: Probe[]; branches: Record<string, string | null>; sort: { key: string; desc: boolean } };
@@ -93,7 +94,7 @@ const tildify = (p: string) => (p.startsWith(home) ? "~" + p.slice(home.length) 
 const dur = (s: number) => (s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m` : `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`);
 const mem = (kb: number) => (kb > 1024 * 1024 ? `${(kb / 1024 / 1024).toFixed(1)} GB` : `${Math.round(kb / 1024)} MB`);
 const name = (r: ProcRow) => r.agent?.title || r.command || r.argvCommand;
-const webUrl = (r: ProcRow) => snap?.probes.find((p) => p.pid && r.listen.some((l) => l.pid === p.pid && l.port === p.port) && p.web)?.url;
+const webUrl = (r: { listen: Listen[] }) => snap?.probes.find((p) => p.pid && r.listen.some((l) => l.pid === p.pid && l.port === p.port) && p.web)?.url;
 const statusOf = (r: ProcRow): Tone => (r.listen.length ? "success" : r.stat.includes("T") ? "warning" : "info");
 
 const matches = (r: ProcRow) => !query || `${name(r)} ${r.cwd} ${r.listen.map((l) => l.port).join(" ")} ${r.where}`.toLowerCase().includes(query);
@@ -113,6 +114,7 @@ function processRows(): Row[] {
 				uptime: dur(r.etimeSec),
 			},
 			actions: ["focus", ...(url ? ["open"] : []), "stop"],
+			children: memberRows(r),
 			details: [
 				{ label: "Command", value: r.argvCommand, mono: true },
 				{ label: "Directory", value: tildify(r.cwd), mono: true },
@@ -126,6 +128,48 @@ function processRows(): Row[] {
 			],
 		};
 	});
+}
+
+/** A job's other processes as nested rows, following parent → child. */
+function memberRows(r: ProcRow): Row[] | undefined {
+	if (!r.members.length) return undefined;
+	const pids = new Set(r.members.map((m) => m.pid));
+	const toRow = (m: Member): Row => {
+		const url = webUrl(m);
+		const kids = r.members.filter((c) => c.ppid === m.pid);
+		return {
+			id: String(m.pid),
+			cells: {
+				name: { text: m.argvCommand, sub: m.pidCount > 1 ? `pid ${m.pid} · ${m.pidCount} processes` : `pid ${m.pid}`, dot: m.listen.length ? "success" : "muted", mono: true },
+				ports: { text: "", chips: m.listen.map((l) => `:${l.port}`) },
+				where: { text: "" },
+				cpu: `${m.cpu.toFixed(1)}%`,
+				mem: mem(m.rssKb),
+				uptime: dur(m.etimeSec),
+			},
+			actions: [...(url ? ["open"] : []), "stop"],
+			details: [
+				{ label: "Command", value: m.argvCommand, mono: true },
+				{ label: "Directory", value: tildify(m.cwd), mono: true },
+				{ label: "PID · parent", value: `${m.pid} · ${m.ppid}`, mono: true },
+				...(url ? [{ label: "URL", value: url, mono: true }] : []),
+				{ label: "CPU · Memory", value: `${m.cpu.toFixed(1)}% · ${mem(m.rssKb)}` },
+				{ label: "Running for", value: dur(m.etimeSec) },
+			],
+			children: kids.length ? kids.map(toRow) : undefined,
+		};
+	};
+	// Top level: members whose parent isn't another member (the job's direct children).
+	return r.members.filter((m) => !pids.has(m.ppid)).map(toRow);
+}
+
+/** The job a pid belongs to, and the member if it isn't the job itself. */
+function locate(pid: number): { row: ProcRow; member?: Member } | undefined {
+	for (const row of snap?.rows ?? []) {
+		if (row.pid === pid) return { row };
+		const member = row.members.find((m) => m.pid === pid);
+		if (member) return { row, member };
+	}
 }
 
 const unavailable = (): Node => ({
@@ -258,7 +302,8 @@ const ctx = definePlugin({
 	},
 	async onEvent(_surface, event, payload, c) {
 		const pid = Number(payload?.rowId);
-		const row = snap?.rows.find((r) => r.pid === pid);
+		const found = locate(pid);
+		const row = found?.row;
 		try {
 			switch (event) {
 				case "search":
@@ -268,16 +313,17 @@ const ctx = definePlugin({
 				case "refresh":
 					break;
 				case "focus":
-					await call("focus", { pid });
+					if (row) await call("focus", { pid: row.pid });
 					break;
 				case "open": {
-					const url = row && webUrl(row);
+					const url = found && webUrl(found.member ?? found.row);
 					if (url) await call("openUrl", { url });
 					break;
 				}
 				case "stop":
-					await call("kill", { pid });
-					c.toast(`Stopped ${row ? name(row) : pid}`, "success");
+					if (!row) break;
+					await call("kill", found?.member ? { pid: row.pid, child: pid } : { pid });
+					c.toast(`Stopped ${found?.member ? found.member.argvCommand : name(row)}`, "success");
 					break;
 				case "start":
 					await call("start", { index: Number(payload?.rowId), terminal });

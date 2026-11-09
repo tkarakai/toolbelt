@@ -23,11 +23,15 @@ export type ToolbeltRPC = {
 			close: { params: Surface; response: true };
 			event: { params: Surface & { name: string; payload?: unknown }; response: true };
 			restartPlugin: { params: { plugin: string }; response: true };
+			settings: { params: {}; response: { shortcut: string; shortcutLabel: string; shortcutError: string | null } };
+			setShortcut: { params: { accelerator: string }; response: { ok: boolean; error?: string; label?: string } };
+			pauseShortcut: { params: { paused: boolean }; response: true };
 		};
 		messages: {
 			/** From the popover: show the main window on this plugin (and screen). */
 			showWindow: { plugin?: string; screen?: string };
 			hidePopover: {};
+			closeWindow: {};
 			/** Debug channel: the value of a script the main process evaluated in this view. */
 			debugReport: { id: number; value: unknown };
 			quit: {};
@@ -43,6 +47,7 @@ export type ToolbeltRPC = {
 			navigate: { plugin: string; screen?: string };
 			/** Popover: it was just shown (reset to the list, focus search). */
 			popoverShown: {};
+			settingsChanged: {};
 		};
 	}>;
 };

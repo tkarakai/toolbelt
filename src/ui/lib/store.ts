@@ -1,7 +1,7 @@
 // The web side of Toolbelt: one RPC connection to the main process, and a tiny store of what
 // it sent (plugins, UI trees) that React reads with useSyncExternalStore.
 import { Electroview } from "electrobun/view";
-import { useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import type { Node } from "../../shared/protocol";
 import type { PluginInfo, ToolbeltRPC } from "../../shared/rpc";
@@ -31,6 +31,7 @@ export function committed(plugin: string, surface: string) {
 type NavListener = (plugin: string, screen?: string) => void;
 const navListeners = new Set<NavListener>();
 const shownListeners = new Set<() => void>();
+const settingsListeners = new Set<() => void>();
 
 const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
 	plugins: (plugins) => set({ plugins }),
@@ -44,6 +45,7 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
 	},
 	navigate: ({ plugin, screen }) => navListeners.forEach((l) => l(plugin, screen)),
 	popoverShown: () => shownListeners.forEach((l) => l()),
+	settingsChanged: () => settingsListeners.forEach((l) => l()),
 };
 
 type Messages = ToolbeltRPC["webview"]["messages"];
@@ -134,4 +136,18 @@ export function usePopoverShown(fn: () => void) {
 		shownListeners.add(fn);
 		return () => void shownListeners.delete(fn);
 	}, [fn]);
+}
+
+export type ToolbeltSettings = Awaited<ReturnType<Transport["request"]["settings"]>>;
+
+/** Toolbelt's own settings, kept fresh when they change in another view. */
+export function useSettings(): [ToolbeltSettings | null, () => void] {
+	const [s, setS] = useState<ToolbeltSettings | null>(null);
+	const load = useCallback(() => void rpc.request.settings({}).then(setS), []);
+	useEffect(() => {
+		load();
+		settingsListeners.add(load);
+		return () => void settingsListeners.delete(load);
+	}, [load]);
+	return [s, load];
 }

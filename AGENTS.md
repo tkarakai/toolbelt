@@ -44,6 +44,12 @@ protocol; Toolbelt renders them. See `README.md`.
   and `curl -X POST '127.0.0.1:47811/eval?target=window|popover' -d '<js expression>'`
   (`window.__tbEvent(plugin, surface, name, payload)` sends plugin events; `window.__tbPerf`
   holds render timings). A window behind others reports `document.hidden` and is throttled.
+- If the person has `bun run dev` running, it holds Hutch's build lock: don't stop their app —
+  copy the checkout elsewhere (`rsync -a --exclude /build --exclude /dist --exclude /.hutch
+  --exclude /build-plugins --exclude /.git`) and run your copy there, with its own
+  `TOOLBELT_DEBUG_PORT` and `TOOLBELT_CONFIG_DIR`.
+- Global shortcuts: use `src/bun/hotkey.ts` (Carbon), not Electrobun's `GlobalShortcut` — that
+  one silently needs Accessibility permission.
 - Never kill, restart or type into the user's own processes or terminals while testing — the
   Processes plugin can stop processes; use the Showcase plugin to exercise actions.
 

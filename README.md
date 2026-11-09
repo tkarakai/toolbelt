@@ -30,9 +30,9 @@ bun run typecheck && bun test
 bun run build      # artifacts/: the .dmg and the update bundle
 ```
 
-The first run downloads Electrobun's build tool (Hutch) through the pinned `electrobun` npm
-package, which checks its SHA-256. `bun run dev` with `TOOLBELT_OPEN_WINDOW=1` also opens the
-window.
+Toolbelt starts in the menu bar only; click the belt icon, press the shortcut, or "Open
+Toolbelt" for the window. The first run downloads Electrobun's build tool (Hutch) through the
+pinned `electrobun` npm package, which checks its SHA-256.
 
 ## Writing a plugin
 

@@ -1,16 +1,20 @@
 // The main window: the app sidebar (resizable, collapses to an icon rail) and the selected
 // plugin's pane with its tabs. Route: #/<plugin>/<screen>, or #/toolbelt for Toolbelt's own page.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+//
+// Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · ⌥⌘1…9 tabs (hold ⌥⌘) · ⌃⇥ / ⌃⇧⇥ next and
+// previous tab · ⌘B sidebar · ⌘W closes the window (app menu).
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { PanelLeft, RotateCw, Settings2 } from "lucide-react";
 import { defaultScreen, type Manifest } from "../shared/protocol";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
 import { cn } from "@/lib/utils";
-import { committed, rpc, sendEvent, useNavigate, usePlugins, useSurface } from "@/lib/store";
+import { committed, rpc, sendEvent, useNavigate, usePlugins, useSettings, useSurface } from "@/lib/store";
+import { SurfaceContext, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { EmptyState, Render, Dot } from "@/renderer/Render";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,31 +36,22 @@ import {
 } from "@/components/ui/sidebar";
 
 const TOOLBELT = "toolbelt";
+/** Where the traffic lights end, plus breathing room (window x, px). With the window's
+ *  `trafficLightOffset` of 6 they sit at x 15…69, y 15…29 (measured via the debug channel). */
+const TRAFFIC_LIGHTS_END = 80;
+const RAIL = 48; // --sidebar-width-icon
+const inApp = (window as { __electrobunWebviewId?: number }).__electrobunWebviewId !== undefined;
 
 function parseHash(): { plugin?: string; screen?: string } {
 	const [, plugin, screen] = location.hash.replace(/^#/, "").split("/");
 	return { plugin: plugin || undefined, screen: screen || undefined };
 }
 
-const store = {
-	get: (k: string) => {
-		try {
-			return localStorage.getItem(k);
-		} catch {
-			return null;
-		}
-	},
-	set: (k: string, v: string) => {
-		try {
-			localStorage.setItem(k, v);
-		} catch {}
-	},
-};
-
 export default function App() {
 	const plugins = usePlugins();
 	const [route, setRoute] = useState(parseHash);
 	const lastScreen = useRef<Record<string, string>>({});
+	const [lastPlugin, setLastPlugin] = usePersisted<string | null>("toolbelt.plugin", null);
 
 	useEffect(() => {
 		const on = () => setRoute(parseHash());
@@ -69,44 +64,41 @@ export default function App() {
 	useNavigate(go);
 
 	// Default route: the remembered plugin, else the first.
-	const pluginId = route.plugin ?? store.get("toolbelt.plugin") ?? plugins[0]?.manifest.id;
+	const pluginId = route.plugin ?? lastPlugin ?? plugins[0]?.manifest.id;
 	useEffect(() => {
-		if (route.plugin) store.set("toolbelt.plugin", route.plugin);
-	}, [route.plugin]);
+		if (route.plugin) setLastPlugin(route.plugin);
+	}, [route.plugin, setLastPlugin]);
 	const current = plugins.find((p) => p.manifest.id === pluginId);
 	const screen = current ? (route.screen ?? lastScreen.current[current.manifest.id] ?? defaultScreen(current.manifest)) : undefined;
 	if (current && screen) lastScreen.current[current.manifest.id] = screen;
 
-	// ⌘1…⌘9 switch tabs within the app; ⌃1…⌃9 switch apps.
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			const n = Number(e.key);
-			if (!n) return;
-			if (e.metaKey && current) {
-				const s = current.manifest.screens[n - 1];
-				if (s) (e.preventDefault(), go(current.manifest.id, s.id));
-			} else if (e.ctrlKey) {
+			const n = Number(e.key) || Number(e.code.replace("Digit", ""));
+			const screens = current?.manifest.screens ?? [];
+			if (e.metaKey && !e.altKey && !e.ctrlKey && n >= 1 && n <= 9) {
 				const p = plugins[n - 1];
 				if (p) (e.preventDefault(), go(p.manifest.id));
+			} else if (e.metaKey && e.altKey && n >= 1 && n <= 9 && current) {
+				const s = screens[n - 1];
+				if (s) (e.preventDefault(), go(current.manifest.id, s.id));
+			} else if (e.ctrlKey && e.key === "Tab" && current && screen && screens.length > 1) {
+				e.preventDefault();
+				const i = screens.findIndex((s) => s.id === screen);
+				go(current.manifest.id, screens[(i + (e.shiftKey ? -1 : 1) + screens.length) % screens.length].id);
 			}
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [current, plugins, go]);
+	}, [current, screen, plugins, go]);
 
-	const [width, setWidth] = useState(() => Number(store.get("toolbelt.sidebarWidth")) || 240);
-	const [open, setOpen] = useState(() => store.get("toolbelt.sidebarOpen") !== "false");
+	const [width, setWidth] = usePersisted("toolbelt.sidebarWidth", 240);
+	const [open, setOpen] = usePersisted("toolbelt.sidebarOpen", true);
 
 	return (
-		<SidebarProvider
-			open={open}
-			onOpenChange={(o) => {
-				setOpen(o);
-				store.set("toolbelt.sidebarOpen", String(o));
-			}}
-			style={{ "--sidebar-width": `${width}px` } as CSSProperties}
-		>
-			<AppSidebar plugins={plugins} current={route.plugin === TOOLBELT ? TOOLBELT : pluginId} go={go} onResize={(w) => (setWidth(w), store.set("toolbelt.sidebarWidth", String(w)))} />
+		<SidebarProvider open={open} onOpenChange={setOpen} style={{ "--sidebar-width": `${width}px` } as CSSProperties}>
+			{!inApp && <FakeTrafficLights />}
+			<AppSidebar plugins={plugins} current={route.plugin === TOOLBELT ? TOOLBELT : pluginId} go={go} onResize={setWidth} />
 			<SidebarInset className="min-w-0">
 				{route.plugin === TOOLBELT ? (
 					<ToolbeltPage plugins={plugins} />
@@ -120,14 +112,27 @@ export default function App() {
 	);
 }
 
+/** In the browser preview, stand-ins for the window buttons, to judge the layout around them. */
+function FakeTrafficLights() {
+	return (
+		<div className="pointer-events-none fixed top-[15px] left-[15px] z-50 flex gap-1.5">
+			{["#ff5f57", "#febc2e", "#28c840"].map((c) => (
+				<span key={c} className="size-3.5 rounded-full" style={{ background: c }} />
+			))}
+		</div>
+	);
+}
+
 // ── sidebar ──────────────────────────────────────────────────────────────
 function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[]; current?: string; go: (p: string, s?: string) => void; onResize: (w: number) => void }) {
 	const { state, setOpen } = useSidebar();
+	const hints = useHeldModifiers({ meta: true });
 	return (
 		<Sidebar collapsible="icon" className="border-r-0">
-			{/* Room for the traffic lights; the strip drags the window. */}
-			<SidebarHeader className="electrobun-webkit-app-region-drag h-12 shrink-0 flex-row items-center justify-end px-3 group-data-[collapsible=icon]:h-20 group-data-[collapsible=icon]:items-end group-data-[collapsible=icon]:justify-center">
-				<CollapseButton />
+			{/* Room for the traffic lights; the strip drags the window. Collapsed, it joins the pane
+			    header so the buttons sit on one continuous bar. */}
+			<SidebarHeader className="electrobun-webkit-app-region-drag h-12 shrink-0 flex-row items-center justify-end px-3 group-data-[collapsible=icon]:border-b group-data-[collapsible=icon]:bg-background">
+				{state === "expanded" && <CollapseButton />}
 			</SidebarHeader>
 			<SidebarContent>
 				<SidebarGroup>
@@ -136,13 +141,21 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 						<SidebarMenu>
 							{plugins.map((p, i) => (
 								<SidebarMenuItem key={p.manifest.id}>
-									<SidebarMenuButton isActive={current === p.manifest.id} tooltip={p.manifest.name} onClick={() => go(p.manifest.id)} className="h-9">
+									<SidebarMenuButton isActive={current === p.manifest.id} tooltip={`${p.manifest.name}  ⌘${i + 1}`} onClick={() => go(p.manifest.id)} className="h-9">
 										<Icon name={p.manifest.icon} />
 										<span className="truncate">{p.manifest.name}</span>
 										{p.state !== "running" && <Dot tone={p.state === "crashed" ? "danger" : "warning"} className="ml-auto group-data-[collapsible=icon]:hidden" />}
-										<Kbd className="ml-auto hidden opacity-0 group-hover/menu-item:opacity-100 xl:inline-flex group-data-[collapsible=icon]:hidden">⌃{i + 1}</Kbd>
 									</SidebarMenuButton>
-									{p.badge !== null && p.badge !== undefined && <SidebarMenuBadge className="tabular-nums">{p.badge}</SidebarMenuBadge>}
+									{hints && i < 9 ? (
+										<>
+											<SidebarMenuBadge>
+												<Kbd>⌘{i + 1}</Kbd>
+											</SidebarMenuBadge>
+											<Kbd className="pointer-events-none absolute -top-1 -right-1 hidden h-4 min-w-4 px-1 text-[10px] group-data-[collapsible=icon]:inline-flex">{i + 1}</Kbd>
+										</>
+									) : (
+										p.badge !== null && p.badge !== undefined && <SidebarMenuBadge className="tabular-nums">{p.badge}</SidebarMenuBadge>
+									)}
 								</SidebarMenuItem>
 							))}
 						</SidebarMenu>
@@ -159,20 +172,15 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>
-			<ResizeHandle
-				onResize={onResize}
-				onCollapse={() => setOpen(false)}
-				onExpand={() => setOpen(true)}
-				collapsed={state === "collapsed"}
-			/>
+			<ResizeHandle onResize={onResize} onCollapse={() => setOpen(false)} onExpand={() => setOpen(true)} collapsed={state === "collapsed"} />
 		</Sidebar>
 	);
 }
 
 function CollapseButton() {
-	const { toggleSidebar } = useSidebar();
+	const { toggleSidebar, state } = useSidebar();
 	return (
-		<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag text-muted-foreground" onClick={toggleSidebar} aria-label="Toggle sidebar">
+		<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag text-muted-foreground" onClick={toggleSidebar} aria-label={state === "expanded" ? "Collapse sidebar (⌘B)" : "Expand sidebar (⌘B)"} title={state === "expanded" ? "Collapse sidebar  ⌘B" : "Expand sidebar  ⌘B"}>
 			<PanelLeft />
 		</Button>
 	);
@@ -201,54 +209,64 @@ function ResizeHandle({ onResize, onCollapse, onExpand, collapsed }: { onResize:
 		el.addEventListener("pointermove", move);
 		el.addEventListener("pointerup", up);
 	};
-	return <div onPointerDown={onPointerDown} onDoubleClick={() => (collapsed ? onExpand() : onCollapse())} className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-1 after:w-px after:bg-border after:transition-colors hover:after:bg-ring/60" />;
+	return (
+		<div
+			onPointerDown={onPointerDown}
+			onDoubleClick={() => (collapsed ? onExpand() : onCollapse())}
+			className={cn("absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-1 after:w-px after:bg-border after:transition-colors hover:after:bg-ring/60", collapsed && "top-12")}
+		/>
+	);
 }
 
 // ── plugin pane ──────────────────────────────────────────────────────────
-function PaneHeader({ manifest, children }: { manifest: Pick<Manifest, "name" | "icon" | "description">; children?: React.ReactNode }) {
+/** The pane's top bar. The whole bar drags the window, except its controls. */
+function PaneHeader({ manifest, children }: { manifest: Pick<Manifest, "name" | "icon">; children?: ReactNode }) {
+	const { state } = useSidebar();
+	const collapsed = state === "collapsed";
 	return (
-		<header className="electrobun-webkit-app-region-drag flex h-12 shrink-0 items-center gap-3 border-b px-6 group-has-data-[state=collapsed]/sidebar-wrapper:pl-6">
+		<header className="electrobun-webkit-app-region-drag flex h-12 shrink-0 items-center gap-3 border-b pr-6" style={{ paddingLeft: collapsed ? TRAFFIC_LIGHTS_END - RAIL : 24 }}>
+			{collapsed && (
+				<div className="-ml-1">
+					<CollapseButton />
+				</div>
+			)}
 			<div className="flex items-center gap-2.5">
 				<div className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
 					<Icon name={manifest.icon} className="size-4" />
 				</div>
 				<h1 className="text-sm font-semibold">{manifest.name}</h1>
 			</div>
-			<div className="electrobun-webkit-app-region-no-drag flex flex-1 items-center gap-3">{children}</div>
+			{children}
 		</header>
 	);
 }
 
 function PluginPane({ info, screen, go }: { info: PluginInfo; screen: string; go: (p: string, s?: string) => void }) {
 	const m = info.manifest;
+	const hints = useHeldModifiers({ meta: true, alt: true });
 	return (
 		<div className="flex h-svh min-h-0 flex-col">
 			<PaneHeader manifest={m}>
 				{m.screens.length > 1 && (
-					<Tabs value={screen} onValueChange={(s) => go(m.id, s)}>
+					<Tabs value={screen} onValueChange={(s) => go(m.id, s)} className="electrobun-webkit-app-region-no-drag">
 						<TabsList>
-							{m.screens.map((s) => (
-								<TabsTrigger key={s.id} value={s.id} className="gap-1.5 px-3">
+							{m.screens.map((s, i) => (
+								<TabsTrigger key={s.id} value={s.id} className="gap-1.5 px-3" title={`${s.title}  ⌥⌘${i + 1}`}>
 									{s.icon && <Icon name={s.icon} />}
 									{s.title}
+									{hints && i < 9 && <Kbd className="ml-0.5 h-4 min-w-4 px-1 text-[10px]">{i + 1}</Kbd>}
 								</TabsTrigger>
 							))}
 						</TabsList>
 					</Tabs>
 				)}
 				{info.state !== "running" && (
-					<Badge variant={info.state === "crashed" ? "destructive" : "secondary"} className="ml-auto">
+					<Badge variant={info.state === "crashed" ? "destructive" : "secondary"} className="electrobun-webkit-app-region-no-drag ml-auto">
 						{info.state}
 					</Badge>
 				)}
 			</PaneHeader>
-			<div className="min-h-0 flex-1">
-				{info.state === "crashed" ? (
-					<Crashed info={info} />
-				) : (
-					<Screen key={screen} plugin={m.id} surface={`screen:${screen}`} />
-				)}
-			</div>
+			<div className="min-h-0 flex-1">{info.state === "crashed" ? <Crashed info={info} /> : <Screen key={screen} plugin={m.id} surface={`screen:${screen}`} />}</div>
 		</div>
 	);
 }
@@ -258,7 +276,11 @@ function Screen({ plugin, surface }: { plugin: string; surface: string }) {
 	const emit = useCallback((name: string, payload?: unknown) => sendEvent(plugin, surface, name, payload), [plugin, surface]);
 	useLayoutEffect(() => committed(plugin, surface), [tree, plugin, surface]);
 	if (!tree) return <Loading />;
-	return <Render node={tree} emit={emit} />;
+	return (
+		<SurfaceContext.Provider value={`${plugin}/${surface}`}>
+			<Render node={tree} emit={emit} />
+		</SurfaceContext.Provider>
+	);
 }
 
 function Crashed({ info }: { info: PluginInfo }) {
@@ -296,11 +318,20 @@ function ToolbeltPage({ plugins }: { plugins: PluginInfo[] }) {
 				<div className="mx-auto max-w-4xl space-y-6 px-6 py-6">
 					<Card>
 						<CardHeader>
+							<CardTitle>Menu bar</CardTitle>
+							<CardDescription>Open the menu bar popover from anywhere with a keyboard shortcut.</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<ShortcutSetting />
+						</CardContent>
+					</Card>
+					<Card>
+						<CardHeader>
 							<CardTitle>Installed tools</CardTitle>
 							<CardDescription>Each tool is its own program; Toolbelt starts it and draws its screens.</CardDescription>
 						</CardHeader>
 						<CardContent className="divide-y">
-							{plugins.map((p) => (
+							{plugins.map((p, i) => (
 								<div key={p.manifest.id} className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
 									<div className="flex size-9 items-center justify-center rounded-lg border bg-muted/40">
 										<Icon name={p.manifest.icon} className="size-4" />
@@ -309,6 +340,7 @@ function ToolbeltPage({ plugins }: { plugins: PluginInfo[] }) {
 										<div className="flex items-center gap-2 text-sm font-medium">
 											{p.manifest.name}
 											<span className="font-mono text-xs font-normal text-muted-foreground">{p.manifest.version}</span>
+											{i < 9 && <Kbd className="text-[10px]">⌘{i + 1}</Kbd>}
 										</div>
 										<div className="truncate text-sm text-muted-foreground">{p.manifest.description}</div>
 									</div>
@@ -325,24 +357,86 @@ function ToolbeltPage({ plugins }: { plugins: PluginInfo[] }) {
 					</Card>
 					<Card>
 						<CardHeader>
-							<CardTitle>Shortcuts</CardTitle>
+							<CardTitle>Keyboard</CardTitle>
 						</CardHeader>
-						<CardContent className="grid grid-cols-[1fr_auto] gap-y-3 text-sm">
-							<span>Menu bar popover, from anywhere</span>
-							<Kbd>⌃⌥⇧T</Kbd>
-							<span>Switch tool</span>
-							<Kbd>⌃1 … ⌃9</Kbd>
-							<span>Switch tab</span>
-							<Kbd>⌘1 … ⌘9</Kbd>
-							<span>Move through rows · clear selection</span>
-							<span className={cn("flex gap-1")}>
-								<Kbd>↑</Kbd>
-								<Kbd>↓</Kbd>
-								<Kbd>esc</Kbd>
-							</span>
+						<CardContent className="grid grid-cols-[1fr_auto] items-center gap-y-3 text-sm">
+							<Shortcut label="Switch tool (hold ⌘ to see the numbers)" keys={["⌘1 … ⌘9"]} />
+							<Shortcut label="Switch tab (hold ⌥⌘)" keys={["⌥⌘1 … ⌥⌘9"]} />
+							<Shortcut label="Next / previous tab" keys={["⌃⇥", "⌃⇧⇥"]} />
+							<Shortcut label="Collapse or expand the sidebar" keys={["⌘B"]} />
+							<Shortcut label="Filter" keys={["⌘F", "/"]} />
+							<Shortcut label="Move through rows · expand / collapse" keys={["↑", "↓", "→", "←"]} />
+							<Shortcut label="Row: main action · all actions · deselect" keys={["↵", ".", "esc"]} />
+							<Shortcut label="Close the window" keys={["⌘W"]} />
 						</CardContent>
 					</Card>
 				</div>
+			</div>
+		</div>
+	);
+}
+
+function Shortcut({ label, keys }: { label: string; keys: string[] }) {
+	return (
+		<>
+			<span>{label}</span>
+			<KbdGroup>
+				{keys.map((k) => (
+					<Kbd key={k}>{k}</Kbd>
+				))}
+			</KbdGroup>
+		</>
+	);
+}
+
+// e.code → the key part of an accelerator.
+const CODE_KEYS: Record<string, string> = { Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\", Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Backquote: "`", Space: "Space" };
+function acceleratorOf(e: KeyboardEvent): string | null {
+	const key = e.code.startsWith("Key") ? e.code.slice(3) : e.code.startsWith("Digit") ? e.code.slice(5) : CODE_KEYS[e.code];
+	if (!key || !(e.metaKey || e.ctrlKey || e.altKey)) return null;
+	return [e.metaKey && "Command", e.ctrlKey && "Control", e.altKey && "Option", e.shiftKey && "Shift", key].filter(Boolean).join("+");
+}
+
+/** Shows the popover shortcut; "Change" records a new one from the next key combination. */
+function ShortcutSetting() {
+	const [settings, reload] = useSettings();
+	const [recording, setRecording] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!recording) return;
+		void rpc.request.pauseShortcut({ paused: true });
+		const onKey = async (e: KeyboardEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+			if (e.key === "Escape") return setRecording(false);
+			const accel = acceleratorOf(e);
+			if (!accel) return; // still holding modifiers, or a plain key
+			const res = await rpc.request.setShortcut({ accelerator: accel });
+			setError(res.ok ? null : (res.error ?? "couldn't set it"));
+			setRecording(false);
+			reload();
+		};
+		window.addEventListener("keydown", onKey, true);
+		return () => {
+			window.removeEventListener("keydown", onKey, true);
+			void rpc.request.pauseShortcut({ paused: false });
+		};
+	}, [recording, reload]);
+
+	return (
+		<div className="flex items-center justify-between gap-6">
+			<div className="space-y-1">
+				<div className="text-sm font-medium">Popover shortcut</div>
+				<p className={cn("text-sm", error || settings?.shortcutError ? "text-destructive" : "text-muted-foreground")}>
+					{recording ? "Press the new shortcut — it needs ⌘, ⌃ or ⌥. Esc cancels." : (error ?? settings?.shortcutError ?? "Works in any app; no extra permissions needed.")}
+				</p>
+			</div>
+			<div className="flex items-center gap-2">
+				<Kbd className={cn("h-7 px-2 text-sm", recording && "animate-pulse")}>{recording ? "…" : (settings?.shortcutLabel ?? "")}</Kbd>
+				<Button variant="outline" size="sm" onClick={() => (setError(null), setRecording((r) => !r))}>
+					{recording ? "Cancel" : "Change"}
+				</Button>
 			</div>
 		</div>
 	);
