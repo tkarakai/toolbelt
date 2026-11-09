@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { PluginHost, configDir, pluginDirs } from "./host";
 import { clearHotKey, displayAccelerator, setHotKey } from "./hotkey";
 import { loadSettings, saveSettings, type Settings } from "./settings";
-import { setTrayHighlighted } from "./tray-highlight";
+import { setTrayHighlighted, trayHighlighted } from "./tray-highlight";
 import type { ToolbeltRPC } from "../shared/rpc";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -120,7 +120,8 @@ function releaseView(rpc: ViewRPC) {
 host.subscribe({
 	plugins: (list) => views.forEach((v) => v.send.plugins(list)),
 	tree: (plugin, surface, tree) => views.forEach((v) => v.send.tree({ plugin, surface, tree })),
-	toast: (plugin, text, tone) => views.forEach((v) => v.send.toast({ plugin, text, tone })),
+	toast: (plugin, text, tone, action) => views.forEach((v) => v.send.toast({ plugin, text, tone, action })),
+	clipboard: (_plugin, text) => Utils.clipboardWriteText(text),
 });
 
 // ── main window ──────────────────────────────────────────────────────────
@@ -218,7 +219,7 @@ ApplicationMenu.setApplicationMenu([
 			{ role: "hide", accelerator: "CommandOrControl+H" },
 			{ role: "hideOthers", accelerator: "CommandOrControl+Option+H" },
 			{ type: "separator" },
-			{ label: "Quit Toolbelt", role: "quit", accelerator: "CommandOrControl+Q" },
+			{ label: "Quit Toolbelt…", action: "quit", accelerator: "CommandOrControl+Q" },
 		],
 	},
 	{
@@ -240,9 +241,21 @@ ApplicationMenu.setApplicationMenu([
 Electrobun.events.on("application-menu-clicked", (e: any) => {
 	const action = e?.data?.action;
 	if (action === "open-window") showWindow();
+	if (action === "quit") requestQuit();
 	if (action === "settings") showWindow("toolbelt");
 	if (action === "toggle-sidebar") winRPC?.send.command({ name: "toggleSidebar" });
 });
+/** ⌘Q: ask first, in the popover if it's open, else in the window, else open the popover to ask. */
+function requestQuit() {
+	if (popover.isVisible()) return popRPC.send.confirmQuit({});
+	if (win) {
+		win.activate();
+		return winRPC?.send.confirmQuit({});
+	}
+	showPopover();
+	popRPC.send.confirmQuit({});
+}
+
 // Clicking the Dock icon while the window is closed (shouldn't happen, but be kind).
 Electrobun.events.on("reopen", () => showWindow());
 Electrobun.events.on("before-quit", () => host.stop());
@@ -286,6 +299,9 @@ if (channel === "dev" && process.env.TOOLBELT_DEBUG_PORT) {
 				case "/close":
 					win?.close();
 					break;
+				case "/quit":
+					requestQuit();
+					break;
 				case "/eval":
 					return Response.json(await evalIn(q.get("target") === "window" ? "window" : "popover", await req.text()));
 			}
@@ -294,6 +310,7 @@ if (channel === "dev" && process.env.TOOLBELT_DEBUG_PORT) {
 				window: win ? { visible: win.isVisible(), frame: win.getFrame(), buttons: win.getWindowButtonPosition() } : null,
 				shortcut: { accelerator: settings.shortcut, error: shortcutError },
 				tray: tray.getBounds(),
+				trayHighlighted: trayHighlighted(),
 				display: Screen.getPrimaryDisplay(),
 				dock: Utils.isDockIconVisible(),
 				plugins: host.list().map((p) => ({ id: p.manifest.id, state: p.state, badge: p.badge })),

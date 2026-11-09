@@ -48,14 +48,18 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
 		arrived.set(key(plugin, surface), performance.now());
 		set({ trees: { ...state.trees, [key(plugin, surface)]: tree } });
 	},
-	toast: ({ plugin, text, tone }) => {
+	toast: ({ plugin, text, tone, action }) => {
 		const name = state.plugins.find((p) => p.manifest.id === plugin)?.manifest.name ?? plugin;
-		(tone === "error" ? toast.error : tone === "success" ? toast.success : toast)(text, { description: name });
+		(tone === "error" ? toast.error : tone === "success" ? toast.success : toast)(text, {
+			description: name,
+			...(action ? { action: { label: action.label, onClick: () => sendEvent(plugin, "toast", action.id, action.payload) }, duration: 8000 } : {}),
+		});
 	},
 	navigate: ({ plugin, screen }) => navListeners.forEach((l) => l(plugin, screen)),
 	popoverShown: () => shownListeners.forEach((l) => l()),
 	settingsChanged: () => settingsListeners.forEach((l) => l()),
 	command: ({ name }) => commandListeners.forEach((l) => l(name)),
+	confirmQuit: () => commandListeners.forEach((l) => l("confirmQuit")),
 };
 
 type Messages = ToolbeltRPC["webview"]["messages"];

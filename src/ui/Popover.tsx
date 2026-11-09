@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { QuitDialog, askQuit } from "./QuitDialog";
 
 export default function Popover() {
 	const plugins = usePlugins();
@@ -109,13 +110,15 @@ export default function Popover() {
 							Open Toolbelt
 							<Kbd className="ml-1">⌘↵</Kbd>
 						</Button>
-						<Button variant="ghost" size="sm" className="ml-auto text-muted-foreground" onClick={() => rpc.send.quit({})}>
+						<Button variant="ghost" size="sm" className="ml-auto text-muted-foreground" onClick={askQuit}>
 							<Power />
 							Quit
+							<Kbd className="ml-1">⌘Q</Kbd>
 						</Button>
 					</div>
 				</>
 			)}
+			<QuitDialog />
 		</div>
 	);
 }

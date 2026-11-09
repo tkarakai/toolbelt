@@ -1,229 +1,348 @@
-// Processes (spike): a Toolbelt plugin that drives the existing `running-core`
-// (src/serve.ts in github.com/tkarakai/running) over its own JSON-lines protocol and turns
-// its snapshots into Toolbelt UI trees. toolbelt-ps will replace this with a native plugin.
+// Processes: a Toolbelt plugin that drives running-core (src/serve.ts in
+// github.com/tkarakai/running) and draws its processes, kept commands and settings. It has
+// everything running's TUI has: sections by terminal, folders and branches, agents, ports,
+// output (and agents' conversations), keep / edit / forget / reorder, restart, stop and force
+// stop, "why is it still alive", copy the command line, shell integration status.
+// toolbelt-ps will replace the running-core bridge with the engine itself.
 //
 // Where running is: RUNNING_CORE_SCRIPT, else ~/dev/projects/running/src/serve.ts.
-import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { definePlugin, search, type Context, type Node, type Row, type Search, type Tone } from "../../src/sdk";
+import { definePlugin, type Context, type Dialog, type Field, type Node, type Row } from "../../src/sdk";
+import { Core, type Hello, type KeepDraft, type Peek, type Snapshot, type SortKey } from "./core";
+import { agentState, build, displayName, dur, locate, sourceLabel, statusTone, stripAnsi, tildify, webUrl, type Built } from "./model";
 
-const script = process.env.RUNNING_CORE_SCRIPT ?? `${homedir()}/dev/projects/running/src/serve.ts`;
-
-// ── running-core client ──────────────────────────────────────────────────
-type Listen = { pid: number; port: number; host: string };
-type ProcRow = {
-	pid: number; kind: string; command: string; argvCommand: string; displayArgv: string[]; cwd: string; listen: Listen[];
-	where: string; termLabel: string; tty: string; stat: string; etimeSec: number; rssKb: number; cpu: number; pidCount: number;
-	exe?: string; source: string; keptIndex?: number; agent?: Agent;
-	members: Member[];
-};
-type Member = { pid: number; ppid: number; depth: number; displayArgv: string[]; argvCommand: string; cwd: string; listen: Listen[]; tty: string; stat: string; etimeSec: number; rssKb: number; cpu: number; pidCount: number };
-type Agent = { harness: string; title?: string; model?: string; tokens?: number; costUsd?: number; lastActive?: number; status?: "working" | "idle" | "new"; branch?: string; resume?: string; sessionId?: string };
-type KeptDTO = { index: number; name?: string; command: string; cwd: string; note: string; ports: number[]; line: string; livePid?: number };
-type Probe = { pid: number; port: number; pending: boolean; web?: boolean; url?: string; title?: string };
-type Snapshot = { at: number; rows: ProcRow[]; kept: KeptDTO[]; probes: Probe[]; branches: Record<string, string | null>; sort: { key: string; desc: boolean } };
-type Hello = { version: string; sorts: Record<string, { label: string }>; terminals: Record<string, unknown> };
-
-let core: ReturnType<typeof Bun.spawn> | null = null;
-let nextId = 1;
-const waiting = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
-let coreError: string | null = existsSync(script) ? null : `running-core not found at ${script}`;
-
-function startCore() {
-	if (coreError) return;
-	core = Bun.spawn([process.execPath, script], { stdin: "pipe", stdout: "pipe", stderr: "inherit", env: process.env });
-	void (async () => {
-		const decoder = new TextDecoder();
-		let buf = "";
-		for await (const chunk of core!.stdout as ReadableStream<Uint8Array>) {
-			buf += decoder.decode(chunk, { stream: true });
-			let nl: number;
-			while ((nl = buf.indexOf("\n")) >= 0) {
-				const line = buf.slice(0, nl);
-				buf = buf.slice(nl + 1);
-				if (!line.trim()) continue;
-				const msg = JSON.parse(line);
-				if (msg.event === "changed") void refresh();
-				if (typeof msg.id === "number" && waiting.has(msg.id) && !msg.event) {
-					const w = waiting.get(msg.id)!;
-					waiting.delete(msg.id);
-					msg.error ? w.reject(new Error(msg.error)) : w.resolve(msg.result);
-				}
-			}
-		}
-	})();
-	void core.exited.then((code) => {
-		coreError = `running-core exited (${code})`;
-		ctx.invalidate();
-	});
-}
-
-function call<T = any>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-	if (!core) return Promise.reject(new Error(coreError ?? "running-core isn't running"));
-	const id = nextId++;
-	const sink = core.stdin as import("bun").FileSink;
-	sink.write(JSON.stringify({ id, method, params }) + "\n");
-	sink.flush();
-	return new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
-}
+const core = new Core(process.env.RUNNING_CORE_SCRIPT ?? `${homedir()}/dev/projects/running/src/serve.ts`, {
+	onChanged: () => void refresh(),
+	onExit: () => ctx.invalidate(),
+});
 
 // ── state ────────────────────────────────────────────────────────────────
 let snap: Snapshot | null = null;
 let hello: Hello | null = null;
 let query = "";
+let showAll = false;
 let terminal = "terminal";
 let refreshing = false;
+let last: Built | null = null;
+/** Recent CPU / memory per pid, for the sparklines. */
+const history = new Map<number, { cpu: number[]; mem: number[] }>();
+const HISTORY = 30;
+
+/** The dialog over the Processes or Kept page. */
+type Open =
+	| { kind: "output"; pid: number; child?: number; source?: string; data?: Peek; error?: string }
+	| { kind: "keep"; pid?: number; index?: number; draft: KeepDraft; saving?: boolean };
+let dialog: Open | null = null;
+let dialogScreen: "processes" | "kept" = "processes";
 
 async function refresh() {
-	if (refreshing || !core) return;
+	if (refreshing || !core.running) return;
 	refreshing = true;
 	try {
-		snap = await call<Snapshot>("snapshot");
-		ctx.badge(snap.rows.length || null);
+		snap = await core.call<Snapshot>("snapshot");
+		recordHistory(snap);
+		ctx.badge(snap.rows.filter((r) => showAll || r.kind !== "app").length || null);
+		if (dialog?.kind === "output") await loadOutput();
 		ctx.invalidate();
 	} catch (e) {
-		coreError = (e as Error).message;
+		if (!core.error) ctx.toast((e as Error).message, "error");
 		ctx.invalidate();
 	} finally {
 		refreshing = false;
 	}
 }
 
-// ── formatting ───────────────────────────────────────────────────────────
-const home = homedir();
-const tildify = (p: string) => (p.startsWith(home) ? "~" + p.slice(home.length) : p);
-const dur = (s: number) => (s < 60 ? `${Math.floor(s)}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m` : `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`);
-const mem = (kb: number) => (kb > 1024 * 1024 ? `${(kb / 1024 / 1024).toFixed(1)} GB` : `${Math.round(kb / 1024)} MB`);
-const name = (r: ProcRow) => r.agent?.title || r.command || r.argvCommand;
-const webUrl = (r: { listen: Listen[] }) => snap?.probes.find((p) => p.pid && r.listen.some((l) => l.pid === p.pid && l.port === p.port) && p.web)?.url;
-const statusOf = (r: ProcRow): Tone => (r.agent ? (r.agent.status === "working" ? "info" : "muted") : r.listen.length ? "success" : r.stat.includes("T") ? "warning" : "info");
-/** "working", "idle 12m" — like running's agent rows. lastActive is epoch ms or s. */
-const agentState = (a: Agent) => {
-	if (a.status === "working") return "working";
-	if (a.status === "new") return "new";
-	if (!a.lastActive) return "idle";
-	const ms = a.lastActive > 1e12 ? a.lastActive : a.lastActive * 1000;
-	return `idle ${dur(Math.max(0, (Date.now() - ms) / 1000))}`;
-};
-const stateLabel = (stat: string) => (stat.includes("Z") ? "zombie" : stat.includes("T") ? "paused" : stat.startsWith("D") ? "waiting on disk" : "");
-
-/** Everything a person might type to find a process. */
-function searchable(r: ProcRow): (string | number | undefined)[] {
-	const a = r.agent;
-	return [
-		name(r), r.command, r.argvCommand, r.cwd, tildify(r.cwd), r.pid, r.kind, r.where, r.termLabel, r.tty, r.exe, stateLabel(r.stat),
-		...r.listen.flatMap((l) => [`:${l.port}`, l.host]),
-		snap?.branches[r.cwd] ?? undefined, webUrl(r),
-		...(snap?.probes.filter((p) => r.listen.some((l) => l.pid === p.pid && l.port === p.port)).map((p) => p.title) ?? []),
-		a?.harness, a?.title, a?.model, a && agentState(a), a?.branch, a?.sessionId,
-		...r.members.flatMap((m) => [m.pid, m.argvCommand, tildify(m.cwd), ...m.listen.map((l) => `:${l.port}`)]),
-	];
-}
-
-let lastSearch: Search = search("");
-
-function processRows(): Row[] {
-	lastSearch = search(query);
-	return (snap?.rows ?? []).filter((r) => lastSearch.test(searchable(r))).map((r) => {
-		const url = webUrl(r);
-		const a = r.agent;
-		return {
-			id: String(r.pid),
-			group: tildify(r.cwd) || "—",
-			cells: {
-				name: { text: name(r), sub: [a ? a.harness : r.kind, a ? agentState(a) : stateLabel(r.stat), r.pidCount > 1 ? `${r.pidCount} processes` : ""].filter(Boolean).join(" · "), dot: statusOf(r), mono: !a },
-				ports: { text: "", chips: r.listen.map((l) => `:${l.port}`) },
-				where: { text: r.termLabel || r.where || "", tone: "muted" },
-				cpu: `${r.cpu.toFixed(1)}%`,
-				mem: mem(r.rssKb),
-				uptime: dur(r.etimeSec),
-			},
-			actions: ["focus", ...(url ? ["open"] : []), "restart", "stop", "kill"],
-			children: memberRows(r),
-			details: [
-				{ label: "Command", value: r.argvCommand, mono: true },
-				{ label: "Directory", value: tildify(r.cwd), mono: true },
-				{ label: "PID", value: String(r.pid), mono: true },
-				{ label: "Terminal", value: r.termLabel || r.where || "—" },
-				{ label: "TTY", value: r.tty || "—", mono: true },
-				...(url ? [{ label: "URL", value: url, mono: true }] : []),
-				{ label: "CPU · Memory", value: `${r.cpu.toFixed(1)}% · ${mem(r.rssKb)}` },
-				{ label: "Running for", value: dur(r.etimeSec) },
-				...(snap?.branches[r.cwd] ? [{ label: "Git branch", value: snap.branches[r.cwd]!, mono: true }] : []),
-				...(a
-					? [
-							{ label: "Agent", value: [a.harness, a.model].filter(Boolean).join(" · ") },
-							{ label: "Status", value: agentState(a) },
-							...(a.tokens ? [{ label: "Tokens", value: a.tokens.toLocaleString() + (a.costUsd ? ` · $${a.costUsd.toFixed(2)}` : "") }] : []),
-							...(a.resume ? [{ label: "Resume with", value: a.resume, mono: true }] : []),
-						]
-					: []),
-			],
-		};
-	});
-}
-
-/** A job's other processes as nested rows, following parent → child. */
-function memberRows(r: ProcRow): Row[] | undefined {
-	if (!r.members.length) return undefined;
-	const pids = new Set(r.members.map((m) => m.pid));
-	const toRow = (m: Member): Row => {
-		const url = webUrl(m);
-		const kids = r.members.filter((c) => c.ppid === m.pid);
-		return {
-			id: String(m.pid),
-			cells: {
-				name: { text: m.argvCommand, sub: m.pidCount > 1 ? `pid ${m.pid} · ${m.pidCount} processes` : `pid ${m.pid}`, dot: m.listen.length ? "success" : "muted", mono: true },
-				ports: { text: "", chips: m.listen.map((l) => `:${l.port}`) },
-				where: { text: "" },
-				cpu: `${m.cpu.toFixed(1)}%`,
-				mem: mem(m.rssKb),
-				uptime: dur(m.etimeSec),
-			},
-			actions: [...(url ? ["open"] : []), "stop", "kill"],
-			details: [
-				{ label: "Command", value: m.argvCommand, mono: true },
-				{ label: "Directory", value: tildify(m.cwd), mono: true },
-				{ label: "PID · parent", value: `${m.pid} · ${m.ppid}`, mono: true },
-				...(url ? [{ label: "URL", value: url, mono: true }] : []),
-				{ label: "CPU · Memory", value: `${m.cpu.toFixed(1)}% · ${mem(m.rssKb)}` },
-				{ label: "Running for", value: dur(m.etimeSec) },
-			],
-			children: kids.length ? kids.map(toRow) : undefined,
-		};
+function recordHistory(s: Snapshot) {
+	const alive = new Set<number>();
+	const push = (pid: number, cpu: number, rssKb: number) => {
+		alive.add(pid);
+		const h = history.get(pid) ?? { cpu: [], mem: [] };
+		h.cpu.push(cpu);
+		h.mem.push(rssKb);
+		if (h.cpu.length > HISTORY) (h.cpu.shift(), h.mem.shift());
+		history.set(pid, h);
 	};
-	// Top level: members whose parent isn't another member (the job's direct children).
-	return r.members.filter((m) => !pids.has(m.ppid)).map(toRow);
+	for (const r of s.rows) {
+		push(r.pid, r.cpu, r.rssKb);
+		for (const m of r.members) push(m.pid, m.cpu, m.rssKb);
+	}
+	for (const pid of history.keys()) if (!alive.has(pid)) history.delete(pid);
 }
 
-/** The job a pid belongs to, and the member if it isn't the job itself. */
-function locate(pid: number): { row: ProcRow; member?: Member } | undefined {
-	for (const row of snap?.rows ?? []) {
-		if (row.pid === pid) return { row };
-		const member = row.members.find((m) => m.pid === pid);
-		if (member) return { row, member };
+async function loadOutput() {
+	if (dialog?.kind !== "output") return;
+	const d = dialog;
+	try {
+		d.data = await core.call<Peek>("peek", { pid: d.pid, ...(d.child ? { child: d.child } : {}), ...(d.source ? { source: d.source } : {}), lines: 600 });
+		d.error = undefined;
+	} catch (e) {
+		d.error = (e as Error).message;
 	}
 }
 
+// ── views ────────────────────────────────────────────────────────────────
 const unavailable = (): Node => ({
 	type: "empty",
 	icon: "plug-zap",
 	title: "running-core isn't available",
-	description: `${coreError}. Set RUNNING_CORE_SCRIPT to a checkout's src/serve.ts.`,
+	description: `${core.error}. Set RUNNING_CORE_SCRIPT to a checkout's src/serve.ts.`,
 });
+
+const sortKey = (): SortKey => snap?.sort.key ?? "started";
+const sortDesc = () => snap?.sort.desc ?? true;
+const sortSpec = () => hello?.sorts[sortKey()];
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const dirLabel = () => sortSpec()?.dirLabel[sortDesc() ? 1 : 0] ?? (sortDesc() ? "descending" : "ascending");
+
+/** The sources a peek can show, and which one is showing (running falls back to the first log
+ *  file when a job has no terminal to read). */
+function outputSources(d: Extract<Open, { kind: "output" }>) {
+	const files = d.data?.sources ?? [];
+	const fellBack = d.source === undefined && !!d.data && files.includes(d.data.title);
+	const list: (string | undefined)[] = [...(fellBack ? [] : [undefined]), ...files].filter((s, i, a) => a.indexOf(s) === i);
+	return { list, showing: fellBack ? d.data!.title : d.source };
+}
+
+function outputDialog(d: Extract<Open, { kind: "output" }>): Dialog {
+	const { list, showing } = outputSources(d);
+	const key = (s: string | undefined) => s ?? "@terminal";
+	return {
+		id: "output",
+		title: d.data?.kind === "conversation" ? d.data.title : `Output — ${d.data?.title ?? "…"}`,
+		description: d.error ?? `Last ${d.data?.lines.length ?? 0} lines · updates every 2 s`,
+		wide: true,
+		children: [
+			...(list.length > 1
+				? [{ type: "form" as const, id: "output", fields: [{ type: "select" as const, id: "source", label: "Show", value: key(showing), options: list.map((s) => ({ value: key(s), label: sourceLabel(s) })) }] }]
+				: []),
+			{ type: "log", id: `out:${d.pid}:${d.child ?? ""}:${showing ?? ""}`, lines: (d.data?.lines ?? []).map((t) => ({ text: stripAnsi(t) })), follow: true, empty: d.data ? "No output." : "Loading…" },
+		],
+		actions: [{ id: "output-copy", label: "Copy", icon: "copy" }],
+	};
+}
+
+function keepDialog(d: Extract<Open, { kind: "keep" }>): Dialog {
+	const editing = d.index !== undefined;
+	const fields: Field[] = [
+		{ type: "text", id: "name", label: "Name", value: d.draft.name, placeholder: "web dev server" },
+		{ type: "text", id: "command", label: "Command", value: d.draft.command },
+		{ type: "text", id: "cwd", label: "Directory", value: d.draft.cwd },
+		{ type: "text", id: "note", label: "Note", value: d.draft.note, placeholder: "optional" },
+		...d.draft.env.map(
+			(e): Field => ({ type: "switch", id: `env:${e.key}`, label: e.key, value: e.selected, description: e.secret ? "•••••• (looks secret — off by default)" : e.value.length > 80 ? e.value.slice(0, 80) + "…" : e.value }),
+		),
+	];
+	return {
+		id: "keep",
+		title: editing ? `Edit “${d.draft.name}”` : d.draft.title,
+		description: d.draft.alreadyKept && !editing ? `Already kept as “${d.draft.alreadyKept.name}” — saving updates it.` : d.draft.env.length ? "Environment variables that differ from your shell can be kept with it." : undefined,
+		children: [{ type: "form", id: "keep", fields }],
+		actions: [{ id: "keep-save", label: editing || d.draft.alreadyKept ? "Save" : "Keep", icon: "bookmark", primary: true, disabled: d.saving || !d.draft.command.trim() }],
+	};
+}
+
+const currentDialog = (screen: "processes" | "kept"): Dialog | undefined => {
+	if (!dialog || dialogScreen !== screen) return undefined;
+	return dialog.kind === "output" ? outputDialog(dialog) : keepDialog(dialog);
+};
+
+function processesScreen(): Node {
+	if (core.error) return unavailable();
+	last = snap ? build(snap, { query, showAll, sort: sortKey(), desc: sortDesc(), history }) : null;
+	const spec = sortSpec();
+	return {
+		type: "page",
+		search: { placeholder: "Filter by command, folder, port, pid, agent…" },
+		summary: last ? `${last.shown} of ${last.total - last.hiddenApps} processes${last.hiddenApps ? ` · ${last.hiddenApps} apps hidden` : ""}` : "Loading…",
+		highlight: last?.search.highlight(),
+		actions: [
+			{ id: "toggle-apps", label: showAll ? "Hide apps" : "Show apps", icon: showAll ? "eye-off" : "app-window" },
+			{ id: "sort-next", label: `Sort: ${cap(spec?.label ?? sortKey())}`, icon: "arrow-down-up" },
+			{ id: "sort-dir", label: cap(dirLabel()), icon: sortDesc() ? "arrow-down-wide-narrow" : "arrow-up-narrow-wide" },
+			{ id: "refresh", label: "Refresh", icon: "refresh-cw" },
+		],
+		dialog: currentDialog("processes"),
+		children: [
+			{
+				type: "table",
+				id: "processes",
+				columns: [
+					{ key: "name", title: "Process", grow: true },
+					{ key: "ports", title: "Ports" },
+					{ key: "cpu", title: "CPU", align: "right", mono: true, optional: true },
+					{ key: "mem", title: "Memory", align: "right", mono: true, optional: true },
+					{ key: "uptime", title: "Up", align: "right", mono: true },
+				],
+				rows: last?.rows ?? [],
+				actions: [
+					{ id: "focus", label: "Show in terminal", icon: "square-terminal", inline: true },
+					{ id: "open", label: "Open in browser", icon: "globe", inline: true },
+					{ id: "output", label: "Show output", icon: "scroll-text", inline: true },
+					{ id: "copy", label: "Copy cd && command", icon: "copy" },
+					{ id: "keep", label: "Keep…", icon: "bookmark-plus" },
+					{ id: "edit-kept", label: "Edit kept command…", icon: "bookmark" },
+					{ id: "restart", label: "Restart", icon: "rotate-cw", confirm: "Stop it and run the same command again — in its terminal if that's still open, otherwise in a new window." },
+					{ id: "why", label: "Why is it still running?", icon: "circle-help" },
+					{ id: "stop", label: "Stop", icon: "square", tone: "destructive", confirm: "Stop it (SIGTERM, then SIGCONT so paused jobs can exit)?" },
+					{ id: "kill", label: "Force stop", icon: "octagon-x", tone: "destructive", confirm: "Force stop it now (SIGKILL)? It gets no chance to clean up." },
+				],
+				empty: {
+					title: !snap ? "Loading…" : query ? "No process matches" : "Nothing running",
+					description: snap && !query ? (last?.hiddenApps ? "Apps and system servers are hidden — Show apps lists them." : "Processes you start in your terminals show up here.") : undefined,
+					icon: "terminal",
+				},
+			},
+		],
+	};
+}
+
+function keptScreen(): Node {
+	if (core.error) return unavailable();
+	const kept = snap?.kept ?? [];
+	return {
+		type: "page",
+		summary: `${kept.length} kept · ${kept.filter((k) => k.livePid).length} running`,
+		dialog: currentDialog("kept"),
+		children: [
+			{
+				type: "table",
+				id: "kept",
+				columns: [
+					{ key: "name", title: "Name", grow: true },
+					{ key: "dir", title: "Directory", optional: true },
+					{ key: "state", title: "State" },
+				],
+				rows: kept.map(
+					(k, i): Row => ({
+						id: String(k.index),
+						cells: {
+							name: { text: k.name || k.command, sub: k.line, mono: false },
+							dir: { text: tildify(k.cwd), mono: true, tone: "muted" },
+							state: k.livePid ? { text: "Running", dot: "success", sub: `pid ${k.livePid}` } : { text: "Stopped", dot: "muted", tone: "muted" },
+						},
+						actions: [...(k.livePid ? ["focus-kept"] : ["start"]), "edit", "copy", ...(i > 0 ? ["up"] : []), ...(i < kept.length - 1 ? ["down"] : []), "forget"],
+						details: [
+							{ label: "Command", value: k.line, mono: true },
+							{ label: "Directory", value: tildify(k.cwd), mono: true },
+							...Object.entries(k.env).map(([key, v]) => ({ label: key, value: /KEY|TOKEN|SECRET|PASSWORD|PASS|AUTH/i.test(key) ? "••••••" : v, mono: true })),
+							...(k.note ? [{ label: "Note", value: k.note }] : []),
+							...(k.ports.length ? [{ label: "Ports", value: k.ports.map((p) => `:${p}`).join(" ") }] : []),
+							...(k.session ? [{ label: "Agent session", value: k.session, mono: true }] : []),
+							...(k.kept ? [{ label: "Kept on", value: new Date(k.kept).toLocaleString() }] : []),
+						],
+					}),
+				),
+				actions: [
+					{ id: "start", label: `Start in ${hello?.terminals[terminal]?.label ?? terminal}`, icon: "play", inline: true },
+					{ id: "focus-kept", label: "Show in terminal", icon: "square-terminal", inline: true },
+					{ id: "edit", label: "Edit…", icon: "pencil" },
+					{ id: "copy", label: "Copy cd && command", icon: "copy" },
+					{ id: "up", label: "Move up", icon: "arrow-up" },
+					{ id: "down", label: "Move down", icon: "arrow-down" },
+					{ id: "forget", label: "Forget", icon: "trash-2", tone: "destructive", confirm: "Forget this kept command? (You can undo right after.)" },
+				],
+				empty: { title: "Nothing kept yet", description: "Keep a process (its row menu → Keep…) to start it again later, with its folder and environment.", icon: "bookmark" },
+			},
+		],
+	};
+}
+
+function settingsScreen(): Node {
+	const sh = hello?.shell;
+	return {
+		type: "page",
+		children: [
+			{
+				type: "form",
+				id: "settings",
+				title: "The list",
+				fields: [
+					{ type: "select", id: "sort", label: "Sort by", value: sortKey(), options: Object.entries(hello?.sorts ?? {}).map(([value, s]) => ({ value, label: cap(s.label) })), description: "Shared with running's terminal UI." },
+					{ type: "select", id: "dir", label: "Order", value: sortDesc() ? "desc" : "asc", options: [{ value: "asc", label: cap(sortSpec()?.dirLabel[0] ?? "ascending") }, { value: "desc", label: cap(sortSpec()?.dirLabel[1] ?? "descending") }] },
+					{ type: "switch", id: "showAll", label: "Show apps and system servers", value: showAll, description: "Desktop apps and servers you didn't start in a terminal." },
+					{ type: "select", id: "terminal", label: "Start kept commands in", value: terminal, options: Object.entries(hello?.terminals ?? { terminal: { label: "Terminal" } }).map(([value, t]) => ({ value, label: t.label })) },
+				],
+			},
+			{
+				type: "card",
+				id: "shell",
+				title: "Shell integration",
+				description: "running's zsh hook remembers the commands you type, so Processes can show what you typed (not just what's running), restart it, and name jobs whose launcher exited.",
+				tone: sh && sh.zshrc && sh.logExists ? "success" : "warning",
+				actions: [{ id: "copy-init", label: "Copy setup line", icon: "copy", primary: !sh?.zshrc }],
+				children: [
+					{
+						type: "details",
+						items: [
+							{ label: "In ~/.zshrc", value: sh?.zshrc ? "yes" : "no — add the setup line below", tone: sh?.zshrc ? "success" : "warning" },
+							{ label: "Command log", value: sh?.logExists ? `written ${sh.logAgeSec !== undefined ? dur(sh.logAgeSec) + " ago" : ""}` : "none yet", tone: sh?.logExists ? "default" : "warning", mono: false },
+							{ label: "Setup line", value: `echo 'eval "$(command running init)"' >> ~/.zshrc`, mono: true },
+						],
+					},
+				],
+			},
+			{
+				type: "card",
+				id: "core",
+				title: "running-core",
+				children: [
+					{
+						type: "details",
+						items: [
+							{ label: "Version", value: hello?.version ?? "?" },
+							{ label: "Engine", value: tildify(core.script), mono: true },
+							{ label: "Kept commands", value: hello ? tildify(hello.keptFile) : "?", mono: true },
+							{ label: "Command log", value: hello ? tildify(hello.logFile) : "?", mono: true },
+						],
+					},
+				],
+			},
+		],
+	};
+}
+
+function quickView(): Node {
+	if (core.error) return unavailable();
+	const rows = (snap?.rows ?? []).filter((r) => r.kind !== "app").sort((a, b) => b.listen.length - a.listen.length || a.etimeSec - b.etimeSec);
+	return {
+		type: "list",
+		id: "quick",
+		items: rows.slice(0, 8).map((r) => ({
+			id: String(r.pid),
+			title: displayName(r),
+			subtitle: [r.agent ? `${r.agent.harness} · ${agentState(r.agent)}` : r.listen.map((l) => `:${l.port}`).join(" "), tildify(r.cwd)].filter(Boolean).join("  "),
+			dot: statusTone(r),
+			meta: dur(r.etimeSec),
+			actions: [{ id: "focus", label: "Show in terminal", icon: "square-terminal" }, ...(snap && webUrl(snap, r) ? [{ id: "open", label: "Open in browser", icon: "globe" }] : [])],
+		})),
+		empty: { title: "Nothing running", icon: "terminal" },
+	};
+}
 
 // ── plugin ───────────────────────────────────────────────────────────────
 let timer: ReturnType<typeof setInterval> | null = null;
 function schedule(c: Context) {
 	if (timer) clearInterval(timer);
-	// Refresh every 2 s while something is on screen, every 15 s for the badge otherwise.
+	// Every 2 s while something is on screen (sparklines, live output), every 15 s for the badge.
 	timer = setInterval(() => void refresh(), c.open.size ? 2000 : 15000);
+}
+
+/** After a stop: if it's still there a moment later, say why (zombie, stuck on disk, respawned). */
+function checkSurvivor(pid: number, child: number | undefined, name: string, c: Context) {
+	setTimeout(async () => {
+		await refresh();
+		if (!locate(snap, child ?? pid)) return;
+		try {
+			const res = await core.call<{ alive: boolean; reason?: string }>("whyAlive", { pid, ...(child ? { child } : {}) });
+			if (res.alive) c.toast(`${name} is still running${res.reason ? `: ${res.reason}` : ""}`, "error");
+		} catch {}
+	}, 2500);
 }
 
 const ctx = definePlugin({
 	async start(c) {
-		startCore();
-		if (core) hello = await call<Hello>("hello").catch(() => null);
+		core.start();
+		if (core.running) hello = await core.call<Hello>("hello").catch(() => null);
 		await refresh();
 		schedule(c);
 	},
@@ -231,153 +350,175 @@ const ctx = definePlugin({
 		schedule(c);
 		void refresh();
 	},
-	onClose: (_s, c) => schedule(c),
-	render: {
-		"screen:processes": () => {
-			if (coreError) return unavailable();
-			const rows = processRows();
-			return {
-				type: "page",
-				search: { placeholder: "Filter by command, folder, port…" },
-				summary: snap ? `${rows.length} of ${snap.rows.length} processes` : "Loading…",
-				highlight: lastSearch.highlight(),
-				actions: [{ id: "refresh", label: "Refresh", icon: "refresh-cw" }],
-				children: [
-					{
-						type: "table",
-						id: "processes",
-						columns: [
-							{ key: "name", title: "Process", grow: true },
-							{ key: "ports", title: "Ports" },
-							{ key: "where", title: "Terminal", optional: true },
-							{ key: "cpu", title: "CPU", align: "right", mono: true, optional: true },
-							{ key: "mem", title: "Memory", align: "right", mono: true, optional: true },
-							{ key: "uptime", title: "Up", align: "right", mono: true },
-						],
-						rows,
-						actions: [
-							{ id: "focus", label: "Show in terminal", icon: "square-terminal", inline: true },
-							{ id: "open", label: "Open in browser", icon: "globe", inline: true },
-							{ id: "restart", label: "Restart", icon: "rotate-cw", confirm: "Stop it and run the same command again, in its terminal if that's still open." },
-							{ id: "stop", label: "Stop", icon: "square", tone: "destructive", confirm: "Stop this process (SIGTERM)?" },
-							{ id: "kill", label: "Force stop", icon: "octagon-x", tone: "destructive", confirm: "Force stop it now (SIGKILL)? It gets no chance to clean up." },
-						],
-						empty: { title: snap ? (query ? "No process matches" : "Nothing running") : "Loading…", description: snap ? "Processes you start in your terminals show up here." : undefined, icon: "terminal" },
-					},
-				],
-			};
-		},
-		"screen:kept": () => {
-			if (coreError) return unavailable();
-			const kept = snap?.kept ?? [];
-			return {
-				type: "page",
-				summary: `${kept.length} kept`,
-				children: [
-					{
-						type: "table",
-						id: "kept",
-						columns: [
-							{ key: "name", title: "Name", grow: true },
-							{ key: "dir", title: "Directory", optional: true },
-							{ key: "state", title: "State" },
-						],
-						rows: kept.map((k) => ({
-							id: String(k.index),
-							cells: {
-								name: { text: k.name || k.command, sub: k.line, mono: false },
-								dir: { text: tildify(k.cwd), mono: true, tone: "muted" },
-								state: k.livePid ? { text: "Running", dot: "success" } : { text: "Stopped", dot: "muted", tone: "muted" },
-							},
-							actions: k.livePid ? [] : ["start"],
-							details: [
-								{ label: "Command", value: k.line, mono: true },
-								{ label: "Directory", value: tildify(k.cwd), mono: true },
-								...(k.note ? [{ label: "Note", value: k.note }] : []),
-								...(k.ports.length ? [{ label: "Ports", value: k.ports.join(", ") }] : []),
-							],
-						})),
-						actions: [{ id: "start", label: "Start", icon: "play", inline: true }],
-						empty: { title: "Nothing kept yet", description: "Keep a process to start it again later.", icon: "bookmark" },
-					},
-				],
-			};
-		},
-		"screen:settings": () => ({
-			type: "page",
-			children: [
-				{
-					type: "form",
-					id: "settings",
-					title: "Processes",
-					description: `running-core ${hello?.version ?? "?"} · ${tildify(script)}`,
-					fields: [
-						{ type: "select", id: "sort", label: "Sort", value: snap?.sort.key ?? "", options: Object.entries(hello?.sorts ?? {}).map(([value, s]) => ({ value, label: s.label })), description: "How the TUI and this list order processes." },
-						{ type: "select", id: "terminal", label: "Start kept processes in", value: terminal, options: Object.keys(hello?.terminals ?? { terminal: 1 }).map((t) => ({ value: t, label: t })) },
-					],
-				},
-			],
-		}),
-		quick: () => {
-			if (coreError) return unavailable();
-			const rows = (snap?.rows ?? []).filter((r) => r.kind !== "app").sort((a, b) => b.listen.length - a.listen.length || a.etimeSec - b.etimeSec);
-			return {
-				type: "list",
-				id: "quick",
-				items: rows.slice(0, 8).map((r) => ({
-					id: String(r.pid),
-					title: name(r),
-					subtitle: [r.listen.map((l) => `:${l.port}`).join(" "), tildify(r.cwd)].filter(Boolean).join("  "),
-					dot: statusOf(r),
-					meta: dur(r.etimeSec),
-					actions: [{ id: "focus", label: "Show in terminal", icon: "square-terminal" }, ...(webUrl(r) ? [{ id: "open", label: "Open in browser", icon: "globe" }] : [])],
-				})),
-				empty: { title: "Nothing running", icon: "terminal" },
-			};
-		},
+	onClose: (s, c) => {
+		if ((s === "screen:processes" || s === "screen:kept") && dialog) dialog = null;
+		schedule(c);
 	},
-	async onEvent(_surface, event, payload, c) {
+	render: {
+		"screen:processes": processesScreen,
+		"screen:kept": keptScreen,
+		"screen:settings": settingsScreen,
+		quick: quickView,
+	},
+	async onEvent(surface, event, payload, c) {
+		const screen = surface === "screen:kept" ? "kept" : "processes";
 		const pid = Number(payload?.rowId);
-		const found = locate(pid);
+		const found = locate(snap, pid);
 		const row = found?.row;
+		const child = found?.member?.pid;
+		const label = found?.member ? found.member.argvCommand : row ? displayName(row) : String(pid);
+		const keptAt = (id: unknown) => snap?.kept.find((k) => k.index === Number(id));
 		try {
+			// ── dialogs ──
+			if (event === "dialog-close") {
+				dialog = null;
+				return c.invalidate();
+			}
+			if (event === "field" && payload?.form === "output" && dialog?.kind === "output") {
+				dialog.source = payload.value === "@terminal" ? undefined : String(payload.value);
+				dialog.data = undefined;
+				c.invalidate();
+				await loadOutput();
+				return c.invalidate();
+			}
+			if (event === "output-copy" && dialog?.kind === "output") {
+				c.copy((dialog.data?.lines ?? []).map(stripAnsi).join("\n"));
+				return c.toast("Output copied", "success");
+			}
+			if (event === "field" && payload?.form === "keep" && dialog?.kind === "keep") {
+				const f = String(payload.field);
+				if (f.startsWith("env:")) {
+					const e = dialog.draft.env.find((x) => x.key === f.slice(4));
+					if (e) e.selected = !!payload.value;
+				} else if (f === "name" || f === "command" || f === "cwd" || f === "note") dialog.draft[f] = String(payload.value);
+				return c.invalidate();
+			}
+			if (event === "keep-save" && dialog?.kind === "keep") {
+				const d = dialog;
+				const values = { name: d.draft.name, command: d.draft.command, cwd: d.draft.cwd, note: d.draft.note, env: d.draft.env };
+				const index = d.index ?? d.draft.alreadyKept?.index;
+				d.saving = true;
+				c.invalidate();
+				const res = index !== undefined ? await core.call<{ ok: boolean; message: string }>("edit", { index, values }) : await core.call<{ ok: boolean; message: string }>("keep", { pid: d.pid, values });
+				d.saving = false;
+				c.toast(res.message, res.ok ? "success" : "error");
+				if (res.ok) dialog = null;
+				return void (await refresh());
+			}
+			if (surface === "toast" && event === "undo-forget") {
+				const res = await core.call<{ ok: boolean; message: string }>("restoreKept", { kept: payload?.kept, index: payload?.index });
+				c.toast(res.message, res.ok ? "success" : "error");
+				return void (await refresh());
+			}
+
 			switch (event) {
 				case "search":
-					query = String(payload?.query ?? "").toLowerCase();
-					c.invalidate();
-					return;
+					query = String(payload?.query ?? "");
+					return c.invalidate();
 				case "refresh":
 					break;
+				case "toggle-apps":
+					showAll = !showAll;
+					break;
+				case "sort-next": {
+					const keys = Object.keys(hello?.sorts ?? { started: 1, memory: 1, cpu: 1, name: 1 }) as SortKey[];
+					const next = keys[(keys.indexOf(sortKey()) + 1) % keys.length];
+					await core.call("setSort", { key: next, desc: hello?.sorts[next]?.desc ?? true });
+					break;
+				}
+				case "sort-dir":
+					await core.call("setSort", { key: sortKey(), desc: !sortDesc() });
+					break;
 				case "focus":
-					if (row) await call("focus", { pid: row.pid });
+					if (row) await core.call("focus", { pid: row.pid });
 					break;
 				case "open": {
-					const url = found && webUrl(found.member ?? found.row);
-					if (url) await call("openUrl", { url });
+					const url = found && snap && webUrl(snap, found.member ?? found.row);
+					if (url) await core.call("openUrl", { url });
 					break;
+				}
+				case "output":
+					if (!row) break;
+					dialog = { kind: "output", pid: row.pid, child, source: !child && row.agent?.transcript ? "@transcript" : undefined };
+					dialogScreen = "processes";
+					c.invalidate();
+					await loadOutput();
+					return c.invalidate();
+				case "copy": {
+					const k = screen === "kept" ? keptAt(payload?.rowId) : undefined;
+					const cwd = k ? k.cwd : (found?.member?.cwd ?? row?.cwd ?? "");
+					const command = k ? k.line : (found?.member?.argvCommand ?? row?.command ?? "");
+					const res = await core.call<{ line: string }>("copyLine", { cwd, command });
+					c.copy(res.line);
+					return c.toast("Copied — paste it in a terminal", "success");
+				}
+				case "keep": {
+					if (!row) break;
+					const draft = await core.call<KeepDraft>("keepDraft", { pid: row.pid });
+					dialog = { kind: "keep", pid: row.pid, draft };
+					dialogScreen = "processes";
+					return c.invalidate();
+				}
+				case "edit-kept":
+				case "edit": {
+					const k = event === "edit" ? keptAt(payload?.rowId) : row?.keptIndex !== undefined ? keptAt(row.keptIndex) : undefined;
+					if (!k) break;
+					dialog = {
+						kind: "keep",
+						index: k.index,
+						draft: { title: "Edit kept command", name: k.name ?? "", command: k.command, cwd: k.cwd, note: k.note, env: Object.entries(k.env).map(([key, value]) => ({ key, value, secret: false, selected: true })) },
+					};
+					dialogScreen = event === "edit" ? "kept" : "processes";
+					return c.invalidate();
 				}
 				case "restart": {
 					if (!row) break;
-					const res = await call<{ ok: boolean; message?: string }>("restart", { pid: row.pid, terminal });
+					const res = await core.call<{ ok: boolean; message?: string }>("restart", { pid: row.pid, terminal });
 					c.toast(res.message ?? (res.ok ? "Restarted" : "Couldn't restart"), res.ok ? "success" : "error");
 					break;
 				}
+				case "stop":
 				case "kill":
 					if (!row) break;
-					await call("kill", found?.member ? { pid: row.pid, child: pid, force: true } : { pid, force: true });
-					c.toast(`Force-stopped ${found?.member ? found.member.argvCommand : name(row)}`, "success");
+					await core.call("kill", { pid: row.pid, ...(child ? { child } : {}), ...(event === "kill" ? { force: true } : {}) });
+					c.toast(`${event === "kill" ? "Force-stopped" : "Stopped"} ${label}`, "success");
+					checkSurvivor(row.pid, child, label, c);
 					break;
-				case "stop":
+				case "why": {
 					if (!row) break;
-					await call("kill", found?.member ? { pid: row.pid, child: pid } : { pid });
-					c.toast(`Stopped ${found?.member ? found.member.argvCommand : name(row)}`, "success");
+					const res = await core.call<{ alive: boolean; reason?: string }>("whyAlive", { pid: row.pid, ...(child ? { child } : {}) });
+					c.toast(res.alive ? `${label}: ${res.reason ?? "still running"}` : `${label} has exited`, res.alive ? "default" : "success");
 					break;
-				case "start":
-					await call("start", { index: Number(payload?.rowId), terminal });
-					c.toast("Started", "success");
+				}
+				case "start": {
+					const res = await core.call<{ ok?: boolean; message?: string }>("start", { index: Number(payload?.rowId), terminal });
+					c.toast(res?.message ?? "Started", res?.ok === false ? "error" : "success");
 					break;
+				}
+				case "focus-kept": {
+					const live = keptAt(payload?.rowId)?.livePid;
+					if (live) await core.call("focus", { pid: live });
+					break;
+				}
+				case "up":
+				case "down": {
+					const from = Number(payload?.rowId);
+					await core.call("move", { from, to: from + (event === "up" ? -1 : 1) });
+					break;
+				}
+				case "forget": {
+					const index = Number(payload?.rowId);
+					const res = await core.call<{ ok: boolean; message: string; restore: unknown }>("forget", { index });
+					c.toast(res.message, "success", { id: "undo-forget", label: "Undo", payload: { kept: res.restore, index } });
+					break;
+				}
+				case "copy-init":
+					c.copy(`eval "$(command running init)"`);
+					return c.toast("Copied — add it to ~/.zshrc, then open a new terminal", "success");
 				case "field":
-					if (payload?.field === "sort") await call("setSort", { key: payload.value, desc: snap?.sort.desc ?? false });
+					if (payload?.field === "sort") await core.call("setSort", { key: payload.value, desc: hello?.sorts[payload.value as SortKey]?.desc ?? sortDesc() });
+					if (payload?.field === "dir") await core.call("setSort", { key: sortKey(), desc: payload.value === "desc" });
+					if (payload?.field === "showAll") showAll = !!payload.value;
 					if (payload?.field === "terminal") terminal = String(payload.value);
 					break;
 			}

@@ -29,6 +29,9 @@ protocol; Toolbelt renders them. See `README.md`.
   `components/ui/` is shadcn's (add more with `bunx shadcn@latest add …`; it once rewrote
   imports to an npm package called `cn` — check the diff).
 - `plugins/` — built-in plugins, bundled to `build-plugins/` by `scripts/build-plugins.ts`.
+  `plugins/processes/`: `core.ts` (running-core client), `model.ts` (grouping/sorting/search,
+  pure — tested in `test/processes-model.test.ts`), `index.ts` (screens, dialogs, actions).
+  Testing it touches the person's real processes: open dialogs, never save/stop/kill/focus.
 - `src/ui/themes.ts` — palettes (light + dark each); `test/themes.test.ts` enforces WCAG AA for
   every text/background pairing. Add a theme there, and the test tells you if it's readable.
   Use the `selected` / `selected-foreground` tokens for selection, not `accent` (that's hover).

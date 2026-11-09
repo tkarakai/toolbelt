@@ -7,7 +7,9 @@
 // anything doesn't look as expected it does nothing.
 import { CFunction, dlopen, FFIType, ptr, type Pointer } from "bun:ffi";
 
-let ready: null | { button: Pointer; set: (on: boolean) => void } | false = null;
+let ready: null | { button: Pointer; set: (on: boolean) => void; get: () => boolean } | false = null;
+let wanted = false;
+let timers: ReturnType<typeof setTimeout>[] = [];
 
 function init() {
 	try {
@@ -70,10 +72,12 @@ function init() {
 			if ((Number(s) & 0xff) !== 0) yes = s;
 		}
 		if (!yes) return false;
-		const highlight = sel("highlight:");
+		const highlight = sel("setHighlighted:");
 		const perform = sel("performSelectorOnMainThread:withObject:waitUntilDone:");
 		const b = button;
-		return { button: b, set: (on: boolean) => msgPerform(b, perform, highlight, on ? yes : null, false) };
+		const msgBool = CFunction({ ptr: send, args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool });
+		const isHighlighted = sel("isHighlighted");
+		return { button: b, set: (on: boolean) => msgPerform(b, perform, highlight, on ? yes : null, false), get: () => !!msgBool(b, isHighlighted) };
 	} catch (e) {
 		console.error("tray highlight unavailable:", (e as Error).message);
 		return false;
@@ -85,5 +89,16 @@ export function setTrayHighlighted(on: boolean) {
 		ready = init();
 		if (ready) console.log("tray highlight: ready");
 	}
-	if (ready) ready.set(on);
+	if (!ready) return;
+	wanted = on;
+	timers.forEach(clearTimeout);
+	ready.set(on);
+	// A click releases the button after its action ran, which clears the highlight again:
+	// re-apply it once the click is over.
+	if (on) timers = [60, 200, 450].map((ms) => setTimeout(() => wanted && ready && ready.set(true), ms));
+}
+
+/** Whether the menu bar icon is highlighted now (debug channel); null if unknown. */
+export function trayHighlighted(): boolean | null {
+	return ready ? ready.get() : null;
 }

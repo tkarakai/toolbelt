@@ -19,7 +19,12 @@ const broadcast = (name: string, payload: unknown) => clients.forEach((c) => c.s
 host.subscribe({
 	plugins: (list) => broadcast("plugins", list),
 	tree: (plugin, surface, tree) => broadcast("tree", { plugin, surface, tree }),
-	toast: (plugin, text, tone) => broadcast("toast", { plugin, text, tone }),
+	toast: (plugin, text, tone, action) => broadcast("toast", { plugin, text, tone, action }),
+	clipboard: (_plugin, text) => {
+		const p = Bun.spawn(["pbcopy"], { stdin: "pipe" });
+		p.stdin.write(text);
+		p.stdin.end();
+	},
 });
 host.start();
 
