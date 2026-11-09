@@ -22,3 +22,19 @@
   tables can have checkboxes with actions for the selected rows, and times can be shown
   relative to now ("in 2h 14m"), kept current by Toolbelt. Each plugin gets a data folder
   (`TOOLBELT_DATA_DIR`). The Showcase plugin has a *Tasks* tab with all of these.
+- **Upkeep**, a built-in plugin that keeps what you choose up to date
+  ([docs/upkeep.md](docs/upkeep.md)).
+  - *Discover* scans this Mac (only when you ask) for Homebrew formulae and casks, Sparkle
+    apps, Node (nvm), Bun, Deno, uv, Rust, Go, Claude Code, global npm/uv/pipx/cargo packages,
+    and git clones. Things installed more than once are flagged.
+  - *Watching* checks the items you added every 6 hours (configurable), with a live countdown
+    to each item's next check and *Check now* per item.
+  - *Review & update* shows the exact commands and the release notes for every version since
+    yours.
+  - *Queue* streams live output and can cancel. *Activity* is the audit log of every check,
+    update, rollback and setting change.
+  - Updates are notify-only until you turn automatic updates on, globally and per item.
+    Anything that needs a password, quits a running app, or runs your own commands never
+    starts by itself.
+  - Also: end-of-life warnings, channels (Node LTS, betas), pin, skip a version, rollback for
+    Node and git, signature checks for apps, custom recipes, and a menu bar quick view.

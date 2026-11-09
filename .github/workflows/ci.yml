@@ -48,7 +48,7 @@ jobs:
           ls -la artifacts
           # The update bundle has the UI, the built-in plugins and the Bun runtime.
           tar -tf artifacts/stable-macos-arm64-Toolbelt.app.tar.zst > "$RUNNER_TEMP/bundle.txt"
-          for f in app/views/ui/index.html app/plugins/processes/toolbelt.json app/plugins/showcase/toolbelt.json MacOS/bun; do
+          for f in app/views/ui/index.html app/plugins/processes/toolbelt.json app/plugins/showcase/toolbelt.json app/plugins/upkeep/toolbelt.json MacOS/bun; do
             grep -q "Contents/.*$f$" "$RUNNER_TEMP/bundle.txt" || { echo "::error::missing $f in the update bundle"; exit 1; }
           done
           grep -q '"identifier":"io.github.tkarakai.toolbelt"' artifacts/stable-macos-arm64-update.json

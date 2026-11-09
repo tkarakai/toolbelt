@@ -50,6 +50,9 @@ protocol; Toolbelt renders them. See `README.md`.
   `TOOLBELT_DEBUG_PORT` and `TOOLBELT_CONFIG_DIR`.
 - Global shortcuts: use `src/bun/hotkey.ts` (Carbon), not Electrobun's `GlobalShortcut` — that
   one silently needs Accessibility permission.
+- Upkeep updates real software. Test it with `TOOLBELT_CONFIG_DIR` pointing at a scratch
+  folder, and exercise updates with a custom recipe or a throwaway git clone, never by
+  updating the user's own apps or tools.
 - Never kill, restart or type into the user's own processes or terminals while testing — the
   Processes plugin can stop processes; use the Showcase plugin to exercise actions.
 

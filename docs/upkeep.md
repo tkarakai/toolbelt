@@ -4,9 +4,11 @@ Upkeep is a Toolbelt plugin. You choose what it watches (apps, runtimes, global 
 clones, your own recipes). It checks for new versions on a schedule, shows what's new since the
 installed version, and updates when you say so, logging every step.
 
-Status: design, 2026-11-09. Built in two pull requests: the protocol additions it needs (this
-document, `card`, `log`, `progress`, `markdown`, dialogs, bulk actions, relative times, a data
-folder per plugin), then the plugin itself.
+Status: first version, 2026-11-09 (`plugins/upkeep`). It was built in two pull requests. The
+first added this design and the protocol pieces Upkeep needs (`card`, `log`, `progress`,
+`markdown`, dialogs, bulk actions, relative times, a data folder per plugin). The second added
+the plugin itself. See [Known limits](#known-limits-of-the-first-version) for what isn't done
+yet.
 
 ## Principles
 
@@ -85,7 +87,7 @@ executable name for tools) are linked:
 - **Every version since yours.** Release notes cover every version after the installed one, up
   to the target, newest first. Sources:
   - GitHub releases (via `gh` when it's signed in, which has a higher rate limit, otherwise the
-    public API with ETags);
+    public API; responses are cached for an hour);
   - every item in a Sparkle appcast;
   - `git log HEAD..@{u}` for clones;
   - the npm or PyPI registry linking to the repository's releases.
@@ -133,8 +135,8 @@ live. Then:
   is clean and on its tracking branch. There's free disk space. For automatic runs: on AC power
   and outside quiet hours.
 - **After:** the version is checked again. The update counts as a success only if it reached the
-  target. For apps, the code signature is checked (`codesign --verify`) and the Team ID must be
-  the same as before. A mismatch shows as a red warning in the log.
+  target. For apps, the Team ID in the code signature must be the same as before. A mismatch
+  shows as a red warning in the log.
 - **Rollback** where the provider can do it: Node switches the default back to the previous
   version, which stays installed; a git clone goes back to the previous commit
   (`git reset --keep`). Others show what you'd need to do.
@@ -181,8 +183,9 @@ app, and automatic updates leave running apps alone.
 - Custom recipes are shell commands you write. They're shown in full, stored with a hash, and
   editing one makes it unreviewed again. They only run manually, from the review dialog.
 - Upkeep doesn't download binaries itself in v1. Delegating to Homebrew, rustup, `bun upgrade`
-  and the others means their signature and checksum checks apply. Go's package will be checked
-  against go.dev's published SHA-256 before it's offered.
+  and the others means their signature and checksum checks apply. For Go, Upkeep opens
+  go.dev's download page. Downloading the package itself and checking it against go.dev's
+  published SHA-256 is a later step.
 - Release notes are untrusted text. Markdown is shown with links but never raw HTML, and only
   `http`, `https` and `mailto` links open, in your browser.
 - Code signatures are compared for apps. Repositories are only fast-forwarded, so local work is
@@ -221,7 +224,7 @@ Everything is in the plugin's data folder, `~/Library/Application Support/Toolbe
 | `settings.json` | interval, automatic-update switch, quiet hours, folders |
 | `audit.jsonl` | the audit log, one event per line, append-only (rotated at 10 MB) |
 | `logs/<job>.log` | full output of each job |
-| `cache/` | release notes, endoflife.date, ETags |
+| `discovered.json` | the last scan's results |
 | `askpass.sh` | the password-dialog helper (rewritten on start, mode 0700) |
 
 Files are written to a temporary file first and then renamed into place, so a crash never
@@ -237,3 +240,19 @@ leaves a half-written file.
   things.
 - macOS notifications for security updates and failures. For now there's the menu bar badge.
 - The providers listed under [What it watches](#what-it-watches) as *Later*.
+
+## Known limits of the first version
+
+- **Cancelling stops the command Upkeep started, not its children.** Bun can't start a new
+  process group, so a tool that spawned helpers may leave them running.
+- **Scheduled checks only run while Toolbelt is running.** Missed checks run when it starts.
+- **Sparkle apps and Go are handed over, not installed by Upkeep.** Upkeep opens the app or the
+  download page, then checks again 10 minutes later.
+- **Only the password-dialog route is built.** Passwords use the `SUDO_ASKPASS` dialog, or
+  *Run in Terminal*. The `osascript … with administrator privileges` route is designed but not
+  built yet.
+- **npm globals belong to one Node.** They're tied to the Node that `npm` on your PATH belongs
+  to (with nvm, the default one).
+- **macOS, App Store apps, Electron apps, editor extensions, models and Docker images aren't
+  covered yet** (see [What it watches](#what-it-watches)).
+

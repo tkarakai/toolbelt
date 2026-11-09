@@ -14,7 +14,8 @@ tool looks and behaves like part of the same app.
 - **The `tb` command** — every plugin can ship a command line too: a TUI for people and
   machine-readable (`--json`) commands for scripts and agents. `tb ps` lists your processes.
 
-Status: early. The first plugin is **Toolbelt Processes**
+Status: early. Built-in plugins: **Upkeep**, which keeps the apps, runtimes, packages and git
+clones you choose up to date ([docs/upkeep.md](docs/upkeep.md)), and **Toolbelt Processes**
 ([toolbelt-ps](https://github.com/tkarakai/toolbelt-ps)), a reimplementation of
 [running](https://github.com/tkarakai/running).
 
