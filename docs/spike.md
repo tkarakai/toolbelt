@@ -58,7 +58,9 @@ virtualize long tables. The protocol leaves room for both (`render` → `patch`)
 - **shadcn CLI**: the Nova preset rewrote `@/lib/utils` imports to an unrelated npm package
   `cn` (and added it as a dependency). Fixed by hand; watch for it when adding components.
 - The release `.app` is a self-extracting launcher (`Identifier=extractor`): first launch
-  unpacks the real app.
+  unpacks the real app. Its ad-hoc signature fails `codesign --verify --strict` ("code has no
+  resources but signature indicates they must be present") — check how Gatekeeper treats a
+  downloaded copy before the first release.
 
 ## Not verified yet (needs eyes on a screen)
 

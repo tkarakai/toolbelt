@@ -46,7 +46,15 @@ jobs:
         run: |
           bun run build
           ls -la artifacts
-          codesign --verify --strict build/stable-macos-arm64/Toolbelt.app
+          # The update bundle has the UI, the built-in plugins and the Bun runtime.
+          tar -tf artifacts/stable-macos-arm64-Toolbelt.app.tar.zst > "$RUNNER_TEMP/bundle.txt"
+          for f in app/views/ui/index.html app/plugins/processes/toolbelt.json app/plugins/showcase/toolbelt.json MacOS/bun; do
+            grep -q "Contents/.*$f$" "$RUNNER_TEMP/bundle.txt" || { echo "::error::missing $f in the update bundle"; exit 1; }
+          done
+          grep -q '"identifier":"io.github.tkarakai.toolbelt"' artifacts/stable-macos-arm64-update.json
+          # Ad-hoc signed. (Electrobun's self-extracting launcher fails `codesign --verify --strict`:
+          # "code has no resources but signature indicates they must be present".)
+          codesign -dv build/stable-macos-arm64/Toolbelt.app 2>&1 | grep -q 'Signature=adhoc'
 
   secrets:
     name: Secrets
