@@ -14,6 +14,10 @@ const bool: Schema = (v, p) => {
 const number: Schema = (v, p) => {
   if (typeof v !== "number" || !Number.isFinite(v)) fail(p);
 };
+const timestamp: Schema = (v, p) => {
+  number(v, p);
+  if (Math.abs(v as number) > 8.64e15) fail(p);
+};
 const any: Schema = () => {};
 const optional =
   (schema: Schema): Schema =>
@@ -50,7 +54,7 @@ const union =
   (v, p) => {
     for (const schema of schemas) {
       try {
-        schema(v, p);
+        schema!(v, p);
         return;
       } catch {}
     }
@@ -107,7 +111,10 @@ const action = object({
   disabled: optional(bool),
   group: optional(text),
   checked: optional(bool),
-  key: optional(text),
+  key: optional((v, p) => {
+    text(v, p);
+    if ((v as string).length !== 1) fail(p);
+  }),
 });
 const actions = optional(array(action));
 const tag = object({
@@ -133,7 +140,7 @@ const cell = union(
     chips: optional(array(text)),
     badge: optional(bool),
     spark: optional(array(number)),
-    at: optional(number),
+    at: optional(timestamp),
     icon: optional(text),
   }),
 );
@@ -310,7 +317,7 @@ const node: Schema = (v, p) => {
           icon: optional(text),
           dot: optional(dot),
           meta: optional(text),
-          metaAt: optional(number),
+          metaAt: optional(timestamp),
           actions,
         }),
       ),
@@ -322,7 +329,7 @@ const node: Schema = (v, p) => {
         object({
           label: text,
           value: text,
-          at: optional(number),
+          at: optional(timestamp),
           hint: optional(text),
           tone: optional(tone),
         }),
@@ -366,7 +373,7 @@ const node: Schema = (v, p) => {
       ...base,
       id: text,
       lines: array(
-        object({ text, at: optional(number), tone: optional(tone) }),
+        object({ text, at: optional(timestamp), tone: optional(tone) }),
       ),
       follow: optional(bool),
       empty: optional(text),
@@ -386,7 +393,7 @@ const node: Schema = (v, p) => {
           role: enumeration("user", "assistant", "tool", "system"),
           author: optional(text),
           text,
-          at: optional(number),
+          at: optional(timestamp),
           tool: optional(object({ name: text, detail: optional(text) })),
         }),
       ),
@@ -407,14 +414,16 @@ const node: Schema = (v, p) => {
         number(v, p);
         if ((v as number) < 0 || (v as number) > 1) fail(p);
       }),
-      at: optional(number),
+      at: optional(timestamp),
       tone: optional(tone),
     }),
     markdown: object({ ...base, text }),
   };
-  const schema = schemas[(v as any)?.type];
+  const schema = Object.hasOwn(schemas, (v as any)?.type)
+    ? schemas[(v as any)?.type]
+    : undefined;
   if (!schema) fail(`${p}.type`);
-  schema(v, p);
+  schema!(v, p);
 };
 function bounded(value: unknown) {
   let count = 0;
@@ -469,9 +478,9 @@ export function validateMessage(
     }),
     clipboard: object({ type: literal("clipboard"), text }),
   };
-  const schema = schemas[v?.type];
+  const schema = Object.hasOwn(schemas, v?.type) ? schemas[v?.type] : undefined;
   if (!schema) fail("message.type");
-  schema(value, "message");
+  schema!(value, "message");
 }
 export function validateEventPayload(value: unknown) {
   if (Buffer.byteLength(JSON.stringify(value ?? null)) > 64 * 1024)

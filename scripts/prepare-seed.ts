@@ -5,16 +5,19 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const url =
-  "https://github.com/tkarakai/toolbelt-sdk-demo/releases/download/architecture2-a92399e/toolbelt-sdk-demo-0.0.1-darwin-arm64.tar.gz";
+  "https://github.com/tkarakai/toolbelt-sdk-demo/releases/download/architecture2-8e8fca9/toolbelt-sdk-demo-0.0.1-darwin-arm64.tar.gz";
 const sha256 =
-  "1175e2e0c1c04a4234aaa0237049d80b657de00bbeabc48771216830bd47698b";
+  "51a7d9845c24c4e55b71f68011b41f7708317b2ca48555952a8cd62ba57da44f";
 mkdirSync("build-seed", { recursive: true });
-let bytes: Uint8Array;
+let bytes: Uint8Array = new Uint8Array();
 if (await Bun.file("build-seed/demo.tar.gz").exists())
   bytes = new Uint8Array(
     await Bun.file("build-seed/demo.tar.gz").arrayBuffer(),
   );
-else {
+if (
+  !bytes.length ||
+  new Bun.CryptoHasher("sha256").update(bytes).digest("hex") !== sha256
+) {
   const response = await fetch(url, { signal: AbortSignal.timeout(60000) });
   if (!response.ok) throw new Error("Demo seed unavailable");
   bytes = new Uint8Array(await response.arrayBuffer());

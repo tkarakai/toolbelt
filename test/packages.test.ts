@@ -285,7 +285,12 @@ test("successful upgrade retains a bounded matching recovery snapshot", async ()
       writeFileSync(join(root, "data/fixture/state"), String(n));
     }
     expect(manager.registry().plugins.fixture?.history?.length).toBe(3);
-    await manager.restore("fixture", "0");
+    await manager.restore(
+      "fixture",
+      (await import("../src/bun/packages")).recoveryChoiceId(
+        manager.registry().plugins.fixture!.history![0]!,
+      ),
+    );
     expect(manager.registry().plugins.fixture?.version).toBe("1.1.0");
     expect(readFileSync(join(root, "data/fixture/state"), "utf8")).toBe("4");
   } finally {
@@ -421,7 +426,12 @@ test("schema-incompatible downgrade restores its matching snapshot", async () =>
       true,
     );
     writeFileSync(join(root, "data/fixture/state"), "schema-two");
-    await manager.restore("fixture", "0");
+    await manager.restore(
+      "fixture",
+      (await import("../src/bun/packages")).recoveryChoiceId(
+        manager.registry().plugins.fixture!.history![0]!,
+      ),
+    );
     expect(manager.registry().plugins.fixture?.dataSchema).toBe(1);
     expect(readFileSync(join(root, "data/fixture/state"), "utf8")).toBe(
       "schema-one",
@@ -501,3 +511,31 @@ for (const phase of ["prepared", "promoting", "committed"])
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+test("app seed never reinstalls removed or disabled demo across app updates", async () => {
+  const { materializeSeed } = await import("../src/bun/seed");
+  for (const choice of ["removed", "disabled"]) {
+    const { root, manager } = setup(),
+      a = await archive(),
+      seed = join(root, "seed");
+    mkdirSync(seed);
+    writeFileSync(join(seed, "demo.tar.gz"), a.bytes);
+    writeFileSync(
+      join(seed, "seed.json"),
+      JSON.stringify({ repo: "test/fixture", sha256: a.hash }),
+    );
+    try {
+      await materializeSeed(manager, seed);
+      if (choice === "removed") await manager.remove("fixture");
+      else await manager.enabled("fixture", false);
+      await materializeSeed(manager, seed);
+      expect(manager.registry().plugins.fixture?.enabled).toBe(false);
+      expect(manager.registry().plugins.fixture?.removed ?? false).toBe(
+        choice === "removed",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+test('native handoff intent is declarative and requires negotiated capability',()=>{expect(()=>parsePackageManifest({...manifest(),handoffActions:['focus-owned']})).toThrow('native.handoff');expect(parsePackageManifest({...manifest(),capabilities:{required:['ui.core','native.handoff'],optional:[]},handoffActions:['focus-owned']}).handoffActions).toEqual(['focus-owned'])});

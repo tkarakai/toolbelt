@@ -49,7 +49,21 @@ export const pluginManagerListeners = new Set<
   (state: Messages["pluginManagerState"]) => void
 >();
 const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
-  plugins: (plugins) => set({ plugins }),
+  plugins: (plugins) => {
+    const active = new Map(
+      plugins.map((p) => [p.manifest.id, p.manifest.version]),
+    );
+    const previous = new Map(
+      state.plugins.map((p) => [p.manifest.id, p.manifest.version]),
+    );
+    const trees = Object.fromEntries(
+      Object.entries(state.trees).filter(([key]) => {
+        const id = key.split("\n")[0]!;
+        return active.has(id) && active.get(id) === previous.get(id);
+      }),
+    );
+    set({ plugins, trees });
+  },
   pluginManagerState: (state) =>
     pluginManagerListeners.forEach((listener) => listener(state)),
   tree: ({ plugin, surface, tree }) => {

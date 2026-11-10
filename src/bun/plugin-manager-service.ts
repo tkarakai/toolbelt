@@ -1,6 +1,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { PackageManager, atomicJSON, type Candidate } from "./packages";
+import {
+  PackageManager,
+  atomicJSON,
+  recoveryChoiceId,
+  type Candidate,
+} from "./packages";
 import { PluginHost } from "./host";
 import { resolveGithub } from "./plugin-github";
 export type ManagerRequest = {
@@ -94,10 +99,18 @@ export class PluginManagerService {
                       ? "ready"
                       : "starting")),
             error: this.states.get(p.id)?.error ?? runtime?.error,
+            logs: [
+              ...(this.states.get(p.id)?.logs ?? []),
+              ...(runtime?.error
+                ? [
+                    `Runtime failure ${p.id} (${p.repo}): ${runtime.error.slice(0, 16000)}`,
+                  ]
+                : []),
+            ].slice(-40),
             cleanup: !!p.manifest.cli?.cleanupScreen,
-            availableVersion: this.available.get(p.id),
-            recovery: (p.history ?? []).map((h, i) => ({
-              id: String(i),
+            availableVersion: this.available.get(p.id) ?? p.availableVersion,
+            recovery: (p.history ?? []).map((h) => ({
+              id: recoveryChoiceId(h),
               version: h.installed.version,
               schemaCompatible: (
                 h.installed.manifest.data.supports ?? [
@@ -189,6 +202,7 @@ export class PluginManagerService {
     this.checking = true;
     try {
       let error: string | undefined;
+      const updates = new Map<string, string | undefined>();
       for (const p of Object.values(this.packages.registry().plugins).filter(
         (p) => !p.removed,
       )) {
@@ -202,12 +216,29 @@ export class PluginManagerService {
               logs: [`Update available: ${candidate.manifest.version}`],
             });
             this.available.set(p.id, candidate.manifest.version);
+            updates.set(p.id, candidate.manifest.version);
+          } else {
+            this.available.delete(p.id);
+            updates.set(p.id, undefined);
           }
         } catch (e) {
-          error = String(e);
+          const detail = `${p.id} (${p.repo}): ${String(e)}`;
+          error = error ? `${error}\n${detail}` : detail;
+          const previous = this.states.get(p.id);
+          this.states.set(p.id, {
+            phase: p.enabled ? "ready" : "disabled",
+            logs: [
+              ...(previous?.logs ?? []),
+              `Update check failed: ${detail}`,
+            ].slice(-40),
+          });
         }
       }
       const registry = this.packages.registry();
+      for (const [id, version] of updates) {
+        if (registry.plugins[id])
+          registry.plugins[id]!.availableVersion = version;
+      }
       registry.updateSchedule = {
         lastChecked: Date.now(),
         nextCheck: Date.now() + 6 * 3600000,
@@ -262,6 +293,8 @@ export class PluginManagerService {
             p = registry.plugins[request.id!];
           if (!p) throw new Error("Plugin missing");
           p.channel = request.channel!;
+          delete p.availableVersion;
+          this.available.delete(p.id);
           atomicJSON(
             join(this.packages.root, "plugins/registry.json"),
             registry,
@@ -293,7 +326,10 @@ export class PluginManagerService {
         ),
       };
     } catch (error) {
-      return { error: String(error), state: this.read() };
+      return {
+        error: `${request.id ?? request.repo ?? request.operation}: ${String(error)}`,
+        state: this.read(),
+      };
     }
   }
 }

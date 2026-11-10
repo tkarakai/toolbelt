@@ -11,3 +11,8 @@ Manifest schema and limits are exported from `@toolbelt/sdk/package`; runtime me
 Candidate SDK dev.3 adds `validatePackage(root)` for built-output validation and `Context.mode` (`probe` / `active`). Probe startup loads data and declares readiness but must not schedule external software updates or other external side effects. Host probes staged data before committing final activation.
 
 CLI declarations use `{command, path, cleanupScreen}`: path points to a packaged payload; cleanupScreen names an existing screen with the plugin's own confirmed cleanup UI. Toolbelt never dispatches a mutating cleanup action behind that confirmation. Optional `data.supports` declares schemas usable without migration; schema-incompatible recovery restores the matching managed-data snapshot after a data-loss warning. The host retains the three most recent successful snapshots/code selections. CLI launchers resolve the active registry entry and pin live payloads with PID leases under `plugins/leases/<id>/`.
+
+`handoffActions` lists authored action IDs that need native foreground ordering before the
+plugin focuses another app. Declare `native.handoff` as required, or optional with a fallback.
+The host does not interpret business action names. Plugin IDs `toolbelt` and `constructor`
+are reserved. Screens use unique lowercase letter/digit/dash IDs.

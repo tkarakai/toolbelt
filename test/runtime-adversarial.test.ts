@@ -29,7 +29,7 @@ for (const scenario of [
   {
     name: "message flood",
     script:
-      'for(let i=0;i<200;i++)console.log(JSON.stringify({type:"hello",protocol:1,sdk:"test",capabilities:[]}));setInterval(()=>{},1000)',
+      'console.log(JSON.stringify({type:"hello",protocol:1,sdk:"test",capabilities:[]}));console.log(JSON.stringify({type:"ready"}));for(let i=0;i<200;i++)console.log(JSON.stringify({type:"badge",value:i}));setInterval(()=>{},1000)',
   },
 ])
   test(`malformed plugin quarantines: ${scenario.name}`, async () => {

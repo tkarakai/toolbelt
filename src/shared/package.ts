@@ -2,7 +2,7 @@ import { isAbsolute } from "node:path";
 import { parseManifest, type Manifest } from "./protocol";
 
 export const PACKAGE_FORMAT = 1;
-export const SDK_VERSION = "0.2.0-dev.3";
+export const SDK_VERSION = "0.2.0-dev.4";
 export const CAPABILITIES = [
   "ui.core",
   "ui.action-key",
@@ -10,6 +10,7 @@ export const CAPABILITIES = [
   "ui.conversation",
   "assets",
   "lifecycle",
+  "native.handoff",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,
@@ -20,6 +21,8 @@ export const LIMITS = {
   nodes: 50000,
   logs: 64 * 1024,
   messagesPerSecond: 120,
+  messageBytesPerSecond: 16 * 1024 * 1024,
+  rendersPerSecond: 30,
   handshakeMs: 10000,
   prepareMs: 10000,
   migrationMs: 60000,
@@ -60,9 +63,24 @@ export function parsePackageManifest(value: unknown): PackageManifest {
     m.id.length > 128
   )
     throw new Error("invalid package version/id");
-  if (m.formatVersion !== 1 || !/^[\w.-]+\/[\w.-]+$/.test(m.repo ?? ""))
+  if (
+    m.formatVersion !== 1 ||
+    !/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.-]{1,100}$/.test(
+      m.repo ?? "",
+    ) ||
+    [".", ".."].includes(m.repo?.split("/")[1] ?? "")
+  )
     throw new Error("package formatVersion/repo required");
   safeRelative(m.entry);
+  const screenIds = new Set<string>();
+  for (const screen of m.screens) {
+    if (
+      !/^[a-z0-9][a-z0-9-]{0,127}$/.test(screen.id) ||
+      screenIds.has(screen.id)
+    )
+      throw new Error("Invalid or duplicate screen id");
+    screenIds.add(screen.id);
+  }
   if (
     !m.requires ||
     typeof m.requires.host !== "string" ||
@@ -83,6 +101,19 @@ export function parsePackageManifest(value: unknown): PackageManifest {
     throw new Error("package capabilities required");
   if (!m.data || !Number.isSafeInteger(m.data.schema) || m.data.schema < 0)
     throw new Error("package data schema required");
+  if (
+    m.handoffActions !== undefined &&
+    (!Array.isArray(m.handoffActions) ||
+      m.handoffActions.some(
+        (id) => typeof id !== "string" || !id || id.length > 256,
+      ) ||
+      ![...m.capabilities.required, ...m.capabilities.optional].includes(
+        "native.handoff",
+      ))
+  )
+    throw new Error(
+      "handoffActions requires valid action IDs and native.handoff capability",
+    );
   if (
     m.data.supports !== undefined &&
     (!Array.isArray(m.data.supports) ||

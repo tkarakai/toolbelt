@@ -66,3 +66,4 @@ test("protocol metadata, unknown nodes, deep trees and non-finite values reject"
   expect(() => validateTree(node)).toThrow();
   expect(() => validateTree(table(Infinity))).toThrow();
 });
+test('inherited object names and out-of-range dates cannot bypass runtime validation',()=>{expect(()=>validateTree({type:'constructor'})).toThrow();expect(()=>validateMessage({type:'constructor'})).toThrow();expect(()=>validateTree({type:'stats',items:[{label:'date',value:'bad',at:1e100}]})).toThrow()});

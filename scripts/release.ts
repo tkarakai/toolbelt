@@ -9,7 +9,7 @@ import { SDK_VERSION } from "../src/shared/package";
 // exist yet; CHANGELOG.md has a `## X.Y.Z — …` section. Stop `bun run dev` first: the build
 // shares Hutch's lock with it.
 //
-// Three downloads, matching Running: the desktop DMG, a Bun TUI bundle and a standalone TUI.
+// Host DMG, public SDK, and standalone native tester artifacts.
 // The app finds Toolbelt-X.Y.Z-arm64.dmg (scripts/make-dmg.ts)
 // through GitHub's "latest release" (src/bun/updater.ts): keep the `-arm64.dmg` name, and the
 // `## Downloads` heading that ends the part of the notes the app shows.
@@ -96,7 +96,12 @@ ok(
 );
 await $`bun run sdk:package`;
 const sdkAsset = `artifacts/toolbelt-sdk-${SDK_VERSION}.tgz`;
-const assets = [asset, sdkAsset];
+await $`bun scripts/build-tester.ts`;
+const testerAssets = [
+  `artifacts-tester/Toolbelt-Plugin-Tester-${version}-macos-arm64.tar.gz`,
+  `artifacts-tester/Toolbelt-Plugin-Tester-${version}-arm64.dmg`,
+];
+const assets = [asset, sdkAsset, ...testerAssets];
 
 // ── release notes ────────────────────────────────────────────────────────
 const notes = `${changes}

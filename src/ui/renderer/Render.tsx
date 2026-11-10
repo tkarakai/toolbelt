@@ -280,11 +280,11 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 	const narrow = !node.children.some((c) => c.type === "table");
 	return (
 		<HighlightContext.Provider value={highlight}>
-		<div className="flex h-full min-h-0 flex-col">
+		<div className="flex h-full min-h-0 min-w-0 flex-col">
 			{hasToolbar && (
-				<div className={cn("flex w-full shrink-0 items-center gap-3 px-6 pt-4 pb-3", narrow && "mx-auto max-w-4xl")}>
+				<div className={cn("flex w-full min-w-0 shrink-0 flex-wrap items-center gap-3 px-6 pt-4 pb-3", narrow && "mx-auto max-w-4xl")}>
 					{node.search && (
-						<InputGroup data-filtering={!!query} className={cn("w-64 shrink-0 transition-colors duration-200", !!query && ACTIVE_QUERY)}>
+						<InputGroup data-filtering={!!query} className={cn("w-64 max-w-full min-w-0 transition-colors duration-200", !!query && ACTIVE_QUERY)}>
 							<InputGroupAddon>
 								<Search />
 							</InputGroupAddon>
@@ -533,15 +533,16 @@ function ResizableDialog({ d, emit, close }: { d: DialogNode; emit: Emit; close:
 }
 
 // ── table: groups, nested rows, actions, inspector ───────────────────────
+const owned=<T,>(record:Record<string,T>|undefined,key:string):T|undefined=>record&&Object.hasOwn(record,key)?record[key]:undefined;
 function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
 	if (cell === undefined || cell === null) return <span className="text-muted-foreground/50 tb-tone-muted">—</span>;
 	if (typeof cell !== "object") return <span className={cn(col.mono && "font-mono text-[0.8rem] tabular-nums")}><Hl text={String(cell)} /></span>;
 	const mono = cell.mono ?? col.mono;
 	return (
-		<div className="flex min-w-0 items-center gap-2.5">
+		<div className="@container/cell flex w-full min-w-0 items-center gap-2.5">
 			{cell.dot && <Dot dot={cell.dot} />}
 			{cell.icon && <Icon name={cell.icon} className={cn("shrink-0", isFileIcon(cell.icon) ? "size-6" : "size-4 text-muted-foreground")} />}
-			<div className="min-w-0" title={[cell.text, cell.sub].filter(Boolean).join("\n")}>
+			<div className="min-w-0 flex-1" title={[cell.text, cell.sub].filter(Boolean).join("\n")}>
 				{cell.at !== undefined ? (
 					<When at={cell.at} className={cn("block truncate", mono && "font-mono text-[0.8rem] tabular-nums", textClass(cell.tone ?? "default"))} />
 				) : cell.text &&
@@ -562,9 +563,9 @@ function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
 					</div>
 				)}
 			</div>
-			{cell.spark && cell.spark.length > 1 && <Spark values={cell.spark} tone={cell.tone} />}
+			{cell.spark && cell.spark.length > 1 && <span className="hidden shrink-0 @2xs/cell:inline-flex"><Spark values={cell.spark} tone={cell.tone} /></span>}
 			{cell.chips && cell.chips.length > 0 && (
-				<div className="flex shrink-0 flex-nowrap gap-1">
+				<div className="hidden shrink-0 flex-nowrap gap-1 @2xs/cell:flex">
 					{cell.chips.slice(0, 1).map((c) => (
 						<Badge key={c} variant="outline" className="font-mono text-[0.7rem] font-normal">
 							<Hl text={c} />
@@ -678,7 +679,7 @@ const toTable = (e: Event) => {
 
 /** The targets an action can apply to on this row, when there's a choice. */
 const choicesFor = (row: Row, a: Action): Target[] | undefined => {
-	const t = row.targets?.[a.id];
+	const t = owned(row.targets,a.id);
 	return t?.length ? t : undefined;
 };
 
@@ -810,11 +811,11 @@ const TableRow = memo(
 									<ChevronRight className={cn("size-3.5 transition-transform duration-200", expanded && "rotate-90")} />
 								</button>
 								<div className="min-w-0 flex-1">
-									<CellView cell={row.cells[c.key]} col={c} />
+									<CellView cell={owned(row.cells,c.key)} col={c} />
 								</div>
 							</div>
 						) : (
-							<CellView cell={row.cells[c.key]} col={c} />
+							<CellView cell={owned(row.cells,c.key)} col={c} />
 						)}
 					</td>
 				))}
@@ -838,7 +839,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		const out = new Set<string>();
 		const walk = (rows: Row[]) => {
 			for (const r of rows) {
-				if (r.children?.length && (overrides[r.id] ?? r.open ?? false)) out.add(r.id);
+				if (r.children?.length && (owned(overrides,r.id) ?? r.open ?? false)) out.add(r.id);
 				if (r.children) walk(r.children);
 			}
 		};
@@ -886,7 +887,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const wrap = useRef<HTMLDivElement>(null);
 	const headRow = useRef<HTMLTableRowElement>(null);
 	const [available, setAvailable] = useState(Infinity);
-	const measured = useRef<Record<string, number>>({});
+	const measured = useRef<Record<string, number>>(Object.create(null));
 	const [, remeasure] = useState(0);
 	useLayoutEffect(() => {
 		const el = wrap.current;
@@ -937,7 +938,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		const count = (n: GNode): number => n.rows.length + n.order.reduce((s, k) => s + count(k), 0);
 		const out: Item[] = [];
 		const add = (n: GNode) => {
-			const collapsed = n.level >= 0 && !!collapsedGroups[n.key];
+			const collapsed = n.level >= 0 && !!owned(collapsedGroups,n.key);
 			if (n.level >= 0) {
 				const firstChild = n.rows[0]?.id ?? (n.order[0] ? headerId(n.order[0].key) : undefined);
 				out.push({ kind: "header", id: headerId(n.key), level: n.level, group: n.group, count: count(n), key: n.key, muted: n.muted, parent: n.parent && n.parent.level >= 0 ? headerId(n.parent.key) : undefined, collapsed, firstChild });
@@ -1057,7 +1058,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	};
 
 	return (
-		<div className="@container flex min-h-0 flex-1">
+		<div className="@container flex min-h-0 min-w-0 w-full flex-1">
 			<div className="flex min-w-0 flex-1 flex-col">
 				{checked.size > 0 && (
 					<div className="flex shrink-0 items-center gap-2 border-b bg-muted/40 px-4 py-2 animate-in fade-in-0 slide-in-from-top-1 duration-200">

@@ -1,3 +1,4 @@
+import { terminateOwned } from "./owned-process";
 import {
   existsSync,
   mkdirSync,
@@ -12,7 +13,7 @@ import {
   fsyncSync,
   closeSync,
 } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, resolve, basename } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import {
@@ -35,6 +36,7 @@ export type Installed = {
   release?: string;
   asset?: string;
   removed?: boolean;
+  availableVersion?: string;
   dataSchema?: number;
   history?: {
     installed: Omit<Installed, "history">;
@@ -48,6 +50,12 @@ export type Registry = {
   seeded?: boolean;
   updateSchedule?: { lastChecked?: number; nextCheck?: number; error?: string };
 };
+export function recoveryChoiceId(choice: {
+  installed: { hash: string };
+  snapshot: string;
+}) {
+  return `${choice.installed.hash}:${basename(choice.snapshot)}`;
+}
 export type ReleaseDescriptor = {
   formatVersion: 1;
   id: string;
@@ -119,6 +127,39 @@ export function readRegistry(root: string): Registry {
         resolve(root, "plugins/packages", id, `${p.version}-${p.hash}`)
     )
       throw new Error("Invalid installed plugin identity/path");
+    if (
+      p.dataSchema !== undefined &&
+      (!Number.isSafeInteger(p.dataSchema) || p.dataSchema < 0)
+    )
+      throw new Error("Invalid managed data schema");
+    if (
+      p.history !== undefined &&
+      (!Array.isArray(p.history) || p.history.length > 3)
+    )
+      throw new Error("Invalid recovery history");
+    for (const history of p.history ?? []) {
+      const previous = history.installed;
+      const metadata = parsePackageManifest(previous.manifest);
+      if (
+        previous.id !== id ||
+        metadata.id !== id ||
+        previous.version !== metadata.version ||
+        previous.repo.toLowerCase() !== p.repo.toLowerCase() ||
+        !/^[a-f0-9]{64}$/.test(previous.hash) ||
+        resolve(previous.packageRoot) !==
+          resolve(
+            root,
+            "plugins/packages",
+            id,
+            `${previous.version}-${previous.hash}`,
+          ) ||
+        !Number.isFinite(history.at) ||
+        !/^[a-f0-9-]{36}$/.test(basename(history.snapshot)) ||
+        resolve(history.snapshot) !==
+          resolve(root, "backups", id, basename(history.snapshot))
+      )
+        throw new Error("Invalid recovery selection/path");
+    }
   }
   return value;
 }
@@ -206,6 +247,7 @@ function validateFiles(root: string, m: PackageManifest) {
     m.entry,
     ...Object.values(m.assets ?? {}),
     ...(m.migration ? [m.migration.entry] : []),
+    ...(m.cli?.path ? [m.cli.path] : []),
   ]) {
     safeRelative(relative);
     const path = join(root, relative);
@@ -213,7 +255,70 @@ function validateFiles(root: string, m: PackageManifest) {
       throw new Error(`Missing package file: ${relative}`);
   }
 }
+export function verifyPackageBytes(
+  root: string,
+  candidate: Candidate,
+  hostVersion = "0.1.0",
+) {
+  const bytes = new Uint8Array(
+    readFileSync(join(root, "cache/packages", candidate.hash)),
+  );
+  if (hash(bytes) !== candidate.hash)
+    throw new Error("Approved cached archive bytes changed");
+  const expected = join(root, "plugins/staging", randomUUID());
+  try {
+    extractArchive(bytes, expected);
+    const files = (root: string): Map<string, string> => {
+      const out = new Map<string, string>();
+      const walk = (dir: string, relative: string) => {
+        for (const name of readdirSync(dir)) {
+          const path = join(dir, name),
+            key = relative ? `${relative}/${name}` : name,
+            stat = lstatSync(path);
+          if (stat.isSymbolicLink())
+            throw new Error("Package path became a link");
+          if (stat.isDirectory()) walk(path, key);
+          else if (stat.isFile())
+            out.set(key, hash(new Uint8Array(readFileSync(path))));
+          else throw new Error("Package special file");
+        }
+      };
+      walk(root, "");
+      return out;
+    };
+    const wanted = files(expected),
+      actual = files(candidate.packageRoot);
+    if (
+      wanted.size !== actual.size ||
+      [...wanted].some(([file, digest]) => actual.get(file) !== digest)
+    )
+      throw new Error("Approved extracted package bytes changed");
+    const manifest = parsePackageManifest(
+      JSON.parse(readFileSync(join(expected, "toolbelt.json"), "utf8")),
+    );
+    if (JSON.stringify(manifest) !== JSON.stringify(candidate.manifest))
+      throw new Error("Approved manifest changed");
+    checkCompatibility(manifest, hostVersion);
+  } finally {
+    rmSync(expected, { recursive: true, force: true });
+  }
+}
+
 export class PackageManager {
+  private hostUpgrading = false;
+  get upgradingHost() {
+    return this.hostUpgrading;
+  }
+  beginHostUpgrade() {
+    if (this.operations.size)
+      throw new Error(
+        "A plugin operation is in progress; try the app update after it completes",
+      );
+    this.hostUpgrading = true;
+  }
+  endHostUpgrade() {
+    this.hostUpgrading = false;
+  }
   readonly listeners = new Set<
     (id: string, phase: string, detail?: string) => void
   >();
@@ -237,6 +342,12 @@ export class PackageManager {
     atomicJSON(join(this.root, "plugins/registry.json"), registry);
   }
   private serialize<T>(id: string, run: () => Promise<T>): Promise<T> {
+    if (this.hostUpgrading)
+      return Promise.reject(
+        new Error(
+          "Toolbelt is preparing to update; plugin changes are temporarily deferred",
+        ),
+      );
     const previous = this.operations.get(id) ?? Promise.resolve();
     const current = previous.catch(() => {}).then(run);
     this.operations.set(id, current);
@@ -246,50 +357,6 @@ export class PackageManager {
       })
       .catch(() => {});
     return current;
-  }
-  private verifyCandidate(candidate: Candidate) {
-    const bytes = new Uint8Array(
-      readFileSync(join(this.root, "cache/packages", candidate.hash)),
-    );
-    if (hash(bytes) !== candidate.hash)
-      throw new Error("Approved cached archive bytes changed");
-    const expected = join(this.root, "plugins/staging", randomUUID());
-    try {
-      extractArchive(bytes, expected);
-      const files = (root: string): Map<string, string> => {
-        const out = new Map<string, string>();
-        const walk = (dir: string, relative: string) => {
-          for (const name of readdirSync(dir)) {
-            const path = join(dir, name),
-              key = relative ? `${relative}/${name}` : name,
-              stat = lstatSync(path);
-            if (stat.isSymbolicLink())
-              throw new Error("Package path became a link");
-            if (stat.isDirectory()) walk(path, key);
-            else if (stat.isFile())
-              out.set(key, hash(new Uint8Array(readFileSync(path))));
-            else throw new Error("Package special file");
-          }
-        };
-        walk(root, "");
-        return out;
-      };
-      const wanted = files(expected),
-        actual = files(candidate.packageRoot);
-      if (
-        wanted.size !== actual.size ||
-        [...wanted].some(([file, digest]) => actual.get(file) !== digest)
-      )
-        throw new Error("Approved extracted package bytes changed");
-      const manifest = parsePackageManifest(
-        JSON.parse(readFileSync(join(expected, "toolbelt.json"), "utf8")),
-      );
-      if (JSON.stringify(manifest) !== JSON.stringify(candidate.manifest))
-        throw new Error("Approved manifest changed");
-      checkCompatibility(manifest, this.hostVersion);
-    } finally {
-      rmSync(expected, { recursive: true, force: true });
-    }
   }
   async stage(
     bytes: Uint8Array,
@@ -301,6 +368,8 @@ export class PackageManager {
     const dir = join(this.root, "plugins/staging", randomUUID());
     try {
       extractArchive(bytes, dir);
+      if (lstatSync(join(dir, "toolbelt.json")).size > 64 * 1024)
+        throw new Error("Manifest size limit");
       const manifest = parsePackageManifest(
         JSON.parse(readFileSync(join(dir, "toolbelt.json"), "utf8")),
       );
@@ -340,7 +409,7 @@ export class PackageManager {
     if (!approved)
       throw new Error("Explicit publisher execution approval required");
     return this.serialize(candidate.manifest.id, async () => {
-      this.verifyCandidate(candidate);
+      verifyPackageBytes(this.root, candidate, this.hostVersion);
       const id = candidate.manifest.id,
         registry = this.registry(),
         old = registry.plugins[id];
@@ -553,11 +622,7 @@ export class PackageManager {
       ]);
     } finally {
       clearTimeout(timer);
-      try {
-        process.kill(-proc.pid, "SIGTERM");
-      } catch {
-        proc.kill();
-      }
+      await terminateOwned(proc);
     }
   }
   async enabled(id: string, enabled: boolean) {
@@ -581,10 +646,10 @@ export class PackageManager {
   }
   async restore(id: string, choiceId: string) {
     const current = this.registry().plugins[id];
-    const index = Number(choiceId);
-    if (!current || !Number.isSafeInteger(index) || String(index) !== choiceId)
-      throw new Error("Invalid recovery choice");
-    const choice = current.history?.[index];
+    if (!current) throw new Error("Invalid recovery choice");
+    const choice = current.history?.find(
+      (choice) => recoveryChoiceId(choice) === choiceId,
+    );
     if (!choice) throw new Error("Recovery choice expired");
     const compatible = (
       choice.installed.manifest.data.supports ?? [
@@ -593,6 +658,16 @@ export class PackageManager {
     ).includes(current.dataSchema ?? current.manifest.data.schema);
     if (!compatible && !existsSync(choice.snapshot))
       throw new Error("Matching data snapshot unavailable");
+    if (!existsSync(choice.installed.packageRoot))
+      await this.stage(
+        new Uint8Array(
+          readFileSync(
+            join(this.root, "cache/packages", choice.installed.hash),
+          ),
+        ),
+        choice.installed.hash,
+        current.repo,
+      );
     return this.install(
       { ...choice.installed, repo: current.repo },
       true,

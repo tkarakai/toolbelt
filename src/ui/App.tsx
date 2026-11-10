@@ -2,7 +2,7 @@ import { PluginManager } from "./PluginManager";
 // The main window: the app sidebar (resizable, collapses to an icon rail) and the selected
 // plugin's pane with its tabs. Route: #/<plugin>/<screen>, or #/toolbelt for Toolbelt's own page.
 //
-// Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · ⌘P / ⌘K / ⌘S Processes tabs · ⌃⇥ / ⌃⇧⇥ next and
+// Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · manifest-declared tab shortcuts · ⌃⇥ / ⌃⇧⇥ next and
 // previous tab · ⌘B sidebar · ⌘W closes the window (app menu).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, Monitor, Moon, PanelLeft, RotateCw, Settings, Sun, X } from "lucide-react";
@@ -423,13 +423,13 @@ function ToolbeltPage({ plugins, onClose }: { plugins: PluginInfo[]; onClose: ()
 						</CardHeader>
 						<CardContent className="grid grid-cols-[1fr_auto] items-center gap-y-3 text-sm">
 							<Shortcut label="Switch tool (hold ⌘ to see the numbers)" keys={["⌘1 … ⌘9"]} />
-							<Shortcut label="Plugin tabs (declared by the plugin)" keys={["⌘P", "⌘K", "⌘S"]} />
+							<Shortcut label="Plugin tabs (declared by the plugin)" keys={["⌘letter", "⌥⌘1 …"]} />
 							<Shortcut label="Next / previous tab" keys={["⌃⇥", "⌃⇧⇥"]} />
 							<Shortcut label="Collapse or expand the sidebar" keys={["⌘B"]} />
 							<Shortcut label="Filter" keys={["⌘F", "/"]} />
 							<Shortcut label="Move through rows · expand / collapse" keys={["↑", "↓", "→", "←"]} />
 							<Shortcut label="Row: main action · all actions · deselect" keys={["↵", ".", "esc"]} />
-							<Shortcut label="Row action letters — shown on hover and in details" keys={["J", "P", "B", "…"]} />
+							<Shortcut label="Row action letters — shown on hover and in details" keys={["letter"]} />
 							<Shortcut label="“Which one?” menus: pick by number" keys={["1 … 9"]} />
 							<Shortcut label="Toolbelt settings (this page)" keys={["⌘,"]} />
 							<Shortcut label="Menu bar popover: open a tool in this window (its letter is on the row)" keys={["P", "S", "…"]} />

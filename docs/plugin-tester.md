@@ -2,7 +2,7 @@
 
 Run `bun scripts/build-tester.ts`. This builds in a disposable staging folder without
 changing the app config or sharing its build lock. Outputs are copied to
-`artifacts/tester/build` and `artifacts/tester/archives`. The native bundle embeds Bun,
+`artifacts-tester/build` and `artifacts-tester/archives`. The native bundle embeds Bun,
 production UI assets and host code; plugin archives are selected at runtime, never bundled
 from plugin source. No installed Toolbelt or sibling plugin source is required.
 
@@ -67,7 +67,7 @@ production validator, invalid watcher selection and unknown reset rejection.
 Native build and typecheck results are reported in the PR; no official app was replaced.
 
 Native build completed and emitted `ToolbeltPluginTester.app` and
-`ToolbeltPluginTester-stable.dmg` under artifacts/tester/build/stable-macos-arm64.
+`ToolbeltPluginTester-stable.dmg` under artifacts-tester/build/stable-macos-arm64.
 Initial build warned that the optional icon source was missing in staging; build script
 now copies dev-icon.iconset as well. Typecheck passes. Native launch was not exercised.
 
@@ -75,3 +75,5 @@ Broad `bun test` result: 415 pass, 1 fail (416 tests, 3271 assertions).
 Failure is the retained v1 Upkeep integration manifest declaring protocol 0 while the
 baseline protocol parser requires 1 (`test/upkeep-integration.test.ts:21`). No changes
 were made to that integration fixture or protocol contract in this candidate.
+
+Final packaging uses the actual update-bundle app, adds CFBundleShortVersionString, signs and strictly verifies it. It does not distribute the self-extracting progress launcher. Separate versioned tar.gz and DMG outputs are emitted under artifacts-tester; packaging mounts and verifies the tester DMG identity/version/signature.

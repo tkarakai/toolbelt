@@ -4,14 +4,17 @@ import {
   type Candidate,
   type ReleaseDescriptor,
 } from "./packages";
-const repoPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const repoPattern = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.-]{1,100}$/;
 export function parseRepository(input: string) {
   const value = input
     .trim()
     .replace(/^https:\/\/github\.com\//, "")
     .replace(/\.git$/, "")
     .replace(/\/$/, "");
-  if (!repoPattern.test(value))
+  if (
+    !repoPattern.test(value) ||
+    [".", ".."].includes(value.split("/")[1] ?? "")
+  )
     throw new Error("Use a public GitHub owner/repo or repository URL");
   return value;
 }
@@ -41,7 +44,7 @@ export async function resolveGithub(
     release?: string;
     prerelease?: boolean;
     signal?: AbortSignal;
-    onPhase?:(phase:"downloading"|"verifying")=>void;
+    onPhase?: (phase: "downloading" | "verifying") => void;
   } = {},
 ): Promise<Candidate> {
   const repo = parseRepository(input);

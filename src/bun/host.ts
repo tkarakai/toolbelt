@@ -1,3 +1,4 @@
+import { terminateOwned } from "./owned-process";
 // Finds plugins, starts each as a Bun child process, and relays its UI trees to the web views.
 // No Electrobun imports here, so it can be tested on its own.
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
@@ -20,6 +21,7 @@ import {
 import { validateMessage, validateEventPayload } from "../shared/validation";
 import {
   runtimeEnv,
+  verifyPackageBytes,
   type Candidate,
   type Installed,
   readRegistry,
@@ -82,6 +84,9 @@ export class PluginProcess {
   >();
   private messageWindow = Date.now();
   private messageCount = 0;
+  private inputWindow = Date.now();
+  private inputBytes = 0;
+  private renderCount = 0;
   private stderrWindow = Date.now();
   private stderrBytes = 0;
   waitReady() {
@@ -106,23 +111,9 @@ export class PluginProcess {
   async stopAndWait() {
     const proc = this.proc;
     this.stop();
-    if (!proc) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      proc.exited,
-      new Promise((resolve) => {
-        timer = setTimeout(() => {
-          try {
-            process.kill(-proc.pid, "SIGKILL");
-          } catch {
-            proc.kill("SIGKILL");
-          }
-          resolve(null);
-        }, 2000);
-      }),
-    ]);
-    clearTimeout(timer);
+    if (proc) await terminateOwned(proc);
   }
+
   state: PluginState = "stopped";
   badge: number | string | null = null;
   error?: string;
@@ -161,6 +152,11 @@ export class PluginProcess {
   }
 
   start() {
+    this.messageWindow = Date.now();
+    this.messageCount = 0;
+    this.inputWindow = Date.now();
+    this.inputBytes = 0;
+    this.renderCount = 0;
     this.stopping = false;
     this.greeted = false;
     this.startupMessages = [];
@@ -173,7 +169,9 @@ export class PluginProcess {
     try {
       mkdirSync(data, { recursive: true });
     } catch (e) {
-      this.log(`can't create its data folder ${data}: ${(e as Error).message}`);
+      throw new Error(
+        `can't create its data folder ${data}: ${(e as Error).message}`,
+      );
     }
     const proc = Bun.spawn([this.opts.bun, entry], {
       cwd: this.dir,
@@ -277,6 +275,16 @@ export class PluginProcess {
     let buf = "";
     for await (const chunk of stream) {
       if (this.proc !== proc || this.stopping) return;
+      if (Date.now() - this.inputWindow >= 1000) {
+        this.inputWindow = Date.now();
+        this.inputBytes = 0;
+        this.renderCount = 0;
+      }
+      this.inputBytes += chunk.length;
+      if (this.inputBytes > LIMITS.messageBytesPerSecond) {
+        this.fail("Protocol byte rate exceeded");
+        return;
+      }
       const { lines, rest } = splitLines(
         buf + decoder.decode(chunk, { stream: true }),
       );
@@ -405,6 +413,10 @@ export class PluginProcess {
     }
     switch (msg.type) {
       case "render":
+        if (++this.renderCount > LIMITS.rendersPerSecond) {
+          this.fail("Render rate exceeded");
+          return;
+        }
         {
           const check = (value: unknown): void => {
             if (!value || typeof value !== "object") return;
@@ -458,7 +470,11 @@ export class PluginProcess {
   private exited(proc: ReturnType<typeof Bun.spawn>, code: number | null) {
     if (proc !== this.proc) return; // an older process after a restart
     clearTimeout(this.handshakeTimer);
-    this.readyReject?.(new Error("Plugin exited before ready"));
+    this.readyReject?.(
+      new Error(
+        `Plugin exited before ready (${code}): ${this.stderrTail.slice(-8).join("\n")}`,
+      ),
+    );
     this.readyReject = undefined;
     if (this.stopping) {
       if (this.state !== "crashed") this.state = "stopped";
@@ -518,6 +534,17 @@ export class PluginHost {
       const p = this.makeProcess(manifest, dir, this.opts.data);
       this.plugins.set(manifest.id, p);
       try {
+        if (this.opts.registryRoot) {
+          const record = readRegistry(this.opts.registryRoot).plugins[
+            manifest.id
+          ];
+          if (record)
+            verifyPackageBytes(
+              this.opts.registryRoot,
+              record,
+              this.opts.host.version,
+            );
+        }
         if (this.opts.registryRoot) {
           checkCompatibility(
             parsePackageManifest(manifest),
@@ -582,12 +609,14 @@ export class PluginHost {
     this.emitPlugins();
   }
   async activate(installed: Installed) {
+    const viewers = new Map(this.plugins.get(installed.id)?.viewers ?? []);
     this.remove(installed.id);
     const p = this.makeProcess(
       installed.manifest,
       installed.packageRoot,
       this.opts.data,
     );
+    for (const [surface, count] of viewers) p.viewers.set(surface, count);
     this.plugins.set(installed.id, p);
     p.start();
     await p.waitReady();

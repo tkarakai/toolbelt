@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { icons, type LucideProps } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { rpc } from "@/lib/store";
+import { rpc, usePlugins } from "@/lib/store";
 
 const pascal = (name: string) =>
   name.replace(/(^|-)([a-z0-9])/g, (_, __, c: string) => c.toUpperCase());
@@ -78,6 +78,9 @@ function PackageIcon({
   reference: string;
   className?: string;
 }) {
+  const plugins = usePlugins();
+  const pluginId = reference.slice(6).split("@")[0];
+  const lifecycle = plugins.find((p) => p.manifest.id === pluginId)?.state;
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
@@ -87,7 +90,9 @@ function PackageIcon({
     return () => {
       live = false;
     };
-  }, [reference]);
+  }, [reference, lifecycle]);
+  const monochrome=url?.startsWith("data:image/svg+xml;base64,")&&atob(url.split(",")[1]!).includes("currentColor");
+  if(monochrome)return <span aria-hidden className={cn("inline-block size-4 shrink-0",className)} style={{backgroundColor:"currentColor",WebkitMaskImage:`url("${url}")`,maskImage:`url("${url}")`,maskRepeat:"no-repeat",maskPosition:"center",maskSize:"contain"}}/>;
   return url ? (
     <img
       src={url}

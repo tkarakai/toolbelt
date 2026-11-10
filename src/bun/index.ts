@@ -1,5 +1,7 @@
+import { localControlRequest } from "./loopback";
+import { materializeSeed } from "./seed";
 import { EDIT_MENU } from "./edit-menu";
-import { createNativePopover,positionPopover } from "./native-popover";
+import { createNativePopover, positionPopover } from "./native-popover";
 // Toolbelt's main process: the menu bar icon and its popover, the main window, the global
 // shortcut, and the plugin host that feeds both web views.
 import Electrobun, {
@@ -14,8 +16,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { PluginHost, configDir } from "./host";
 import { PATHS } from "electrobun/main";
-import { existsSync, readFileSync } from "node:fs";
-import { PackageManager } from "./packages";
+import { PackageManager, type Installed } from "./packages";
 import { PluginManagerService } from "./plugin-manager-service";
 import { pluginAsset } from "./plugin-assets";
 import { FileIcons } from "./file-icon";
@@ -64,8 +65,17 @@ const devServer =
     () => true,
     () => false,
   ));
+const profileQuery = process.env.TOOLBELT_CONFIG_DIR
+  ? "?profile=" +
+    new Bun.CryptoHasher("sha256")
+      .update(configDir(homedir()))
+      .digest("hex")
+      .slice(0, 24)
+  : "";
 const viewUrl = (hash = "") =>
-  (devServer ? "http://localhost:5173/" : "views://ui/index.html") + hash;
+  (devServer ? "http://localhost:5173/" : "views://ui/index.html") +
+  profileQuery +
+  hash;
 
 // ── plugins ──────────────────────────────────────────────────────────────
 const host = new PluginHost({
@@ -87,25 +97,9 @@ const packages = new PackageManager(
   pkg.version,
 );
 await packages.recover();
-const manager=new PluginManagerService(packages,host);
-async function seedDemo() {
-  const registry = packages.registry();
-  if (registry.seeded) return;
-  const seed = join(PATHS.RESOURCES_FOLDER, "app/seed");
-  if (!existsSync(join(seed, "seed.json"))) return;
-  const metadata = JSON.parse(readFileSync(join(seed, "seed.json"), "utf8"));
-  const candidate = await packages.stage(
-    new Uint8Array(readFileSync(join(seed, "demo.tar.gz"))),
-    metadata.sha256,
-    metadata.repo,
-  );
-  if (!registry.plugins[candidate.manifest.id])
-    await packages.install(candidate, true);
-  const latest = packages.registry();
-  latest.seeded = true;
-  const { atomicJSON } = await import("./packages");
-  atomicJSON(join(configDir(homedir()), "plugins/registry.json"), latest);
-}
+const manager = new PluginManagerService(packages, host);
+const seedDemo = () =>
+  materializeSeed(packages, join(PATHS.RESOURCES_FOLDER, "app/seed"));
 
 const icons = new FileIcons(join(configDir(homedir()), "cache/icons"));
 
@@ -116,14 +110,16 @@ type ViewRPC = ReturnType<typeof makeRPC>;
 const views = new Set<ViewRPC>();
 // Which surfaces each view has open, so a closed window releases them.
 const opened = new Map<ViewRPC, Set<string>>();
-manager.subscribe(state=>views.forEach(view=>view.send.pluginManagerState(state)));
+manager.subscribe((state) =>
+  views.forEach((view) => view.send.pluginManagerState(state)),
+);
 
 function makeRPC() {
   const rpc: any = BrowserView.defineRPC<ToolbeltRPC>({
     maxRequestTime: 10_000,
     handlers: {
       requests: {
-        pluginManager:request=>manager.handle(request),
+        pluginManager: (request) => manager.handle(request),
         pluginAsset: ({ reference }) => pluginAsset(packages, reference),
         plugins: () => host.list(),
         open: ({ plugin, surface }) => {
@@ -136,8 +132,12 @@ function makeRPC() {
           return true;
         },
         event: async ({ plugin, surface, name, payload }): Promise<true> => {
+          if (packages.upgradingHost)
+            throw new Error(
+              "Toolbelt is preparing to update; plugin actions are temporarily deferred",
+            );
           // Register Toolbelt as the foreground application before handing focus away.
-          if ((name === "focus" || name === "focus-kept") && win) {
+          if (host.list().find(p=>p.manifest.id===plugin)?.manifest.handoffActions?.includes(name) && win) {
             await win.activate();
             prepareAppHandoff();
           }
@@ -281,8 +281,17 @@ function showWindow(plugin?: string, screen?: string) {
 
 // ── menu bar icon + popover ──────────────────────────────────────────────
 // No native menu: a click sends `tray-clicked`, and we show our own (shadcn) popover under it.
-const popRPC=makeRPC();
-const {tray,popover}=createNativePopover({title:variant.name,url:viewUrl("#popover"),image:channel==="dev"?"views://assets/tray-icon-dev@2x.png":"views://assets/tray-icon@2x.png",template:channel!=="dev",rpc:popRPC});
+const popRPC = makeRPC();
+const { tray, popover } = createNativePopover({
+  title: variant.name,
+  url: viewUrl("#popover"),
+  image:
+    channel === "dev"
+      ? "views://assets/tray-icon-dev@2x.png"
+      : "views://assets/tray-icon@2x.png",
+  template: channel !== "dev",
+  rpc: popRPC,
+});
 let popoverShownAt = 0;
 
 /** How long the popover's closing animation plays before the window hides (ms). */
@@ -293,7 +302,7 @@ let hiddenAt = 0;
 function showPopover() {
   clearTimeout(hideTimer);
   hideTimer = undefined;
-  const {x,y}=positionPopover(tray,POPOVER.width);
+  const { x, y } = positionPopover(tray, POPOVER.width);
   // It opens on the tool list, so at the list's height.
   popoverHeight = listHeight;
   popover.setFrame(x, y, POPOVER.width, popoverHeight);
@@ -352,8 +361,38 @@ function showTrayAlert(on: boolean) {
     setTimeout(() => setTrayTemplate(!trayAlert && channel !== "dev"), ms);
 }
 
+let preparedForAppUpgrade: Installed[] = [];
+async function resumeAfterAppUpgradeFailure() {
+  packages.endHostUpgrade();
+  for (const p of preparedForAppUpgrade.splice(0)) {
+    const current = packages.registry().plugins[p.id];
+    if (current?.enabled && !current.removed) await host.activate(current);
+  }
+}
 const updater = new AppUpdater({
-  preflight:version=>{const incompatible=Object.values(packages.registry().plugins).filter(p=>p.enabled&&!p.removed&&!Bun.semver.satisfies(version,p.manifest.requires.host));if(incompatible.length)throw new Error(`Update or disable these plugins before installing Toolbelt ${version}: ${incompatible.map(p=>p.manifest.name).join(", ")}`)},
+  prepareInstall: async () => {
+    packages.beginHostUpgrade();
+    for (const plugin of host.list().filter((p) => p.state === "running")) {
+      const installed = packages.registry().plugins[plugin.manifest.id];
+      if (installed) {
+        await host.prepare(installed.id, "host-upgrade");
+        preparedForAppUpgrade.push(installed);
+      }
+    }
+  },
+  resumeInstall: resumeAfterAppUpgradeFailure,
+  preflight: (version) => {
+    const incompatible = Object.values(packages.registry().plugins).filter(
+      (p) =>
+        p.enabled &&
+        !p.removed &&
+        !Bun.semver.satisfies(version, p.manifest.requires.host),
+    );
+    if (incompatible.length)
+      throw new Error(
+        `Update or disable these plugins before installing Toolbelt ${version}: ${incompatible.map((p) => p.manifest.name).join(", ")}`,
+      );
+  },
   version: pkg.version,
   channel,
   feed: process.env.TOOLBELT_UPDATE_FEED,
@@ -368,7 +407,7 @@ const updater = new AppUpdater({
   relaunch: (app) => {
     const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
     const env = Object.entries({ ...process.env, TOOLBELT_OPEN_WINDOW: "1" })
-      .filter(([k, v]) => k.startsWith("TOOLBELT_") && v !== undefined)
+      .filter(([k, v]) => (k.startsWith("TOOLBELT_")||["HOME","SHELL","PATH","TMPDIR","LANG","LC_ALL","USER"].includes(k)) && v !== undefined)
       .map(([k, v]) => `--env ${q(`${k}=${v}`)}`)
       .join(" ");
     Bun.spawn(
@@ -515,6 +554,7 @@ if (
     hostname: "127.0.0.1",
     port: Number(process.env.TOOLBELT_DEBUG_PORT),
     async fetch(req) {
+      if(!localControlRequest(req))return new Response("Forbidden origin",{status:403});
       const url = new URL(req.url);
       const q = url.searchParams;
       switch (url.pathname) {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { localControlRequest } from "../src/bun/loopback";
 // Toolbelt's UI in a plain browser, with the real plugins: serves dist/ (run `bun run views`
 // first) and bridges the web view RPC over a WebSocket. For designing and screenshotting the
 // UI without the app. Run: bun scripts/preview.ts  →  http://localhost:5174 (#popover too)
@@ -37,7 +38,7 @@ const packages = new PackageManager(configDir(homedir()), {
   remove: (id) => host.remove(id),
 });
 await packages.recover();
-const manager=new PluginManagerService(packages,host);
+const manager = new PluginManagerService(packages, host);
 
 const icons = new FileIcons(join(configDir(homedir()), "cache/icons"));
 const clients = new Set<ServerWebSocket<{ opened: Set<string> }>>();
@@ -56,7 +57,9 @@ host.subscribe({
     p.stdin.end();
   },
 });
-host.start();manager.start();manager.subscribe(state=>broadcast("pluginManagerState",state));
+host.start();
+manager.start();
+manager.subscribe((state) => broadcast("pluginManagerState", state));
 
 // A pretend update, to design the Updates card and dialog: a newer release is "available";
 // Update runs through the phases on a timer. GET /update?phase=failed (downloading, verifying,
@@ -118,7 +121,10 @@ function simulate() {
 
 Bun.serve<{ opened: Set<string> }>({
   port,
+  hostname: "127.0.0.1",
   fetch(req, server) {
+    if (!localControlRequest(req))
+      return new Response("Forbidden origin", { status: 403 });
     const url = new URL(req.url);
     if (url.pathname === "/rpc")
       return server.upgrade(req, { data: { opened: new Set() } })
@@ -176,7 +182,8 @@ Bun.serve<{ opened: Set<string> }>({
         switch (m.method) {
           case "pluginAsset":
             return reply(pluginAsset(packages, p.reference));
-          case "pluginManager":return reply(await manager.handle(p));
+          case "pluginManager":
+            return reply(await manager.handle(p));
           case "plugins":
             return reply(host.list());
           case "open":

@@ -1,3 +1,6 @@
+import { packageTester } from "./tester-artifacts";
+import { extractSignedApp } from "./app-bundle";
+import pkg from "../package.json";
 import {
   cpSync,
   mkdirSync,
@@ -46,7 +49,7 @@ try {
   await run(["bun", "run", "--bun", "electrobun", "prepare"]);
   await run(["bun", "run", "--bun", "vite", "build"]);
   await run(["bun", "run", "--bun", "electrobun", "build", "--env=stable"]);
-  const output = join(source, "artifacts", "tester");
+  const output = join(source, "artifacts-tester");
   rmSync(output, { recursive: true, force: true });
   mkdirSync(output, { recursive: true });
   cpSync(join(stage, "build-tester.noindex"), join(output, "build"), {
@@ -58,6 +61,29 @@ try {
       recursive: true,
     });
   } catch {}
+  const real = join(output, "build/stable-macos-arm64");
+  rmSync(real, { recursive: true, force: true });
+  await extractSignedApp(
+    join(
+      output,
+      "archives/stable-macos-arm64-ToolbeltPluginTester.app.tar.zst",
+    ),
+    real,
+    {
+      archiveName: "Toolbelt Plugin Tester.app",
+      name: "Toolbelt Plugin Tester.app",
+      identifier: "io.github.tkarakai.toolbelt.tester",
+      version: pkg.version,
+    },
+  );
+  rmSync(join(output, "archives/macos-arm64-ToolbeltPluginTester.dmg"), {
+    force: true,
+  });
+  await packageTester(
+    join(real, "Toolbelt Plugin Tester.app"),
+    output,
+    pkg.version,
+  );
   console.log(`Tester artifacts: ${output}`);
 } finally {
   rmSync(stage, { recursive: true, force: true });

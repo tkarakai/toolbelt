@@ -1,3 +1,5 @@
+import { localControlRequest } from "./loopback";
+import { prepareAppHandoff } from "./activation";
 import { PluginManagerService } from "./plugin-manager-service";
 import Electrobun, {
   ApplicationMenu,
@@ -18,6 +20,9 @@ import pkg from "../../package.json";
 const root = testerProfile(process.env.TOOLBELT_TESTER_PROFILE);
 process.env.TOOLBELT_CONFIG_DIR = root;
 const runtime = new TesterRuntime(root, pkg.version);
+const profileQuery =
+  "?profile=" +
+  new Bun.CryptoHasher("sha256").update(root).digest("hex").slice(0, 24);
 let settings = loadSettings({ ...DEFAULTS, shortcut: "" });
 const icons = new FileIcons(root + "/cache/icons");
 const manager = new PluginManagerService(runtime.packages, runtime.host);
@@ -86,7 +91,10 @@ export async function testerControl(
   p: Record<string, any> = {},
 ) {
   switch (operation) {
-    case "activateMain": win.show();win.activate();return true;
+    case "activateMain":
+      win.show();
+      win.activate();
+      return true;
     case "viewport": {
       const frame = win.getFrame();
       win.setFrame(
@@ -123,7 +131,7 @@ export async function testerControl(
       if (!native) {
         native = createNativePopover({
           title: "Toolbelt Plugin Tester",
-          url: "views://ui/index.html#popover",
+          url: "views://ui/index.html" + profileQuery + "#popover",
           image: "views://assets/tray-icon-dev@2x.png",
           template: false,
           rpc: makeRPC(),
@@ -173,7 +181,16 @@ function makeRPC() {
           runtime.host.close(p.plugin, p.surface);
           return true;
         },
-        event: (p: any) => {
+        event: async (p: any) => {
+          if (
+            runtime.host
+              .list()
+              .find((plugin) => plugin.manifest.id === p.plugin)
+              ?.manifest.handoffActions?.includes(p.name)
+          ) {
+            await win.activate();
+            prepareAppHandoff();
+          }
           runtime.record("event", p);
           runtime.host.event(p.plugin, p.surface, p.name, p.payload);
           return true;
@@ -266,7 +283,7 @@ runtime.host.subscribe({
 await runtime.start();
 const win = new BrowserWindow({
   title: "Toolbelt Plugin Tester",
-  url: "views://ui/index.html",
+  url: "views://ui/index.html" + profileQuery,
   frame: { x: 120, y: 120, width: 1280, height: 900 },
   rpc: makeRPC(),
 });
@@ -279,6 +296,8 @@ if (process.env.TOOLBELT_DEBUG_PORT)
     hostname: "127.0.0.1",
     port: Number(process.env.TOOLBELT_DEBUG_PORT),
     async fetch(req) {
+      if (!localControlRequest(req))
+        return new Response("Forbidden origin", { status: 403 });
       const url = new URL(req.url);
       try {
         if (url.pathname === "/state")
