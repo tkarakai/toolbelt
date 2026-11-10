@@ -38,7 +38,7 @@ export type Manifest = {
 	/** The program, relative to the manifest; run with Bun. */
 	entry: string;
 	/** Tabs in the window. The first one with `default: true` (or the first) opens first. */
-	screens: { id: string; title: string; icon?: string; default?: boolean }[];
+	screens: { id: string; title: string; icon?: string; default?: boolean; shortcut?: string }[];
 	/** The plugin offers a compact view in the menu bar popover. */
 	quickView?: boolean;
 	repo?: string;
@@ -48,6 +48,25 @@ export type Manifest = {
 };
 
 export type Tone = "default" | "muted" | "success" | "warning" | "danger" | "info";
+
+/**
+ * A color for things that are told apart by color (which agent, which kind of service), not
+ * by meaning like a `Tone`. Toolbelt picks shades that read in light and dark themes.
+ */
+export const HUES = ["red", "orange", "amber", "yellow", "lime", "green", "emerald", "teal", "cyan", "sky", "blue", "indigo", "violet", "purple", "fuchsia", "pink", "rose", "slate", "stone"] as const;
+export type Hue = (typeof HUES)[number];
+
+/**
+ * A status dot: a tone or hue, or one with a label (an instant tooltip), `pulse` (slowly
+ * breathing: busy) and `dim` (a darker shade of the color: idle).
+ */
+export type Dot = Tone | Hue | { color: Tone | Hue; label?: string; pulse?: boolean; dim?: boolean };
+
+/** A small colored pill (an agent's name, a state). `tooltip` shows instantly on hover. */
+export type Tag = { text: string; color?: Tone | Hue; icon?: string; tooltip?: string };
+
+/** A small icon after a cell's text, with an instant tooltip (a bookmark: "kept as …"). */
+export type Mark = { icon: string; tooltip: string; color?: Tone | Hue };
 
 /** A table cell: plain text, or text with decoration. */
 export type Cell =
@@ -61,7 +80,13 @@ export type Cell =
 			mono?: boolean;
 			tone?: Tone;
 			/** A small status dot before the text. */
-			dot?: Tone;
+			dot?: Dot;
+			/** The part of `text` that matters most (a path's project folder): drawn stronger. */
+			strong?: string;
+			/** Pills at the start of the second line, before `sub` (agent, state). */
+			tags?: Tag[];
+			/** Icons right after the text, each with an instant tooltip. */
+			marks?: Mark[];
 			/** Small outlined chips after the text (ports, tags). */
 			chips?: string[];
 			/** Render the text as a badge. */
@@ -119,10 +144,35 @@ export type Action = {
 	group?: string;
 	/** A switch instead of a button (page toolbars): on when true. Clicking sends the action. */
 	checked?: boolean;
+	/**
+	 * A one-key shortcut for the selected row ("j", "p"; no modifiers). Toolbelt shows it in
+	 * the tooltip, the row menu and the details drawer's buttons.
+	 */
+	key?: string;
 };
 
+/**
+ * What a row action can apply to, when there's a choice (a job and the processes it started):
+ * the person picks one from a menu, and the action's event carries `target` (the option's id).
+ */
+export type Target = { id: string; label: string; sub?: string; icon?: string };
+
 /** One level of a row's group: a label, or a label with extras. Rows group by `id ?? label`. */
-export type GroupLabel = string | { id?: string; label: string; /** muted text after the label (a git branch) */ sub?: string; /** a small badge ("app", "no terminal") */ tag?: string; /** dimmed (app sections) */ muted?: boolean; icon?: string };
+export type GroupLabel =
+	| string
+	| {
+			id?: string;
+			label: string;
+			/** The part of `label` that matters most (a path's project folder): drawn stronger. */
+			strong?: string;
+			/** A git branch, drawn as one after the label. */
+			sub?: string;
+			/** a small badge ("app", "no terminal") */
+			tag?: string;
+			/** dimmed (app sections) */
+			muted?: boolean;
+			icon?: string;
+	  };
 
 export type Row = {
 	id: string;
@@ -142,18 +192,42 @@ export type Row = {
 	stats?: { label: string; value: string; spark?: number[]; tone?: Tone }[];
 	/** Rows nested under this one (a process's children); the person expands them. */
 	children?: Row[];
+	/** Per action id: what it can apply to. With two or more, the action asks which one. */
+	targets?: Record<string, Target[]>;
 };
 
 /**
  * A label/value pair in the inspector. Items with the same `section` are shown together under
  * that heading, in order of first appearance. `copy` adds a copy button.
  */
-export type DetailItem = { label: string; value: string; mono?: boolean; tone?: Tone; section?: string; copy?: boolean };
+export type DetailItem = {
+	label: string;
+	value: string;
+	mono?: boolean;
+	tone?: Tone;
+	section?: string;
+	copy?: boolean;
+	/** A dot before the label. */
+	dot?: Dot;
+	/** Small icon buttons on the item; they send the action with `{ rowId: actionRow }`. */
+	actions?: Action[];
+	/** The row the item's `actions` apply to (another process than the selected one). */
+	actionRow?: string;
+};
+
+/**
+ * A multi-select filter in a page's toolbar (zero or more options checked; none checked means
+ * no filtering). Changes arrive as `filter` events; the plugin applies them and sends `selected`.
+ */
+export type Filter = { id: string; label: string; icon?: string; options: { value: string; label: string; dot?: Dot; count?: number }[]; selected: string[] };
+
+export type EnvironmentEntry = { key: string; value: string; selected: boolean; secret: boolean };
 
 export type Field =
+    | { type: "environment"; id: string; label: string; value: EnvironmentEntry[]; description?: string }
 	| { type: "select"; id: string; label: string; value: string; options: { value: string; label: string }[]; description?: string }
 	| { type: "switch"; id: string; label: string; value: boolean; description?: string }
-	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string };
+	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean };
 
 /** A line of output in a `log`. */
 export type LogLine = { text: string; at?: number; tone?: Tone };
@@ -196,6 +270,8 @@ export type Node =
 			actions?: Action[];
 			/** Muted text in the toolbar ("12 processes"). */
 			summary?: string;
+			/** Multi-select filters, after the search box. */
+			filters?: Filter[];
 			/** Words to mark on the page (search hits), case-insensitive. */
 			highlight?: string[];
 			children: Node[];
@@ -222,7 +298,7 @@ export type Node =
 			type: "list";
 			id: string;
 			/** `metaAt` shows a moment (epoch ms) relative to now instead of `meta`. */
-			items: { id: string; title: string; subtitle?: string; dot?: Tone; meta?: string; metaAt?: number; actions?: Action[] }[];
+			items: { id: string; title: string; subtitle?: string; icon?: string; dot?: Dot; meta?: string; metaAt?: number; actions?: Action[] }[];
 			empty?: { title: string; description?: string; icon?: string };
 	  }
 	/** `at` shows a moment (epoch ms) relative to now instead of `value`. */
@@ -270,14 +346,16 @@ export type PluginMessage =
 /** Events Toolbelt sends, by `name`. */
 export type EventPayloads = {
 	/** A table/list/card/dialog action: `name` is the action id. */
-	action: { rowId?: string; rowIds?: string[]; dialog?: string };
+	action: { rowId?: string; rowIds?: string[]; dialog?: string; /** the `Target` the person picked */ target?: string };
 	/** The person closed a dialog (Esc, close button, Cancel). */
 	"dialog-close": { dialog: string };
 	search: { query: string };
 	/** A sortable column header was clicked: sort `table` by `key`. */
 	sort: { table: string; key: string; desc: boolean };
 	/** A form field changed. */
-	field: { form: string; field: string; value: string | boolean };
+	field: { form: string; field: string; value: string | boolean | EnvironmentEntry[] };
+	/** A filter's checked options changed. */
+	filter: { filter: string; values: string[] };
 };
 
 /** Parse a manifest and check the parts Toolbelt relies on. Throws with a readable message. */
@@ -292,7 +370,15 @@ export function parseManifest(json: unknown): Manifest {
 	need(typeof m.entry === "string" && m.entry, "`entry` is required");
 	need(m.protocol === PROTOCOL_VERSION, `\`protocol\` must be ${PROTOCOL_VERSION} (got ${m.protocol})`);
 	need(Array.isArray(m.screens) && m.screens.length > 0, "at least one screen is required");
-	for (const s of m.screens!) need(typeof s.id === "string" && typeof s.title === "string", "each screen needs `id` and `title`");
+	const shortcuts = new Set<string>();
+    for (const s of m.screens!) {
+        need(typeof s.id === "string" && typeof s.title === "string", "each screen needs `id` and `title`");
+        if (s.shortcut !== undefined) {
+            need(typeof s.shortcut === "string" && /^[a-z]$/.test(s.shortcut), "screen shortcut must be one lowercase letter");
+            need(!shortcuts.has(s.shortcut), "screen shortcuts must be unique");
+            shortcuts.add(s.shortcut);
+        }
+    }
 	return {
 		...m,
 		icon: typeof m.icon === "string" ? m.icon : "box",

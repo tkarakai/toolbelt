@@ -213,6 +213,7 @@ function shortenArgv0(argv: string[], env: Record<string, string>): string[] {
 }
 
 const TERM_ENV: [string, string][] = [
+  ["CMUX_WORKSPACE_ID", "cmuxworkspace"], ["CMUX_SURFACE_ID", "cmuxsurface"],
   ["ORCA_TERMINAL_HANDLE", "orca"], ["TMUX_PANE", "tmux"], ["TERM_PROGRAM", "app"],
   ["TERM_SESSION_ID", "apple"], ["ITERM_SESSION_ID", "iterm"], ["WEZTERM_PANE", "wezterm"], ["KITTY_WINDOW_ID", "kitty"],
 ];
@@ -303,7 +304,7 @@ export async function collect(opts: { selfPid: number }): Promise<Row[]> {
 
   // 1. Terminal jobs.
   for (const p of procs.values()) {
-    if (p.uid !== MY_UID || excluded.has(p.pid) || claimed.has(p.pid) || isShell(p)) continue;
+    if (p.uid !== MY_UID || excluded.has(p.pid) || claimed.has(p.pid) || interactiveShell(p.pid)) continue;
     if (interactiveShell(p.ppid) && p.tty !== "??") roots.set(p.pid, "term");
   }
 

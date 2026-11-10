@@ -94,8 +94,7 @@ export function useHeldModifiers(want: { meta?: boolean; alt?: boolean } = { met
 			setHeld(false);
 		};
 		const down = (e: KeyboardEvent) => {
-			const isModifier = e.key === "Meta" || e.key === "Alt";
-			if (isModifier && matches(e)) {
+			if (matches(e)) {
 				if (delay === 0) setHeld(true);
 				else if (!timer) timer = setTimeout(() => setHeld(true), delay);
 			} else reset();

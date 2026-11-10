@@ -14,3 +14,14 @@ describe.each(THEMES.flatMap((t) => (["light", "dark"] as const).map((mode) => [
 		for (const v of Object.values(tokens(palette))) expect(v).toMatch(/^#[0-9a-f]{6}$/);
 	});
 });
+
+describe.each(THEMES.flatMap(t => [t.light,t.dark]))("selection semantics", palette => {
+    test("all semantic colors retain AA contrast on the selection and their pills", () => {
+        const values = tokens(palette);
+        for (const [name, color] of Object.entries(values)) {
+            if (!name.startsWith("selected-") || name.endsWith("-pill") || name === "selected-foreground") continue;
+            expect(contrast(color,palette.selected)).toBeGreaterThanOrEqual(4.5);
+            expect(contrast(color,values[`${name}-pill`])).toBeGreaterThanOrEqual(4.5);
+        }
+    });
+});

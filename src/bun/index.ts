@@ -7,16 +7,23 @@ import { join } from "node:path";
 import { PluginHost, configDir, pluginDirs } from "./host";
 import { FileIcons } from "./file-icon";
 import { clearHotKey, displayAccelerator, setHotKey } from "./hotkey";
-import { loadSettings, saveSettings, type Settings } from "./settings";
+import { DEFAULTS, loadSettings, saveSettings, type Settings } from "./settings";
 import { setTrayHighlighted, setTrayTemplate, trayDark, trayHighlighted, trayTemplate } from "./tray-highlight";
 import { SOON, Updater as AppUpdater, bundleOf, type UpdateState } from "./updater";
 import type { ToolbeltRPC } from "../shared/rpc";
+import { prepareAppHandoff } from "./activation";
+import { appVariant } from "../shared/variant";
 import pkg from "../../package.json" with { type: "json" };
 
+/** The popover's width, and its tallest (quick views use all of it; the tool list asks for less). */
 const POPOVER = { width: 380, height: 520 };
-let settings = loadSettings();
-
+/** The height the tool list last asked for (`popoverSize`), used the next time it shows. */
+let listHeight = POPOVER.height;
+let popoverHeight = POPOVER.height;
 const channel = await Updater.localInfo.channel();
+const variant = appVariant(channel === "dev");
+if (channel === "dev" && !process.env.TOOLBELT_CONFIG_DIR) process.env.TOOLBELT_CONFIG_DIR = join(homedir(), "Library/Application Support", variant.settingsFolder);
+let settings = loadSettings({ ...DEFAULTS, shortcut: variant.shortcut });
 const devServer = channel === "dev" && (await fetch("http://localhost:5173", { method: "HEAD" }).then(() => true, () => false));
 const viewUrl = (hash = "") => (devServer ? "http://localhost:5173/" : "views://ui/index.html") + hash;
 
@@ -24,7 +31,7 @@ const viewUrl = (hash = "") => (devServer ? "http://localhost:5173/" : "views://
 const host = new PluginHost({
 	dirs: pluginDirs({ bundled: join(PATHS.RESOURCES_FOLDER, "app/plugins"), home: homedir(), extra: process.env.TOOLBELT_PLUGINS }),
 	bun: process.execPath,
-	host: { name: "Toolbelt", version: pkg.version },
+	host: { name: variant.name, version: pkg.version },
 	data: join(configDir(homedir()), "data"),
 });
 
@@ -53,7 +60,9 @@ function makeRPC() {
 					host.close(plugin, surface);
 					return true;
 				},
-				event: ({ plugin, surface, name, payload }) => {
+				event: async ({ plugin, surface, name, payload }): Promise<true> => {
+                    // Register Toolbelt as the foreground application before handing focus away.
+                    if ((name === "focus" || name === "focus-kept") && win) { await win.activate(); prepareAppHandoff(); }
 					host.event(plugin, surface, name, payload);
 					return true;
 				},
@@ -101,6 +110,15 @@ function makeRPC() {
 					showWindow(plugin, screen);
 				},
 				hidePopover: () => hidePopover(),
+				popoverSize: ({ height }) => {
+					const h = height === null ? POPOVER.height : Math.round(Math.max(120, Math.min(POPOVER.height, height)));
+					if (height !== null) listHeight = h;
+					if (h === popoverHeight) return;
+					popoverHeight = h;
+					// Keep the top edge where it is (it hangs from the menu bar).
+					const f = popover.getFrame();
+					popover.setFrame(f.x, f.y, POPOVER.width, h);
+				},
 				closeWindow: () => win?.close(),
 				// Double-clicking the title area: zoom like a native title bar.
 				zoomWindow: () => {
@@ -152,7 +170,7 @@ function showWindow(plugin?: string, screen?: string) {
 	winRPC = makeRPC();
 	const hash = plugin ? `#/${plugin}${screen ? `/${screen}` : ""}` : "";
 	win = new BrowserWindow({
-		title: "Toolbelt",
+		title: variant.name,
 		url: viewUrl(hash),
 		frame: { width: 1180, height: 760 },
 		titleBarStyle: "hiddenInset",
@@ -169,11 +187,11 @@ function showWindow(plugin?: string, screen?: string) {
 
 // ── menu bar icon + popover ──────────────────────────────────────────────
 // No native menu: a click sends `tray-clicked`, and we show our own (shadcn) popover under it.
-const tray = new Tray({ title: "", image: "views://assets/tray-icon@2x.png", template: true, width: 18, height: 18 });
+const tray = new Tray({ title: "", image: channel === "dev" ? "views://assets/tray-icon-dev@2x.png" : "views://assets/tray-icon@2x.png", template: channel !== "dev", width: 18, height: 18 });
 
 const popRPC = makeRPC();
 const popover = new BrowserWindow({
-	title: "Toolbelt",
+	title: variant.name,
 	url: viewUrl("#popover"),
 	frame: { width: POPOVER.width, height: POPOVER.height, x: 0, y: 0 },
 	titleBarStyle: "hidden",
@@ -203,7 +221,9 @@ function showPopover() {
 	const x = Math.round(Math.min(Math.max(b.x - 2, display.workArea.x + 4), display.workArea.x + display.workArea.width - POPOVER.width - 4));
 	const trayBottom = b.height ? display.bounds.height - b.y : display.workArea.y;
 	const y = Math.round(trayBottom - 1);
-	popover.setFrame(x, y, POPOVER.width, POPOVER.height);
+	// It opens on the tool list, so at the list's height.
+	popoverHeight = listHeight;
+	popover.setFrame(x, y, POPOVER.width, popoverHeight);
 	popover.show();
 	popover.activate();
 	setTrayHighlighted(true);
@@ -237,7 +257,7 @@ popover.on("blur", () => {
 // ── updates (official builds only; src/bun/updater.ts) ───────────────────
 // An available update puts a red dot on the menu bar icon. A template image can't be red, so
 // that one is a plain image, with the belt drawn for the menu bar's current shade.
-const TRAY_IMAGE = "views://assets/tray-icon@2x.png";
+const TRAY_IMAGE = channel === "dev" ? "views://assets/tray-icon-dev@2x.png" : "views://assets/tray-icon@2x.png";
 let trayAlert: null | "light" | "dark" = null;
 function showTrayAlert(on: boolean) {
 	const want = on ? (trayDark() ? "dark" : "light") : null;
@@ -245,7 +265,7 @@ function showTrayAlert(on: boolean) {
 	trayAlert = want;
 	tray.setImage(want ? `views://assets/tray-icon-update-${want}@2x.png` : TRAY_IMAGE);
 	// Electrobun keeps the template flag it was created with; fix it once the image is in.
-	for (const ms of [50, 400]) setTimeout(() => setTrayTemplate(!trayAlert), ms);
+	for (const ms of [50, 400]) setTimeout(() => setTrayTemplate(!trayAlert && channel !== "dev"), ms);
 }
 
 const updater = new AppUpdater({
@@ -278,14 +298,14 @@ if (shortcutError) console.error(`shortcut: ${shortcutError}`);
 ApplicationMenu.setApplicationMenu([
 	{
 		submenu: [
-			{ label: "Open Toolbelt", action: "open-window", accelerator: "CommandOrControl+O" },
+			{ label: `Open ${variant.name}`, action: "open-window", accelerator: "CommandOrControl+O" },
 			{ label: "Settings…", action: "settings", accelerator: "CommandOrControl+," },
 			{ label: "Check for Updates…", action: "check-updates" },
 			{ type: "separator" },
 			{ role: "hide", accelerator: "CommandOrControl+H" },
 			{ role: "hideOthers", accelerator: "CommandOrControl+Option+H" },
 			{ type: "separator" },
-			{ label: "Quit Toolbelt…", action: "quit", accelerator: "CommandOrControl+Q" },
+			{ label: `Quit ${variant.name}…`, action: "quit", accelerator: "CommandOrControl+Q" },
 		],
 	},
 	{

@@ -5,8 +5,9 @@
 // test/processes-model.test.ts can check them.
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import type { Row, Tone } from "../../src/sdk";
+import type { DetailItem, Dot, Hue, Row, Tag, Target, Tone } from "../../src/sdk";
 import { search, type Search } from "../../src/sdk/search";
+import { agentById, detectAgent, type AgentKind } from "./agents";
 import type { Agent, Listen, Member, ProcRow, Snapshot, SortKey } from "./core";
 
 const home = homedir();
@@ -25,6 +26,27 @@ export function agentState(a: Agent, now = Date.now()) {
 	const ms = a.lastActive > 1e12 ? a.lastActive : a.lastActive * 1000;
 	return `idle ${dur(Math.max(0, (now - ms) / 1000))}`;
 }
+/**
+ * The part of a path that names the project: the folder after a collection of projects
+ * ("toolbelt" in ~/dev/projects/toolbelt/src and ~/worktrees/toolbelt/t3-1234), else the last
+ * folder.
+ * Collections can nest (~/dev/projects/…): the project is after the innermost one in a row.
+ */
+export const COLLECTIONS = new Set(["workspaces", "workspace", "projects", "project", "worktrees", "worktree", "repos", "repo", "repositories", "code", "dev", "developer", "development", "git", "github", "gitlab", "sites", "work", "clones", "checkouts", "sandbox", "playground", "experiments", "src"]);
+export function projectPart(path: string): string | undefined {
+	const parts = path.split("/").filter((p) => p && p !== "~");
+	for (let i = 0; i < parts.length - 1; i++) {
+		if (!COLLECTIONS.has(parts[i].toLowerCase())) continue;
+		if (COLLECTIONS.has(parts[i + 1].toLowerCase()) && i + 2 < parts.length) continue; // nested: look further
+		return parts[i + 1];
+	}
+	return parts.at(-1);
+}
+
+/** Heavy use, worth noticing: CPU % (100 = one core busy) and resident memory (KB). */
+export const cpuTone = (cpu: number): Tone => (cpu >= 100 ? "danger" : cpu >= 50 ? "warning" : "default");
+export const memTone = (kb: number): Tone => (kb >= 4 * 1024 * 1024 ? "danger" : kb >= 1024 * 1024 ? "warning" : "default");
+
 /** paused / zombie / waiting on disk, from ps's STAT. */
 export const stateLabel = (stat: string) => (stat.includes("Z") ? "zombie" : stat.includes("T") ? "paused" : stat.startsWith("D") ? "waiting on disk" : "");
 
@@ -68,7 +90,117 @@ export type Options = {
 	/** Recent CPU % and memory KB per pid, oldest first, for sparklines. */
 	history?: Map<number, { cpu: number[]; mem: number[] }>;
 	now?: number;
+	/** Checked filter values (none checked: everything). See `FILTERS`. */
+	filters?: Partial<Record<FilterId, string[]>>;
+	/** Whether an agent is waiting for the person (Claude Code's live status). */
+	waiting?: (pid: number) => boolean;
 };
+
+// ── what a process is and how it's doing ─────────────────────────────────
+/** Which agent a job is: running-core's harness, else recognized from its command line. */
+export function agentOf(r: { displayArgv: string[]; exe?: string; agent?: Agent }): AgentKind | undefined {
+	return (r.agent && agentById(r.agent.harness)) ?? detectAgent(r.displayArgv, r.exe);
+}
+
+/** How a process is doing. Agents: working / waiting for you / idle / new; anything: paused,
+ *  zombie, waiting on disk, or just running. */
+export type Activity = "working" | "waiting" | "idle" | "new" | "paused" | "zombie" | "disk" | "running";
+export const ACTIVITY: Record<Activity, { label: string; color: Tone | Hue }> = {
+	working: { label: "Working", color: "green" },
+	waiting: { label: "Waiting for you", color: "red" },
+	idle: { label: "Idle", color: "muted" },
+	new: { label: "New", color: "info" },
+	paused: { label: "Paused", color: "warning" },
+	zombie: { label: "Zombie", color: "danger" },
+	disk: { label: "Waiting on disk", color: "orange" },
+	running: { label: "Running", color: "slate" },
+};
+
+/** Agents running-core doesn't know in depth count as working while they use the CPU. */
+const BUSY_CPU = 3;
+
+export function activity(r: { stat: string; cpu: number; pid: number; agent?: Agent }, isAgent: boolean, o: Pick<Options, "waiting"> = {}): Activity {
+	const st = stateLabel(r.stat);
+	if (st === "zombie") return "zombie";
+	if (st === "paused") return "paused";
+	if (st === "waiting on disk") return "disk";
+	if (!isAgent) return "running";
+	if (o.waiting?.(r.pid)) return "waiting";
+	if (r.agent?.status) return r.agent.status === "working" ? "working" : r.agent.status === "new" ? "new" : "idle";
+	return r.cpu >= BUSY_CPU ? "working" : "idle";
+}
+
+/** What its dot says: a web server, something else listening, an agent (busy / idle / waiting
+ *  for you), a process in trouble (paused, zombie), or just a process. */
+export type Service = "web" | "port" | "agent-busy" | "agent-idle" | "agent-waiting" | "paused" | "zombie" | "disk" | "agent-new" | "plain";
+export const SERVICE: Record<Service, { label: string; dot: Exclude<Dot, string> }> = {
+	"agent-busy": { label: "Agent working", dot: { color: "green", pulse: true } },
+	"agent-waiting": { label: "Agent waiting for you", dot: { color: "fuchsia", pulse: true } },
+	"agent-idle": { label: "Agent idle", dot: { color: "green", dim: true } },
+	web: { label: "Web server", dot: { color: "blue" } },
+	port: { label: "Listening (not web)", dot: { color: "violet" } },
+	paused: { label: "Paused", dot: { color: "amber" } },
+    zombie: { label: "Zombie", dot: { color: "red" } },
+    disk: { label: "Waiting on disk", dot: { color: "amber" } },
+    "agent-new": { label: "Agent new session", dot: { color: "green", dim: true } },
+	plain: { label: "Other processes", dot: { color: "muted" } },
+};
+
+export function service(snap: Snapshot, r: { listen: Listen[] }, act: Activity, isAgent: boolean): Service {
+	if (act === "paused" || act === "zombie" || act === "disk") return act;
+	if (isAgent) return act === "working" ? "agent-busy" : act === "waiting" ? "agent-waiting" : act === "new" ? "agent-new" : "agent-idle";
+	if (webUrl(snap, r)) return "web";
+	return r.listen.length ? "port" : "plain";
+}
+
+/** The dot, with what it means in words (its tooltip). */
+export function dotFor(snap: Snapshot, r: { listen: Listen[]; agent?: Agent }, act: Activity, svc: Service, agent: AgentKind | undefined, now?: number): Dot {
+	const ports = r.listen.map((l) => `:${l.port}`).join(" ");
+	const who = agent?.name ?? "Agent";
+	const label =
+		svc === "web" ? `Web server — ${webUrl(snap, r)}`
+		: svc === "port" ? `Listening on ${ports} — not a web page`
+		: svc === "agent-busy" ? `${who} is working${r.agent?.status ? "" : " (it's using the CPU)"}`
+		: svc === "agent-waiting" ? `${who} is waiting for you`
+		: svc === "agent-idle" ? (act === "new" ? `${who} — no conversation yet` : `${who} is ${r.agent ? agentState(r.agent, now) : "idle"}`)
+		: svc === "agent-new" ? `${who} — no conversation yet`
+        : ["paused", "zombie", "disk"].includes(svc) ? (act === "paused" ? "Paused (stopped with ⌃Z or SIGSTOP)" : act === "zombie" ? "Zombie — it exited, but its parent hasn't collected it" : "Waiting on the disk")
+		: "Running";
+	return { ...SERVICE[svc].dot, label };
+}
+
+// ── filters ──────────────────────────────────────────────────────────────
+export type FilterId = "agent" | "service";
+/** The filters, in toolbar order. Agent `none`: processes that aren't agents. */
+export const FILTERS: { id: FilterId; label: string; icon: string }[] = [
+	{ id: "agent", label: "Agent", icon: "bot" },
+	{ id: "service", label: "State", icon: "circle-dot" },
+];
+
+/** A job's value for each filter. */
+export function facetsOf(snap: Snapshot, r: ProcRow, o: Pick<Options, "waiting">): Record<FilterId, string> {
+	const agent = agentOf(r);
+	const act = activity(r, !!agent, o);
+	return { agent: agent?.id ?? "none", service: service(snap, r, act, !!agent) };
+}
+
+const passes = (f: Record<FilterId, string>, filters: Options["filters"]) => (Object.keys(f) as FilterId[]).every((k) => !filters?.[k]?.length || filters[k]!.includes(f[k]));
+
+/** How many jobs have each value, among those the other filters let through — so a count says
+ *  what checking it would add. */
+export function facetCounts(snap: Snapshot, o: Options): Record<FilterId, Map<string, number>> {
+	const s = search(o.query);
+	const out: Record<FilterId, Map<string, number>> = { agent: new Map(), service: new Map() };
+	for (const r of snap.rows) {
+		if (!(o.showAll || r.kind !== "app") || !s.test(searchable(snap, r))) continue;
+		const f = facetsOf(snap, r, o);
+		for (const k of Object.keys(out) as FilterId[]) {
+			if (!passes(f, { ...o.filters, [k]: [] })) continue;
+			out[k].set(f[k], (out[k].get(f[k]) ?? 0) + 1);
+		}
+	}
+	return out;
+}
 
 export type Built = {
 	rows: Row[];
@@ -90,7 +222,7 @@ export function searchable(snap: Snapshot, r: ProcRow): (string | number | undef
 	const a = r.agent;
 	const keptName = r.keptIndex !== undefined ? snap.kept.find((k) => k.index === r.keptIndex)?.name : undefined;
 	return [
-		displayName(r), r.command, r.argvCommand, r.cwd, tildify(r.cwd), r.pid, r.kind, sectionLabel(r.where), r.termLabel, r.tty, r.exe, stateLabel(r.stat), keptName,
+		displayName(r), r.command, r.argvCommand, r.cwd, tildify(r.cwd), r.pid, r.kind, sectionLabel(r.where), r.termLabel, r.cmux?.workspace, r.cmux?.surface, r.tty, r.exe, stateLabel(r.stat), keptName,
 		...r.listen.flatMap((l) => [`:${l.port}`, l.host]),
 		snap.branches[r.cwd] ?? undefined, webUrl(snap, r), ...probeTitles(snap, r),
 		a?.harness, a?.title, a?.model, a && agentState(a), a?.branch, a?.sessionId,
@@ -99,10 +231,11 @@ export function searchable(snap: Snapshot, r: ProcRow): (string | number | undef
 }
 const memberSearchable = (m: Member) => [m.pid, m.argvCommand, tildify(m.cwd), ...m.listen.map((l) => `:${l.port}`)];
 
-export function statusTone(r: ProcRow): Tone {
-	if (r.agent) return r.agent.status === "working" ? "info" : "muted";
-	if (stateLabel(r.stat)) return "warning";
-	return r.listen.length ? "success" : "info";
+/** A job's dot (the popover's quick view uses it too). */
+export function statusDot(snap: Snapshot, r: ProcRow, o: Pick<Options, "waiting" | "now"> = {}): Dot {
+	const agent = agentOf(r);
+	const act = activity(r, !!agent, o);
+	return dotFor(snap, r, act, service(snap, r, act, !!agent), agent, o.now);
 }
 
 export function build(snap: Snapshot, o: Options): Built {
@@ -117,11 +250,11 @@ export function build(snap: Snapshot, o: Options): Built {
 
 	const all = snap.rows;
 	const apps = all.filter((r) => r.kind === "app");
-	const visible = all.filter((r) => (o.showAll || r.kind !== "app") && s.test(searchable(snap, r)));
+	const visible = all.filter((r) => (o.showAll || r.kind !== "app") && s.test(searchable(snap, r)) && passes(facetsOf(snap, r, o), o.filters));
 
 	// Sections: by where, terminals before servers before apps, then by name (or by total).
 	const sections = new Map<string, ProcRow[]>();
-	for (const j of visible) sections.set(j.where, [...(sections.get(j.where) ?? []), j]);
+	for (const j of visible) { const where = j.where.startsWith("tmux") ? "tmux" : j.where; sections.set(where, [...(sections.get(where) ?? []), j]); }
 	const rank = (js: ProcRow[]) => Math.min(...js.map((j) => KIND_RANK[j.kind] ?? 9));
 	let ordered = [...sections.entries()].sort((a, b) => rank(a[1]) - rank(b[1]) || sectionLabel(a[0]).localeCompare(sectionLabel(b[0])));
 	if (sum) ordered = ordered.sort((a, b) => cmp(groupVal(a[1], a[0]), groupVal(b[1], b[0])));
@@ -131,7 +264,7 @@ export function build(snap: Snapshot, o: Options): Built {
 		const isApp = js.every((j) => j.kind === "app");
 		const section = {
 			id: `w:${where}`,
-			label: sectionLabel(where),
+			label: where === "tmux" ? "TMUX" : sectionLabel(where),
 			tag: where === "detached" ? "no terminal" : isApp ? "app" : undefined,
 			muted: isApp,
 			icon: sectionIcon(where, js, isApp, all),
@@ -143,14 +276,14 @@ export function build(snap: Snapshot, o: Options): Built {
 		const dirList = [...dirs.entries()].sort((a, b) => (sum ? cmp(groupVal(a[1], a[0]), groupVal(b[1], b[0])) : tildify(a[0]).localeCompare(tildify(b[0]), undefined, { numeric: true })));
 		for (const [dir, djs] of dirList) {
 			const branch = dir && dir !== "/" ? (snap.branches[dir] ?? undefined) : undefined;
-			const group = [section, { id: `d:${where}:${dir}`, label: tildify(dir) || "—", sub: branch ?? undefined }];
+			const group = [section, { id: `d:${where}:${dir}`, label: tildify(dir) || "—", strong: dir && dir !== "/" ? projectPart(tildify(dir)) : undefined, sub: branch ?? undefined }];
 			const place = (j: ProcRow): Row => {
 				const childJobs = js.filter((c) => c.parentRow === j.pid).sort(byKey);
 				const members = sortTree(j.members, memberVal, cmp).map((m) => memberRow(snap, j, m, o));
 				// Expanded when jobs were started from it, or the search matched one of its processes.
 				const memberHit = !s.empty && j.members.some((m) => s.test(memberSearchable(m)));
 				const children = [...nestMembers(j, members), ...childJobs.map(place)];
-				return { ...jobRow(snap, j, o), children: children.length ? children : undefined, open: childJobs.length > 0 || memberHit || undefined };
+				return { ...jobRow(snap, j, o, childJobs), children: children.length ? children : undefined, open: childJobs.length > 0 || memberHit || undefined };
 			};
 			for (const j of djs.sort(byKey)) rows.push({ ...place(j), group });
 		}
@@ -194,17 +327,78 @@ const spark = (o: Options, pid: number, key: "cpu" | "mem") => {
 	return h && h.length > 1 ? h : undefined;
 };
 
-function jobRow(snap: Snapshot, r: ProcRow, o: Options): Row {
+/** The pills on a job's second line: which agent, and how it (or any process) is doing. */
+function tagsFor(r: ProcRow, agent: AgentKind | undefined, act: Activity, o: Options): Tag[] {
+	const tags: Tag[] = [];
+	if (agent) tags.push({ text: agent.name, color: agent.hue, icon: `agent:${agent.id}` });
+	if (act !== "running") {
+		const text = act === "idle" && r.agent ? agentState(r.agent, o.now) : ACTIVITY[act].label.toLowerCase();
+		tags.push({ text, color: ACTIVITY[act].color });
+	}
+	return tags;
+}
+
+/** Where an action could go, for a job with processes of its own: the job, the processes it
+ *  started (and jobs started from it). Only listed when there's more than one. */
+function targetsFor(snap: Snapshot, r: ProcRow, childJobs: ProcRow[]): Row["targets"] {
+	const procs: { pid: number; label: string; cwd: string; listen: Listen[]; tty?: string }[] = [
+		{ pid: r.pid, label: displayName(r), cwd: r.cwd, listen: r.listen.filter((l) => l.pid === r.pid), tty: r.tty },
+		...r.members.map((m) => ({ pid: m.pid, label: m.argvCommand, cwd: m.cwd, listen: m.listen })),
+		...childJobs.map((c) => ({ pid: c.pid, label: displayName(c), cwd: c.cwd, listen: c.listen, tty: c.tty })),
+	];
+	const sub = (p: (typeof procs)[number]) => [`pid ${p.pid}`, ...p.listen.map((l) => `:${l.port}`)].join(" · ");
+	const peek: Target[] = procs.map((p) => ({ id: String(p.pid), label: p.label, sub: sub(p), icon: p.pid === r.pid ? "square-terminal" : "corner-down-right" }));
+	// Its own terminal, and the terminals of jobs started from it.
+	const jump: Target[] = [r, ...childJobs].filter((j) => j.tty).map((j) => ({ id: String(j.pid), label: displayName(j), sub: `${j.termLabel || j.tty} · pid ${j.pid}`, icon: "square-terminal" }));
+	const open: Target[] = snap.probes
+		.filter((p) => p.web && p.url && [...r.listen, ...childJobs.flatMap((c) => c.listen)].some((l) => l.pid === p.pid && l.port === p.port))
+		.map((p) => ({ id: p.url!, label: p.url!, sub: [p.title, `pid ${p.pid}`].filter(Boolean).join(" · "), icon: "globe" }));
+	return { output: peek, focus: jump, open };
+}
+
+/**
+ * "Started processes": a job's processes and the jobs started from it, those with ports first
+ * (web pages apart from other listeners), each with Peek and — for web pages — Open.
+ */
+function startedSection(snap: Snapshot, r: ProcRow, childJobs: ProcRow[]): DetailItem[] {
+	const S = "Started processes";
+	const all = [...r.members.map((m) => ({ pid: m.pid, command: m.argvCommand, listen: m.listen, stat: m.stat })), ...childJobs.map((c) => ({ pid: c.pid, command: displayName(c), listen: c.listen, stat: c.stat }))];
+	if (!all.length) return [];
+	const kind = (p: (typeof all)[number]) => (webUrl(snap, p) ? 0 : p.listen.length ? 1 : 2);
+	const sorted = [...all].sort((a, b) => kind(a) - kind(b) || a.pid - b.pid);
+	const LIMIT = 12;
+	const items: DetailItem[] = sorted.slice(0, LIMIT).map((p) => {
+		const url = webUrl(snap, p);
+		const ports = p.listen.map((l) => `:${l.port}`).join(" ");
+		const st = stateLabel(p.stat);
+		return {
+			section: S,
+			label: [url ? `web ${ports}` : ports ? `port ${ports}` : "", `pid ${p.pid}`, st].filter(Boolean).join(" · "),
+			value: p.command,
+			mono: true,
+			dot: url ? { color: "blue", label: url } : ports ? { color: "violet", label: `Listening on ${ports} — not a web page` } : st ? "amber" : "muted",
+			actionRow: String(p.pid),
+			actions: [{ id: "output", label: "Peek", icon: "scan-eye" }, ...(url ? [{ id: "open", label: `Open ${url}`, icon: "globe" }] : [])],
+		};
+	});
+	const web = all.filter((p) => webUrl(snap, p)).length, ports = all.filter((p) => p.listen.length && !webUrl(snap, p)).length;
+	const summary = [`${all.length} in all`, web ? `${web} web` : "", ports ? `${ports} listening` : ""].filter(Boolean).join(" · ");
+	return [{ section: S, label: "Summary", value: summary }, ...items, ...(all.length > LIMIT ? [{ section: S, label: "More", value: `and ${all.length - LIMIT} more — expand the row to see them all` }] : [])];
+}
+
+function jobRow(snap: Snapshot, r: ProcRow, o: Options, childJobs: ProcRow[] = []): Row {
 	const a = r.agent;
+	const agent = agentOf(r);
+	const act = activity(r, !!agent, o);
+	const svc = service(snap, r, act, !!agent);
 	const url = webUrl(snap, r);
 	const kept = r.keptIndex !== undefined ? snap.kept.find((k) => k.index === r.keptIndex) : undefined;
 	const titles = probeTitles(snap, r);
 	const sub = [
-		a ? a.harness : r.kind,
-		a ? agentState(a, o.now) : stateLabel(r.stat),
+		r.cmux ? `CMUX · ${r.cmux.workspace} / ${r.cmux.surface}` : r.where.startsWith("tmux ") ? r.where.slice(5) : "",
+		agent ? "" : r.kind,
 		r.leaderGone ? `launcher exited · ${r.pidCount} left running` : r.pidCount > 1 ? `${r.pidCount} processes` : "",
 		r.source === "history" ? "command guessed from history" : "",
-		kept ? `kept as “${kept.name ?? kept.command}”` : "",
 	].filter(Boolean).join(" · ");
 	const branch = snap.branches[r.cwd];
 	const bundle = r.kind === "app" ? bundleOf(r.exe) : undefined;
@@ -212,16 +406,24 @@ function jobRow(snap: Snapshot, r: ProcRow, o: Options): Row {
 	return {
 		id: String(r.pid),
 		cells: {
-			name: { text: (r.leaderGone ? "⤷ " : "") + displayName(r), sub, ...(bundle ? { icon: `app:${bundle}` } : { dot: statusTone(r) }), mono: !a && !bundle },
+			name: {
+				text: (r.leaderGone ? "⤷ " : "") + displayName(r),
+				sub,
+				tags: tagsFor(r, agent, act, o),
+				marks: kept ? [{ icon: "bookmark", tooltip: `A running instance of the kept command “${kept.name ?? kept.command}”`, color: "amber" }] : undefined,
+				...(bundle ? { icon: `app:${bundle}` } : { dot: dotFor(snap, r, act, svc, agent, o.now) }),
+				mono: !a && !bundle,
+			},
 			ports: { text: "", chips: r.listen.map((l) => `:${l.port}`) },
-			cpu: { text: `${r.cpu.toFixed(1)}%`, spark: spark(o, r.pid, "cpu"), mono: true },
-			mem: { text: mem(r.rssKb), spark: spark(o, r.pid, "mem"), mono: true },
+			cpu: { text: `${r.cpu.toFixed(1)}%`, spark: spark(o, r.pid, "cpu"), mono: true, tone: cpuTone(r.cpu) },
+			mem: { text: mem(r.rssKb), spark: spark(o, r.pid, "mem"), mono: true, tone: memTone(r.rssKb) },
 			uptime: dur(r.etimeSec),
 		},
-		actions: ["focus", "output", ...(url ? ["open"] : []), ...(stateLabel(r.stat) ? ["why"] : []), kept ? "edit-kept" : "keep", "copy", "restart", "stop", "kill"],
+		actions: ["focus", "output", ...(url || childJobs.some((c) => webUrl(snap, c)) ? ["open"] : []), ...(stateLabel(r.stat) ? ["why"] : []), kept ? "edit-kept" : "keep", "copy", "restart", "stop", "kill"],
+		targets: targetsFor(snap, r, childJobs),
 		stats: [
-			{ label: "CPU", value: `${r.cpu.toFixed(1)}%`, spark: spark(o, r.pid, "cpu") },
-			{ label: "Memory", value: mem(r.rssKb), spark: spark(o, r.pid, "mem") },
+			{ label: "CPU", value: `${r.cpu.toFixed(1)}%`, spark: spark(o, r.pid, "cpu"), tone: cpuTone(r.cpu) },
+			{ label: "Memory", value: mem(r.rssKb), spark: spark(o, r.pid, "mem"), tone: memTone(r.rssKb) },
 			{ label: "Up", value: dur(r.etimeSec) },
 		],
 		details: [
@@ -240,32 +442,48 @@ function jobRow(snap: Snapshot, r: ProcRow, o: Options): Row {
 						...(a.branch ? [{ section: A, label: "Agent branch", value: a.branch, mono: true }] : []),
 						...(a.resume ? [{ section: A, label: "Resume with", value: a.resume, mono: true }] : []),
 					]
-				: []),
-			{ section: P, label: "Where", value: [sectionLabel(r.where), r.termLabel && r.termLabel !== r.where ? r.termLabel : ""].filter(Boolean).join(" · ") },
+				: agent
+					? [
+							{ section: A, label: "Agent", value: agent.name },
+							{ section: A, label: "Status", value: `${ACTIVITY[act].label}${act === "working" || act === "idle" ? " (from its CPU use)" : ""}` },
+						]
+					: []),
+			...(r.cmux ? [{ section: P, label: "CMUX workspace", value: r.cmux.workspace }, { section: P, label: "CMUX surface", value: r.cmux.surface }] : []),
+            { section: P, label: "Where", value: [sectionLabel(r.where), r.termLabel && r.termLabel !== r.where ? r.termLabel : ""].filter(Boolean).join(" · ") },
 			{ section: P, label: "PID", value: `${r.pid}${r.pgid ? ` · group ${r.pgid}` : ""}`, mono: true, copy: false },
 			...(r.tty ? [{ section: P, label: "TTY", value: r.tty, mono: true, copy: false }] : []),
 			...(stateLabel(r.stat) ? [{ section: P, label: "State", value: stateLabel(r.stat), tone: "warning" as const }] : []),
 			...(r.leaderGone ? [{ section: P, label: "Launcher", value: "exited — these processes were left running", tone: "warning" as const }] : []),
 			...(bundle ? [{ section: P, label: "App", value: tildify(bundle), mono: true }] : []),
+			...startedSection(snap, r, childJobs),
 		],
 	};
 }
 
 function memberRow(snap: Snapshot, job: ProcRow, m: Member, o: Options): Row {
 	const url = webUrl(snap, m);
+	const agent = agentOf(m);
+	const act = activity(m, !!agent, o);
+	const svc = service(snap, m, act, !!agent);
 	return {
 		id: String(m.pid),
 		cells: {
-			name: { text: m.argvCommand, sub: [`pid ${m.pid}`, stateLabel(m.stat), m.pidCount > 1 ? `${m.pidCount} processes` : ""].filter(Boolean).join(" · "), dot: m.listen.length ? "success" : stateLabel(m.stat) ? "warning" : "muted", mono: true },
+			name: {
+				text: m.argvCommand,
+				sub: [`pid ${m.pid}`, m.pidCount > 1 ? `${m.pidCount} processes` : ""].filter(Boolean).join(" · "),
+				tags: [...(agent ? [{ text: agent.name, color: agent.hue, icon: "bot" }] : []), ...(act !== "running" ? [{ text: ACTIVITY[act].label.toLowerCase(), color: ACTIVITY[act].color }] : [])],
+				dot: dotFor(snap, m, act, svc, agent, o.now),
+				mono: true,
+			},
 			ports: { text: "", chips: m.listen.map((l) => `:${l.port}`) },
-			cpu: { text: `${m.cpu.toFixed(1)}%`, spark: spark(o, m.pid, "cpu"), mono: true },
-			mem: { text: mem(m.rssKb), spark: spark(o, m.pid, "mem"), mono: true },
+			cpu: { text: `${m.cpu.toFixed(1)}%`, spark: spark(o, m.pid, "cpu"), mono: true, tone: cpuTone(m.cpu) },
+			mem: { text: mem(m.rssKb), spark: spark(o, m.pid, "mem"), mono: true, tone: memTone(m.rssKb) },
 			uptime: dur(m.etimeSec),
 		},
 		actions: ["output", ...(url ? ["open"] : []), ...(stateLabel(m.stat) ? ["why"] : []), "copy", "stop", "kill"],
 		stats: [
-			{ label: "CPU", value: `${m.cpu.toFixed(1)}%`, spark: spark(o, m.pid, "cpu") },
-			{ label: "Memory", value: mem(m.rssKb), spark: spark(o, m.pid, "mem") },
+			{ label: "CPU", value: `${m.cpu.toFixed(1)}%`, spark: spark(o, m.pid, "cpu"), tone: cpuTone(m.cpu) },
+			{ label: "Memory", value: mem(m.rssKb), spark: spark(o, m.pid, "mem"), tone: memTone(m.rssKb) },
 			{ label: "Up", value: dur(m.etimeSec) },
 		],
 		details: [

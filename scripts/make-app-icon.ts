@@ -5,6 +5,9 @@
 import { deflateSync } from "node:zlib";
 import { mkdirSync, writeFileSync } from "node:fs";
 
+const dev = process.argv.includes("--dev");
+const output = dev ? "dev-icon.iconset" : "icon.iconset";
+
 type RGBA = [number, number, number, number]; // 0..1, straight alpha
 const hex = (h: string, a = 1): RGBA => {
 	const n = parseInt(h.slice(1), 16);
@@ -34,7 +37,7 @@ function color(x: number, y: number): RGBA {
 	if (!inSquircle(x, y)) return [0, 0, 0, 0];
 	const t = (y - (C - R)) / (2 * R);
 	// Graphite background, lighter at the top, with a soft top sheen.
-	let c = lerp(hex("#46464f"), hex("#141417"), t);
+	let c = dev ? lerp(hex("#fbbf24"), hex("#b45309"), t) : lerp(hex("#46464f"), hex("#141417"), t);
 	if (y < 300) c = over(hex("#ffffff", 0.05 * (1 - y / 300)), c);
 	// The belt's shadow on the background.
 	if (y > BAND.y1 && y < BAND.y1 + 40) c = over(hex("#000000", 0.35 * (1 - (y - BAND.y1) / 40)), c);
@@ -122,13 +125,13 @@ function png(size: number, rgba: Uint8Array) {
 	return Buffer.concat([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", new Uint8Array())]);
 }
 
-mkdirSync("icon.iconset", { recursive: true });
+mkdirSync(output, { recursive: true });
 const cache = new Map<number, Buffer>();
 for (const base of [16, 32, 128, 256, 512])
 	for (const mult of [1, 2]) {
 		const size = base * mult;
 		if (!cache.has(size)) cache.set(size, png(size, render(size)));
 		const name = `icon_${base}x${base}${mult === 2 ? "@2x" : ""}.png`;
-		writeFileSync(`icon.iconset/${name}`, cache.get(size)!);
-		console.log(`icon.iconset/${name} (${size}px)`);
+		writeFileSync(`${output}/${name}`, cache.get(size)!);
+		console.log(`${output}/${name} (${size}px)`);
 	}

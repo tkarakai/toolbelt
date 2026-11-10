@@ -61,3 +61,11 @@ The protocol and every component are in [`src/shared/protocol.ts`](src/shared/pr
 in `TOOLBELT_PLUGINS` (colon-separated). Each plugin gets its own data folder,
 `~/Library/Application Support/Toolbelt/data/<id>/`, as `TOOLBELT_DATA_DIR` (`dataDir()` in
 the SDK).
+
+### Development app identity
+
+`bun run dev` runs **Toolbelt Dev** with its own bundle identifier, amber Dock/menu-bar
+icons, a DEV badge, and preferences in `~/Library/Application Support/Toolbelt Dev`.
+Its default shortcut is **⌃⌥⇧⌘T**, leaving the official app's **⌃⌥⇧T** available.
+`TOOLBELT_CONFIG_DIR` still overrides the preferences directory for test runs.
+`bun run build` produces the official Toolbelt identity; development builds do not self-update.

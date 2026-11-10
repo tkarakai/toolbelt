@@ -1,10 +1,18 @@
 // Showcase: every node type, and a table of N rows that all change every second — the
 // renderer's stress test. N is adjustable on the Components screen. The Tasks screen has the
 // nodes for long-running work: cards, progress, logs, markdown and a dialog.
-import { definePlugin, search, type LogLine, type Node, type Row, type Tone } from "../../src/sdk";
+import { definePlugin, search, type Hue, type LogLine, type Node, type Row, type Tone } from "../../src/sdk";
 
 const names = ["api", "web", "worker", "scheduler", "search", "mailer", "billing", "auth", "cache", "gateway", "metrics", "uploads"];
 const regions = ["eu-west", "us-east", "ap-south"];
+/** Each team's color (tags), and the toolbar's multi-select filters. */
+const teams: { name: string; hue: Hue }[] = [
+	{ name: "core", hue: "violet" },
+	{ name: "growth", hue: "teal" },
+	{ name: "data", hue: "orange" },
+];
+const filters: Record<"region" | "status", string[]> = { region: [], status: [] };
+const STATUS_LABEL: Record<string, string> = { success: "Healthy", warning: "Busy", danger: "Hot" };
 let rowCount = 500;
 let tick = 0;
 let query = "";
@@ -88,7 +96,7 @@ const termLines = () => [
 let lastSearch = search("");
 const visible = () => {
 	lastSearch = search(query);
-	return jobs.filter((j) => lastSearch.test([j.name, j.id, j.region, j.cpu > 60 ? "hot" : "ok"]));
+	return jobs.filter((j) => lastSearch.test([j.name, j.id, j.region, j.cpu > 60 ? "hot" : "ok"]) && (!filters.region.length || filters.region.includes(j.region)) && (!filters.status.length || filters.status.includes(j.status)));
 };
 
 const ctx = definePlugin({
@@ -111,17 +119,27 @@ const ctx = definePlugin({
 				const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
 				return sort.desc ? -c : c;
 			});
-			const rows: Row[] = sorted.map((j) => ({
+			const rows: Row[] = sorted.map((j, i) => ({
 				id: j.id,
-				group: j.region,
+				// A path-like group label with its important part (`strong`) and a branch.
+				group: [{ id: j.region, label: `clusters/${j.region}/jobs`, strong: j.region, sub: j.region === "eu-west" ? "main" : "release/2.0" }],
 				cells: {
-					name: { text: j.name, sub: j.id, dot: j.status },
+					name: {
+						text: j.name,
+						sub: j.id,
+						// Dots say what they mean on hover; hot jobs pulse.
+						dot: { color: j.status, label: `${STATUS_LABEL[j.status]} — ${j.cpu.toFixed(0)}% CPU`, pulse: j.status === "danger" },
+						tags: [{ text: teams[i % teams.length].name, color: teams[i % teams.length].hue, tooltip: `Owned by the ${teams[i % teams.length].name} team` }],
+						marks: j.name.startsWith("billing") ? [{ icon: "bookmark", tooltip: "A pinned job (a mark: an icon with an instant tooltip)", color: "amber" }] : undefined,
+					},
 					cpu: { text: `${j.cpu.toFixed(1)}%`, tone: j.status === "success" ? "default" : j.status },
 					mem: `${j.mem.toFixed(0)} MB`,
 					uptime: ago(Date.now() - j.started),
 					started: { text: "", at: j.started, tone: "muted" },
 					tags: { text: "", chips: [j.region, j.cpu > 60 ? "hot" : "ok"] },
 				},
+				// API jobs run replicas: Peek asks which one (targets) — the job or a replica.
+				targets: showReplicas && j.name.startsWith("api") ? { peek: [{ id: j.id, label: j.name, sub: "the job" }, ...[1, 2].map((n) => ({ id: `${j.id}-r${n}`, label: `replica ${n}`, sub: `${j.id}-r${n}` }))] } : undefined,
 				// API jobs run replicas: nested rows the person can expand.
 				children: showReplicas && j.name.startsWith("api")
 					? [1, 2].map((n) => ({
@@ -139,11 +157,19 @@ const ctx = definePlugin({
 					{ section: "Job", label: "ID", value: j.id, mono: true },
 					{ section: "Job", label: "Region", value: j.region },
 					{ section: "Timing", label: "Started", value: new Date(j.started).toLocaleString() },
+					// Detail items can carry actions for another row (here: each replica).
+					...(showReplicas && j.name.startsWith("api")
+						? [1, 2].map((n) => ({ section: "Replicas", label: `replica ${n}`, value: `${j.id}-r${n}`, mono: true, dot: { color: j.status, label: STATUS_LABEL[j.status] }, actionRow: `${j.id}-r${n}`, actions: [{ id: "restart", label: "Restart replica", icon: "rotate-cw" }] }))
+						: []),
 				],
 			}));
 			return {
 				type: "page",
 				search: { placeholder: "Filter jobs…" },
+				filters: [
+					{ id: "region", label: "Region", icon: "globe", options: regions.map((r) => ({ value: r, label: r, count: jobs.filter((j) => j.region === r).length })), selected: filters.region },
+					{ id: "status", label: "Status", icon: "activity", options: (["success", "warning", "danger"] as const).map((t) => ({ value: t, label: STATUS_LABEL[t], dot: t, count: jobs.filter((j) => j.status === t).length })), selected: filters.status },
+				],
 				summary: `${rows.length} jobs · tick ${tick}`,
 				highlight: lastSearch.highlight(),
 				actions: [
@@ -190,9 +216,9 @@ const ctx = definePlugin({
 						sort,
 						rows,
 						actions: [
-							{ id: "restart", label: "Restart", icon: "rotate-cw", inline: true, group: "run" },
-							{ id: "peek", label: "Peek", icon: "scan-eye", inline: true, group: "run" },
-							{ id: "copy-id", label: "Copy ID", icon: "copy", group: "copy" },
+							{ id: "restart", label: "Restart", icon: "rotate-cw", inline: true, group: "run", key: "r" },
+							{ id: "peek", label: "Peek", icon: "scan-eye", inline: true, group: "run", key: "p" },
+							{ id: "copy-id", label: "Copy ID", icon: "copy", group: "copy", key: "c" },
 							{ id: "stop", label: "Stop", icon: "square", tone: "destructive", group: "stop", confirm: "Stop this job?" },
 						],
 						bulkActions: [
@@ -224,13 +250,15 @@ const ctx = definePlugin({
 					description: "Settings forms are plugin-described too.",
 					fields: [
 						{ type: "select", id: "rows", label: "Rows", value: String(rowCount), options: ["50", "200", "500", "1000", "2000"].map((v) => ({ value: v, label: `${v} rows` })), description: "How many rows change every second." },
+						{ type: "environment", id: "sample-env", label: "Environment editor", value: [{ key: "PORT", value: "3000", selected: true, secret: false }] },
+						{ type: "text", id: "sample-secret", label: "Masked value example", value: "example-token", sensitive: true },
 						{ type: "switch", id: "paused", label: "Paused", value: paused, description: "Stop the updates." },
 					],
 				},
 				{
 					type: "list",
 					id: "recent",
-					items: jobs.slice(0, 4).map((j) => ({ id: j.id, title: j.name, subtitle: j.region, dot: j.status, meta: `${j.cpu.toFixed(0)}%` })),
+					items: jobs.slice(0, 4).map((j) => ({ id: j.id, title: j.name, subtitle: j.region, icon: "server", dot: j.status, meta: `${j.cpu.toFixed(0)}%` })),
 				},
 				{ type: "text", text: "Text, in a muted tone, for notes and explanations.", tone: "muted" },
 			],
@@ -296,7 +324,11 @@ const ctx = definePlugin({
 		if (name === "search") query = String(payload?.query ?? "").toLowerCase();
 		else if (name === "sort") sort = { key: String(payload?.key), desc: !!payload?.desc };
 		else if (name === "toggle-replicas") showReplicas = !showReplicas;
-		else if (name === "peek") peekOpen = true;
+		else if (name === "filter" && (payload?.filter === "region" || payload?.filter === "status")) filters[payload.filter as "region" | "status"] = (payload.values ?? []).map(String);
+		else if (name === "peek") {
+			peekOpen = true;
+			if (payload?.target) ctx.toast(`Peeking at ${payload.target}`);
+		}
 		else if (name === "dialog-close" && payload?.dialog === "peek") peekOpen = false;
 		else if (name === "field" && payload?.form === "peek-view") peekView = String(payload.value);
 		else if (name === "copy-id") {

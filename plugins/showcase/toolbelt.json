@@ -11,17 +11,20 @@
 			"id": "table",
 			"title": "Live table",
 			"icon": "table",
-			"default": true
+			"default": true,
+			"shortcut": "l"
 		},
 		{
 			"id": "components",
 			"title": "Components",
-			"icon": "layout-grid"
+			"icon": "layout-grid",
+			"shortcut": "u"
 		},
 		{
 			"id": "tasks",
 			"title": "Tasks",
-			"icon": "list-checks"
+			"icon": "list-checks",
+			"shortcut": "t"
 		}
 	],
 	"quickView": true,

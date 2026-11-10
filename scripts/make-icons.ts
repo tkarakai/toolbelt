@@ -92,3 +92,8 @@ for (const [name, shade] of [["tray-icon-update-light@2x.png", 0], ["tray-icon-u
 	writeFileSync(`assets/${name}`, png(size, px));
 	console.log(`assets/${name}`);
 }
+
+// Development glyph stays amber in either menu bar appearance.
+const dev = render(36, belt, 2);
+for(let i=0;i<dev.length;i+=4) { dev[i]=245; dev[i+1]=158; dev[i+2]=11; }
+writeFileSync("assets/tray-icon-dev@2x.png", png(36,dev));

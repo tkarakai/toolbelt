@@ -132,6 +132,14 @@
     --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Scrolls, but draws no scroll bar (the popover's tool list). */
+@utility no-scrollbar {
+	scrollbar-width: none;
+	&::-webkit-scrollbar {
+		display: none;
+	}
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -154,6 +162,7 @@
   /* The popover window is transparent; its card draws the rounded shape. */
   html[data-surface="popover"], html[data-surface="popover"] body {
     background: transparent;
+    overflow: hidden; /* while the window catches up with the list's height */
   }
 }
 
@@ -188,7 +197,17 @@ mark.hit {
 }
 
 /* People who asked for less motion get (almost) none. */
+/* A busy agent's dot: breathes slowly. Only opacity changes, which the compositor does on its
+   own — no layout, no repaint — so dozens of them cost next to nothing. */
+@keyframes tb-pulse {
+  50% { opacity: 0.35; }
+}
+.tb-pulse {
+  animation: tb-pulse 2.4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .tb-pulse { animation: none !important; }
   *, ::before, ::after {
     animation-duration: 1ms !important;
     transition-duration: 1ms !important;
@@ -206,3 +225,52 @@ mark.hit {
   background: color-mix(in oklab, var(--foreground) 20%, transparent);
   border-radius: 4px;
 }
+
+/* Semantic colors are calculated against each theme's selection, including tinted pills. */
+[data-selected="true"] .tb-tone-red { color: var(--selected-red) !important; }
+[data-selected="true"] .tb-pill-red { color: var(--selected-red) !important; background: var(--selected-red-pill) !important; }
+[data-selected="true"] .tb-tone-orange { color: var(--selected-orange) !important; }
+[data-selected="true"] .tb-pill-orange { color: var(--selected-orange) !important; background: var(--selected-orange-pill) !important; }
+[data-selected="true"] .tb-tone-amber { color: var(--selected-amber) !important; }
+[data-selected="true"] .tb-pill-amber { color: var(--selected-amber) !important; background: var(--selected-amber-pill) !important; }
+[data-selected="true"] .tb-tone-yellow { color: var(--selected-yellow) !important; }
+[data-selected="true"] .tb-pill-yellow { color: var(--selected-yellow) !important; background: var(--selected-yellow-pill) !important; }
+[data-selected="true"] .tb-tone-lime { color: var(--selected-lime) !important; }
+[data-selected="true"] .tb-pill-lime { color: var(--selected-lime) !important; background: var(--selected-lime-pill) !important; }
+[data-selected="true"] .tb-tone-green { color: var(--selected-green) !important; }
+[data-selected="true"] .tb-pill-green { color: var(--selected-green) !important; background: var(--selected-green-pill) !important; }
+[data-selected="true"] .tb-tone-emerald { color: var(--selected-emerald) !important; }
+[data-selected="true"] .tb-pill-emerald { color: var(--selected-emerald) !important; background: var(--selected-emerald-pill) !important; }
+[data-selected="true"] .tb-tone-teal { color: var(--selected-teal) !important; }
+[data-selected="true"] .tb-pill-teal { color: var(--selected-teal) !important; background: var(--selected-teal-pill) !important; }
+[data-selected="true"] .tb-tone-cyan { color: var(--selected-cyan) !important; }
+[data-selected="true"] .tb-pill-cyan { color: var(--selected-cyan) !important; background: var(--selected-cyan-pill) !important; }
+[data-selected="true"] .tb-tone-sky { color: var(--selected-sky) !important; }
+[data-selected="true"] .tb-pill-sky { color: var(--selected-sky) !important; background: var(--selected-sky-pill) !important; }
+[data-selected="true"] .tb-tone-blue { color: var(--selected-blue) !important; }
+[data-selected="true"] .tb-pill-blue { color: var(--selected-blue) !important; background: var(--selected-blue-pill) !important; }
+[data-selected="true"] .tb-tone-indigo { color: var(--selected-indigo) !important; }
+[data-selected="true"] .tb-pill-indigo { color: var(--selected-indigo) !important; background: var(--selected-indigo-pill) !important; }
+[data-selected="true"] .tb-tone-violet { color: var(--selected-violet) !important; }
+[data-selected="true"] .tb-pill-violet { color: var(--selected-violet) !important; background: var(--selected-violet-pill) !important; }
+[data-selected="true"] .tb-tone-purple { color: var(--selected-purple) !important; }
+[data-selected="true"] .tb-pill-purple { color: var(--selected-purple) !important; background: var(--selected-purple-pill) !important; }
+[data-selected="true"] .tb-tone-fuchsia { color: var(--selected-fuchsia) !important; }
+[data-selected="true"] .tb-pill-fuchsia { color: var(--selected-fuchsia) !important; background: var(--selected-fuchsia-pill) !important; }
+[data-selected="true"] .tb-tone-pink { color: var(--selected-pink) !important; }
+[data-selected="true"] .tb-pill-pink { color: var(--selected-pink) !important; background: var(--selected-pink-pill) !important; }
+[data-selected="true"] .tb-tone-rose { color: var(--selected-rose) !important; }
+[data-selected="true"] .tb-pill-rose { color: var(--selected-rose) !important; background: var(--selected-rose-pill) !important; }
+[data-selected="true"] .tb-tone-slate { color: var(--selected-slate) !important; }
+[data-selected="true"] .tb-pill-slate { color: var(--selected-slate) !important; background: var(--selected-slate-pill) !important; }
+[data-selected="true"] .tb-tone-stone { color: var(--selected-stone) !important; }
+[data-selected="true"] .tb-pill-stone { color: var(--selected-stone) !important; background: var(--selected-stone-pill) !important; }
+[data-selected="true"] .tb-tone-success { color: var(--selected-success) !important; }
+[data-selected="true"] .tb-pill-success { color: var(--selected-success) !important; background: var(--selected-success-pill) !important; }
+[data-selected="true"] .tb-tone-warning { color: var(--selected-warning) !important; }
+[data-selected="true"] .tb-pill-warning { color: var(--selected-warning) !important; background: var(--selected-warning-pill) !important; }
+[data-selected="true"] .tb-tone-danger { color: var(--selected-danger) !important; }
+[data-selected="true"] .tb-pill-danger { color: var(--selected-danger) !important; background: var(--selected-danger-pill) !important; }
+[data-selected="true"] .tb-tone-info { color: var(--selected-info) !important; }
+[data-selected="true"] .tb-pill-info { color: var(--selected-info) !important; background: var(--selected-info-pill) !important; }
+[data-selected="true"] button:hover { color: var(--selected-foreground); background-color: color-mix(in srgb, var(--selected-foreground) 12%, transparent); }

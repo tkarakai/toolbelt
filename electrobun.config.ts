@@ -1,10 +1,13 @@
 import type { ElectrobunConfig } from "electrobun";
 import pkg from "./package.json" with { type: "json" };
 
+import { appVariant } from "./src/shared/variant";
+const variant = appVariant(process.env.TOOLBELT_VARIANT === "dev");
+
 export default {
 	app: {
 		name: "Toolbelt",
-		identifier: "io.github.tkarakai.toolbelt",
+		identifier: variant.identifier,
 		version: pkg.version,
 	},
 	build: {
@@ -16,6 +19,7 @@ export default {
 		copy: {
 			"dist/index.html": "views/ui/index.html",
 			"dist/assets": "views/ui/assets",
+			"assets/tray-icon-dev@2x.png": "views/assets/tray-icon-dev@2x.png",
 			"assets/tray-icon@2x.png": "views/assets/tray-icon@2x.png",
 			// With a red dot, when an update is available (scripts/make-icons.ts).
 			"assets/tray-icon-update-light@2x.png": "views/assets/tray-icon-update-light@2x.png",
@@ -26,9 +30,10 @@ export default {
 		mac: {
 			bundleCEF: false,
 			// bun scripts/make-app-icon.ts
-			icons: "icon.iconset",
+			icons: variant.icons,
 		},
 	},
+	scripts: { postBuild: "./scripts/dev-identity.ts" },
 	runtime: {
 		// A menu bar app: closing the window doesn't quit.
 		exitOnLastWindowClosed: false,
