@@ -70,3 +70,8 @@ Native build completed and emitted `ToolbeltPluginTester.app` and
 `ToolbeltPluginTester-stable.dmg` under artifacts/tester/build/stable-macos-arm64.
 Initial build warned that the optional icon source was missing in staging; build script
 now copies dev-icon.iconset as well. Typecheck passes. Native launch was not exercised.
+
+Broad `bun test` result: 415 pass, 1 fail (416 tests, 3271 assertions).
+Failure is the retained v1 Upkeep integration manifest declaring protocol 0 while the
+baseline protocol parser requires 1 (`test/upkeep-integration.test.ts:21`). No changes
+were made to that integration fixture or protocol contract in this candidate.
