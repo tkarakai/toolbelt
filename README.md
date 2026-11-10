@@ -1,100 +1,46 @@
 # Toolbelt
 
-One app, one menu bar icon, many small tools.
+Toolbelt is a macOS app for independently installed tools. Each plugin runs as a Bun
+process and describes its screens with declarative UI nodes. Toolbelt renders those nodes
+with React and shadcn/ui in its main window and menu-bar popover.
 
-Toolbelt is a macOS app that hosts **plugins**: small tools, each with its own repository and
-release cycle. A plugin is a TypeScript program that describes its screens; Toolbelt draws
-them with one shared component library (React + [shadcn/ui](https://ui.shadcn.com)), so every
-tool looks and behaves like part of the same app.
+Open **Settings → Plugins**, enter a public GitHub repository, review its release and
+publisher, and approve installation. Plugins can be installed, enabled, disabled, updated
+and removed without restarting the app. Updates are checked every six hours and require
+approval. Removal keeps plugin data unless you explicitly choose deletion.
 
-- **The window** — a sidebar that picks the tool (resizable, collapses to an icon rail), and
-  each tool's pane with its own tabs, toolbar, tables, forms and inspector.
-- **The menu bar icon** — lists the installed tools; each can offer a compact *quick view*
-  right there, without opening the window.
-- **The `tb` command** — every plugin can ship a command line too: a TUI for people and
-  machine-readable (`--json`) commands for scripts and agents. `tb ps` lists your processes.
-
-Status: early. The first plugin is **Toolbelt Processes**
-([toolbelt-ps](https://github.com/tkarakai/toolbelt-ps)), a reimplementation of
-[running](https://github.com/tkarakai/running). For now it bundles running itself (vendored in
-`plugins/processes/running/`): its engine, and its terminal UI, which Processes › Settings can
-put on your PATH as `running` (with its zsh hook in `~/.zshrc`) and remove again.
-
-**Upkeep** ([toolbelt-upkeep](https://github.com/tkarakai/toolbelt-upkeep)) is also bundled.
-Open Upkeep › Discover and scan to choose which apps, runtimes, packages and git clones to
-watch. Checks run every six hours by default while Toolbelt is running, with per-item
-intervals and **Check now**. Review updates and release notes, follow jobs in Queue, and see
-every attempt in Activity. A fresh install watches nothing, and automatic updates are off.
-macOS and App Store updates are not covered yet; Sparkle apps and Go use vendor handoffs.
-The pinned source and local changes are documented in
-[`plugins/upkeep/VENDORED.md`](plugins/upkeep/VENDORED.md).
-
-Built with [Electrobun](https://github.com/blackboardsh/electrobun) (Bun + the system web view).
+A fresh profile includes the removable SDK Explorer. [Processes](https://github.com/tkarakai/toolbelt-ps)
+and [Upkeep](https://github.com/tkarakai/toolbelt-upkeep) are installed separately. Processes
+owns its `running` terminal command and shell integration; Toolbelt does not install them
+implicitly. Plugins execute with your user privileges; process isolation is not a security
+sandbox.
 
 ## Development
 
+Use Bun 1.4.4 and macOS:
+
 ```sh
-bun install
-bun run dev        # build and launch Toolbelt (menu bar icon; ⌃⌥⇧T opens the popover)
-bun run preview    # the UI in a browser with the real plugins: http://localhost:5174
-bun run typecheck && bun test
-bun run build      # artifacts/: the .dmg and the update bundle
+bun install --frozen-lockfile
+bunx electrobun prepare
+bun run typecheck
+bun test
+bun run dev
 ```
 
-Toolbelt starts in the menu bar only; click the process-list icon, press the shortcut, or "Open
-Toolbelt" for the window. The first run downloads Electrobun's build tool (Hutch) through the
-pinned `electrobun` npm package, which checks its SHA-256.
+`bun run dev` launches Toolbelt Dev with a separate identity, profile and shortcut.
+`bun run preview` serves the production UI and runtime at http://localhost:5174 with an
+independent preview profile. `bun run build` produces the official app identity;
+`bun run dmg` packages its signed app. Do not replace an installed app when testing builds.
+`bun scripts/run-evaluation.ts` launches a copied build with temporary data and TUI-install
+home. Stop only development processes you started; app development and builds share a lock.
 
-## Writing a plugin
+## Documentation
 
-A plugin is a folder with a `toolbelt.json` and a program. The program describes its screens;
-Toolbelt draws them.
+- [Architecture](docs/architecture.md): runtime, storage, rendering, recovery and boundaries.
+- [Plugin authoring and updates](docs/plugins.md): SDK, manifest, packaging and releases.
+- [Plugin Tester](docs/plugin-tester.md): local archives, profiles and visual development.
+- [Maintenance](docs/maintenance.md): checks, debugging, SDK/seed changes and app releases.
+- [Agent instructions](AGENTS.md): working conventions and verification requirements.
 
-```ts
-import { definePlugin } from "toolbelt/sdk"; // for now: src/sdk in this repo
-
-let count = 0;
-definePlugin({
-  render: {
-    "screen:main": () => ({ type: "page", actions: [{ id: "bump", label: "Bump" }],
-                            children: [{ type: "text", text: `Clicked ${count} times` }] }),
-    quick: () => ({ type: "stats", items: [{ label: "Clicks", value: String(count) }] }),
-  },
-  onEvent: (_surface, name, _payload, ctx) => { if (name === "bump") count++; ctx.invalidate(); },
-});
-```
-
-The protocol and every component are in [`src/shared/protocol.ts`](src/shared/protocol.ts).
-Toolbelt finds plugins in
-`~/Library/Application Support/Toolbelt/plugins/<id>/`, in its bundle, and in the folders listed
-in `TOOLBELT_PLUGINS` (colon-separated). Each plugin gets its own data folder,
-`~/Library/Application Support/Toolbelt/data/<id>/`, as `TOOLBELT_DATA_DIR` (`dataDir()` in
-the SDK).
-
-### Development app identity
-
-`bun run dev` runs **Toolbelt Dev** with its own bundle identifier, amber Dock/menu-bar
-icons, a DEV badge, and preferences in `~/Library/Application Support/Toolbelt Dev`.
-Its default shortcut is **⌃⌥⇧⌘T**, leaving the official app's **⌃⌥⇧T** available.
-`TOOLBELT_CONFIG_DIR` still overrides the preferences directory for test runs.
-`bun run build` produces the official Toolbelt identity; development builds do not self-update.
-Generated apps live under `build.noindex/` and are unregistered after each build, so they
-stay out of Spotlight and app launchers. The official app is installed from its release DMG
-into `/Applications/Toolbelt.app`.
-
-## Releases
-
-Like Running, each release attaches three Apple silicon downloads: `Toolbelt-X.Y.Z-arm64.dmg`
-for the desktop app, `toolbelt-X.Y.Z-macos.tar.xz` for the bundled `running` terminal UI
-(requires the Bun version listed in the release notes), and
-`toolbelt-X.Y.Z-macos-arm64-standalone.tar.xz` for the same TUI with Bun embedded.
-Both archives contain one executable named `running`; its upstream version is separate
-from Toolbelt's release version. The app can also install the TUI from Processes › Settings.
-
-Prepare a release PR with the version in `package.json` and a dated `CHANGELOG.md` section.
-After CI passes and it is squash-merged, use a clean, up-to-date `main` checkout, with its
-dev app stopped: `bun run release --dry-run`, then `bun run release`. Both run typecheck,
-tests and builds, mount and verify the DMG's version, identity and signature, and extract
-and smoke-test both terminal archives. Publishing pushes the tag, creates a draft, uploads
-all three downloads with retries, then marks the release latest. Only the DMG is used by
-the app's GitHub updater; Electrobun's intermediate artifacts are not release downloads.
+The app, SDK and standalone tester are released from this repository. Plugin archives,
+helpers and terminal distributions are released by their owning plugin repositories.

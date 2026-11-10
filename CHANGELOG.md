@@ -2,25 +2,12 @@
 
 ## Unreleased
 
-- Expand plugin management with publisher review, lifecycle diagnostics, retained-data removal, prerelease preferences and schema-aware recovery controls.
-
-- Architecture v2 installs independent prebuilt plugin packages at runtime, with publisher review, lifecycle recovery, plugin-owned data and removable SDK demonstration.
-
-- Processes detects known agent harnesses launched by T3 Code and other GUI clients,
-  even without a terminal or network listener.
-- Upkeep tables support single-key row actions, with shortcut hints in menus and details.
-
-- Upkeep shows Sparkle build numbers so same-version rebuilds have distinct installed and
-  available versions, and includes their release-note links.
-
-- Generated app bundles stay out of Spotlight and app launchers, preventing duplicate
-  official Toolbelt entries alongside the installed release.
-- Press Enter again on a watched Discover row to stop watching it immediately.
-
-- Remove the Showcase demo plugin. Toolbelt now bundles Processes and Upkeep.
-- Bundle Upkeep: discover apps, runtimes, packages and git clones; opt in to watching them,
-  check every six hours by default, review updates, and follow the queue and audit logs.
-  Automatic updates stay off until enabled. Bulk updates exclude apps and major upgrades.
+- Install, enable, disable, update and remove independent prebuilt GitHub plugin packages without restarting Toolbelt.
+- Review publisher identity, compatibility and exact package bytes before execution; show lifecycle diagnostics, notify-only updates, channel preferences and safe cancellation.
+- Keep plugin data on removal by default, offer explicit deletion and confirmed CLI-cleanup navigation, and recover compatible code or matching managed-data snapshots.
+- Ship the removable SDK Explorer and publish the public SDK plus standalone Plugin Tester with the app. Processes and Upkeep are installed separately from their own repositories.
+- Render versioned plugin assets and declarative screens with shared main-window and menu-bar components, bounded protocol validation and per-plugin failure containment.
+- Generated app bundles stay out of Spotlight and app launchers, preventing duplicate official Toolbelt entries alongside the installed release.
 
 ## 0.1.0 — 2026-11-09
 

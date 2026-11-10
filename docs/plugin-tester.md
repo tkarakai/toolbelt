@@ -1,79 +1,77 @@
-# Standalone Plugin Tester candidate
+# Plugin Tester
 
-Run `bun scripts/build-tester.ts`. This builds in a disposable staging folder without
-changing the app config or sharing its build lock. Outputs are copied to
-`artifacts-tester/build` and `artifacts-tester/archives`. The native bundle embeds Bun,
-production UI assets and host code; plugin archives are selected at runtime, never bundled
-from plugin source. No installed Toolbelt or sibling plugin source is required.
+Toolbelt Plugin Tester is a standalone macOS app that embeds Bun, the production host,
+package manager, renderer and settings. It opens prebuilt plugin archives without an
+installed Toolbelt or plugin source checkout. Its identity is
+`io.github.tkarakai.toolbelt.tester`; profiles are separate from Toolbelt and Toolbelt Dev.
 
-Identity: `io.github.tkarakai.toolbelt.tester`. Settings/cache/packages/data are in
-`~/Library/Application Support/Toolbelt Plugin Tester/profiles/<name>`, with name selected
-by `TOOLBELT_TESTER_PROFILE` (default `default`). Global shortcuts and app updates are
-disabled. The production Settings view is included via App. The runtime overwrites any
-inherited TOOLBELT_CONFIG_DIR before reading settings. This is data separation, not a
-security sandbox: plugins still execute with the user's privileges.
+## Build and launch
 
-Open a `.tar.gz` archive, specify its publisher repository and approve execution. The real
-PackageManager stage/install paths enforce the same archive, compatibility, publisher,
-handshake, initialization/migration, rollback and readiness checks as production. Locally
-computed SHA-256 identifies selected bytes; it does not authenticate a publisher. Watch
-requires a separate explicit click and execution approval; only the selected built archive
-is watched. No dependency installation or source building occurs. Immutable same-version
-changed-byte rejection remains in force; increment development versions when rebuilding.
+```sh
+bun install --frozen-lockfile
+bunx electrobun prepare
+bun scripts/build-tester.ts
+```
 
-The main view mounts production App (all declared screens, keyboard navigation, settings,
-zoom); simulated popover mounts production Popover in a 380px window frame. Width control
-covers narrow layouts. Production settings cover palettes and light/dark/system. Reduced
-motion can be forced in the tester. Diagnostics record bounded validated trees, events,
-toasts, lifecycle states, install hashes and failures. Restart uses the real host. Reset
-removes only selected tester plugin data through PackageManager; reopen the archive to
-initialize again. Select another named profile before launch for independent fixtures.
-Use fake resources and temp homes in plugin fixture packages; never run real Upkeep
-updates or stop user processes during evaluation.
+The build stages a source copy with its own build lock and writes signed app, DMG and tarball
+outputs under `artifacts-tester/`. Open the generated tester DMG and launch its app. Named
+persistent profiles live at:
 
-## Coordinator hooks and remaining exit gates
+```text
+~/Library/Application Support/Toolbelt Plugin Tester/profiles/<name>/
+```
 
-This candidate deliberately changes no shared runtime contracts or app entry files.
-No integration hooks are needed for its standalone build. For normal build integration,
-add a package script `"build:tester": "bun scripts/build-tester.ts"` and add the tester
-release outputs to the eventual explicit development release workflow. Add the user-facing
-CHANGELOG entry in the coordinator PR (this assignment permits additive tester files only).
+`TOOLBELT_TESTER_PROFILE` selects a name (letters, digits, underscores and dashes); the default
+is `default`. Set it in the environment when launching the app's `Contents/MacOS/launcher`
+for a separate test profile. Renderer preferences are profile-scoped too. The tester sets
+its own config root even if an app config override is inherited. It does not self-update
+or register the app's global shortcut. Plugins still run with normal user privileges.
 
-The following requirements are **not complete** and must not be reported as verified:
+## Open a package
 
-- Native menu-bar opt-in currently returns a visible integration-pending error. Extract
-  production index.ts's tray/popover factory (position/highlight/blur and 160ms closing
-  animation), accepting host/settings/RPC/view URL, then provide it as an opt-in callback
-  in tester.ts. Do not clone that lifecycle implementation. Tester UI already calls
-  testerControl('nativePopover'). Include #popover routing in tester-main.tsx for that view.
-- Raw protocol and stderr inspector: add optional PluginHost diagnostic callback
-  `{direction:'in'|'out'|'stderr',plugin,line}` at bounded read/send/log boundaries;
-  connect it to runtime.record. Current inspector only shows validated render/events.
-- Shared native RPC factory: production index.ts has inline handlers. Extract a reusable
-  factory accepting host, package manager, settings and window callbacks. Replace the
-  tester adapter with that factory, retaining the extra tester control request.
-- Add typed `tester` request to a tester-only RPC extension rather than production RPC;
-  current adapter uses a narrow dynamic request bridge. Production RPC remains unchanged.
-- Add scenario inventories and release archive parity evidence for demo/Processes/Upkeep
-  after coordinator supplies exact package candidates. No actual plugin updates tested.
-- Native app launch outside source checkout, UI screenshots, mouse/keyboard, multi-display
-  native tray and clean-machine smoke remain unverified. Build success alone is insufficient.
+1. Enter the full local `.tar.gz` path in **Built archive path**.
+2. Enter the manifest publisher as `owner/repo` in **Publisher repository**.
+3. Approve execution with the checkbox, then click **Open archive**.
 
-## Evidence retained before user review
+This uses the production bounded archive validator, publisher/compatibility checks, migration,
+staged startup probe and final readiness transaction. It executes no dependency installation
+or plugin source build. Local SHA-256 identifies the chosen bytes; it is not authentication.
+Use a fresh profile or a new plugin semantic version when rebuilding changed bytes. The
+host intentionally rejects changed bytes for an already installed version.
 
-`bun test test/tester.test.ts`: 2 passing tests / 10 assertions, disposable temp resources.
-Tests cover profile traversal rejection, diagnostic bounds, malformed archive rejection via
-production validator, invalid watcher selection and unknown reset rejection.
-Native build and typecheck results are reported in the PR; no official app was replaced.
+**Watch built archive** separately approves watching the selected archive for new built
+output. Build the plugin in its owning repository; only the resulting archive is watched.
+The header marks watch mode and **Stop watch** ends it. Do not use production app profiles
+for watch development.
 
-Native build completed and emitted `ToolbeltPluginTester.app` and
-`ToolbeltPluginTester-stable.dmg` under artifacts-tester/build/stable-macos-arm64.
-Initial build warned that the optional icon source was missing in staging; build script
-now copies dev-icon.iconset as well. Typecheck passes. Native launch was not exercised.
+## Exercise surfaces and lifecycle
 
-Broad `bun test` result: 415 pass, 1 fail (416 tests, 3271 assertions).
-Failure is the retained v1 Upkeep integration manifest declaring protocol 0 while the
-baseline protocol parser requires 1 (`test/upkeep-integration.test.ts:21`). No changes
-were made to that integration fixture or protocol contract in this candidate.
+The embedded main view is the production App: navigate every declared tab, search/filter/sort,
+select rows, open inspectors and dialogs, and use actual keyboard shortcuts. **Simulated
+popover** embeds the production compact menu-bar surface. **Opt in to native menu bar**
+creates a real tester tray/popover using shared placement, highlight, Escape and blur behavior.
 
-Final packaging uses the actual update-bundle app, adds CFBundleShortVersionString, signs and strictly verifies it. It does not distribute the self-extracting progress launcher. Separate versioned tar.gz and DMG outputs are emitted under artifacts-tester; packaging mounts and verifies the tester DMG identity/version/signature.
+The width slider resizes the actual native window. Test narrow layouts, wrapped toolbar
+actions, scrollable tabs, long decorated cells, dialogs and expanded tool details. Production
+Settings controls palettes and light/dark/system. Use ⌘+ / ⌘− / ⌘0 for zoom and the tester's
+**Reduced motion** control to disable transitions. Verify both window and quick-view assets.
+
+Per-plugin **Restart** uses production preparation and verified activation. **Reset data**
+asks for confirmation and deletes only that plugin's tester data; reopen the archive to
+initialize it. Use separate named profiles for independent scenarios. The diagnostics footer
+shows bounded protocol, lifecycle, stderr and event records. Settings → Plugins also exposes
+the real manager with installation, removal, update and recovery controls.
+
+Use scratch files, fake feeds/providers, temporary homes and disposable processes. The tester
+separates managed data, not filesystem/process/network authority. Never test mutating process,
+software-update or shell-install actions against the user's actual jobs/apps/dotfiles.
+
+## Automation
+
+Set `TOOLBELT_DEBUG_PORT` for a local debug server. GET `/state` reports runtime state; POST
+`/eval` evaluates an expression in the window (or `?target=popover`). POST `/control` accepts
+JSON with an `operation` and its parameters. Operations include archive `load`, `watch`,
+`unwatch`, `viewport`, `diagnostics`, plugin `reset`, `nativePopover` and `activateMain`.
+`load`/`watch` require explicit `approved: true` and the selected archive/repository. These
+controls operate only the tester instance; use a distinct port/profile and clean up owned
+processes after automation. `src/bun/tester.ts` is the authoritative request implementation.
