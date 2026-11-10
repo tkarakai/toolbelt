@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { PluginHost } from "../src/bun/host";
 import { parseManifest, type Node } from "../src/shared/protocol";
 import { bulkUpdatable } from "../plugins/upkeep/lib/engine";
+import { customCandidate } from "../plugins/upkeep/providers/custom";
 import type { Item } from "../plugins/upkeep/lib/types";
 
 const root = mkdtempSync(join(tmpdir(), "toolbelt-upkeep-integration-"));
@@ -55,6 +56,31 @@ test("bundled Upkeep: all screens, explicit opt-in, review, update, logs and res
 	expect(existsSync(join(data, "upkeep/discovered.json"))).toBe(false);
 	expect(existsSync(join(data, "upkeep/items.json"))).toBe(false);
 	expect(existsSync(join(data, "upkeep/audit.jsonl"))).toBe(false);
+
+	// Seed a harmless discovered recipe, without scanning the person's Mac.
+	const candidate = customCandidate({ name: "Discover toggle fixture", version: "/bin/echo 1.0.0", latest: "/bin/echo 1.0.0", update: "/usr/bin/true" });
+	writeFileSync(join(data, "upkeep/discovered.json"), JSON.stringify({ at: Date.now(), candidates: [candidate], errors: {} }));
+	trees.clear();
+	host.restart("upkeep");
+	await until(() => trees.size === 6);
+	const discoverTable = () => {
+		const find = (node: any): any => node?.type === "table" && node.id === "candidates" ? node : (node?.children ?? []).map(find).find(Boolean);
+		return find(trees.get("screen:discover"));
+	};
+	for (const action of ["monitor", "remove", "monitor", "remove"]) {
+		const table = discoverTable();
+		expect(table.rows[0].id).toBe(candidate.id);
+		expect(table.rows[0].actions).toEqual([action]);
+		expect(table.actions.find((a: any) => a.id === action).confirm).toBeUndefined();
+		host.event("upkeep", "screen:discover", action, { rowId: candidate.id });
+		await until(() => discoverTable().rows[0].actions[0] !== action);
+		expect(JSON.parse(readFileSync(join(data, "upkeep/items.json"), "utf8")).some((it: Item) => it.id === candidate.id)).toBe(action === "monitor");
+	}
+	// Keep the recipe audit assertions below independent of the toggle fixture.
+	writeFileSync(join(data, "upkeep/audit.jsonl"), "");
+	trees.clear();
+	host.restart("upkeep");
+	await until(() => trees.size === 6);
 
 	const version = join(root, "version");
 	writeFileSync(version, "1.0.0\n");

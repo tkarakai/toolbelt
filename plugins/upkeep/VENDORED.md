@@ -27,3 +27,5 @@ Local patches:
   major upgrades, password-requiring items, and apps (which need individual review before
   they may be quit). The original handler could include major upgrades absent from its
   confirmation. Individual review and automatic-update policies remain available.
+
+- Discover rows expose Stop watching when watched, so Enter reverses Watch in place.
