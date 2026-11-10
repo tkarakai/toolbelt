@@ -1,5 +1,5 @@
-// One-letter shortcuts for the tools in the menu bar popover: `p` for Processes, `s` for
-// Showcase. Each tool gets the first letter of its name that's still free, else another
+// One-letter shortcuts for the tools in the menu bar popover: `p` for Processes, `u` for
+// Upkeep. Each tool gets the first letter of its name that's still free, else another
 // letter of its name, else any free letter — in list order, so the first tools keep theirs.
 
 /** Tool id → its lowercase letter. Tools left without one (more than 26) are missing. */

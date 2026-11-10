@@ -64,8 +64,8 @@ definePlugin({
 });
 ```
 
-The protocol and every component are in [`src/shared/protocol.ts`](src/shared/protocol.ts);
-[`plugins/showcase`](plugins/showcase) uses all of them. Toolbelt finds plugins in
+The protocol and every component are in [`src/shared/protocol.ts`](src/shared/protocol.ts).
+Toolbelt finds plugins in
 `~/Library/Application Support/Toolbelt/plugins/<id>/`, in its bundle, and in the folders listed
 in `TOOLBELT_PLUGINS` (colon-separated). Each plugin gets its own data folder,
 `~/Library/Application Support/Toolbelt/data/<id>/`, as `TOOLBELT_DATA_DIR` (`dataDir()` in

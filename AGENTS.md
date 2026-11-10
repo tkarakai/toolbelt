@@ -41,7 +41,7 @@ signs the bundle ad hoc and checks it the way the updater will.
   debug channel. `host.ts`: finds plugins (`toolbelt.json`), runs each with Bun, relays trees.
   No Electrobun imports in `host.ts`, so tests and `scripts/preview.ts` can use it.
 - `src/shared/protocol.ts` — the plugin protocol (v0) and every UI node type. **Changing it
-  changes what plugins can do**: update the renderer, the Showcase plugin and the tests with it.
+  changes what plugins can do**: update the renderer and the tests with it.
 - `src/sdk/` — the plugin side (`definePlugin`); will become a package.
 - `src/ui/` — one React + shadcn/ui app for both surfaces: the window (`App.tsx`) and the
   popover (`Popover.tsx`, `index.html#popover`). `renderer/Render.tsx` maps nodes to components.
@@ -117,7 +117,7 @@ motion (macOS setting) turns animations off globally.
 - Global shortcuts: use `src/bun/hotkey.ts` (Carbon), not Electrobun's `GlobalShortcut` — that
   one silently needs Accessibility permission.
 - Never kill, restart or type into the user's own processes or terminals while testing — the
-  Processes plugin can stop processes; use the Showcase plugin to exercise actions.
+  Processes plugin can stop processes; exercise actions only against disposable test fixtures.
 
 ## Bun
 

@@ -36,7 +36,7 @@ browser preview for screenshots.
 
 ## Render performance
 
-Time from a plugin's tree arriving to React committing it, Showcase table, **every row
+Time from a plugin's tree arriving to React committing it, using the spike's synthetic table, **every row
 changing every second** (worst case), full trees over the protocol:
 
 | Rows | Chrome (visible) | WKWebView (window behind others, throttled) |
