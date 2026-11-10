@@ -24,6 +24,7 @@ export async function makeDmg(root = join(import.meta.dir, "..")): Promise<strin
 
 	const stage = mkdtempSync(join(tmpdir(), "toolbelt-dmg-"));
 	try {
+		console.log("Disk image: extracting the built app");
 		const tar = join(stage, "app.tar");
 		writeFileSync(tar, Bun.zstdDecompressSync(readFileSync(bundle)));
 		const vol = join(stage, "Toolbelt");
@@ -38,13 +39,16 @@ export async function makeDmg(root = join(import.meta.dir, "..")): Promise<strin
 		if (id !== BUNDLE_ID) throw new Error(`the built app is ${id}, expected ${BUNDLE_ID}`);
 		await $`/usr/libexec/PlistBuddy -c ${`Delete :CFBundleShortVersionString`} ${plist}`.quiet().nothrow();
 		await $`/usr/libexec/PlistBuddy -c ${`Add :CFBundleShortVersionString string ${version}`} ${plist}`.quiet();
-		await $`/usr/bin/codesign --force --sign - ${app}`.quiet();
-		await $`/usr/bin/codesign --verify --strict ${app}`.quiet();
+		console.log("Disk image: signing and verifying the app");
+		await $`/usr/bin/codesign --force --sign - ${app}`;
+		await $`/usr/bin/codesign --verify --strict ${app}`;
 		symlinkSync("/Applications", join(vol, "Applications"));
-		await $`/usr/bin/hdiutil create -volname Toolbelt -srcfolder ${vol} -ov -format ULMO ${out}`.quiet();
+		console.log("Disk image: creating the compressed image");
+		await $`/usr/bin/hdiutil create -volname Toolbelt -srcfolder ${vol} -ov -format ULMO ${out}`;
 	} finally {
 		rmSync(stage, { recursive: true, force: true });
 	}
+	console.log("Disk image: mounting and verifying the download");
 	await verifyDmg(out, version);
 	return out;
 }
@@ -70,6 +74,12 @@ if (import.meta.main) {
 		console.log(await makeDmg());
 	} catch (e) {
 		console.error(`✗ ${(e as Error).message}`);
+		// Bun's ShellError.message contains only the exit code; quiet commands keep the
+		// useful diagnostic (codesign, tar, hdiutil) in these captured streams.
+		if (e instanceof $.ShellError) {
+			if (e.stdout.length) console.error(e.stdout.toString().trimEnd());
+			if (e.stderr.length) console.error(e.stderr.toString().trimEnd());
+		}
 		process.exit(1);
 	}
 }
