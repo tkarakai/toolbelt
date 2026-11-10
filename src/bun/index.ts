@@ -5,6 +5,7 @@ import { PATHS } from "electrobun/main";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { PluginHost, configDir, pluginDirs } from "./host";
+import { FileIcons } from "./file-icon";
 import { clearHotKey, displayAccelerator, setHotKey } from "./hotkey";
 import { loadSettings, saveSettings, type Settings } from "./settings";
 import { setTrayHighlighted, trayHighlighted } from "./tray-highlight";
@@ -25,6 +26,8 @@ const host = new PluginHost({
 	host: { name: "Toolbelt", version: pkg.version },
 	data: join(configDir(homedir()), "data"),
 });
+
+const icons = new FileIcons(join(configDir(homedir()), "cache/icons"));
 
 let debugReport: (id: number, value: unknown) => void = () => {};
 
@@ -79,6 +82,7 @@ function makeRPC() {
 					return { ok: true, label: displayAccelerator(accelerator) };
 				},
 				// While the window records a new shortcut, the current one mustn't swallow the keys.
+				fileIcon: ({ path }) => icons.get(path),
 				pauseShortcut: ({ paused }) => {
 					if (paused) clearHotKey();
 					else setHotKey(settings.shortcut, togglePopover);
@@ -87,7 +91,7 @@ function makeRPC() {
 			},
 			messages: {
 				showWindow: ({ plugin, screen }) => {
-					hidePopover();
+					hidePopover(true);
 					showWindow(plugin, screen);
 				},
 				hidePopover: () => hidePopover(),
@@ -176,7 +180,14 @@ popover.setAlwaysOnTop(true);
 popover.setVisibleOnAllWorkspaces(true);
 let popoverShownAt = 0;
 
+/** How long the popover's closing animation plays before the window hides (ms). */
+const POPOVER_CLOSE_MS = 160;
+let hideTimer: ReturnType<typeof setTimeout> | undefined;
+let hiddenAt = 0;
+
 function showPopover() {
+	clearTimeout(hideTimer);
+	hideTimer = undefined;
 	const b = tray.getBounds();
 	const display = Screen.getPrimaryDisplay();
 	// Like a macOS menu: hanging from the menu bar, left edge just left of the icon (and kept on
@@ -193,12 +204,22 @@ function showPopover() {
 	popRPC.send.popoverShown({});
 }
 
-function hidePopover() {
-	if (popover.isVisible()) popover.hide();
+/** Plays the closing animation, then hides the window. `now`: skip the animation. */
+function hidePopover(now = false) {
 	setTrayHighlighted(false);
+	if (!popover.isVisible() || hideTimer) return;
+	hiddenAt = Date.now();
+	if (now) return popover.hide();
+	popRPC.send.popoverHiding({});
+	hideTimer = setTimeout(() => {
+		hideTimer = undefined;
+		popover.hide();
+	}, POPOVER_CLOSE_MS);
 }
 
-const togglePopover = () => (popover.isVisible() ? hidePopover() : showPopover());
+// A click on the menu bar icon while the popover is open blurs it first (which starts hiding);
+// that click means "close", not "open again".
+const togglePopover = () => (popover.isVisible() && !hideTimer ? hidePopover() : Date.now() - hiddenAt < 300 ? undefined : showPopover());
 
 tray.on("tray-clicked", () => togglePopover());
 // Clicking anywhere else dismisses it (ignore the blur that the click on the icon itself causes).
@@ -228,7 +249,13 @@ ApplicationMenu.setApplicationMenu([
 	},
 	{
 		label: "View",
-		submenu: [{ label: "Toggle Sidebar", action: "toggle-sidebar", accelerator: "CommandOrControl+B" }],
+		submenu: [
+			{ label: "Toggle Sidebar", action: "toggle-sidebar", accelerator: "CommandOrControl+B" },
+			{ type: "separator" },
+			{ label: "Actual Size", action: "zoomReset", accelerator: "CommandOrControl+0" },
+			{ label: "Zoom In", action: "zoomIn", accelerator: "CommandOrControl+Plus" },
+			{ label: "Zoom Out", action: "zoomOut", accelerator: "CommandOrControl+Minus" },
+		],
 	},
 	{
 		label: "Window",
@@ -244,6 +271,7 @@ Electrobun.events.on("application-menu-clicked", (e: any) => {
 	if (action === "quit") requestQuit();
 	if (action === "settings") showWindow("toolbelt");
 	if (action === "toggle-sidebar") winRPC?.send.command({ name: "toggleSidebar" });
+	if (action === "zoomIn" || action === "zoomOut" || action === "zoomReset") winRPC?.send.command({ name: action });
 });
 /** ⌘Q: ask first, in the popover if it's open, else in the window, else open the popover to ask. */
 function requestQuit() {

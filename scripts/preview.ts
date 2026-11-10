@@ -8,12 +8,14 @@ import { PluginHost, configDir, pluginDirs } from "../src/bun/host";
 import type { ServerWebSocket } from "bun";
 import { DEFAULTS, type Settings } from "../src/bun/settings";
 import { displayAccelerator } from "../src/bun/hotkey";
+import { FileIcons } from "../src/bun/file-icon";
 
 // Settings live in memory here (the preview doesn't touch the app's settings file).
 let settings: Settings = { ...DEFAULTS };
 
 const port = Number(process.env.PORT ?? 5174);
 const host = new PluginHost({ dirs: pluginDirs({ bundled: "build-plugins", home: homedir(), extra: process.env.TOOLBELT_PLUGINS }), bun: process.execPath, host: { name: "Toolbelt preview", version: "0.0.0" }, data: join(configDir(homedir()), "data") });
+const icons = new FileIcons(join(configDir(homedir()), "cache/icons"));
 const clients = new Set<ServerWebSocket<{ opened: Set<string> }>>();
 const broadcast = (name: string, payload: unknown) => clients.forEach((c) => c.send(JSON.stringify({ kind: "message", name, payload })));
 host.subscribe({
@@ -62,6 +64,7 @@ Bun.serve<{ opened: Set<string> }>({
 						return reply(true);
 					case "setShortcut": settings = { ...settings, shortcut: p.accelerator }; broadcast("settingsChanged", {}); return reply({ ok: true, label: displayAccelerator(p.accelerator) });
 					case "pauseShortcut": return reply(true);
+					case "fileIcon": return void icons.get(p.path).then(reply);
 					case "openUrl": return reply(false); // the browser opens links itself
 				}
 			} catch (e) {

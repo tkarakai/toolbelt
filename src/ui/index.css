@@ -5,6 +5,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Motion: Toolbelt's standard transition is 200 ms (see AGENTS.md → Motion). */
+@theme {
+    --default-transition-duration: 200ms;
+    --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
 @theme inline {
     --color-selected: var(--selected);
     --color-group: var(--group);
@@ -179,4 +185,24 @@ mark.hit {
 	to {
 		left: 100%;
 	}
+}
+
+/* People who asked for less motion get (almost) none. */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* The terminal emulator (xterm.js) in output dialogs: its scrollbar, quiet like the rest. */
+.tb-terminal .xterm-viewport {
+  background-color: transparent !important;
+}
+.tb-terminal .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+.tb-terminal .xterm-viewport::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--foreground) 20%, transparent);
+  border-radius: 4px;
 }

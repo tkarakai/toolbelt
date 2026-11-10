@@ -31,6 +31,7 @@ export function committed(plugin: string, surface: string) {
 type NavListener = (plugin: string, screen?: string) => void;
 const navListeners = new Set<NavListener>();
 const shownListeners = new Set<() => void>();
+const hidingListeners = new Set<() => void>();
 const settingsListeners = new Set<() => void>();
 const commandListeners = new Set<(name: string) => void>();
 
@@ -57,6 +58,7 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
 	},
 	navigate: ({ plugin, screen }) => navListeners.forEach((l) => l(plugin, screen)),
 	popoverShown: () => shownListeners.forEach((l) => l()),
+	popoverHiding: () => hidingListeners.forEach((l) => l()),
 	settingsChanged: () => settingsListeners.forEach((l) => l()),
 	command: ({ name }) => commandListeners.forEach((l) => l(name)),
 	confirmQuit: () => commandListeners.forEach((l) => l("confirmQuit")),
@@ -158,6 +160,13 @@ export function usePopoverShown(fn: () => void) {
 	useEffect(() => {
 		shownListeners.add(fn);
 		return () => void shownListeners.delete(fn);
+	}, [fn]);
+}
+
+export function usePopoverHiding(fn: () => void) {
+	useEffect(() => {
+		hidingListeners.add(fn);
+		return () => void hidingListeners.delete(fn);
 	}, [fn]);
 }
 

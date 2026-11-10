@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, Maximize2, Power } from "lucide-react";
 import { defaultScreen } from "../shared/protocol";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
-import { rpc, sendEvent, usePlugins, usePopoverShown, useSettings, useSurface } from "@/lib/store";
+import { rpc, sendEvent, usePlugins, usePopoverHiding, usePopoverShown, useSettings, useSurface } from "@/lib/store";
 import { SurfaceContext, isTyping } from "@/lib/uistate";
 import { Dot, Render } from "@/renderer/Render";
 import { Badge } from "@/components/ui/badge";
@@ -22,13 +22,17 @@ export default function Popover() {
 	const [settings] = useSettings();
 	const [open, setOpen] = useState<string | null>(null);
 	const [active, setActive] = useState(0);
+	// Each showing plays the opening animation (a new key restarts it); hiding plays the closing one.
+	const [shown, setShown] = useState({ n: 0, closing: false });
 	usePopoverShown(
 		useCallback(() => {
 			setOpen(null);
 			setActive(0);
+			setShown((s) => ({ n: s.n + 1, closing: false }));
 			window.focus(); // take the keyboard
 		}, []),
 	);
+	usePopoverHiding(useCallback(() => setShown((s) => ({ ...s, closing: true })), []));
 	const current = plugins.find((p) => p.manifest.id === open);
 
 	const pick = useCallback((p: PluginInfo) => {
@@ -67,11 +71,19 @@ export default function Popover() {
 	}, [current, plugins, active, pick]);
 
 	return (
-		<div className="flex h-svh flex-col overflow-hidden rounded-xl border bg-popover/95 text-popover-foreground shadow-2xl backdrop-blur-xl">
+		<div
+			key={shown.n}
+			className={cn(
+				"flex h-svh origin-top-left flex-col overflow-hidden rounded-xl border bg-popover/95 text-popover-foreground shadow-2xl backdrop-blur-xl",
+				shown.closing ? "animate-out fade-out-0 zoom-out-95 slide-out-to-top-1 fill-mode-forwards duration-150" : "animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-200",
+			)}
+		>
 			{current ? (
-				<QuickView info={current} back={() => setOpen(null)} />
+				<div key={current.manifest.id} className="flex min-h-0 flex-1 flex-col animate-in fade-in-0 slide-in-from-right-4 duration-200">
+					<QuickView info={current} back={() => setOpen(null)} />
+				</div>
 			) : (
-				<>
+				<div className="flex min-h-0 flex-1 flex-col animate-in fade-in-0 slide-in-from-left-4 duration-200">
 					<div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
 						<span className="text-sm font-semibold">Toolbelt</span>
 						{settings && <Kbd className="ml-auto">{settings.shortcutLabel}</Kbd>}
@@ -116,7 +128,7 @@ export default function Popover() {
 							<Kbd className="ml-1">⌘Q</Kbd>
 						</Button>
 					</div>
-				</>
+				</div>
 			)}
 			<QuitDialog />
 		</div>

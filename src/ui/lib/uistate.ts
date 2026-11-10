@@ -1,9 +1,40 @@
 // UI state that belongs to the renderer, not the plugin: filter text, expanded rows, the
-// selected row… Kept per surface for the session, so switching tools and back finds things as
-// they were. `usePersisted` survives restarts (localStorage) for layout choices like widths.
+// selected row, scroll positions… Kept per surface, so switching tools and back finds things as
+// they were — and saved (localStorage), so closing the window or quitting doesn't forget them.
+// Best effort: a row that's gone is simply not selected. `usePersisted` is for layout choices
+// that aren't per surface (widths).
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-const session = new Map<string, unknown>();
+const STORE = "toolbelt.ui";
+const session = new Map<string, unknown>(load());
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+function load(): [string, unknown][] {
+	try {
+		const raw = localStorage.getItem(STORE);
+		return raw ? (Object.entries(JSON.parse(raw)) as [string, unknown][]) : [];
+	} catch {
+		return [];
+	}
+}
+
+function save() {
+	clearTimeout(saveTimer);
+	saveTimer = setTimeout(() => {
+		try {
+			localStorage.setItem(STORE, JSON.stringify(Object.fromEntries(session)));
+		} catch {}
+	}, 300);
+}
+
+/** Read or write a surface's UI state outside React (scroll positions). */
+export const uiState = {
+	get: <T,>(surface: string, name: string): T | undefined => session.get(`${surface}\n${name}`) as T | undefined,
+	set: (surface: string, name: string, value: unknown) => {
+		session.set(`${surface}\n${name}`, value);
+		save();
+	},
+};
 
 /** `<plugin>/<surface>` of the surface being rendered. */
 export const SurfaceContext = createContext("");
@@ -19,6 +50,7 @@ export function useUIState<T>(name: string, initial: T): [T, Set<T>] {
 			setValue((prev) => {
 				const v = typeof next === "function" ? (next as (p: T) => T)(prev) : next;
 				session.set(key, v);
+				save();
 				return v;
 			}),
 		[key],

@@ -70,6 +70,9 @@ export type Cell =
 			spark?: number[];
 			/** A moment (epoch ms), shown relative to now and kept current; replaces `text`. */
 			at?: number;
+			/** An icon before the text: a lucide name, or `app:<path>` / `file:<path>` for the
+			 *  icon macOS shows for that app bundle or file (Finder's icon). */
+			icon?: string;
 	  };
 
 export type Column = {
@@ -79,8 +82,20 @@ export type Column = {
 	/** This column takes the remaining width. */
 	grow?: boolean;
 	mono?: boolean;
-	/** Hidden in narrow layouts. */
+	/**
+	 * Which columns give way when the table gets narrow: the highest `priority` hides first.
+	 * Without one, columns further right are less important (priority = position), so the
+	 * leftmost column is the last to go — and the `grow` column never hides.
+	 */
+	priority?: number;
+	/** The narrowest the `grow` column may get before other columns hide (px, default 240). */
+	minWidth?: number;
+	/** Hidden first in narrow layouts (same as a high `priority`). */
 	optional?: boolean;
+	/** Clicking the header sorts by this column: the table's `sort`, and a `sort` event. */
+	sortable?: boolean;
+	/** The direction of the first click (default: ascending; numbers often want descending). */
+	sortDesc?: boolean;
 };
 
 export type Action = {
@@ -96,6 +111,14 @@ export type Action = {
 	/** The main action of a toolbar, card or dialog: drawn as a filled button. */
 	primary?: boolean;
 	disabled?: boolean;
+	/**
+	 * Actions with the same group are shown together: a section of the row menu, a cluster of
+	 * buttons in the inspector. Groups appear in the order of their first action; ungrouped
+	 * actions form one group. Name groups for what they do ("open", "command", "stop").
+	 */
+	group?: string;
+	/** A switch instead of a button (page toolbars): on when true. Clicking sends the action. */
+	checked?: boolean;
 };
 
 /** One level of a row's group: a label, or a label with extras. Rows group by `id ?? label`. */
@@ -114,10 +137,18 @@ export type Row = {
 	/** Row actions; ids of entries in the table's `actions`. Defaults to all. */
 	actions?: string[];
 	/** Shown in the inspector when the row is selected. */
-	details?: { label: string; value: string; mono?: boolean }[];
+	details?: DetailItem[];
+	/** Small figures at the top of the inspector (CPU, memory, uptime), with optional trends. */
+	stats?: { label: string; value: string; spark?: number[]; tone?: Tone }[];
 	/** Rows nested under this one (a process's children); the person expands them. */
 	children?: Row[];
 };
+
+/**
+ * A label/value pair in the inspector. Items with the same `section` are shown together under
+ * that heading, in order of first appearance. `copy` adds a copy button.
+ */
+export type DetailItem = { label: string; value: string; mono?: boolean; tone?: Tone; section?: string; copy?: boolean };
 
 export type Field =
 	| { type: "select"; id: string; label: string; value: string; options: { value: string; label: string }[]; description?: string }
@@ -139,6 +170,20 @@ export type Dialog = {
 	actions?: Action[];
 	/** Room for release notes, logs, tables. */
 	wide?: boolean;
+	/** The person can resize it (drag its edges) and maximize it to the window; remembered. */
+	resizable?: boolean;
+};
+
+/** A message in a `conversation`. */
+export type Message = {
+	role: "user" | "assistant" | "tool" | "system";
+	/** Who wrote it ("you", "claude"). */
+	author?: string;
+	/** Markdown for user/assistant messages; a one-line summary for tools. */
+	text: string;
+	at?: number;
+	/** Tool calls: the tool's name and, optionally, its input/output (shown on request). */
+	tool?: { name: string; detail?: string };
 };
 
 export type Node =
@@ -170,6 +215,8 @@ export type Node =
 			bulkActions?: Action[];
 			/** Shown when there are no rows. */
 			empty?: { title: string; description?: string; icon?: string };
+			/** The column it's sorted by (see `Column.sortable`). */
+			sort?: { key: string; desc: boolean };
 	  }
 	| {
 			type: "list";
@@ -189,6 +236,16 @@ export type Node =
 	| { type: "details"; items: { label: string; value: string; mono?: boolean; tone?: Tone }[] }
 	/** Output of a command: monospace, scrolls; `follow` keeps the newest line in view. */
 	| { type: "log"; id: string; lines: LogLine[]; follow?: boolean; empty?: string }
+	/**
+	 * A terminal's screen and scrollback, drawn by a terminal emulator: colors and styles from
+	 * ANSI escape codes, long lines wrapped to the width (and re-wrapped when it changes). Send
+	 * logical lines, not ones already wrapped. Fills the space it gets; ⌘+ / ⌘- zoom its text.
+	 */
+	| { type: "terminal"; id: string; lines: string[]; follow?: boolean; empty?: string }
+	/** A chat between a person and an agent: messages as bubbles, tool calls as compact rows. */
+	| { type: "conversation"; id: string; messages: Message[]; empty?: string }
+	/** One choice of a few, as a segmented control; changes arrive as `field` events. */
+	| { type: "segmented"; id: string; value: string; options: { value: string; label: string; icon?: string }[] }
 	/** `value` from 0 to 1; without one, "working…". `at`: when it started (shows elapsed time). */
 	| { type: "progress"; label?: string; value?: number; at?: number; tone?: Tone }
 	/**
@@ -217,6 +274,8 @@ export type EventPayloads = {
 	/** The person closed a dialog (Esc, close button, Cancel). */
 	"dialog-close": { dialog: string };
 	search: { query: string };
+	/** A sortable column header was clicked: sort `table` by `key`. */
+	sort: { table: string; key: string; desc: boolean };
 	/** A form field changed. */
 	field: { form: string; field: string; value: string | boolean };
 };

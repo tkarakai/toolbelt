@@ -29,6 +29,8 @@ export type ToolbeltRPC = {
 			openUrl: { params: { url: string }; response: boolean };
 			setShortcut: { params: { accelerator: string }; response: { ok: boolean; error?: string; label?: string } };
 			pauseShortcut: { params: { paused: boolean }; response: true };
+			/** The icon macOS shows for a file or app bundle, as a PNG data URL (null: no such file). */
+			fileIcon: { params: { path: string }; response: string | null };
 		};
 		messages: {
 			/** From the popover: show the main window on this plugin (and screen). */
@@ -53,6 +55,8 @@ export type ToolbeltRPC = {
 			navigate: { plugin: string; screen?: string };
 			/** Popover: it was just shown (reset to the list, focus search). */
 			popoverShown: {};
+			/** Popover: it's about to be hidden — play the closing animation. */
+			popoverHiding: {};
 			settingsChanged: {};
 			/** From the app menu: a command for the window (toggleSidebar…). */
 			command: { name: string };

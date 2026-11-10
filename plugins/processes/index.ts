@@ -6,10 +6,13 @@
 // toolbelt-ps will replace the running-core bridge with the engine itself.
 //
 // Where running is: RUNNING_CORE_SCRIPT, else ~/dev/projects/running/src/serve.ts.
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { definePlugin, type Context, type Dialog, type Field, type Node, type Row } from "../../src/sdk";
+import { join } from "node:path";
+import { dataDir, definePlugin, type Action, type Context, type Dialog, type Field, type Message, type Node, type Row } from "../../src/sdk";
+import { readConversation } from "./conversation";
 import { Core, type Hello, type KeepDraft, type Peek, type Snapshot, type SortKey } from "./core";
-import { agentState, build, displayName, dur, locate, sourceLabel, statusTone, stripAnsi, tildify, webUrl, type Built } from "./model";
+import { agentState, build, COLUMN_SORT, displayName, dur, locate, SORT_COLUMN, sourceLabel, statusTone, stripAnsi, tildify, webUrl, type Built } from "./model";
 
 const core = new Core(process.env.RUNNING_CORE_SCRIPT ?? `${homedir()}/dev/projects/running/src/serve.ts`, {
 	onChanged: () => void refresh(),
@@ -20,8 +23,19 @@ const core = new Core(process.env.RUNNING_CORE_SCRIPT ?? `${homedir()}/dev/proje
 let snap: Snapshot | null = null;
 let hello: Hello | null = null;
 let query = "";
-let showAll = false;
-let terminal = "terminal";
+// The person's choices, kept in the plugin's data folder across restarts.
+const PREFS = join(dataDir(), "prefs.json");
+const prefs: { showAll: boolean; terminal: string } = { showAll: false, terminal: "terminal" };
+try {
+	if (existsSync(PREFS)) Object.assign(prefs, JSON.parse(readFileSync(PREFS, "utf8")));
+} catch {}
+const savePrefs = () => {
+	try {
+		writeFileSync(PREFS, JSON.stringify(prefs, null, "\t") + "\n");
+	} catch {}
+};
+let showAll = prefs.showAll;
+let terminal = prefs.terminal;
 let refreshing = false;
 let last: Built | null = null;
 /** Recent CPU / memory per pid, for the sparklines. */
@@ -30,7 +44,7 @@ const HISTORY = 30;
 
 /** The dialog over the Processes or Kept page. */
 type Open =
-	| { kind: "output"; pid: number; child?: number; source?: string; data?: Peek; error?: string }
+	| { kind: "output"; pid: number; child?: number; source?: string; data?: Peek; messages?: Message[]; error?: string }
 	| { kind: "keep"; pid?: number; index?: number; draft: KeepDraft; saving?: boolean };
 let dialog: Open | null = null;
 let dialogScreen: "processes" | "kept" = "processes";
@@ -69,11 +83,17 @@ function recordHistory(s: Snapshot) {
 	for (const pid of history.keys()) if (!alive.has(pid)) history.delete(pid);
 }
 
+/** How much of a terminal's scrollback (or a log file) a peek shows. */
+const PEEK_LINES = 1000;
+
 async function loadOutput() {
 	if (dialog?.kind !== "output") return;
 	const d = dialog;
 	try {
-		d.data = await core.call<Peek>("peek", { pid: d.pid, ...(d.child ? { child: d.child } : {}), ...(d.source ? { source: d.source } : {}), lines: 600 });
+		const conversation = d.source === "@transcript";
+		d.data = await core.call<Peek>("peek", { pid: d.pid, ...(d.child ? { child: d.child } : {}), ...(d.source ? { source: d.source } : {}), lines: conversation ? 1 : PEEK_LINES });
+		const agent = locate(snap, d.pid)?.row.agent;
+		d.messages = conversation && agent?.transcript ? readConversation(agent.transcript, agent.harness) : undefined;
 		d.error = undefined;
 	} catch (e) {
 		d.error = (e as Error).message;
@@ -92,7 +112,6 @@ const sortKey = (): SortKey => snap?.sort.key ?? "started";
 const sortDesc = () => snap?.sort.desc ?? true;
 const sortSpec = () => hello?.sorts[sortKey()];
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const dirLabel = () => sortSpec()?.dirLabel[sortDesc() ? 1 : 0] ?? (sortDesc() ? "descending" : "ascending");
 
 /** The sources a peek can show, and which one is showing (running falls back to the first log
  *  file when a job has no terminal to read). */
@@ -103,21 +122,28 @@ function outputSources(d: Extract<Open, { kind: "output" }>) {
 	return { list, showing: fellBack ? d.data!.title : d.source };
 }
 
+const sourceIcon = (s: string | undefined) => (s === undefined ? "square-terminal" : s === "@transcript" ? "messages-square" : "file-text");
+
 function outputDialog(d: Extract<Open, { kind: "output" }>): Dialog {
 	const { list, showing } = outputSources(d);
 	const key = (s: string | undefined) => s ?? "@terminal";
+	const row = locate(snap, d.pid);
+	const name = row ? (row.member ? row.member.argvCommand : displayName(row.row)) : String(d.pid);
+	const conversation = showing === "@transcript";
+	const id = `out:${d.pid}:${d.child ?? ""}:${showing ?? ""}`;
 	return {
 		id: "output",
-		title: d.data?.kind === "conversation" ? d.data.title : `Output — ${d.data?.title ?? "…"}`,
-		description: d.error ?? `Last ${d.data?.lines.length ?? 0} lines · updates every 2 s`,
+		title: `Peek — ${name}`,
+		description: d.error ?? (conversation ? `${row?.row.agent?.harness ?? "Agent"} conversation · ${d.messages?.length ?? 0} messages · live` : `${d.data?.title ?? "…"} · ${d.data?.lines.length ?? 0} lines · live`),
 		wide: true,
+		resizable: true,
 		children: [
-			...(list.length > 1
-				? [{ type: "form" as const, id: "output", fields: [{ type: "select" as const, id: "source", label: "Show", value: key(showing), options: list.map((s) => ({ value: key(s), label: sourceLabel(s) })) }] }]
-				: []),
-			{ type: "log", id: `out:${d.pid}:${d.child ?? ""}:${showing ?? ""}`, lines: (d.data?.lines ?? []).map((t) => ({ text: stripAnsi(t) })), follow: true, empty: d.data ? "No output." : "Loading…" },
+			...(list.length > 1 ? [{ type: "segmented" as const, id: "output-source", value: key(showing), options: list.map((s) => ({ value: key(s), label: sourceLabel(s), icon: sourceIcon(s) })) }] : []),
+			conversation
+				? { type: "conversation" as const, id, messages: d.messages ?? [], empty: d.data ? "No messages yet." : "Loading…" }
+				: { type: "terminal" as const, id, lines: d.data?.lines ?? [], follow: true, empty: d.data ? "No output." : "Loading…" },
 		],
-		actions: [{ id: "output-copy", label: "Copy", icon: "copy" }],
+		actions: [{ id: "output-copy", label: "Copy all", icon: "copy" }],
 	};
 }
 
@@ -149,16 +175,13 @@ const currentDialog = (screen: "processes" | "kept"): Dialog | undefined => {
 function processesScreen(): Node {
 	if (core.error) return unavailable();
 	last = snap ? build(snap, { query, showAll, sort: sortKey(), desc: sortDesc(), history }) : null;
-	const spec = sortSpec();
 	return {
 		type: "page",
 		search: { placeholder: "Filter by command, folder, port, pid, agent…" },
 		summary: last ? `${last.shown} of ${last.total - last.hiddenApps} processes${last.hiddenApps ? ` · ${last.hiddenApps} apps hidden` : ""}` : "Loading…",
 		highlight: last?.search.highlight(),
 		actions: [
-			{ id: "toggle-apps", label: showAll ? "Hide apps" : "Show apps", icon: showAll ? "eye-off" : "app-window" },
-			{ id: "sort-next", label: `Sort: ${cap(spec?.label ?? sortKey())}`, icon: "arrow-down-up" },
-			{ id: "sort-dir", label: cap(dirLabel()), icon: sortDesc() ? "arrow-down-wide-narrow" : "arrow-up-narrow-wide" },
+			{ id: "toggle-apps", label: "Show apps", checked: showAll },
 			{ id: "refresh", label: "Refresh", icon: "refresh-cw" },
 		],
 		dialog: currentDialog("processes"),
@@ -166,26 +189,17 @@ function processesScreen(): Node {
 			{
 				type: "table",
 				id: "processes",
+				// Narrow windows hide columns from the right; the process name always stays.
 				columns: [
-					{ key: "name", title: "Process", grow: true },
+					{ key: "name", title: "Process", grow: true, minWidth: 260, sortable: true },
 					{ key: "ports", title: "Ports" },
-					{ key: "cpu", title: "CPU", align: "right", mono: true, optional: true },
-					{ key: "mem", title: "Memory", align: "right", mono: true, optional: true },
-					{ key: "uptime", title: "Up", align: "right", mono: true },
+					{ key: "cpu", title: "CPU", align: "right", mono: true, sortable: true, sortDesc: true },
+					{ key: "mem", title: "Memory", align: "right", mono: true, sortable: true, sortDesc: true },
+					{ key: "uptime", title: "Up", align: "right", mono: true, sortable: true },
 				],
+				sort: { key: SORT_COLUMN[sortKey()], desc: sortDesc() },
 				rows: last?.rows ?? [],
-				actions: [
-					{ id: "focus", label: "Show in terminal", icon: "square-terminal", inline: true },
-					{ id: "open", label: "Open in browser", icon: "globe", inline: true },
-					{ id: "output", label: "Show output", icon: "scroll-text", inline: true },
-					{ id: "copy", label: "Copy cd && command", icon: "copy" },
-					{ id: "keep", label: "Keep…", icon: "bookmark-plus" },
-					{ id: "edit-kept", label: "Edit kept command…", icon: "bookmark" },
-					{ id: "restart", label: "Restart", icon: "rotate-cw", confirm: "Stop it and run the same command again — in its terminal if that's still open, otherwise in a new window." },
-					{ id: "why", label: "Why is it still running?", icon: "circle-help" },
-					{ id: "stop", label: "Stop", icon: "square", tone: "destructive", confirm: "Stop it (SIGTERM, then SIGCONT so paused jobs can exit)?" },
-					{ id: "kill", label: "Force stop", icon: "octagon-x", tone: "destructive", confirm: "Force stop it now (SIGKILL)? It gets no chance to clean up." },
-				],
+				actions: PROCESS_ACTIONS,
 				empty: {
 					title: !snap ? "Loading…" : query ? "No process matches" : "Nothing running",
 					description: snap && !query ? (last?.hiddenApps ? "Apps and system servers are hidden — Show apps lists them." : "Processes you start in your terminals show up here.") : undefined,
@@ -195,6 +209,23 @@ function processesScreen(): Node {
 		],
 	};
 }
+
+/**
+ * Row actions, in groups: get to it (its terminal, its output, its page) · understand it · keep
+ * or reuse its command · restart it · stop it.
+ */
+const PROCESS_ACTIONS: Action[] = [
+	{ id: "focus", label: "Jump to terminal", icon: "square-arrow-out-up-right", inline: true, group: "go" },
+	{ id: "output", label: "Peek", icon: "scan-eye", inline: true, group: "go" },
+	{ id: "open", label: "Open in browser", icon: "globe", inline: true, group: "go" },
+	{ id: "why", label: "Why is it still running?", icon: "circle-help", group: "go" },
+	{ id: "keep", label: "Keep…", icon: "bookmark-plus", group: "command" },
+	{ id: "edit-kept", label: "Edit kept command…", icon: "bookmark", group: "command" },
+	{ id: "copy", label: "Copy cd && command", icon: "copy", group: "command" },
+	{ id: "restart", label: "Restart", icon: "rotate-cw", group: "run", confirm: "Stop it and run the same command again — in its terminal if that's still open, otherwise in a new window." },
+	{ id: "stop", label: "Stop", icon: "square", tone: "destructive", group: "stop", confirm: "Stop it (SIGTERM, then SIGCONT so paused jobs can exit)?" },
+	{ id: "kill", label: "Force stop", icon: "octagon-x", tone: "destructive", group: "stop", confirm: "Force stop it now (SIGKILL)? It gets no chance to clean up." },
+];
 
 function keptScreen(): Node {
 	if (core.error) return unavailable();
@@ -222,24 +253,28 @@ function keptScreen(): Node {
 						},
 						actions: [...(k.livePid ? ["focus-kept"] : ["start"]), "edit", "copy", ...(i > 0 ? ["up"] : []), ...(i < kept.length - 1 ? ["down"] : []), "forget"],
 						details: [
-							{ label: "Command", value: k.line, mono: true },
-							{ label: "Directory", value: tildify(k.cwd), mono: true },
-							...Object.entries(k.env).map(([key, v]) => ({ label: key, value: /KEY|TOKEN|SECRET|PASSWORD|PASS|AUTH/i.test(key) ? "••••••" : v, mono: true })),
-							...(k.note ? [{ label: "Note", value: k.note }] : []),
-							...(k.ports.length ? [{ label: "Ports", value: k.ports.map((p) => `:${p}`).join(" ") }] : []),
-							...(k.session ? [{ label: "Agent session", value: k.session, mono: true }] : []),
-							...(k.kept ? [{ label: "Kept on", value: new Date(k.kept).toLocaleString() }] : []),
+							{ section: "Command", label: "Command", value: k.line, mono: true },
+							{ section: "Command", label: "Directory", value: tildify(k.cwd), mono: true },
+							...(k.note ? [{ section: "Command", label: "Note", value: k.note }] : []),
+							...Object.entries(k.env).map(([key, v]) => {
+								const secret = /KEY|TOKEN|SECRET|PASSWORD|PASS|AUTH/i.test(key);
+								return { section: "Environment", label: key, value: secret ? "••••••" : v, mono: true, copy: !secret };
+							}),
+							...(k.livePid ? [{ section: "State", label: "Running", value: `pid ${k.livePid}`, mono: true, copy: false, tone: "success" as const }] : [{ section: "State", label: "State", value: "Stopped" }]),
+							...(k.ports.length ? [{ section: "State", label: "Ports", value: k.ports.map((p) => `:${p}`).join(" ") }] : []),
+							...(k.session ? [{ section: "State", label: "Agent session", value: k.session, mono: true }] : []),
+							...(k.kept ? [{ section: "State", label: "Kept on", value: new Date(k.kept).toLocaleString() }] : []),
 						],
 					}),
 				),
 				actions: [
-					{ id: "start", label: `Start in ${hello?.terminals[terminal]?.label ?? terminal}`, icon: "play", inline: true },
-					{ id: "focus-kept", label: "Show in terminal", icon: "square-terminal", inline: true },
-					{ id: "edit", label: "Edit…", icon: "pencil" },
-					{ id: "copy", label: "Copy cd && command", icon: "copy" },
-					{ id: "up", label: "Move up", icon: "arrow-up" },
-					{ id: "down", label: "Move down", icon: "arrow-down" },
-					{ id: "forget", label: "Forget", icon: "trash-2", tone: "destructive", confirm: "Forget this kept command? (You can undo right after.)" },
+					{ id: "start", label: `Start in ${hello?.terminals[terminal]?.label ?? terminal}`, icon: "play", inline: true, group: "run" },
+					{ id: "focus-kept", label: "Jump to terminal", icon: "square-arrow-out-up-right", inline: true, group: "run" },
+					{ id: "edit", label: "Edit…", icon: "pencil", group: "command" },
+					{ id: "copy", label: "Copy cd && command", icon: "copy", group: "command" },
+					{ id: "up", label: "Move up", icon: "arrow-up", group: "order" },
+					{ id: "down", label: "Move down", icon: "arrow-down", group: "order" },
+					{ id: "forget", label: "Forget", icon: "trash-2", tone: "destructive", group: "forget", confirm: "Forget this kept command? (You can undo right after.)" },
 				],
 				empty: { title: "Nothing kept yet", description: "Keep a process (its row menu → Keep…) to start it again later, with its folder and environment.", icon: "bookmark" },
 			},
@@ -313,7 +348,7 @@ function quickView(): Node {
 			subtitle: [r.agent ? `${r.agent.harness} · ${agentState(r.agent)}` : r.listen.map((l) => `:${l.port}`).join(" "), tildify(r.cwd)].filter(Boolean).join("  "),
 			dot: statusTone(r),
 			meta: dur(r.etimeSec),
-			actions: [{ id: "focus", label: "Show in terminal", icon: "square-terminal" }, ...(snap && webUrl(snap, r) ? [{ id: "open", label: "Open in browser", icon: "globe" }] : [])],
+			actions: [{ id: "focus", label: "Jump to terminal", icon: "square-arrow-out-up-right" }, ...(snap && webUrl(snap, r) ? [{ id: "open", label: "Open in browser", icon: "globe" }] : [])],
 		})),
 		empty: { title: "Nothing running", icon: "terminal" },
 	};
@@ -374,7 +409,7 @@ const ctx = definePlugin({
 				dialog = null;
 				return c.invalidate();
 			}
-			if (event === "field" && payload?.form === "output" && dialog?.kind === "output") {
+			if (event === "field" && payload?.form === "output-source" && dialog?.kind === "output") {
 				dialog.source = payload.value === "@terminal" ? undefined : String(payload.value);
 				dialog.data = undefined;
 				c.invalidate();
@@ -382,7 +417,8 @@ const ctx = definePlugin({
 				return c.invalidate();
 			}
 			if (event === "output-copy" && dialog?.kind === "output") {
-				c.copy((dialog.data?.lines ?? []).map(stripAnsi).join("\n"));
+				const d = dialog;
+				c.copy(d.source === "@transcript" ? (d.messages ?? []).map((m) => (m.role === "tool" ? `[${m.tool?.name}] ${m.text}` : `${m.author}:\n${m.text}`)).join("\n\n") : (d.data?.lines ?? []).map(stripAnsi).join("\n"));
 				return c.toast("Output copied", "success");
 			}
 			if (event === "field" && payload?.form === "keep" && dialog?.kind === "keep") {
@@ -418,17 +454,14 @@ const ctx = definePlugin({
 				case "refresh":
 					break;
 				case "toggle-apps":
-					showAll = !showAll;
+					showAll = prefs.showAll = !showAll;
+					savePrefs();
 					break;
-				case "sort-next": {
-					const keys = Object.keys(hello?.sorts ?? { started: 1, memory: 1, cpu: 1, name: 1 }) as SortKey[];
-					const next = keys[(keys.indexOf(sortKey()) + 1) % keys.length];
-					await core.call("setSort", { key: next, desc: hello?.sorts[next]?.desc ?? true });
+				case "sort": {
+					const key = COLUMN_SORT[String(payload?.key)];
+					if (key) await core.call("setSort", { key, desc: !!payload?.desc });
 					break;
 				}
-				case "sort-dir":
-					await core.call("setSort", { key: sortKey(), desc: !sortDesc() });
-					break;
 				case "focus":
 					if (row) await core.call("focus", { pid: row.pid });
 					break;
@@ -518,8 +551,9 @@ const ctx = definePlugin({
 				case "field":
 					if (payload?.field === "sort") await core.call("setSort", { key: payload.value, desc: hello?.sorts[payload.value as SortKey]?.desc ?? sortDesc() });
 					if (payload?.field === "dir") await core.call("setSort", { key: sortKey(), desc: payload.value === "desc" });
-					if (payload?.field === "showAll") showAll = !!payload.value;
-					if (payload?.field === "terminal") terminal = String(payload.value);
+					if (payload?.field === "showAll") showAll = prefs.showAll = !!payload.value;
+					if (payload?.field === "terminal") terminal = prefs.terminal = String(payload.value);
+					savePrefs();
 					break;
 			}
 		} catch (e) {

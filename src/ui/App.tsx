@@ -4,7 +4,7 @@
 // Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · ⌥⌘1…9 tabs (hold ⌥⌘) · ⌃⇥ / ⌃⇧⇥ next and
 // previous tab · ⌘B sidebar · ⌘W closes the window (app menu).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Check, Monitor, Moon, PanelLeft, RotateCw, Settings2, Sun } from "lucide-react";
+import { Check, Monitor, Moon, PanelLeft, RotateCw, Settings2, Sun, X } from "lucide-react";
 import { defaultScreen, type Manifest } from "../shared/protocol";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
 import { committed, rpc, sendEvent, useCommand, useNavigate, usePlugins, useSettings, useSurface } from "@/lib/store";
 import { THEMES, tokens } from "./themes";
 import { QuitDialog } from "./QuitDialog";
-import { SurfaceContext, useHeldModifiers, usePersisted } from "@/lib/uistate";
+import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
+import { WindowZoom, ZoomKeys } from "@/lib/zoom";
 import { EmptyState, Render, Dot } from "@/renderer/Render";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,8 +68,12 @@ function parseHash(): { plugin?: string; screen?: string } {
 export default function App() {
 	const plugins = usePlugins();
 	const [route, setRoute] = useState(parseHash);
-	const lastScreen = useRef<Record<string, string>>({});
+	// Each tool's last tab, remembered across window closes and restarts.
+	const [lastScreens, setLastScreens] = usePersisted<Record<string, string>>("toolbelt.screens", {});
+	const lastScreen = useRef<Record<string, string>>(lastScreens);
 	const [lastPlugin, setLastPlugin] = usePersisted<string | null>("toolbelt.plugin", null);
+	// Where Toolbelt's own page goes back to (esc, its close button).
+	const before = useRef<string>("");
 
 	useEffect(() => {
 		const on = () => setRoute(parseHash());
@@ -76,7 +81,11 @@ export default function App() {
 		return () => window.removeEventListener("hashchange", on);
 	}, []);
 	const go = useCallback((plugin: string, screen?: string) => {
+		if (plugin === TOOLBELT && parseHash().plugin !== TOOLBELT) before.current = location.hash;
 		location.hash = `#/${plugin}${screen ? `/${screen}` : ""}`;
+	}, []);
+	const back = useCallback(() => {
+		location.hash = before.current && !before.current.startsWith(`#/${TOOLBELT}`) ? before.current : "#/";
 	}, []);
 	useNavigate(go);
 
@@ -87,7 +96,11 @@ export default function App() {
 	}, [route.plugin, setLastPlugin]);
 	const current = plugins.find((p) => p.manifest.id === pluginId);
 	const screen = current ? (route.screen ?? lastScreen.current[current.manifest.id] ?? defaultScreen(current.manifest)) : undefined;
-	if (current && screen) lastScreen.current[current.manifest.id] = screen;
+	useEffect(() => {
+		if (!current || !screen || lastScreen.current[current.manifest.id] === screen) return;
+		lastScreen.current = { ...lastScreen.current, [current.manifest.id]: screen };
+		setLastScreens(lastScreen.current);
+	}, [current, screen, setLastScreens]);
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
@@ -116,10 +129,12 @@ export default function App() {
 		<SidebarProvider open={open} onOpenChange={setOpen} style={{ "--sidebar-width": `${width}px` } as CSSProperties}>
 			{!inApp && <FakeTrafficLights />}
 			<QuitDialog />
+			<ZoomKeys />
+			<WindowZoom />
 			<AppSidebar plugins={plugins} current={route.plugin === TOOLBELT ? TOOLBELT : pluginId} go={go} onResize={setWidth} />
 			<SidebarInset className="min-w-0">
 				{route.plugin === TOOLBELT ? (
-					<ToolbeltPage plugins={plugins} />
+					<ToolbeltPage plugins={plugins} onClose={back} />
 				) : current && screen ? (
 					<PluginPane key={current.manifest.id} info={current} screen={screen} go={go} />
 				) : plugins.length ? null : (
@@ -264,7 +279,7 @@ function PluginPane({ info, screen, go }: { info: PluginInfo; screen: string; go
 	const m = info.manifest;
 	const hints = useHeldModifiers({ meta: true, alt: true });
 	return (
-		<div className="flex h-svh min-h-0 flex-col">
+		<div className="flex h-svh min-h-0 flex-col animate-in fade-in-0 duration-200">
 			<PaneHeader manifest={m}>
 				{m.screens.length > 1 && (
 					<Tabs value={screen} onValueChange={(s) => go(m.id, s)} className="electrobun-webkit-app-region-no-drag">
@@ -297,7 +312,9 @@ function Screen({ plugin, surface }: { plugin: string; surface: string }) {
 	if (!tree) return <Loading />;
 	return (
 		<SurfaceContext.Provider value={`${plugin}/${surface}`}>
-			<Render node={tree} emit={emit} />
+			<div className="h-full min-h-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
+				<Render node={tree} emit={emit} />
+			</div>
 		</SurfaceContext.Provider>
 	);
 }
@@ -329,10 +346,24 @@ function Loading() {
 }
 
 // ── Toolbelt's own page ──────────────────────────────────────────────────
-function ToolbeltPage({ plugins }: { plugins: PluginInfo[] }) {
+function ToolbeltPage({ plugins, onClose }: { plugins: PluginInfo[]; onClose: () => void }) {
+	// Esc goes back to where you were — unless something on the page wants it (a dialog, a field).
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key !== "Escape" || e.defaultPrevented || isTyping(e) || document.querySelector("[role=dialog], [role=menu], [role=listbox]")) return;
+			e.preventDefault();
+			onClose();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [onClose]);
 	return (
-		<div className="flex h-svh min-h-0 flex-col">
-			<PaneHeader manifest={{ name: "Toolbelt", icon: "settings-2" }} />
+		<div className="flex h-svh min-h-0 flex-col animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
+			<PaneHeader manifest={{ name: "Toolbelt", icon: "settings-2" }}>
+				<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag ml-auto -mr-2 text-muted-foreground" onClick={onClose} aria-label="Close settings" title="Close  esc">
+					<X />
+				</Button>
+			</PaneHeader>
 			<div className="min-h-0 flex-1 overflow-auto">
 				<div className="mx-auto max-w-4xl space-y-6 px-6 py-6">
 					<AppearanceSetting />
