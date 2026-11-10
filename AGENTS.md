@@ -6,6 +6,17 @@ protocol; Toolbelt renders them. See `README.md`.
 
 ## Workflow (required)
 
+### Architecture v2 work (feat/architecture2)
+
+- Read [docs/architecture2.md](docs/architecture2.md) before planning or implementing v2.
+  It is the cross-repository source of truth; old vendoring instructions below describe v1.
+- Keep all v2 changes on `feat/architecture2` in Toolbelt and the plugin repos. Do not
+  merge to `main`, enable auto-merge, publish stable releases, or replace the user's working
+  app/data without a later explicit user decision. Branch publication is authorized.
+- This branch initially contains documentation only. Implementation requires a separate
+  user assignment; do not start it merely because an implementation plan exists.
+- Never use the no-mistakes tool, plugin, skill, or pipeline. Work directly.
+
 - **Never commit to `main` directly.** Branch (`feat/…`, `fix/…`), open a pull request, let CI
   pass, squash-merge. The PR title becomes the commit title on `main`. The `main` ruleset
   enforces this (`.github/settings/`).
