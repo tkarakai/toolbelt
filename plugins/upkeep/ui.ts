@@ -182,7 +182,7 @@ export function discover(engine: Engine, surface: string): Node {
 					version: { text: c.installed ?? "—", mono: true },
 					notes: { text: watched ? "Watching" : (c.note ?? ""), tone: watched ? "success" : "muted", chips: others.map((o) => `also: ${label(o)}`) },
 				},
-				actions: watched ? [] : ["monitor"],
+				actions: watched ? ["remove"] : ["monitor"],
 				details: [
 					{ label: "Where", value: c.location ?? "—", mono: true },
 					...(c.description ? [{ label: "About", value: c.description }] : []),
@@ -210,7 +210,10 @@ export function discover(engine: Engine, surface: string): Node {
 					{ key: "notes", title: "" },
 				],
 				rows,
-				actions: [{ id: "monitor", label: "Watch", icon: "eye", inline: true }],
+				actions: [
+					{ id: "monitor", label: "Watch", icon: "eye", inline: true },
+					{ id: "remove", label: "Stop watching", icon: "eye-off", inline: true },
+				],
 				bulkActions: [{ id: "monitor-many", label: "Watch selected", icon: "eye", primary: true }],
 				empty: scanning
 					? { title: "Scanning…", description: "Looking at Homebrew, apps, runtimes, global packages and git clones.", icon: "radar" }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Press Enter again on a watched Discover row to stop watching it immediately.
+
 - Remove the Showcase demo plugin. Toolbelt now bundles Processes and Upkeep.
 - Bundle Upkeep: discover apps, runtimes, packages and git clones; opt in to watching them,
   check every six hours by default, review updates, and follow the queue and audit logs.
