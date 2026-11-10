@@ -982,7 +982,7 @@ function ProgressNode({ node }: { node: Extract<Node, { type: "progress" }> }) {
 }
 
 // ── markdown ─────────────────────────────────────────────────────────────
-function Markdown({ text }: { text: string }) {
+export function Markdown({ text }: { text: string }) {
 	const blocks = useMemo(() => parseMarkdown(text), [text]);
 	return <div className="space-y-3 text-sm leading-relaxed break-words select-text">{blocks.map((b, i) => <MdBlock key={i} b={b} />)}</div>;
 }
