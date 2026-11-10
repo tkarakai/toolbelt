@@ -9,14 +9,40 @@
 // `render` functions are called for surfaces that are open, whenever `ctx.invalidate()` is
 // called. Unchanged trees aren't sent again.
 import { PROTOCOL_VERSION, splitLines, type HostMessage, type Node, type PluginMessage } from "../shared/protocol";
+import { resolve, sep } from "node:path";
+import { CAPABILITIES, SDK_VERSION, type MigrationRequest } from "../shared/package";
+export * from "../shared/package";
 
-export type { Node, Cell, Column, Row, Action, Field, EnvironmentEntry, Tone, Hue, Dot, Tag, Mark, Target, Filter, EventPayloads, Dialog, LogLine, Message, DetailItem } from "../shared/protocol";
+export type { Node, Cell, Column, Row, GroupLabel, Action, Field, EnvironmentEntry, Tone, Hue, Dot, Tag, Mark, Target, Filter, EventPayloads, Dialog, LogLine, Message, DetailItem, Manifest, HostMessage, PluginMessage } from "../shared/protocol";
 export { HUES } from "../shared/protocol";
 export { duration, relative } from "../shared/time";
 
 /** This plugin's own folder for data (settings, state, logs). Toolbelt creates it. */
 export function dataDir(): string {
 	return process.env.TOOLBELT_DATA_DIR ?? `${process.env.TMPDIR ?? "/tmp"}/toolbelt-data/${process.env.TOOLBELT_PLUGIN ?? "plugin"}`;
+}
+
+export function packageRoot(): string { return process.env.TOOLBELT_PACKAGE_ROOT ?? process.cwd(); }
+export function payload(relative: string): string {
+ const root = resolve(packageRoot(), "payload");
+ const path = resolve(root, relative);
+ if (!path.startsWith(root + sep)) throw new Error("payload path escapes package");
+ return path;
+}
+export function asset(name: string): string {
+ if (!/^[\w.-]+$/.test(name)) throw new Error("invalid asset name");
+ return `asset:${process.env.TOOLBELT_PLUGIN}@${process.env.TOOLBELT_PLUGIN_VERSION}/${name}`;
+}
+export function defineMigration(run: (ctx: MigrationRequest & { progress(text:string):void }) => void | Promise<void>) {
+ void (async () => {
+  const line = (await Bun.stdin.text()).trim();
+  try {
+   const request = JSON.parse(line) as MigrationRequest;
+   if (request.type !== "migrate" || !request.targetDir || !request.transactionId) throw new Error("invalid migration request");
+   await run({...request, progress:(text)=>console.log(JSON.stringify({type:"migration-progress",text}))});
+   console.log(JSON.stringify({type:"migration-complete"}));
+  } catch (error) { console.log(JSON.stringify({type:"migration-failed",error:String(error)})); process.exitCode=1; }
+ })();
 }
 
 export type Context = {
@@ -31,6 +57,8 @@ export type Context = {
 };
 
 export type PluginDefinition = {
+	prepare?: (reason: string, ctx: Context) => { ready: boolean; reason?: string } | Promise<{ ready: boolean; reason?: string }>;
+	stop?: (ctx: Context) => void | Promise<void>;
 	/** Surface → its UI. Surfaces: `screen:<id>` and `quick`. */
 	render: Record<string, (ctx: Context) => Node | Promise<Node>>;
 	onEvent?: (surface: string, name: string, payload: any, ctx: Context) => void | Promise<void>;
@@ -86,9 +114,17 @@ export function definePlugin(def: PluginDefinition, io: { write?: (line: string)
 	const handle = async (msg: HostMessage) => {
 		switch (msg.type) {
 			case "hello":
-				if (msg.protocol !== PROTOCOL_VERSION) console.error(`toolbelt sdk: host speaks protocol ${msg.protocol}, this plugin ${PROTOCOL_VERSION}`);
+				if (msg.protocol !== PROTOCOL_VERSION) throw new Error("incompatible host protocol");
+				send({type:"hello",protocol:PROTOCOL_VERSION,sdk:SDK_VERSION,capabilities:[...CAPABILITIES]});
 				await def.start?.(ctx);
+				send({type:"ready"});
 				break;
+			case "prepare": {
+				const result = await def.prepare?.(msg.reason,ctx) ?? {ready:true};
+				send({type:"prepared",requestId:msg.requestId,...result});
+				break;
+			}
+			case "shutdown": await def.stop?.(ctx); break;
 			case "open":
 				open.add(msg.surface);
 				last.delete(msg.surface); // a new viewer needs the full tree
