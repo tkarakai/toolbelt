@@ -32,3 +32,5 @@ Local patches:
 
 - Show Sparkle build numbers, compare bundle versions consistently, and include build-only
   release notes and full release-note links.
+
+- Add table row keyboard shortcuts using the host action-key API, including its SDK type.

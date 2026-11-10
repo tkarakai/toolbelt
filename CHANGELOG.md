@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Upkeep tables support single-key row actions, with shortcut hints in menus and details.
+
 - Upkeep shows Sparkle build numbers so same-version rebuilds have distinct installed and
   available versions, and includes their release-note links.
 
