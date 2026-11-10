@@ -22,7 +22,9 @@ export type Context = {
 	/** Re-render open surfaces (all, or the ones named). */
 	invalidate(...surfaces: string[]): void;
 	badge(value: number | string | null): void;
-	toast(text: string, tone?: "default" | "success" | "error"): void;
+	toast(text: string, tone?: "default" | "success" | "error", action?: { id: string; label: string; payload?: unknown }): void;
+	/** Put text on the clipboard. */
+	copy(text: string): void;
 	/** Surfaces the host currently shows. */
 	readonly open: ReadonlySet<string>;
 };
@@ -75,7 +77,8 @@ export function definePlugin(def: PluginDefinition, io: { write?: (line: string)
 			if (wasIdle) queueMicrotask(() => void flush());
 		},
 		badge: (value) => send({ type: "badge", value }),
-		toast: (text, tone) => send({ type: "toast", text, tone }),
+		toast: (text, tone, action) => send({ type: "toast", text, tone, action }),
+		copy: (text) => send({ type: "clipboard", text }),
 		open,
 	};
 

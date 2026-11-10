@@ -66,6 +66,8 @@ export type Cell =
 			chips?: string[];
 			/** Render the text as a badge. */
 			badge?: boolean;
+			/** A small trend line after the text (recent values, oldest first). */
+			spark?: number[];
 			/** A moment (epoch ms), shown relative to now and kept current; replaces `text`. */
 			at?: number;
 	  };
@@ -96,11 +98,19 @@ export type Action = {
 	disabled?: boolean;
 };
 
+/** One level of a row's group: a label, or a label with extras. Rows group by `id ?? label`. */
+export type GroupLabel = string | { id?: string; label: string; /** muted text after the label (a git branch) */ sub?: string; /** a small badge ("app", "no terminal") */ tag?: string; /** dimmed (app sections) */ muted?: boolean; icon?: string };
+
 export type Row = {
 	id: string;
 	cells: Record<string, Cell>;
-	/** Rows with the same group are shown together under a header. */
-	group?: string;
+	/**
+	 * Rows with the same group are shown together under a header. A list makes nested groups:
+	 * `["Orca", "~/dev/app"]` is a section with a folder inside; rows indent under both.
+	 */
+	group?: string | GroupLabel[];
+	/** Start expanded (until the person collapses it). */
+	open?: boolean;
 	/** Row actions; ids of entries in the table's `actions`. Defaults to all. */
 	actions?: string[];
 	/** Shown in the inspector when the row is selected. */
@@ -196,7 +206,9 @@ export type HostMessage =
 export type PluginMessage =
 	| { type: "render"; surface: string; tree: Node }
 	| { type: "badge"; value: number | string | null }
-	| { type: "toast"; text: string; tone?: "default" | "success" | "error" };
+	| { type: "toast"; text: string; tone?: "default" | "success" | "error"; /** a button on the toast; clicking sends this event, surface "toast" */ action?: { id: string; label: string; payload?: unknown } }
+	/** Put text on the clipboard. */
+	| { type: "clipboard"; text: string };
 
 /** Events Toolbelt sends, by `name`. */
 export type EventPayloads = {

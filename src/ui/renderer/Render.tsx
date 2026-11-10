@@ -5,7 +5,7 @@
 // · . row menu · esc clear. Pages: ⌘F or / to filter, esc back to the list.
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronRight, MoreHorizontal, Search, X } from "lucide-react";
-import type { Action, Cell, Column, Dialog as DialogNode, Field, Node, Row, Tone } from "../../shared/protocol";
+import type { Action, Cell, Column, Dialog as DialogNode, Field, GroupLabel, Node, Row, Tone } from "../../shared/protocol";
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/icon";
@@ -264,9 +264,9 @@ function PageDialog({ dialog, emit }: { dialog?: DialogNode; emit: Emit }) {
 						<Render key={i} node={c} emit={emit} />
 					))}
 				</div>
-				<DialogFooter className="mx-0 mb-0 px-6 py-4">
+				<DialogFooter className="mx-0 mb-0 flex-wrap gap-y-2 px-6 py-4">
 					<Button variant="outline" onClick={close}>
-						Cancel
+						{d.actions?.some((a) => a.primary) ? "Cancel" : "Close"}
 					</Button>
 					<ActionButtons size="default" actions={d.actions ?? []} onRun={(a) => emit(a.id, { dialog: d.id })} />
 				</DialogFooter>
@@ -294,6 +294,7 @@ function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
 					))}
 				{cell.sub && <div className="truncate text-xs text-muted-foreground"><Hl text={cell.sub} /></div>}
 			</div>
+			{cell.spark && cell.spark.length > 1 && <Spark values={cell.spark} tone={cell.tone} />}
 			{cell.chips && cell.chips.length > 0 && (
 				<div className="flex shrink-0 flex-nowrap gap-1">
 					{cell.chips.slice(0, 3).map((c) => (
@@ -314,6 +315,19 @@ function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
 				</div>
 			)}
 		</div>
+	);
+}
+
+/** A tiny trend line (recent values, oldest first), scaled to its own range. */
+function Spark({ values, tone }: { values: number[]; tone?: Tone }) {
+	const w = 44, h = 14;
+	const max = Math.max(...values), min = Math.min(...values, 0);
+	const span = max - min || 1;
+	const pts = values.map((v, i) => `${((i / (values.length - 1)) * w).toFixed(1)},${(h - 1 - ((v - min) / span) * (h - 2)).toFixed(1)}`).join(" ");
+	return (
+		<svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className={cn("shrink-0 opacity-70", textTone[tone ?? "default"])} aria-hidden>
+			<polyline points={pts} fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" strokeLinecap="round" />
+		</svg>
 	);
 }
 
@@ -396,15 +410,23 @@ function RowActions({ actions, rowId, run, menuOpen, setMenuOpen }: { actions: A
 	);
 }
 
-/** A row as displayed: flattened from the tree, with its depth and parent. */
-type Visible = { row: Row; depth: number; parent?: string; group?: string };
+/** A row as displayed: flattened from the tree, with its depth, parent, and how many group
+ *  headers it sits under (for indentation). */
+type Visible = { row: Row; depth: number; parent?: string; indent: number };
+
+type GroupLevel = { key: string; label: string; sub?: string; tag?: string; muted?: boolean; icon?: string };
+const groupPath = (g: Row["group"]): GroupLevel[] =>
+	g === undefined ? [] : (typeof g === "string" ? [g] : g).map((l: GroupLabel) => (typeof l === "string" ? { key: l, label: l } : { key: l.id ?? l.label, label: l.label, sub: l.sub, tag: l.tag, muted: l.muted, icon: l.icon }));
+
+/** What a table body shows, in order: group headers and rows. */
+type Item = { kind: "header"; level: number; group: GroupLevel; count: number; key: string; muted: boolean } | { kind: "row"; v: Visible; muted: boolean };
 
 const TableRow = memo(
-	function TableRow({ v, columns, actions, selected, expanded, menuOpen, checked, onSelect, onToggle, onMenu, onCheck, run }: { v: Visible; sig: string; columns: Column[]; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onCheck?: (id: string) => void; run: Run }) {
+	function TableRow({ v, muted, columns, actions, selected, expanded, menuOpen, checked, onSelect, onToggle, onMenu, onCheck, run }: { v: Visible; muted?: boolean; sig: string; columns: Column[]; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onCheck?: (id: string) => void; run: Run }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
 		return (
-			<tr data-row-id={row.id} data-selected={selected} onClick={() => onSelect(row.id)} onDoubleClick={() => hasChildren && onToggle(row.id)} className={cn("group/row cursor-default transition-colors hover:bg-muted/50 data-[selected=true]:bg-selected data-[selected=true]:text-selected-foreground [&>td]:border-b [&>td]:border-border/50", depth > 0 && "bg-muted/20")}>
+			<tr data-row-id={row.id} data-selected={selected} onClick={() => onSelect(row.id)} onDoubleClick={() => hasChildren && onToggle(row.id)} className={cn("group/row cursor-default transition-colors hover:bg-muted/50 data-[selected=true]:bg-selected data-[selected=true]:text-selected-foreground [&>td]:border-b [&>td]:border-border/50", depth > 0 && "bg-muted/20", muted && "text-muted-foreground")}>
 				{onCheck && (
 					<td className="w-0 pl-4" onClick={(e) => e.stopPropagation()}>
 						{depth === 0 && <Checkbox tabIndex={-1} checked={!!checked} onCheckedChange={() => onCheck(row.id)} aria-label="Select row" />}
@@ -413,7 +435,7 @@ const TableRow = memo(
 				{columns.map((c, i) => (
 					<td key={c.key} className={cn("h-12 px-3 align-middle text-sm", i === 0 && "pl-3", c.align === "right" && "text-right", c.grow ? "w-full max-w-0" : "whitespace-nowrap", c.optional && "hidden @4xl:table-cell")}>
 						{i === 0 ? (
-							<div className="flex min-w-0 items-center" style={{ paddingLeft: depth * 20 }}>
+							<div className="flex min-w-0 items-center" style={{ paddingLeft: v.indent * 16 + depth * 20 }}>
 								<button
 									tabIndex={-1}
 									aria-label={expanded ? "Collapse" : "Expand"}
@@ -437,13 +459,25 @@ const TableRow = memo(
 			</tr>
 		);
 	},
-	(a, b) => a.sig === b.sig && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.actions === b.actions && a.run === b.run,
+	(a, b) => a.sig === b.sig && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.actions === b.actions && a.run === b.run,
 );
 
 function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emit: Emit }) {
 	const [selected, setSelected] = useUIState<string | null>(`${node.id}:selected`, null);
-	const [expandedList, setExpanded] = useUIState<string[]>(`${node.id}:expanded`, []);
-	const expanded = useMemo(() => new Set(expandedList), [expandedList]);
+	// Expanded rows: the person's choices, on top of what the plugin opens (`row.open`).
+	const [overrides, setOverrides] = useUIState<Record<string, boolean>>(`${node.id}:expanded`, {});
+	const openIds = useMemo(() => {
+		const out = new Set<string>();
+		const walk = (rows: Row[]) => {
+			for (const r of rows) {
+				if (r.children?.length && (overrides[r.id] ?? r.open ?? false)) out.add(r.id);
+				if (r.children) walk(r.children);
+			}
+		};
+		walk(node.rows);
+		return out;
+	}, [node.rows, overrides]);
+	const expanded = openIds;
 	const [menuFor, setMenuFor] = useState<string | null>(null);
 	const { run, dialog } = useConfirm(emit);
 	const columns = useMemo(() => node.columns, [JSON.stringify(node.columns)]);
@@ -457,7 +491,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 			return cache.get(k)!;
 		};
 	}, [allActions]);
-	const toggle = useCallback((id: string) => setExpanded((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])), [setExpanded]);
+	const toggle = useCallback((id: string) => setOverrides((o) => ({ ...o, [id]: !openIds.has(id) })), [setOverrides, openIds]);
 
 	// Checked rows (tables with bulk actions): only top-level rows that still exist count.
 	const bulk = useMemo(() => node.bulkActions ?? [], [JSON.stringify(node.bulkActions ?? [])]);
@@ -467,22 +501,40 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const check = useCallback((id: string) => setChecked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])), [setChecked]);
 	const allChecked = checked.size > 0 && checked.size === rowIds.size;
 
-	// Groups in order of first appearance; within them, rows flattened with expanded children.
-	const groups = useMemo(() => {
-		const out: { name: string | undefined; rows: Visible[] }[] = [];
-		const byName = new Map<string | undefined, (typeof out)[number]>();
-		const walk = (r: Row, depth: number, into: Visible[], parent?: string) => {
-			into.push({ row: r, depth, parent, group: r.group });
-			if (r.children && expanded.has(r.id)) for (const c of r.children) walk(c, depth + 1, into, r.id);
-		};
+	// Group headers (nested, in order of first appearance) and rows with their expanded children.
+	// Rows of one group needn't be adjacent in `rows`: they're gathered under the first header.
+	const items = useMemo(() => {
+		type GNode = { group: GroupLevel; key: string; level: number; rows: Row[]; kids: Map<string, GNode>; order: GNode[]; muted: boolean };
+		const root: GNode = { group: { key: "", label: "" }, key: "", level: -1, rows: [], kids: new Map(), order: [], muted: false };
 		for (const r of node.rows) {
-			let g = byName.get(r.group);
-			if (!g) byName.set(r.group, (g = { name: r.group, rows: [] })), out.push(g);
-			walk(r, 0, g.rows);
+			let at = root;
+			for (const [i, g] of groupPath(r.group).entries()) {
+				let next = at.kids.get(g.key);
+				if (!next) {
+					next = { group: g, key: `${at.key}\u0000${g.key}`, level: i, rows: [], kids: new Map(), order: [], muted: at.muted || !!g.muted };
+					at.kids.set(g.key, next);
+					at.order.push(next);
+				}
+				at = next;
+			}
+			at.rows.push(r);
 		}
+		const count = (n: GNode): number => n.rows.length + n.order.reduce((s, k) => s + count(k), 0);
+		const out: Item[] = [];
+		const emit = (n: GNode) => {
+			if (n.level >= 0) out.push({ kind: "header", level: n.level, group: n.group, count: count(n), key: n.key, muted: n.muted });
+			const indent = n.level + 1;
+			const walk = (r: Row, depth: number, parent?: string) => {
+				out.push({ kind: "row", v: { row: r, depth, parent, indent }, muted: n.muted });
+				if (r.children && expanded.has(r.id)) for (const c of r.children) walk(c, depth + 1, r.id);
+			};
+			for (const r of n.rows) walk(r, 0);
+			for (const k of n.order) emit(k);
+		};
+		emit(root);
 		return out;
 	}, [node.rows, expanded]);
-	const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
+	const flat = useMemo(() => items.flatMap((it) => (it.kind === "row" ? [it.v] : [])), [items]);
 	const current = flat.find((v) => v.row.id === selected) ?? null;
 
 	const select = useCallback(
@@ -576,44 +628,67 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 							<th className="w-0 border-b" />
 						</tr>
 					</thead>
-					{groups.map((g) => (
-						<tbody key={g.name ?? ""}>
-							{g.name !== undefined && (
-								<tr>
-									<td colSpan={columns.length + 1 + (bulk.length ? 1 : 0)} className="border-b bg-muted/40 px-6 py-1.5">
-										<div className="flex items-center gap-2 text-xs">
-											<span className="truncate font-mono font-medium text-foreground/80"><Hl text={g.name} /></span>
-											<span className="text-muted-foreground tabular-nums">{g.rows.filter((v) => v.depth === 0).length}</span>
-										</div>
-									</td>
-								</tr>
-							)}
-							{g.rows.map((v) => (
+					<tbody>
+						{items.map((it) =>
+							it.kind === "header" ? (
+								<GroupHeader key={it.key} item={it} colSpan={columns.length + 1 + (bulk.length ? 1 : 0)} />
+							) : (
 								<TableRow
-									key={v.row.id}
-									v={v}
-									sig={JSON.stringify(v.row) + v.depth}
+									key={it.v.row.id}
+									v={it.v}
+									muted={it.muted}
+									sig={JSON.stringify(it.v.row) + it.v.depth + it.v.indent}
 									columns={columns}
-									actions={actionsFor(v.row)}
-									selected={v.row.id === selected}
-									expanded={expanded.has(v.row.id)}
-									menuOpen={menuFor === v.row.id}
+									actions={actionsFor(it.v.row)}
+									selected={it.v.row.id === selected}
+									expanded={expanded.has(it.v.row.id)}
+									menuOpen={menuFor === it.v.row.id}
 									onSelect={select}
 									onToggle={toggle}
 									onMenu={setMenuFor}
-									checked={checked.has(v.row.id)}
+									checked={checked.has(it.v.row.id)}
 									onCheck={bulk.length ? check : undefined}
 									run={run}
 								/>
-							))}
-						</tbody>
-					))}
+							),
+						)}
+					</tbody>
 				</table>
 			</div>
 			</div>
 			{current?.row.details && <Inspector row={current.row} actions={actionsFor(current.row)} run={run} onClose={() => setSelected(null)} />}
 			{dialog}
 		</div>
+	);
+}
+
+/** A group header: a section (level 0: where jobs run) or a group inside it (a folder). */
+function GroupHeader({ item, colSpan }: { item: Extract<Item, { kind: "header" }>; colSpan: number }) {
+	const { group: g, level, count, muted } = item;
+	const top = level === 0;
+	return (
+		<tr data-group-level={level}>
+			<td colSpan={colSpan} className={cn("border-b", top ? "bg-muted/60 py-2" : "bg-background py-1.5")} style={{ paddingLeft: 24 + level * 16, paddingRight: 24 }}>
+				<div className={cn("flex min-w-0 items-center gap-2", top ? "text-[13px]" : "text-xs", muted && "opacity-70")}>
+					{g.icon && <Icon name={g.icon} className="size-3.5 shrink-0 text-muted-foreground" />}
+					<span className={cn("truncate", top ? "font-semibold text-foreground" : "font-mono font-medium text-group")}>
+						<Hl text={g.label} />
+					</span>
+					{g.sub && (
+						<span className="flex shrink-0 items-center gap-1 font-mono text-xs text-muted-foreground">
+							<Icon name="git-branch" className="size-3" />
+							<Hl text={g.sub} />
+						</span>
+					)}
+					{g.tag && (
+						<Badge variant="outline" className="shrink-0 text-[10px] font-normal text-muted-foreground">
+							{g.tag}
+						</Badge>
+					)}
+					<span className="text-xs text-muted-foreground tabular-nums">{count}</span>
+				</div>
+			</td>
+		</tr>
 	);
 }
 

@@ -7,6 +7,7 @@
 
 @theme inline {
     --color-selected: var(--selected);
+    --color-group: var(--group);
     --color-selected-foreground: var(--selected-foreground);
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', sans-serif;
@@ -52,6 +53,7 @@
 
 :root {
     --selected: #27272a;
+    --group: #1d4ed8;
     --selected-foreground: #fafafa;
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
@@ -89,6 +91,7 @@
 
 .dark {
     --selected: #e4e4e7;
+    --group: #93c5fd;
     --selected-foreground: #09090b;
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
@@ -161,10 +164,11 @@
 }
 /* Search hits. */
 mark.hit {
-  background: #fde047;
+  /* Warm amber; the halo is a shadow, not padding, so monospace text keeps its spacing. */
+  background: #fcc44a;
   color: #1c1917;
   border-radius: 2px;
-  padding: 0 1px;
+  box-shadow: 0 0 0 1px #fcc44a;
 }
 
 /* The `progress` node without a value: a bar sweeping across. */

@@ -11,6 +11,7 @@ import { Icon } from "@/lib/icon";
 import { cn } from "@/lib/utils";
 import { committed, rpc, sendEvent, useCommand, useNavigate, usePlugins, useSettings, useSurface } from "@/lib/store";
 import { THEMES, tokens } from "./themes";
+import { QuitDialog } from "./QuitDialog";
 import { SurfaceContext, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { EmptyState, Render, Dot } from "@/renderer/Render";
 import { Badge } from "@/components/ui/badge";
@@ -114,6 +115,7 @@ export default function App() {
 	return (
 		<SidebarProvider open={open} onOpenChange={setOpen} style={{ "--sidebar-width": `${width}px` } as CSSProperties}>
 			{!inApp && <FakeTrafficLights />}
+			<QuitDialog />
 			<AppSidebar plugins={plugins} current={route.plugin === TOOLBELT ? TOOLBELT : pluginId} go={go} onResize={setWidth} />
 			<SidebarInset className="min-w-0">
 				{route.plugin === TOOLBELT ? (
@@ -165,13 +167,13 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 									</SidebarMenuButton>
 									{hints && i < 9 ? (
 										<>
-											<SidebarMenuBadge>
+											<SidebarMenuBadge className="group-has-[[data-active=true]]/menu-item:text-selected-foreground">
 												<Kbd>⌘{i + 1}</Kbd>
 											</SidebarMenuBadge>
 											<Kbd className="pointer-events-none absolute -top-1 -right-1 hidden h-4 min-w-4 px-1 text-[10px] group-data-[collapsible=icon]:inline-flex">{i + 1}</Kbd>
 										</>
 									) : (
-										p.badge !== null && p.badge !== undefined && <SidebarMenuBadge className="tabular-nums">{p.badge}</SidebarMenuBadge>
+										p.badge !== null && p.badge !== undefined && <SidebarMenuBadge className="tabular-nums group-has-[[data-active=true]]/menu-item:text-selected-foreground">{p.badge}</SidebarMenuBadge>
 									)}
 								</SidebarMenuItem>
 							))}

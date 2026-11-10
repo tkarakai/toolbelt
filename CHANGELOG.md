@@ -31,3 +31,12 @@
   tables can have checkboxes with actions for the selected rows, and times can be shown
   relative to now ("in 2h 14m"), kept current by Toolbelt. Each plugin gets a data folder
   (`TOOLBELT_DATA_DIR`). The Showcase plugin has a *Tasks* tab with all of these.
+- Processes has everything running's TUI has: sections by terminal (Orca, tmux, Detached…),
+  folders with their git branch, jobs started from jobs nested under them; output and agent
+  conversations; keep / edit / forget (with undo) / reorder kept commands; copy the command
+  line; "why is it still running"; jobs whose launcher exited; apps hidden until asked for;
+  CPU and memory sparklines; sort from the toolbar; shell integration status.
+- Tables group in levels (sections, then folders) with indentation; folders in their own color.
+- Quitting asks first (⌘Q, Quit buttons) — ↵ quits, esc stays, ⌘Q twice quits.
+- The menu bar icon really stays highlighted while the popover is open.
+- Search hits are a warmer yellow and no longer shift monospace text.

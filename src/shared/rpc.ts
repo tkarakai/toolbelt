@@ -46,7 +46,9 @@ export type ToolbeltRPC = {
 		messages: {
 			plugins: PluginInfo[];
 			tree: Surface & { tree: Node };
-			toast: { plugin: string; text: string; tone?: "default" | "success" | "error" };
+			toast: { plugin: string; text: string; tone?: "default" | "success" | "error"; action?: { id: string; label: string; payload?: unknown } };
+			/** Ask before quitting (⌘Q, Quit buttons): this view shows the confirmation. */
+			confirmQuit: {};
 			/** Main window: switch to this plugin/screen. */
 			navigate: { plugin: string; screen?: string };
 			/** Popover: it was just shown (reset to the list, focus search). */

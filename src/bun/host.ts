@@ -30,7 +30,8 @@ export function discover(dirs: string[], log: (msg: string) => void = console.er
 type Listener = {
 	plugins(list: PluginInfo[]): void;
 	tree(plugin: string, surface: string, tree: Node): void;
-	toast(plugin: string, text: string, tone?: "default" | "success" | "error"): void;
+	toast(plugin: string, text: string, tone?: "default" | "success" | "error", action?: { id: string; label: string; payload?: unknown }): void;
+	clipboard?(plugin: string, text: string): void;
 };
 
 class PluginProcess {
@@ -166,7 +167,10 @@ class PluginProcess {
 				this.changed();
 				break;
 			case "toast":
-				this.listener.toast(this.manifest.id, msg.text, msg.tone);
+				this.listener.toast(this.manifest.id, msg.text, msg.tone, msg.action);
+				break;
+			case "clipboard":
+				this.listener.clipboard?.(this.manifest.id, msg.text);
 				break;
 		}
 	}
@@ -214,7 +218,8 @@ export class PluginHost {
 				{
 					plugins: () => {},
 					tree: (plugin, surface, tree) => this.listeners.forEach((l) => l.tree(plugin, surface, tree)),
-					toast: (plugin, text, tone) => this.listeners.forEach((l) => l.toast(plugin, text, tone)),
+					toast: (plugin, text, tone, action) => this.listeners.forEach((l) => l.toast(plugin, text, tone, action)),
+					clipboard: (plugin, text) => this.listeners.forEach((l) => l.clipboard?.(plugin, text)),
 				},
 			);
 			this.plugins.set(manifest.id, p);
