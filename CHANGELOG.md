@@ -4,6 +4,12 @@
 
 - Generated app bundles stay out of Spotlight and app launchers, preventing duplicate
   official Toolbelt entries alongside the installed release.
+- Press Enter again on a watched Discover row to stop watching it immediately.
+
+- Remove the Showcase demo plugin. Toolbelt now bundles Processes and Upkeep.
+- Bundle Upkeep: discover apps, runtimes, packages and git clones; opt in to watching them,
+  check every six hours by default, review updates, and follow the queue and audit logs.
+  Automatic updates stay off until enabled. Bulk updates exclude apps and major upgrades.
 
 ## 0.1.0 — 2026-11-09
 
@@ -54,8 +60,8 @@
   collapses to icons, each tool's tabs, tables with groups, row actions and an inspector,
   forms and stats, all drawn with shadcn/ui; a menu bar icon whose popover lists the tools and
   shows their quick views; ⌃⌥⇧T opens it from anywhere. Plugins are Bun programs speaking a
-  JSON-lines protocol (v0). Two built in: *Processes* (drives
-  [running](https://github.com/tkarakai/running)'s engine) and *Showcase*.
+  JSON-lines protocol (v0). *Processes* drives
+  [running](https://github.com/tkarakai/running)'s engine.
 - Keyboard everywhere: ⌘1…9 switch tools (hold ⌘ to see the numbers), ⌥⌘1…9 and ⌃⇥ switch
   tabs, ⌘F or / filters, ↑/↓/→/← move through and expand rows, ↵ runs a row's main action,
   `.` opens its menu; the popover works with ↑/↓/↵/←/esc and ⌘↵ opens the window. ⌘W closes it.
@@ -84,7 +90,7 @@
   links open in the browser, raw HTML is never interpreted). Plugins can open their own dialogs,
   tables can have checkboxes with actions for the selected rows, and times can be shown
   relative to now ("in 2h 14m"), kept current by Toolbelt. Each plugin gets a data folder
-  (`TOOLBELT_DATA_DIR`). The Showcase plugin has a *Tasks* tab with all of these.
+  (`TOOLBELT_DATA_DIR`).
 - Processes has everything running's TUI has: sections by terminal (Orca, tmux, Detached…),
   folders with their git branch, jobs started from jobs nested under them; output and agent
   conversations; keep / edit / forget (with undo) / reorder kept commands; copy the command
