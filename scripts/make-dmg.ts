@@ -42,7 +42,8 @@ export async function makeDmg(root = join(import.meta.dir, "..")): Promise<strin
 		await $`/usr/bin/codesign --verify --strict ${app}`;
 		symlinkSync("/Applications", join(vol, "Applications"));
 		console.log(`Creating ${out}`);
-		await $`/usr/bin/hdiutil create -volname Toolbelt -srcfolder ${vol} -ov -format ULMO ${out}`;
+		// Match Running's DMG builder rather than inheriting hdiutil's host-dependent default.
+		await $`/usr/bin/hdiutil create -volname Toolbelt -srcfolder ${vol} -fs APFS -ov -format ULMO ${out}`;
 	} finally {
 		rmSync(stage, { recursive: true, force: true });
 	}
