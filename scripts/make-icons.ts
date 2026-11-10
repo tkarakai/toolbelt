@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 // Draws the menu bar icon (a belt with a buckle) as a macOS template PNG: black + alpha,
-// 36×36 px for an 18 pt status item. No image tools needed: shapes are rasterized with 8×8
+// 36×36 px for an 18 pt status item. Plus the "update available" variants: the belt with a red
+// dot in its corner. A template image can't be red, so those are plain images — one with a
+// black belt for a light menu bar, one with a white belt for a dark one. No image tools needed: shapes are rasterized with 8×8
 // supersampling and written as a PNG by hand. Run: bun scripts/make-icons.ts
 import { deflateSync } from "node:zlib";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -69,5 +71,24 @@ const belt = union(band, buckle, prong);
 mkdirSync("assets", { recursive: true });
 for (const [name, size] of [["tray-icon.png", 18], ["tray-icon@2x.png", 36]] as const) {
 	writeFileSync(`assets/${name}`, png(size, render(size, belt, size / 18)));
+	console.log(`assets/${name}`);
+}
+
+// The red dot (top right), with a clear ring around it so it reads against the belt.
+const dot = circle(15, 3.4, 3.1);
+const gap = circle(15, 3.4, 4.3);
+const RED = [255, 59, 48]; // systemRed
+for (const [name, shade] of [["tray-icon-update-light@2x.png", 0], ["tray-icon-update-dark@2x.png", 255]] as const) {
+	const size = 36;
+	const b = render(size, minus(belt, gap), size / 18);
+	const d = render(size, dot, size / 18);
+	const px = new Uint8Array(size * size * 4);
+	for (let i = 0; i < size * size; i++) {
+		const ba = b[i * 4 + 3] / 255, da = d[i * 4 + 3] / 255;
+		const a = da + ba * (1 - da);
+		for (let c = 0; c < 3; c++) px[i * 4 + c] = a ? Math.round((RED[c] * da + shade * ba * (1 - da)) / a) : 0;
+		px[i * 4 + 3] = Math.round(a * 255);
+	}
+	writeFileSync(`assets/${name}`, png(size, px));
 	console.log(`assets/${name}`);
 }

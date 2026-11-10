@@ -180,7 +180,7 @@ describe("updater", () => {
 		await u.check();
 		await u.install();
 		expect(states.map((s) => s.phase.kind).filter((k, i, a) => k !== a[i - 1])).toEqual(["idle", "downloading", "verifying", "installing", "relaunching"]);
-		const last = states.findLast((s) => s.phase.kind === "downloading")!.phase;
+		const last = states.filter((s) => s.phase.kind === "downloading").at(-1)!.phase;
 		expect(last).toMatchObject({ received: 300_000, total: 300_000 });
 		expect(readFileSync(join(app, "Contents/which"), "utf8")).toBe("new");
 		expect(relaunched()).toBe(app);

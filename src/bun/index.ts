@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { PluginHost, configDir, pluginDirs } from "./host";
 import { clearHotKey, displayAccelerator, setHotKey } from "./hotkey";
 import { loadSettings, saveSettings, type Settings } from "./settings";
-import { setTrayHighlighted, trayHighlighted } from "./tray-highlight";
+import { setTrayHighlighted, setTrayTemplate, trayDark, trayHighlighted, trayTemplate } from "./tray-highlight";
+import { SOON, Updater as AppUpdater, bundleOf, type UpdateState } from "./updater";
 import type { ToolbeltRPC } from "../shared/rpc";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -84,6 +85,11 @@ function makeRPC() {
 					else setHotKey(settings.shortcut, togglePopover);
 					return true;
 				},
+				updateState: () => updater.state(),
+				checkForUpdates: () => (void updater.check(), true),
+				installUpdate: () => (void updater.install(), true),
+				cancelUpdate: () => (updater.cancel(), true),
+				dismissUpdate: () => (updater.dismiss(), true),
 			},
 			messages: {
 				showWindow: ({ plugin, screen }) => {
@@ -138,6 +144,7 @@ function showWindow(plugin?: string, screen?: string) {
 		return;
 	}
 	Utils.setDockIconVisible(true);
+	updater.checkIfDue(SOON); // opening the window checks if it's been an hour
 	winRPC = makeRPC();
 	const hash = plugin ? `#/${plugin}${screen ? `/${screen}` : ""}` : "";
 	win = new BrowserWindow({
@@ -206,6 +213,43 @@ popover.on("blur", () => {
 	if (Date.now() - popoverShownAt > 150) hidePopover();
 });
 
+// ── updates (official builds only; src/bun/updater.ts) ───────────────────
+// An available update puts a red dot on the menu bar icon. A template image can't be red, so
+// that one is a plain image, with the belt drawn for the menu bar's current shade.
+const TRAY_IMAGE = "views://assets/tray-icon@2x.png";
+let trayAlert: null | "light" | "dark" = null;
+function showTrayAlert(on: boolean) {
+	const want = on ? (trayDark() ? "dark" : "light") : null;
+	if (want === trayAlert) return;
+	trayAlert = want;
+	tray.setImage(want ? `views://assets/tray-icon-update-${want}@2x.png` : TRAY_IMAGE);
+	// Electrobun keeps the template flag it was created with; fix it once the image is in.
+	for (const ms of [50, 400]) setTimeout(() => setTrayTemplate(!trayAlert), ms);
+}
+
+const updater = new AppUpdater({
+	version: pkg.version,
+	channel,
+	feed: process.env.TOOLBELT_UPDATE_FEED,
+	stateFile: join(configDir(homedir()), "update.json"),
+	appPath: bundleOf(process.execPath),
+	onChange: (s: UpdateState) => {
+		views.forEach((v) => v.send.updateState(s));
+		showTrayAlert(!!s.available);
+	},
+	// Start the new version once this one is gone, with its window open (and TOOLBELT_*
+	// settings such as a test feed kept), then quit.
+	relaunch: (app) => {
+		const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+		const env = Object.entries({ ...process.env, TOOLBELT_OPEN_WINDOW: "1" })
+			.filter(([k, v]) => k.startsWith("TOOLBELT_") && v !== undefined)
+			.map(([k, v]) => `--env ${q(`${k}=${v}`)}`)
+			.join(" ");
+		Bun.spawn(["/bin/sh", "-c", `(sleep 1; /usr/bin/open -n ${q(app)} ${env}) >/dev/null 2>&1 &`], { stdio: ["ignore", "ignore", "ignore"] }).unref();
+		Utils.quit();
+	},
+});
+
 let shortcutError = setHotKey(settings.shortcut, togglePopover);
 if (shortcutError) console.error(`shortcut: ${shortcutError}`);
 
@@ -215,6 +259,7 @@ ApplicationMenu.setApplicationMenu([
 		submenu: [
 			{ label: "Open Toolbelt", action: "open-window", accelerator: "CommandOrControl+O" },
 			{ label: "Settings…", action: "settings", accelerator: "CommandOrControl+," },
+			{ label: "Check for Updates…", action: "check-updates" },
 			{ type: "separator" },
 			{ role: "hide", accelerator: "CommandOrControl+H" },
 			{ role: "hideOthers", accelerator: "CommandOrControl+Option+H" },
@@ -243,6 +288,10 @@ Electrobun.events.on("application-menu-clicked", (e: any) => {
 	if (action === "open-window") showWindow();
 	if (action === "quit") requestQuit();
 	if (action === "settings") showWindow("toolbelt");
+	if (action === "check-updates") {
+		showWindow("toolbelt");
+		void updater.check();
+	}
 	if (action === "toggle-sidebar") winRPC?.send.command({ name: "toggleSidebar" });
 });
 /** ⌘Q: ask first, in the popover if it's open, else in the window, else open the popover to ask. */
@@ -279,7 +328,8 @@ debugReport = (id, value) => {
 	reports.get(id)?.(value);
 	reports.delete(id);
 };
-if (channel === "dev" && process.env.TOOLBELT_DEBUG_PORT) {
+// Also on an official build trying out an update (TOOLBELT_UPDATE_FEED), or with TOOLBELT_DEBUG.
+if ((channel === "dev" || process.env.TOOLBELT_UPDATE_FEED || process.env.TOOLBELT_DEBUG) && process.env.TOOLBELT_DEBUG_PORT) {
 	Bun.serve({
 		hostname: "127.0.0.1",
 		port: Number(process.env.TOOLBELT_DEBUG_PORT),
@@ -311,6 +361,11 @@ if (channel === "dev" && process.env.TOOLBELT_DEBUG_PORT) {
 				shortcut: { accelerator: settings.shortcut, error: shortcutError },
 				tray: tray.getBounds(),
 				trayHighlighted: trayHighlighted(),
+				trayTemplate: trayTemplate(),
+				trayAlert,
+				update: updater.state(),
+				pid: process.pid,
+				execPath: process.execPath,
 				display: Screen.getPrimaryDisplay(),
 				dock: Utils.isDockIconVisible(),
 				plugins: host.list().map((p) => ({ id: p.manifest.id, state: p.state, badge: p.badge })),
@@ -323,4 +378,14 @@ if (channel === "dev" && process.env.TOOLBELT_DEBUG_PORT) {
 Utils.setDockIconVisible(false);
 host.start();
 if (process.env.TOOLBELT_OPEN_WINDOW) showWindow();
+updater.start();
+// Wake from sleep: the network takes a moment to come back, then see if a check is due (the
+// 15-minute tick would get there too). Noticed as a gap in a once-a-minute heartbeat.
+let heartbeat = Date.now();
+setInterval(() => {
+	const now = Date.now();
+	if (now - heartbeat > 3 * 60_000) setTimeout(() => updater.checkIfDue(), 20_000);
+	heartbeat = now;
+	if (trayAlert) showTrayAlert(true); // the menu bar may have changed shade
+}, 60_000);
 console.log(`Toolbelt ${pkg.version} (${channel}) — plugins: ${host.list().map((p) => p.manifest.id).join(", ") || "none"}`);
