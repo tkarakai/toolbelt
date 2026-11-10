@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Expand plugin management with publisher review, lifecycle diagnostics, retained-data removal, prerelease preferences and schema-aware recovery controls.
+
 - Architecture v2 installs independent prebuilt plugin packages at runtime, with publisher review, lifecycle recovery, plugin-owned data and removable SDK demonstration.
 
 - Processes detects known agent harnesses launched by T3 Code and other GUI clients,
