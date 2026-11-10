@@ -4,9 +4,9 @@ import { assignLetters } from "../src/shared/letters";
 const tools = (...names: string[]) => names.map((name) => ({ id: name.toLowerCase().replace(/\W+/g, "-"), name }));
 
 test("first letter of the name", () => {
-	expect([...assignLetters(tools("Processes", "Showcase"))]).toEqual([
+	expect([...assignLetters(tools("Processes", "Upkeep"))]).toEqual([
 		["processes", "p"],
-		["showcase", "s"],
+		["upkeep", "u"],
 	]);
 });
 
