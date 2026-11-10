@@ -12,6 +12,7 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl } from "@/lib/store";
 import { isTyping, SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { TerminalView } from "./Terminal";
+import { detailSections, fitColumns, groupActions } from "./pure";
 import { ConversationView } from "./Conversation";
 import { parseMarkdown, safeHref, type Block, type Inline } from "./markdown";
 import { Badge } from "@/components/ui/badge";
@@ -89,24 +90,6 @@ function Elapsed({ at }: { at: number }) {
 		return () => clearTimeout(t);
 	});
 	return <span className="tabular-nums">{duration(Date.now() - at)}</span>;
-}
-
-/**
- * Actions in their groups (`Action.group`), groups in order of first appearance. Without any
- * groups, destructive actions still get a group of their own, after the rest.
- */
-export function groupActions(actions: Action[]): Action[][] {
-	if (!actions.some((a) => a.group)) {
-		const safe = actions.filter((a) => a.tone !== "destructive");
-		const risky = actions.filter((a) => a.tone === "destructive");
-		return [safe, risky].filter((g) => g.length);
-	}
-	const groups = new Map<string, Action[]>();
-	for (const a of actions) {
-		const k = a.group ?? "";
-		groups.set(k, [...(groups.get(k) ?? []), a]);
-	}
-	return [...groups.values()];
 }
 
 /** Buttons for toolbar, card and dialog actions; `checked` actions are switches. */
@@ -652,26 +635,6 @@ const TableRow = memo(
 	(a, b) => a.sig === b.sig && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.actions === b.actions && a.run === b.run,
 );
 
-/**
- * Which columns fit: the `grow` column keeps at least its `minWidth`; the others give way in
- * priority order (highest `priority` first; by default the rightmost). Pure, for the tests.
- */
-export function fitColumns(columns: Column[], available: number, widthOf: (c: Column) => number, fixed = 0): Set<string> {
-	const hidden = new Set<string>();
-	if (!Number.isFinite(available)) return hidden;
-	const rank = (c: Column, i: number) => (c.priority ?? i) + (c.optional ? 1000 : 0);
-	const candidates = columns
-		.map((c, i) => ({ c, i, r: rank(c, i) }))
-		.filter(({ c, i }) => !c.grow && i > 0)
-		.sort((a, b) => b.r - a.r || b.i - a.i);
-	const need = () => columns.reduce((t, c) => t + (hidden.has(c.key) ? 0 : c.grow ? (c.minWidth ?? 240) : widthOf(c)), fixed);
-	for (const { c } of candidates) {
-		if (need() <= available) break;
-		hidden.add(c.key);
-	}
-	return hidden;
-}
-
 function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emit: Emit }) {
 	const surface = useContext(SurfaceContext);
 	const [selected, setSelected] = useUIState<string | null>(`${node.id}:selected`, null);
@@ -1136,17 +1099,6 @@ function StatTile({ label, value, spark, tone }: { label: string; value: string;
 			{spark && spark.length > 1 ? <Spark values={spark} tone={tone} fill /> : spark && <div className="h-4" />}
 		</div>
 	);
-}
-
-/** Details in their sections (`DetailItem.section`), in order of first appearance. */
-export function detailSections(items: DetailItem[]): { title?: string; items: DetailItem[] }[] {
-	const out: { title?: string; items: DetailItem[] }[] = [];
-	for (const d of items) {
-		let s = out.find((x) => x.title === d.section);
-		if (!s) out.push((s = { title: d.section, items: [] }));
-		s.items.push(d);
-	}
-	return out;
 }
 
 function RowDetails({ row, actions, run, onClose }: { row: Row; actions: Action[]; run: Run; onClose: () => void }) {

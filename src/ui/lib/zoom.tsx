@@ -9,17 +9,9 @@ import { ZoomIn } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCommand } from "@/lib/store";
 import { usePersisted } from "@/lib/uistate";
+import { nextZoom, type ZoomCommand } from "@/renderer/pure";
 
-export const ZOOM_STEPS = [0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.5, 1.75, 2];
-export type ZoomCommand = "zoomIn" | "zoomOut" | "zoomReset";
-
-export function nextZoom(current: number, cmd: ZoomCommand, steps = ZOOM_STEPS): number {
-	if (cmd === "zoomReset") return 1;
-	const i = steps.findIndex((s) => s >= current - 1e-6);
-	const at = i < 0 ? steps.length - 1 : i;
-	if (cmd === "zoomIn") return steps[Math.min(steps.length - 1, steps[at] > current + 1e-6 ? at : at + 1)];
-	return steps[Math.max(0, at - 1)];
-}
+export { ZOOM_STEPS, nextZoom, type ZoomCommand } from "@/renderer/pure";
 
 // The handler that gets zoom commands: the most recently mounted target, else the window.
 type Target = (cmd: ZoomCommand) => void;

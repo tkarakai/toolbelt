@@ -9,30 +9,13 @@ import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { Node } from "../../shared/protocol";
+import { continuation, looksLikeScreen, visibleWidth } from "./pure";
 import { cn } from "@/lib/utils";
 import { useZoomLevel, useZoomTarget, ZoomIndicator } from "@/lib/zoom";
 import { usePersisted } from "@/lib/uistate";
 import { Button } from "@/components/ui/button";
 
 type TerminalNode = Extract<Node, { type: "terminal" }>;
-
-/** How `next` continues `prev`: the lines to append, or null when it doesn't (redraw). */
-export function continuation(prev: string[], next: string[]): string[] | null {
-	if (!prev.length) return null;
-	// The longest suffix of `prev` that is a prefix of `next` (output scrolled up by k lines).
-	for (let k = 0; k < prev.length; k++) {
-		const n = prev.length - k;
-		if (n > next.length) continue;
-		let same = true;
-		for (let i = 0; i < n; i++)
-			if (prev[k + i] !== next[i]) {
-				same = false;
-				break;
-			}
-		if (same) return next.slice(n);
-	}
-	return null;
-}
 
 /** A CSS color (any syntax, oklch included) as #rrggbb, via a 1 px canvas. */
 function toHex(css: string, fallback: string): string {
@@ -68,12 +51,6 @@ function themeFrom(el: HTMLElement): ITheme {
 			: { black: "#27272a", red: "#dc2626", green: "#16a34a", yellow: "#ca8a04", blue: "#2563eb", magenta: "#c026d3", cyan: "#0891b2", white: "#a1a1aa", brightBlack: "#52525b", brightRed: "#ef4444", brightGreen: "#22c55e", brightYellow: "#eab308", brightBlue: "#3b82f6", brightMagenta: "#d946ef", brightCyan: "#06b6d4", brightWhite: "#71717a" }),
 	};
 }
-
-const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
-/** Columns a line takes on screen (escape codes don't; wide characters are rare enough here). */
-export const visibleWidth = (line: string) => line.replace(ANSI, "").replace(/\t/g, "        ").length;
-/** Box drawing: a full-screen program's frame, which wrapping would tear apart. */
-export const looksLikeScreen = (lines: string[]) => lines.some((l) => /[\u2500-\u257f]/.test(l));
 
 const baseFontSize = () => (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16) * 0.75;
 

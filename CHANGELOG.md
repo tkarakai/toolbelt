@@ -40,3 +40,33 @@
 - Quitting asks first (⌘Q, Quit buttons) — ↵ quits, esc stays, ⌘Q twice quits.
 - The menu bar icon really stays highlighted while the popover is open.
 - Search hits are a warmer yellow and no longer shift monospace text.
+- **Motion is part of the design**: the popover opens and closes with an animation; tabs,
+  tools and Toolbelt's page fade in; the details drawer slides open and closed; dialogs, menus,
+  newly expanded rows, group chevrons and the zoom indicator all move — 200 ms by default, and
+  almost none for people who ask macOS for reduced motion.
+- **Zoom**: ⌘+ / ⌘- / ⌘0 (View menu) scale the window's text, with a short-lived indicator in
+  the top right. Inside the output dialog they zoom only the terminal (or the conversation).
+- **Narrow windows** hide columns from the right and keep the first one; plugins can rank
+  columns (`priority`) and set the main column's `minWidth`. Long group headers truncate
+  instead of widening the table.
+- **Sort by clicking column headers** (again to reverse); the arrow shows the order. Processes'
+  toolbar sort buttons are gone, and "Show apps" is a switch.
+- **Every row can be selected**, group headers included: ↑/↓ no longer skip them, ←/→ or ↵
+  collapse and expand a group, and its drawer shows what it holds.
+- **Row menus and the drawer group their actions** (plugins say which belong together:
+  `Action.group`). The open "⋯" button no longer turns invisible on a selected row.
+- **The details drawer** has a header with the status and ports, small CPU / memory / uptime
+  tiles with trends, details in sections (Command, Network, Agent, Process) with copy buttons,
+  long values folded, and its actions arranged by group with Stop and Force stop apart.
+- **Apps show their macOS icons** — app rows, and sections for apps and terminal apps (Orca,
+  Ghostty…). Plugins can use any app's or file's icon (`app:/path`, `file:/path`).
+- **Peek** (was "Show output") opens a dialog you can resize and maximize, showing output in a
+  real terminal emulator: colors, wrapping that follows the width (or off, scrolling sideways,
+  for full-screen programs — the wrap button switches), up to 1,000 lines. Agents get a
+  **Conversation** view that looks like a chat: your messages, the agent's answers as
+  Markdown, and its tool calls folded into compact rows. "Show in terminal" is now
+  **Jump to terminal**.
+- **Toolbelt remembers where you were**: each tool's tab, and each screen's selected row,
+  expanded rows, collapsed groups, filter and scroll position — across closing the window and
+  restarts. Processes remembers "Show apps" and where kept commands start.
+- Esc on Toolbelt's page, or its new close button, goes back to the tool you came from.

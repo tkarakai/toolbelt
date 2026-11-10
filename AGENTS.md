@@ -39,7 +39,27 @@ protocol; Toolbelt renders them. See `README.md`.
 - `src/bun/tray-highlight.ts` — keeps the menu bar icon highlighted via the ObjC runtime
   (Electrobun has no API); best effort, logs and gives up if the view tree changes.
 - UI state that must feel instant (typing, selection, scroll) stays in the renderer; plugins
-  get events (`search`, action ids, `field`).
+  get events (`search`, `sort`, action ids, `field`). `src/ui/lib/uistate.ts` keeps it per
+  surface and saves it (localStorage), so tools come back as they were left.
+- `src/ui/renderer/pure.ts` — layout decisions (which columns fit, action groups, detail
+  sections, terminal appends, zoom steps) without React; tested in `test/renderer-pure.test.ts`.
+  `Terminal.tsx` (xterm.js) and `Conversation.tsx` draw the `terminal` and `conversation` nodes.
+- `src/ui/lib/zoom.tsx` — ⌘+ / ⌘- / ⌘0 (View menu commands); a component can take zooming over
+  while it's on screen (`useZoomTarget`).
+- `src/bun/file-icon.ts` — Finder's icons for `app:` / `file:` icon names (via JXA, cached in
+  `<config>/cache/icons`).
+
+## Motion (a core UX principle)
+
+Things that appear, disappear, move or change size animate — never jump. The standard is
+**200 ms** (`duration-200`; Tailwind's default transition duration is set to it in
+`src/ui/index.css`), easing out. Use `tw-animate-css` (`animate-in fade-in-0 …`, `animate-out
+…`) for enter/exit and `transition-*` for state changes; keep exits a little shorter (150 ms).
+Examples to follow: the popover (`Popover.tsx`, the main process waits for its closing
+animation before hiding the window), the details drawer (`Inspector` animates its width), tab
+and tool switches (`App.tsx`), newly visible rows (`TableRow`), `ZoomIndicator`. Don't animate
+what updates continuously (live values, sparklines) or the first paint of a long list. Reduced
+motion (macOS setting) turns animations off globally.
 
 ## Working on the code
 
