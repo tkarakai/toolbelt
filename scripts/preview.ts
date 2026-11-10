@@ -5,8 +5,8 @@
 import { homedir } from "node:os";
 import { join, normalize } from "node:path";
 import { PluginHost, configDir } from "../src/bun/host";
-import { PackageManager, type Candidate } from "../src/bun/packages";
-import { resolveGithub } from "../src/bun/plugin-github";
+import { PackageManager } from "../src/bun/packages";
+import { PluginManagerService } from "../src/bun/plugin-manager-service";
 import { pluginAsset } from "../src/bun/plugin-assets";
 import type { ServerWebSocket } from "bun";
 import { DEFAULTS, type Settings } from "../src/bun/settings";
@@ -37,7 +37,7 @@ const packages = new PackageManager(configDir(homedir()), {
   remove: (id) => host.remove(id),
 });
 await packages.recover();
-const candidates = new Map<string, Candidate>();
+const manager=new PluginManagerService(packages,host);
 
 const icons = new FileIcons(join(configDir(homedir()), "cache/icons"));
 const clients = new Set<ServerWebSocket<{ opened: Set<string> }>>();
@@ -56,7 +56,7 @@ host.subscribe({
     p.stdin.end();
   },
 });
-host.start();
+host.start();manager.start();manager.subscribe(state=>broadcast("pluginManagerState",state));
 
 // A pretend update, to design the Updates card and dialog: a newer release is "available";
 // Update runs through the phases on a timer. GET /update?phase=failed (downloading, verifying,
@@ -176,41 +176,7 @@ Bun.serve<{ opened: Set<string> }>({
         switch (m.method) {
           case "pluginAsset":
             return reply(pluginAsset(packages, p.reference));
-          case "pluginManager": {
-            if (p.operation === "resolve") {
-              const candidate = await resolveGithub(packages, p.repo, {
-                release: p.release,
-                prerelease: p.prerelease,
-              });
-              const token = crypto.randomUUID();
-              candidates.set(token, candidate);
-              return reply({
-                candidate: {
-                  token,
-                  id: candidate.manifest.id,
-                  name: candidate.manifest.name,
-                  version: candidate.manifest.version,
-                  repo: candidate.repo,
-                  hash: candidate.hash,
-                },
-              });
-            }
-            if (p.operation === "install") {
-              const candidate = candidates.get(p.token);
-              if (!candidate) throw new Error("Resolve release first");
-              await packages.install(candidate, true);
-              candidates.delete(p.token);
-            }
-            if (p.operation === "enable")
-              await packages.enabled(p.id, p.enabled);
-            if (p.operation === "remove")
-              await packages.remove(p.id, p.deleteData);
-            return reply({
-              installed: Object.values(packages.registry().plugins).filter(
-                (p) => !p.removed,
-              ),
-            });
-          }
+          case "pluginManager":return reply(await manager.handle(p));
           case "plugins":
             return reply(host.list());
           case "open":

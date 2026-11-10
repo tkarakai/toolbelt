@@ -1,3 +1,4 @@
+import { EDIT_MENU } from "./edit-menu";
 import { createNativePopover } from "./native-popover";
 // Toolbelt's main process: the menu bar icon and its popover, the main window, the global
 // shortcut, and the plugin host that feeds both web views.
@@ -14,8 +15,8 @@ import { join } from "node:path";
 import { PluginHost, configDir } from "./host";
 import { PATHS } from "electrobun/main";
 import { existsSync, readFileSync } from "node:fs";
-import { PackageManager, type Candidate } from "./packages";
-import { resolveGithub } from "./plugin-github";
+import { PackageManager } from "./packages";
+import { PluginManagerService } from "./plugin-manager-service";
 import { pluginAsset } from "./plugin-assets";
 import { FileIcons } from "./file-icon";
 import { clearHotKey, displayAccelerator, setHotKey } from "./hotkey";
@@ -86,7 +87,7 @@ const packages = new PackageManager(
   pkg.version,
 );
 await packages.recover();
-const candidates = new Map<string, Candidate>();
+const manager=new PluginManagerService(packages,host);
 async function seedDemo() {
   const registry = packages.registry();
   if (registry.seeded) return;
@@ -115,53 +116,14 @@ type ViewRPC = ReturnType<typeof makeRPC>;
 const views = new Set<ViewRPC>();
 // Which surfaces each view has open, so a closed window releases them.
 const opened = new Map<ViewRPC, Set<string>>();
+manager.subscribe(state=>views.forEach(view=>view.send.pluginManagerState(state)));
 
 function makeRPC() {
   const rpc: any = BrowserView.defineRPC<ToolbeltRPC>({
     maxRequestTime: 10_000,
     handlers: {
       requests: {
-        pluginManager: async (request) => {
-          try {
-            if (request.operation === "resolve") {
-              const candidate = await resolveGithub(
-                packages,
-                request.repo ?? "",
-                { release: request.release, prerelease: request.prerelease },
-              );
-              const token = crypto.randomUUID();
-              candidates.set(token, candidate);
-              return {
-                candidate: {
-                  token,
-                  id: candidate.manifest.id,
-                  name: candidate.manifest.name,
-                  version: candidate.manifest.version,
-                  repo: candidate.repo,
-                  hash: candidate.hash,
-                },
-              };
-            }
-            if (request.operation === "install") {
-              const candidate = candidates.get(request.token ?? "");
-              if (!candidate)
-                throw new Error("Resolve the release before approval");
-              await packages.install(candidate, true);
-              candidates.delete(request.token!);
-            }
-            if (request.operation === "enable")
-              await packages.enabled(request.id!, !!request.enabled);
-            if (request.operation === "remove")
-              await packages.remove(request.id!, !!request.deleteData);
-            return {
-              installed: Object.values(packages.registry().plugins).filter(
-                (p) => !p.removed,
-              ),
-            };
-          } catch (error) {
-            return { error: String(error) };
-          }
-        },
+        pluginManager:request=>manager.handle(request),
         pluginAsset: ({ reference }) => pluginAsset(packages, reference),
         plugins: () => host.list(),
         open: ({ plugin, surface }) => {
@@ -463,18 +425,7 @@ ApplicationMenu.setApplicationMenu([
       },
     ],
   },
-  {
-    label: "Edit",
-    submenu: [
-      { role: "undo" },
-      { role: "redo" },
-      { type: "separator" },
-      { role: "cut" },
-      { role: "copy" },
-      { role: "paste" },
-      { role: "selectAll" },
-    ],
-  },
+  EDIT_MENU as any,
   {
     label: "View",
     submenu: [
@@ -639,6 +590,7 @@ host.start();
 void seedDemo().catch((error) => console.error("SDK demo seed:", error));
 if (process.env.TOOLBELT_OPEN_WINDOW) showWindow();
 updater.start();
+manager.start();
 // Wake from sleep: the network takes a moment to come back, then see if a check is due (the
 // 15-minute tick would get there too). Noticed as a gap in a once-a-minute heartbeat.
 let heartbeat = Date.now();

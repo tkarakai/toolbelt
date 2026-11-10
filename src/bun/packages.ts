@@ -32,11 +32,14 @@ export type Installed = {
   release?: string;
   asset?: string;
   removed?: boolean;
+  dataSchema?:number;
+  history?: { installed: Omit<Installed,"history">; snapshot: string; at:number }[];
 };
 export type Registry = {
   formatVersion: 1;
   plugins: Record<string, Installed>;
   seeded?: boolean;
+  updateSchedule?: {lastChecked?:number;nextCheck?:number;error?:string};
 };
 export type ReleaseDescriptor = {
   formatVersion: 1;
@@ -53,6 +56,7 @@ export type Candidate = {
   repo: string;
   release?: string;
   asset?: string;
+  channel?: "stable"|"prerelease";
 };
 export type RuntimeHooks = {
   prepare(id: string, reason: string): Promise<void>;
@@ -158,6 +162,8 @@ function validateFiles(root: string, m: PackageManifest) {
   }
 }
 export class PackageManager {
+  readonly listeners=new Set<(id:string,phase:string,detail?:string)=>void>();
+  private report(id:string,phase:string,detail?:string){for(const listener of this.listeners){try{listener(id,phase,detail)}catch{}}}
   private operations = new Map<string, Promise<unknown>>();
   constructor(
     readonly root: string,
@@ -222,7 +228,7 @@ export class PackageManager {
       throw error;
     }
   }
-  async install(candidate: Candidate, approved: boolean) {
+  async install(candidate: Candidate, approved: boolean, restoreSnapshot?:string) {
     if (!approved)
       throw new Error("Explicit publisher execution approval required");
     return this.serialize(candidate.manifest.id, async () => {
@@ -260,7 +266,8 @@ export class PackageManager {
         packageRoot: candidate.packageRoot,
         manifest: candidate.manifest,
         enabled: true,
-        channel: old?.channel ?? "stable",
+        dataSchema: !restoreSnapshot&&old&&(candidate.manifest.data.supports??[candidate.manifest.data.schema]).includes(old.dataSchema??old.manifest.data.schema)?old.dataSchema??old.manifest.data.schema:candidate.manifest.data.schema,
+        channel: candidate.channel ?? old?.channel ?? "stable",
         release: candidate.release,
         asset: candidate.asset,
       };
@@ -282,12 +289,15 @@ export class PackageManager {
       try {
         await this.hooks.prepare(id, "upgrade");
         prepared = true;
+        this.report(id,"stopping");
         await this.hooks.stop(id);
         if (existsSync(data)) {
           cpSync(data, backup, { recursive: true });
-          cpSync(data, staged, { recursive: true });
+          cpSync(restoreSnapshot??data, staged, { recursive: true });
         } else mkdirSync(staged, { recursive: true });
-        await this.migrate(candidate, old, staged, backup, tx);
+        this.report(id,"migrating");
+        if(!restoreSnapshot)await this.migrate(candidate, old, staged, backup, tx);
+        this.report(id,"starting");
         await this.hooks.probe(candidate, staged);
         journal.phase = "promoting";
         atomicJSON(join(txDir, "journal.json"), journal);
@@ -299,14 +309,17 @@ export class PackageManager {
         renameSync(staged, data);
         promoted = true;
         await this.hooks.activate(next);
+        if(old){const {history,...previousInstalled}=old;next.history=[...(history??[]),{installed:previousInstalled,snapshot:backup,at:Date.now()}].slice(-3);}
         const fresh = this.registry();
         fresh.plugins[id] = next;
         this.save(fresh);
         journal.phase = "committed";
         atomicJSON(join(txDir, "journal.json"), journal);
         rmSync(txDir, { recursive: true, force: true });
+        this.report(id,"ready");
         return next;
       } catch (error) {
+        this.report(id,"failed",String(error));
         if (!prepared) {
           rmSync(txDir, { recursive: true, force: true });
           throw error;
@@ -337,7 +350,7 @@ export class PackageManager {
     transactionId: string,
   ) {
     const m = candidate.manifest;
-    if (old?.manifest.data.schema === m.data.schema) return;
+    if (old&&(m.data.supports??[m.data.schema]).includes(old.dataSchema??old.manifest.data.schema)) return;
     if (!m.migration) {
       if (!old) return;
       throw new Error("Schema change requires migration entrypoint");
@@ -359,7 +372,7 @@ export class PackageManager {
         transactionId,
         fromVersion: old?.version ?? null,
         toVersion: m.version,
-        fromSchema: old?.manifest.data.schema ?? null,
+          fromSchema: old?.dataSchema??old?.manifest.data.schema ?? null,
         toSchema: m.data.schema,
         sourceDir,
         targetDir,
@@ -416,6 +429,14 @@ export class PackageManager {
       fresh.plugins[id] = p;
       this.save(fresh);
     });
+  }
+  async restore(id:string,choiceId:string){
+    const current=this.registry().plugins[id];const index=Number(choiceId);
+    if(!current||!Number.isSafeInteger(index)||String(index)!==choiceId)throw new Error("Invalid recovery choice");
+    const choice=current.history?.[index];if(!choice)throw new Error("Recovery choice expired");
+    const compatible=(choice.installed.manifest.data.supports??[choice.installed.manifest.data.schema]).includes(current.dataSchema??current.manifest.data.schema);
+    if(!compatible&&!existsSync(choice.snapshot))throw new Error("Matching data snapshot unavailable");
+    return this.install({...choice.installed,repo:current.repo},true,compatible?undefined:choice.snapshot);
   }
   async remove(id: string, deleteData = false) {
     return this.serialize(id, async () => {

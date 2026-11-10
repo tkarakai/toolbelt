@@ -45,10 +45,10 @@ export async function resolveGithub(
 ): Promise<Candidate> {
   const repo = parseRepository(input);
   const response = await fetch(
-    `https://api.github.com/repos/${repo}/releases${options.release ? `/tags/${encodeURIComponent(options.release)}` : "/latest"}`,
+    `https://api.github.com/repos/${repo}/releases${options.release ? `/tags/${encodeURIComponent(options.release)}` : options.prerelease ? "?per_page=30" : "/latest"}`,
     {
       headers: { Accept: "application/vnd.github+json" },
-      signal: options.signal ?? AbortSignal.timeout(30000),
+      signal: options.signal ? AbortSignal.any([options.signal,AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
     },
   );
   if (response.status === 404)
@@ -57,7 +57,10 @@ export async function resolveGithub(
     );
   if (!response.ok)
     throw new Error(`GitHub release lookup failed (${response.status})`);
-  const release = (await response.json()) as any;
+  if(!new URL(response.url).pathname.toLowerCase().startsWith('/repos/'+repo.toLowerCase()+'/releases'))throw new Error('Repository identity changed; review new publisher explicitly');
+  const result=(await response.json()) as any;
+  const release=Array.isArray(result)?result.find(r=>!r.draft&&(options.prerelease||!r.prerelease)):result;
+  if(!release||typeof release.html_url!=='string'||!release.html_url.toLowerCase().startsWith('https://github.com/'+repo.toLowerCase()+'/releases/'))throw new Error('Release publisher identity changed');
   if (release.draft || (release.prerelease && !options.prerelease))
     throw new Error("Prerelease requires explicit opt-in");
   const assets = release.assets as any[];
@@ -95,19 +98,17 @@ export async function resolveGithub(
   const asset = matches[0];
   if (asset.digest && asset.digest !== `sha256:${target.sha256}`)
     throw new Error("GitHub asset digest mismatch");
-  const candidate = await manager.stage(
-    await download(
+  const bytes = await download(
       asset.browser_download_url,
       LIMITS.archiveBytes,
       options.signal,
-    ),
-    target.sha256,
-    repo,
-  );
+    );
+  if(bytes.length!==target.size)throw new Error("Downloaded package size mismatch");
+  const candidate=await manager.stage(bytes,target.sha256,repo);
   if (
     candidate.manifest.id !== descriptor.id ||
     candidate.manifest.version !== descriptor.version
   )
     throw new Error("Descriptor/manifest identity mismatch");
-  return { ...candidate, release: release.tag_name, asset: String(asset.id) };
+  return { ...candidate, release: release.tag_name, asset: String(asset.id),channel:release.prerelease?"prerelease":"stable" };
 }

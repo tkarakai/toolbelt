@@ -45,8 +45,10 @@ export function useCommand(fn: (name: string) => void) {
 	}, [fn]);
 }
 
+export const pluginManagerListeners=new Set<(state:Messages["pluginManagerState"])=>void>();
 const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
 	plugins: (plugins) => set({ plugins }),
+    pluginManagerState:state=>pluginManagerListeners.forEach(listener=>listener(state)),
 	tree: ({ plugin, surface, tree }) => {
 		arrived.set(key(plugin, surface), performance.now());
 		set({ trees: { ...state.trees, [key(plugin, surface)]: tree } });
