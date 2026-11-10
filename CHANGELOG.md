@@ -40,3 +40,10 @@
 - Quitting asks first (⌘Q, Quit buttons) — ↵ quits, esc stays, ⌘Q twice quits.
 - The menu bar icon really stays highlighted while the popover is open.
 - Search hits are a warmer yellow and no longer shift monospace text.
+- Toolbelt updates itself from GitHub releases: it checks at launch and every 6 hours (and
+  after waking, and when the window opens if it's been an hour); a newer version puts a red dot
+  on the menu bar icon, on *Toolbelt* in the sidebar and in the popover. Toolbelt's page shows
+  the version, when it last checked (*Check now*), and what's new; *Update* downloads the disk
+  image with progress (cancellable), checks its checksum, bundle id, version and signature,
+  swaps the app in place and reopens it. *Check for Updates…* is in the app menu. Dev builds
+  don't update themselves.

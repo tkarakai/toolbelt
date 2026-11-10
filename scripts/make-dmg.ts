@@ -8,7 +8,7 @@
 // the updater couldn't check it. This one holds the real app, taken from the update bundle
 // (artifacts/stable-macos-arm64-Toolbelt.app.tar.zst), with its version in Info.plist and the
 // bundle signed ad hoc (the binaries inside keep their own signatures), next to an
-// Applications link to drag it onto.
+// Applications link to drag it onto. LZMA-compressed (ULMO): about a third smaller than UDZO.
 import { $ } from "bun";
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -41,7 +41,7 @@ export async function makeDmg(root = join(import.meta.dir, "..")): Promise<strin
 		await $`/usr/bin/codesign --force --sign - ${app}`.quiet();
 		await $`/usr/bin/codesign --verify --strict ${app}`.quiet();
 		symlinkSync("/Applications", join(vol, "Applications"));
-		await $`/usr/bin/hdiutil create -volname Toolbelt -srcfolder ${vol} -ov -format UDZO ${out}`.quiet();
+		await $`/usr/bin/hdiutil create -volname Toolbelt -srcfolder ${vol} -ov -format ULMO ${out}`.quiet();
 	} finally {
 		rmSync(stage, { recursive: true, force: true });
 	}
