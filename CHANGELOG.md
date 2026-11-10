@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Filter selectors match the fixed-width search field’s height. Dropdown searches retain typing focus, scroll only vertically, and stay open when Show all clears selections.
+
 - Fixed selected-row contrast for neutral status pills (including idle), placeholders, path labels, branch pills and open action buttons.
 
 - The menu bar popover fits its tools, up to six rows, then scrolls without a scroll bar.

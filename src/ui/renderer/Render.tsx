@@ -284,7 +284,7 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 			{hasToolbar && (
 				<div className={cn("flex w-full shrink-0 items-center gap-3 px-6 pt-4 pb-3", narrow && "mx-auto max-w-4xl")}>
 					{node.search && (
-						<InputGroup data-filtering={!!query} className={cn("max-w-sm transition-colors duration-200", !!query && ACTIVE_QUERY)}>
+						<InputGroup data-filtering={!!query} className={cn("w-64 shrink-0 transition-colors duration-200", !!query && ACTIVE_QUERY)}>
 							<InputGroupAddon>
 								<Search />
 							</InputGroupAddon>
@@ -343,6 +343,7 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 function FilterMenu({ filter, emit }: { filter: Filter; emit: Emit }) {
 	// Ticks show immediately; the plugin's next render confirms them.
 	const [picked, setPicked] = useState(filter.selected);
+    const searchInput = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState("");
     const matches = filter.options.filter(o => o.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
     const present = matches.filter(o => (o.count ?? 1) > 0);
@@ -358,17 +359,28 @@ function FilterMenu({ filter, emit }: { filter: Filter; emit: Emit }) {
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button variant="outline" size="sm" data-filtering={picked.length > 0} className={cn("shrink-0 gap-1.5 transition-colors duration-200", picked.length > 0 && ACTIVE_QUERY)}>
+				<Button variant="outline" size="sm" data-filtering={picked.length > 0} className={cn("h-8 shrink-0 gap-1.5 transition-colors duration-200", picked.length > 0 && ACTIVE_QUERY)}>
 					{filter.icon && <Icon name={filter.icon} />}
 					{filter.label}
 					{names.length > 0 && <span className="max-w-36 truncate font-normal text-muted-foreground">· {names.length === 1 ? names[0] : names.length}</span>}
 					<ChevronDown className="size-3.5 opacity-60" />
 				</Button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align="start" className="w-64" onCloseAutoFocus={toTable} onKeyDown={e => { if ((e.target as HTMLElement).tagName === "INPUT" && e.key !== "Escape" && e.key !== "ArrowDown" && e.key !== "Tab") e.stopPropagation(); }}>
-                <div className="px-2 pt-2 pb-1"><Input className={cn("transition-colors duration-200", !!query && ACTIVE_QUERY)} autoFocus aria-label={`Search ${filter.label} options`} placeholder="Search options…" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if(e.key === "ArrowDown") { e.preventDefault(); (e.currentTarget.closest('[role=menu]')?.querySelector('[role=menuitemcheckbox]') as HTMLElement)?.focus(); } }} /></div>
+            <DropdownMenuContent align="start" className="w-64 overflow-x-hidden" onCloseAutoFocus={toTable}>
+                <div className="px-2 pt-2 pb-1">
+                    <Input ref={searchInput} className={cn("min-w-0 transition-colors duration-200", !!query && ACTIVE_QUERY)} autoFocus aria-label={`Search ${filter.label} options`} placeholder="Search options…" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => {
+                        if (e.key === "Escape") return;
+                        // Stop at the input: stopping on Content is too late to prevent Radix's
+                        // typeahead handler on that same element from moving focus to an item.
+                        e.stopPropagation();
+                        if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            (e.currentTarget.closest('[role=menu]')?.querySelector('[role=menuitemcheckbox]') as HTMLElement)?.focus();
+                        }
+                    }} />
+                </div>
 				<DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{filter.label}: show only…</DropdownMenuLabel>
-                <div className="max-h-72 overflow-y-auto">
+                <div className="max-h-72 min-w-0 overflow-x-hidden overflow-y-auto">
                     {[present, absent].map((group, i) => <div key={i}>
                         {i === 1 && present.length > 0 && absent.length > 0 && <DropdownMenuSeparator />}
                         {group.map(o => <DropdownMenuCheckboxItem key={o.value} checked={on.has(o.value)} onSelect={e => e.preventDefault()} onCheckedChange={c => set(c ? [...picked, o.value] : picked.filter(v => v !== o.value))}>
@@ -382,7 +394,7 @@ function FilterMenu({ filter, emit }: { filter: Filter; emit: Emit }) {
 				{picked.length > 0 && (
 					<>
 						<DropdownMenuSeparator />
-						<DropdownMenuItem onSelect={() => set([])}>
+						<DropdownMenuItem onSelect={e => { e.preventDefault(); set([]); searchInput.current?.focus(); }}>
 							<X />
 							Show all
 						</DropdownMenuItem>
