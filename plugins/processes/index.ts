@@ -5,16 +5,20 @@
 // stop, "why is it still alive", copy the command line, shell integration status.
 // toolbelt-ps will replace the running-core bridge with the engine itself.
 //
-// Where running is: RUNNING_CORE_SCRIPT, else ~/dev/projects/running/src/serve.ts.
-import { homedir } from "node:os";
+// running is vendored in ./running and bundled next to this plugin (paths.ts); tui.ts puts its
+// terminal UI on the PATH.
 import { definePlugin, type Context, type Dialog, type Field, type Node, type Row } from "../../src/sdk";
 import { Core, type Hello, type KeepDraft, type Peek, type Snapshot, type SortKey } from "./core";
+import { coreScript } from "./paths";
+import { Tui } from "./tui";
 import { agentState, build, displayName, dur, locate, sourceLabel, statusTone, stripAnsi, tildify, webUrl, type Built } from "./model";
 
-const core = new Core(process.env.RUNNING_CORE_SCRIPT ?? `${homedir()}/dev/projects/running/src/serve.ts`, {
+const core = new Core(coreScript(), {
 	onChanged: () => void refresh(),
 	onExit: () => ctx.invalidate(),
 });
+
+const tui = new Tui({ onChange: () => ctx.invalidate() });
 
 // ── state ────────────────────────────────────────────────────────────────
 let snap: Snapshot | null = null;
@@ -85,7 +89,7 @@ const unavailable = (): Node => ({
 	type: "empty",
 	icon: "plug-zap",
 	title: "running-core isn't available",
-	description: `${core.error}. Set RUNNING_CORE_SCRIPT to a checkout's src/serve.ts.`,
+	description: `${core.error}. Rebuild the plugins (bun run plugins), or set RUNNING_CORE_SCRIPT to a running checkout's src/serve.ts.`,
 });
 
 const sortKey = (): SortKey => snap?.sort.key ?? "started";
@@ -248,39 +252,19 @@ function keptScreen(): Node {
 }
 
 function settingsScreen(): Node {
-	const sh = hello?.shell;
+	tui.checkOnce();
 	return {
 		type: "page",
 		children: [
 			{
 				type: "form",
 				id: "settings",
-				title: "The list",
+				title: "Kept commands",
 				fields: [
-					{ type: "select", id: "sort", label: "Sort by", value: sortKey(), options: Object.entries(hello?.sorts ?? {}).map(([value, s]) => ({ value, label: cap(s.label) })), description: "Shared with running's terminal UI." },
-					{ type: "select", id: "dir", label: "Order", value: sortDesc() ? "desc" : "asc", options: [{ value: "asc", label: cap(sortSpec()?.dirLabel[0] ?? "ascending") }, { value: "desc", label: cap(sortSpec()?.dirLabel[1] ?? "descending") }] },
-					{ type: "switch", id: "showAll", label: "Show apps and system servers", value: showAll, description: "Desktop apps and servers you didn't start in a terminal." },
-					{ type: "select", id: "terminal", label: "Start kept commands in", value: terminal, options: Object.entries(hello?.terminals ?? { terminal: { label: "Terminal" } }).map(([value, t]) => ({ value, label: t.label })) },
+					{ type: "select", id: "terminal", label: "Start them in", value: terminal, options: Object.entries(hello?.terminals ?? { terminal: { label: "Terminal" } }).map(([value, t]) => ({ value, label: t.label })) },
 				],
 			},
-			{
-				type: "card",
-				id: "shell",
-				title: "Shell integration",
-				description: "running's zsh hook remembers the commands you type, so Processes can show what you typed (not just what's running), restart it, and name jobs whose launcher exited.",
-				tone: sh && sh.zshrc && sh.logExists ? "success" : "warning",
-				actions: [{ id: "copy-init", label: "Copy setup line", icon: "copy", primary: !sh?.zshrc }],
-				children: [
-					{
-						type: "details",
-						items: [
-							{ label: "In ~/.zshrc", value: sh?.zshrc ? "yes" : "no — add the setup line below", tone: sh?.zshrc ? "success" : "warning" },
-							{ label: "Command log", value: sh?.logExists ? `written ${sh.logAgeSec !== undefined ? dur(sh.logAgeSec) + " ago" : ""}` : "none yet", tone: sh?.logExists ? "default" : "warning", mono: false },
-							{ label: "Setup line", value: `echo 'eval "$(command running init)"' >> ~/.zshrc`, mono: true },
-						],
-					},
-				],
-			},
+			tui.card(hello ? { logFile: hello.logFile, ...hello.shell } : null, hello?.version),
 			{
 				type: "card",
 				id: "core",
@@ -512,13 +496,15 @@ const ctx = definePlugin({
 					c.toast(res.message, "success", { id: "undo-forget", label: "Undo", payload: { kept: res.restore, index } });
 					break;
 				}
+				case "tui-install":
+				case "tui-remove":
+				case "tui-check":
+					await tui.onEvent(event, c, async () => void (hello = (await core.call<Hello>("hello").catch(() => null)) ?? hello));
+					return c.invalidate();
 				case "copy-init":
 					c.copy(`eval "$(command running init)"`);
 					return c.toast("Copied — add it to ~/.zshrc, then open a new terminal", "success");
 				case "field":
-					if (payload?.field === "sort") await core.call("setSort", { key: payload.value, desc: hello?.sorts[payload.value as SortKey]?.desc ?? sortDesc() });
-					if (payload?.field === "dir") await core.call("setSort", { key: sortKey(), desc: payload.value === "desc" });
-					if (payload?.field === "showAll") showAll = !!payload.value;
 					if (payload?.field === "terminal") terminal = String(payload.value);
 					break;
 			}
