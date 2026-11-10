@@ -46,6 +46,8 @@ export function defineMigration(run: (ctx: MigrationRequest & { progress(text:st
 }
 
 export type Context = {
+	/** Negotiated host capabilities; authors provide fallbacks for unavailable optional features. */
+	readonly capabilities: ReadonlySet<string>;
 	/** Re-render open surfaces (all, or the ones named). */
 	invalidate(...surfaces: string[]): void;
 	badge(value: number | string | null): void;
@@ -72,6 +74,7 @@ export function definePlugin(def: PluginDefinition, io: { write?: (line: string)
 	const write = io.write ?? ((line: string) => void process.stdout.write(line));
 	const send = (m: PluginMessage) => write(JSON.stringify(m) + "\n");
 	const open = new Set<string>();
+	const capabilities = new Set<string>();
 	const last = new Map<string, string>();
 	let pending: Set<string> | "all" | null = null;
 
@@ -95,6 +98,7 @@ export function definePlugin(def: PluginDefinition, io: { write?: (line: string)
 	};
 
 	const ctx: Context = {
+		capabilities,
 		invalidate(...surfaces) {
 			const wasIdle = pending === null;
 			if (surfaces.length === 0 || pending === "all") pending = "all";
@@ -114,6 +118,7 @@ export function definePlugin(def: PluginDefinition, io: { write?: (line: string)
 	const handle = async (msg: HostMessage) => {
 		switch (msg.type) {
 			case "hello":
+				capabilities.clear();for(const capability of msg.capabilities ?? ["ui.core"])capabilities.add(capability);
 				if (msg.protocol !== PROTOCOL_VERSION) throw new Error("incompatible host protocol");
 				send({type:"hello",protocol:PROTOCOL_VERSION,sdk:SDK_VERSION,capabilities:[...CAPABILITIES]});
 				await def.start?.(ctx);

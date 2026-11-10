@@ -41,7 +41,7 @@ export default function Tester({ control }: { control: TesterControl }) {
       </div>
       {error && <p role="alert" className="text-destructive">{error}</p>}
     </header>
-    <div className="flex-1 min-h-0 overflow-auto"><div style={{width:popover?380:width,maxWidth:"100%",height:"100%",margin:"auto"}} className="border-x transition-[width] duration-200">{popover ? <Popover /> : <App />}</div></div>
+    <div className="flex-1 min-h-0 overflow-auto"><div style={{width:popover?380:width,maxWidth:"100%",height:"100%",margin:"auto"}} className="relative isolate transform-gpu overflow-hidden border-x transition-[width] duration-200">{popover ? <Popover /> : <App />}</div></div>
     <details className="border-t p-2 max-h-64 overflow-auto"><summary>Validated protocol / lifecycle diagnostics ({diagnostics.length})</summary><pre className="whitespace-pre-wrap break-all">{JSON.stringify(diagnostics,null,2)}</pre></details>
   </div>;
 }

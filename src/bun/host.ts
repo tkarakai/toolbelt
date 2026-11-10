@@ -13,6 +13,7 @@ import {
 } from "../shared/protocol";
 import {
   LIMITS,
+  CAPABILITIES,
   parsePackageManifest,
   type PackageManifest,
 } from "../shared/package";
@@ -101,8 +102,10 @@ export class PluginProcess {
     });
   }
   async stopAndWait() {
-    this.stop();
-    await this.proc?.exited;
+    const proc=this.proc;this.stop();if(!proc)return;
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    await Promise.race([proc.exited,new Promise(resolve=>{timer=setTimeout(()=>{try{process.kill(-proc.pid,"SIGKILL")}catch{proc.kill("SIGKILL")}resolve(null)},2000)})]);
+    clearTimeout(timer);
   }
   state: PluginState = "stopped";
   badge: number | string | null = null;
@@ -158,12 +161,11 @@ export class PluginProcess {
       cwd: this.dir,
       detached: true,
       env: {
-        TOOLBELT_CONFIG_DIR:
-          this.opts.configRoot ?? resolve(this.opts.data, ".."),
         ...runtimeEnv(
           { manifest: this.manifest as PackageManifest, packageRoot: this.dir },
           data,
         ),
+        TOOLBELT_CONFIG_DIR:this.opts.configRoot ?? resolve(this.opts.data,".."),
         ...Object.fromEntries(
           Object.entries(this.opts.env).filter(([k]) =>
             k.startsWith("TOOLBELT_TEST_"),
@@ -178,6 +180,7 @@ export class PluginProcess {
     this.send({
       type: "hello",
       protocol: PROTOCOL_VERSION,
+      capabilities:[...CAPABILITIES],
       plugin: { id: this.manifest.id },
       host: this.opts.host,
     });
@@ -186,8 +189,8 @@ export class PluginProcess {
       LIMITS.handshakeMs,
     );
     this.changed();
-    void this.read(proc.stdout as ReadableStream<Uint8Array>);
-    void this.readErr(proc.stderr as ReadableStream<Uint8Array>);
+    void this.read(proc.stdout as ReadableStream<Uint8Array>,proc).catch(error=>{if(this.proc===proc)this.fail(String(error))});
+    void this.readErr(proc.stderr as ReadableStream<Uint8Array>,proc).catch(error=>{if(this.proc===proc)this.fail(String(error))});
     void proc.exited.then((code) => this.exited(proc, code));
   }
 
@@ -237,10 +240,11 @@ export class PluginProcess {
     if (n === 0) this.send({ type: "close", surface });
   }
 
-  private async read(stream: ReadableStream<Uint8Array>) {
+  private async read(stream: ReadableStream<Uint8Array>,proc:ReturnType<typeof Bun.spawn>) {
     const decoder = new TextDecoder();
     let buf = "";
     for await (const chunk of stream) {
+      if(this.proc!==proc||this.stopping)return;
       const { lines, rest } = splitLines(
         buf + decoder.decode(chunk, { stream: true }),
       );
@@ -275,14 +279,15 @@ export class PluginProcess {
     }
   }
 
-  private async readErr(stream: ReadableStream<Uint8Array>) {
+  private async readErr(stream: ReadableStream<Uint8Array>,proc:ReturnType<typeof Bun.spawn>) {
     const decoder = new TextDecoder();
     for await (const chunk of stream) {
+      if(this.proc!==proc||this.stopping)return;
       const text = decoder.decode(chunk, { stream: true });
       for (const line of text.split("\n").filter(Boolean)) {
         this.stderrTail.push(line.slice(0, 4096));
         if (this.stderrTail.length > 20) this.stderrTail.shift();
-        this.log(line);
+        this.log(line.slice(0,4096));
       }
     }
   }
@@ -386,6 +391,7 @@ export class PluginProcess {
       this.changed();
       return;
     }
+    try{process.kill(-proc.pid,"SIGKILL")}catch{}
     this.log(`exited with ${code}`);
     // Restart a crashing plugin a few times, backing off; then leave it crashed.
     if (this.restarts < 3) {
@@ -561,7 +567,7 @@ export class PluginHost {
 
   private emitPlugins() {
     const list = this.list();
-    this.listeners.forEach((l) => l.plugins(list));
+    this.listeners.forEach((l) => {try{l.plugins(list)}catch{}});
   }
 }
 

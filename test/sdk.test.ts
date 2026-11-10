@@ -74,3 +74,10 @@ test("events reach onEvent with the surface and payload", async () => {
 	await tick();
 	expect(seen).toEqual([["screen:a", "action", { rowId: "7" }]]);
 });
+
+test('host capabilities are negotiated independently of SDK version', async () => {
+ const h=harness();let capabilities:string[]=[];
+ definePlugin({render:{},start:ctx=>{capabilities=[...ctx.capabilities]}},{write:h.write,input:h.input});await tick();
+ h.send({type:'hello',protocol:1,capabilities:['ui.core'],plugin:{id:'test'},host:{name:'old host',version:'0.1.0'}});await tick();
+ expect(capabilities).toEqual(['ui.core']);
+});

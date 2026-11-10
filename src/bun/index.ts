@@ -1,10 +1,10 @@
+import { createNativePopover } from "./native-popover";
 // Toolbelt's main process: the menu bar icon and its popover, the main window, the global
 // shortcut, and the plugin host that feeds both web views.
 import Electrobun, {
   BrowserView,
   BrowserWindow,
   Screen,
-  Tray,
   Updater,
   Utils,
   ApplicationMenu,
@@ -319,31 +319,8 @@ function showWindow(plugin?: string, screen?: string) {
 
 // ── menu bar icon + popover ──────────────────────────────────────────────
 // No native menu: a click sends `tray-clicked`, and we show our own (shadcn) popover under it.
-const tray = new Tray({
-  title: "",
-  image:
-    channel === "dev"
-      ? "views://assets/tray-icon-dev@2x.png"
-      : "views://assets/tray-icon@2x.png",
-  template: channel !== "dev",
-  width: 18,
-  height: 18,
-});
-
-const popRPC = makeRPC();
-const popover = new BrowserWindow({
-  title: variant.name,
-  url: viewUrl("#popover"),
-  frame: { width: POPOVER.width, height: POPOVER.height, x: 0, y: 0 },
-  titleBarStyle: "hidden",
-  styleMask: { Resizable: false, Miniaturizable: false, Closable: false },
-  transparent: true,
-  hidden: true,
-  activate: false,
-  rpc: popRPC,
-});
-popover.setAlwaysOnTop(true);
-popover.setVisibleOnAllWorkspaces(true);
+const popRPC=makeRPC();
+const {tray,popover}=createNativePopover({title:variant.name,url:viewUrl("#popover"),image:channel==="dev"?"views://assets/tray-icon-dev@2x.png":"views://assets/tray-icon@2x.png",template:channel!=="dev",rpc:popRPC});
 let popoverShownAt = 0;
 
 /** How long the popover's closing animation plays before the window hides (ms). */

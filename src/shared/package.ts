@@ -2,7 +2,7 @@ import { isAbsolute } from "node:path";
 import { parseManifest, type Manifest } from "./protocol";
 
 export const PACKAGE_FORMAT = 1;
-export const SDK_VERSION = "0.2.0-dev.1";
+export const SDK_VERSION = "0.2.0-dev.2";
 export const CAPABILITIES = [
   "ui.core",
   "ui.action-key",
@@ -32,6 +32,7 @@ export type PackageManifest = Manifest & {
   data: { schema: number; supports?: number[] };
   assets?: Record<string, string>;
   migration?: { entry: string };
+  cli?: { command:string;entry?:string;cleanupAction?:string };
 };
 export function safeRelative(path: unknown): asserts path is string {
   if (
@@ -77,6 +78,8 @@ export function parsePackageManifest(value: unknown): PackageManifest {
     throw new Error("package capabilities required");
   if (!m.data || !Number.isSafeInteger(m.data.schema) || m.data.schema < 0)
     throw new Error("package data schema required");
+  if(m.data.supports!==undefined&&(!Array.isArray(m.data.supports)||m.data.supports.some(x=>!Number.isSafeInteger(x)||x<0)))throw new Error("Invalid supported data schemas");
+  if(m.cli){if(!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(m.cli.command))throw new Error("Invalid CLI command");if(m.cli.entry)safeRelative(m.cli.entry);if(m.cli.cleanupAction!==undefined&&typeof m.cli.cleanupAction!=="string")throw new Error("Invalid CLI cleanup action")}
   if (m.migration) safeRelative(m.migration.entry);
   for (const [name, path] of Object.entries(m.assets ?? {})) {
     if (!/^[\w.-]+$/.test(name)) throw new Error("invalid asset name");

@@ -335,7 +335,7 @@ export type Node =
 export type HostMessage =
 	| { type: "prepare"; requestId: string; reason: string }
 	| { type: "shutdown" }
-	| { type: "hello"; protocol: number; plugin: { id: string }; host: { name: string; version: string } }
+	| { type: "hello"; protocol: number; capabilities?: string[]; plugin: { id: string }; host: { name: string; version: string } }
 	| { type: "open"; surface: string }
 	| { type: "close"; surface: string }
 	| { type: "event"; surface: string; name: string; payload?: unknown };
