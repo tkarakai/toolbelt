@@ -20,7 +20,7 @@ Protocol 1, package format 1, diagnostic SDK `0.2.0-dev.1`. Existing declarative
 | Plugin manager | Actual RPC/store/browser install3, channel/schedule, cancellation, confirmed cleanup navigation, retain/delete, stale recovery and crash isolation pass23 checks; runtime logs/update errors attributed |
 | Standalone tester/native | Shared renderer/runtime/native shell; native screens/quick/keyboard/theme/zoom/motion/Escape/blur/profile tests pass. Signed real-app AX automation limitation documented; actual Chromium wide inspector/tool-detail and414px visual rerun pass with root/body414 |
 | Demo/assembly | Only hash-pinned removable prebuilt external demo seed; removed/disabled seed persists; no plugin source/build dependencies in host |
-| Build/release artifacts | Prior host/tester build and real-app signing/tar/DMG checks pass; final source-exact artifact rebuild follows independent review-fix checkpoint |
+| Build/release artifacts | Source7208f26 host/tester builds, real-app signing, tar and mounted DMG checks pass; immutable local copies and hashes below |
 | App updater safety | Real signed-DMG one-hop0.1.0→0.1.1 passes hash/signature/swap/relaunch/data retention; incompatible and busy plugins defer with original PIDs/app intact; bad SHA refuses; isolated HOME/SHELL preserved |
 | CI/review | PR16 all4 green at892f5cc; review-fix checkpoint CI and coordinator re-review remain next. User testing/review and deferred docs cleanup remain open; no main merge or stable release |
 
@@ -80,3 +80,17 @@ The coordinator's five findings are corrected: parent exit no longer skips desce
 Actual manager evidence: `/tmp/toolbelt-accept-67c57f5/REPORT.md`. Real schema child/migration restoration evidence: `/tmp/toolbelt-schema-restore-result.json` (matching snapshot restores counter7 rather than current99, missing snapshot preserves PID88448). Real signed-DMG updater evidence: `/tmp/toolbelt-updater-rehearsal-state.json` (0.1.0PID51557→0.1.1PID53053; compatibility refusal before download; busy refusal preserves app/plugin PIDs; bad-SHA refusal; no remaining owned mounts/staged directories).
 
 Final renderer evidence lives in Processes and demo `docs/browser-acceptance.md`: actual Chromium414×896, inner/root/body414, wrapped toolbar, scrollable tabs, readable primary text,382px dialog;1440px inspector340px and expanded conversation Input/Output screenshots. App SHA256 `c1947ec25d1764851e76ebf7e0f16119fbb54a17f3c24df1786c7ad93bc0a97f`; Render SHA256 `dc55cb93f08e66ff31f47f0087c243f410fe6a5a2f32038a1a4537a4f8da94bc`. All agent-owned native/browser test sessions were closed.
+
+## Source-exact evaluation artifacts
+
+Built from clean implementation source `7208f2658f376b946dc12f608476be00df8a47c0` with Bun1.4.4 on macOS arm64. `bun run build`, `bun run dmg` and `bun scripts/build-tester.ts` pass. Both disk images were mounted read-only and checked for bundle identity, version0.1.0 and strict ad-hoc signature, then detached. Tester distribution contains the real native app rather than Electrobun's self-extracting stub. SDK dev.4 remains the already-published frozen asset.
+
+Immutable local copies are at `/tmp/toolbelt-v2-7208f26-artifacts/`:
+
+| File | Bytes | SHA256 |
+| --- | ---: | --- |
+| Toolbelt-0.1.0-arm64.dmg | 34055962 | ebdeaf4c417c3891e1ac166b79b4ae94e7a9ef1d36718b9a668f65fd78159b46 |
+| Toolbelt-Plugin-Tester-0.1.0-arm64.dmg | 34079258 | 9b67ccd574aed6acf66fb66160fabcd1a441d4051e08600071ef7f6cae9992bc |
+| Toolbelt-Plugin-Tester-0.1.0-macos-arm64.tar.gz | 44378776 | e2ed93b913f188118f56fbc221a278e46de5f93d0527b9f3f0a3a495d39937ef |
+
+Host update bundle `artifacts/stable-macos-arm64-Toolbelt.app.tar.zst`: SHA256 `d98ed85c4e882e0a9c74d19bb1b1a82752cdd122f996729dc69bc92ff6bfb331`. Build logs: `/tmp/toolbelt-final-host-build.log`, `/tmp/toolbelt-final-host-dmg.log`, `/tmp/toolbelt-final-tester-build.log`. These are evaluation outputs, with no stable release or installed-app replacement.
