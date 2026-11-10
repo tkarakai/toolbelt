@@ -4,7 +4,7 @@ import { Electroview } from "electrobun/view";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import type { Node } from "../../shared/protocol";
-import type { PluginInfo, ToolbeltRPC } from "../../shared/rpc";
+import type { PluginInfo, ToolbeltRPC, UpdateState } from "../../shared/rpc";
 
 type State = { plugins: PluginInfo[]; trees: Record<string, Node> };
 let state: State = { plugins: [], trees: {} };
@@ -31,8 +31,11 @@ export function committed(plugin: string, surface: string) {
 type NavListener = (plugin: string, screen?: string) => void;
 const navListeners = new Set<NavListener>();
 const shownListeners = new Set<() => void>();
+const hidingListeners = new Set<() => void>();
 const settingsListeners = new Set<() => void>();
 const commandListeners = new Set<(name: string) => void>();
+/** Pushed update states (src/ui/Updates.tsx subscribes). */
+export const updateListeners = new Set<(s: UpdateState) => void>();
 
 /** App-menu commands sent to this window (toggleSidebar…). */
 export function useCommand(fn: (name: string) => void) {
@@ -57,7 +60,9 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
 	},
 	navigate: ({ plugin, screen }) => navListeners.forEach((l) => l(plugin, screen)),
 	popoverShown: () => shownListeners.forEach((l) => l()),
+	popoverHiding: () => hidingListeners.forEach((l) => l()),
 	settingsChanged: () => settingsListeners.forEach((l) => l()),
+	updateState: (s) => updateListeners.forEach((l) => l(s)),
 	command: ({ name }) => commandListeners.forEach((l) => l(name)),
 	confirmQuit: () => commandListeners.forEach((l) => l("confirmQuit")),
 };
@@ -158,6 +163,13 @@ export function usePopoverShown(fn: () => void) {
 	useEffect(() => {
 		shownListeners.add(fn);
 		return () => void shownListeners.delete(fn);
+	}, [fn]);
+}
+
+export function usePopoverHiding(fn: () => void) {
+	useEffect(() => {
+		hidingListeners.add(fn);
+		return () => void hidingListeners.delete(fn);
 	}, [fn]);
 }
 

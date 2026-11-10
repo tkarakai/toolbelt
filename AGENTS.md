@@ -16,6 +16,23 @@ protocol; Toolbelt renders them. See `README.md`.
 - Workflow files: pin actions to full commit SHAs, keep `permissions` minimal. Only
   GitHub-owned actions, `oven-sh/setup-bun` and `zizmorcore/zizmor-action` are allowed.
 
+## Releases
+
+1. Release PR: bump `version` in `package.json`, rename `## Unreleased` in `CHANGELOG.md` to
+   `## X.Y.Z — YYYY-MM-DD`, merge it.
+2. On an up-to-date, clean `main`, with `bun run dev` stopped: `bun run release` (try
+   `bun run release --dry-run` first). It checks everything, runs typecheck + tests, builds,
+   makes `artifacts/Toolbelt-X.Y.Z-arm64.dmg` (`bun run dmg`, `scripts/make-dmg.ts`), tags
+   `vX.Y.Z`, and creates the GitHub release with the CHANGELOG section + download notes,
+   the disk image attached.
+3. Installed copies find it within 6 hours (`src/bun/updater.ts` reads GitHub's latest release:
+   the `-arm64.dmg` asset, its `digest`, the notes up to `## Downloads`).
+
+The DMG is ours, not Electrobun's: Electrobun's holds a self-extracting stub without
+`CFBundleShortVersionString` whose signature doesn't verify. `make-dmg.ts` takes the real app
+from the update bundle (`artifacts/stable-macos-arm64-Toolbelt.app.tar.zst`), adds the version,
+signs the bundle ad hoc and checks it the way the updater will.
+
 ## How it fits together
 
 - `src/bun/` — the main process. `index.ts`: window, tray + popover, global shortcut, app menu,
@@ -29,7 +46,12 @@ protocol; Toolbelt renders them. See `README.md`.
   `components/ui/` is shadcn's (add more with `bunx shadcn@latest add …`; it once rewrote
   imports to an npm package called `cn` — check the diff).
 - `plugins/` — built-in plugins, bundled to `build-plugins/` by `scripts/build-plugins.ts`.
-  `plugins/processes/`: `core.ts` (running-core client), `model.ts` (grouping/sorting/search,
+  `plugins/processes/`: `running/` (running, vendored as is — see its `VENDORED.md`; the build
+  bundles `running-core.js` and the TUI `bin/running` next to the plugin), `paths.ts` (finds
+  them; `RUNNING_CORE_SCRIPT` overrides the engine), `install.ts` (puts the TUI on PATH and the
+  zsh hook in ~/.zshrc — every path derives from `TOOLBELT_PS_HOME`, else the real home: test
+  only against temp homes, `test/processes-install.test.ts`), `tui.ts` (that Settings card),
+  `core.ts` (running-core client), `model.ts` (grouping/sorting/search,
   pure — tested in `test/processes-model.test.ts`), `index.ts` (screens, dialogs, actions).
   Testing it touches the person's real processes: open dialogs, never save/stop/kill/focus.
 - `src/ui/themes.ts` — palettes (light + dark each); `test/themes.test.ts` enforces WCAG AA for
@@ -39,7 +61,27 @@ protocol; Toolbelt renders them. See `README.md`.
 - `src/bun/tray-highlight.ts` — keeps the menu bar icon highlighted via the ObjC runtime
   (Electrobun has no API); best effort, logs and gives up if the view tree changes.
 - UI state that must feel instant (typing, selection, scroll) stays in the renderer; plugins
-  get events (`search`, action ids, `field`).
+  get events (`search`, `sort`, action ids, `field`). `src/ui/lib/uistate.ts` keeps it per
+  surface and saves it (localStorage), so tools come back as they were left.
+- `src/ui/renderer/pure.ts` — layout decisions (which columns fit, action groups, detail
+  sections, terminal appends, zoom steps) without React; tested in `test/renderer-pure.test.ts`.
+  `Terminal.tsx` (xterm.js) and `Conversation.tsx` draw the `terminal` and `conversation` nodes.
+- `src/ui/lib/zoom.tsx` — ⌘+ / ⌘- / ⌘0 (View menu commands); a component can take zooming over
+  while it's on screen (`useZoomTarget`).
+- `src/bun/file-icon.ts` — Finder's icons for `app:` / `file:` icon names (via JXA, cached in
+  `<config>/cache/icons`).
+
+## Motion (a core UX principle)
+
+Things that appear, disappear, move or change size animate — never jump. The standard is
+**200 ms** (`duration-200`; Tailwind's default transition duration is set to it in
+`src/ui/index.css`), easing out. Use `tw-animate-css` (`animate-in fade-in-0 …`, `animate-out
+…`) for enter/exit and `transition-*` for state changes; keep exits a little shorter (150 ms).
+Examples to follow: the popover (`Popover.tsx`, the main process waits for its closing
+animation before hiding the window), the details drawer (`Inspector` animates its width), tab
+and tool switches (`App.tsx`), newly visible rows (`TableRow`), `ZoomIndicator`. Don't animate
+what updates continuously (live values, sparklines) or the first paint of a long list. Reduced
+motion (macOS setting) turns animations off globally.
 
 ## Working on the code
 
@@ -57,6 +99,18 @@ protocol; Toolbelt renders them. See `README.md`.
   copy the checkout elsewhere (`rsync -a --exclude /build --exclude /dist --exclude /.hutch
   --exclude /build-plugins --exclude /.git`) and run your copy there, with its own
   `TOOLBELT_DEBUG_PORT` and `TOOLBELT_CONFIG_DIR`.
+- Updates (`src/bun/updater.ts`, UI in `src/ui/Updates.tsx`): only `stable` builds
+  (`bun run build`) update themselves, or any build with `TOOLBELT_UPDATE_FEED`. Rehearse an
+  update without touching installed apps: build two versions (temporarily set
+  `package.json`'s version, `bun run build && bun run dmg`, don't commit the bump), copy the
+  older app out of its DMG into a temp folder, serve a GitHub-style `release.json` (with
+  `tag_name`, `assets[].name/size/digest/browser_download_url`) and the newer DMG from a local
+  `Bun.serve`, and run the old app with `TOOLBELT_UPDATE_FEED=http://127.0.0.1:…/release.json
+  TOOLBELT_DEBUG_PORT=… TOOLBELT_CONFIG_DIR=<tmp>` (give its `settings.json` another
+  `shortcut`). The debug channel is on for stable builds when `TOOLBELT_UPDATE_FEED` or
+  `TOOLBELT_DEBUG` is set; `/state` has `update`, `trayAlert`, `pid`. Kill only the PIDs you
+  started. `bun run preview` fakes an update: `GET /update?phase=downloading|verifying|…|failed`,
+  `?available=0`, `?error=…`, `?channel=dev`.
 - Global shortcuts: use `src/bun/hotkey.ts` (Carbon), not Electrobun's `GlobalShortcut` — that
   one silently needs Accessibility permission.
 - Never kill, restart or type into the user's own processes or terminals while testing — the

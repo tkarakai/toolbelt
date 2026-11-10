@@ -3,6 +3,7 @@
 // then the folder each job was started in (with its git branch), then jobs. A job's processes,
 // and jobs started from it, nest under it. Sorting applies at every level. Pure functions, so
 // test/processes-model.test.ts can check them.
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import type { Row, Tone } from "../../src/sdk";
 import { search, type Search } from "../../src/sdk/search";
@@ -26,6 +27,34 @@ export function agentState(a: Agent, now = Date.now()) {
 }
 /** paused / zombie / waiting on disk, from ps's STAT. */
 export const stateLabel = (stat: string) => (stat.includes("Z") ? "zombie" : stat.includes("T") ? "paused" : stat.startsWith("D") ? "waiting on disk" : "");
+
+/** The app bundle an executable lives in (the outermost `.app`), if any. */
+export const bundleOf = (exe?: string) => exe?.match(/^(.*?\.app)(\/|$)/)?.[1];
+
+const KNOWN_APPS = ["/Applications", "/System/Applications", "/System/Applications/Utilities", `${home}/Applications`];
+const appByName = new Map<string, string | undefined>();
+/** Where an app called `name` is installed (cached), for terminal sections' icons. */
+export function findApp(name: string): string | undefined {
+	if (!appByName.has(name)) appByName.set(name, KNOWN_APPS.map((d) => `${d}/${name}.app`).find((p) => existsSync(p)));
+	return appByName.get(name);
+}
+
+/** The icon for a section: the app it is (or runs in), else a symbol. */
+function sectionIcon(where: string, rows: ProcRow[], isApp: boolean, all: ProcRow[]): string {
+	if (where === "detached") return "unplug";
+	if (where.startsWith("tmux")) return "columns-2";
+	if (where === "macOS") return "apple";
+	const bundle =
+		rows.map((r) => bundleOf(r.exe)).find(Boolean) ??
+		all.filter((r) => r.where === where && r.kind === "app").map((r) => bundleOf(r.exe)).find(Boolean) ??
+		findApp(where.split(" · ")[0]);
+	if (bundle) return `app:${bundle}`;
+	return isApp ? "app-window" : "square-terminal";
+}
+
+/** Table column ↔ running's sort key. */
+export const COLUMN_SORT: Record<string, SortKey> = { name: "name", cpu: "cpu", mem: "memory", uptime: "started" };
+export const SORT_COLUMN: Record<SortKey, string> = { name: "name", cpu: "cpu", memory: "mem", started: "uptime" };
 
 const KIND_RANK: Record<string, number> = { job: 0, term: 0, server: 1, daemon: 2, app: 3 };
 
@@ -105,7 +134,7 @@ export function build(snap: Snapshot, o: Options): Built {
 			label: sectionLabel(where),
 			tag: where === "detached" ? "no terminal" : isApp ? "app" : undefined,
 			muted: isApp,
-			icon: where === "detached" ? "unplug" : isApp ? "app-window" : where.startsWith("tmux") ? "columns-2" : "square-terminal",
+			icon: sectionIcon(where, js, isApp, all),
 		};
 		const pids = new Set(js.map((j) => j.pid));
 		const roots = js.filter((j) => j.parentRow === undefined || !pids.has(j.parentRow));
@@ -178,40 +207,46 @@ function jobRow(snap: Snapshot, r: ProcRow, o: Options): Row {
 		kept ? `kept as “${kept.name ?? kept.command}”` : "",
 	].filter(Boolean).join(" · ");
 	const branch = snap.branches[r.cwd];
+	const bundle = r.kind === "app" ? bundleOf(r.exe) : undefined;
+	const P = "Process", C = "Command", N = "Network", A = "Agent";
 	return {
 		id: String(r.pid),
 		cells: {
-			name: { text: (r.leaderGone ? "⤷ " : "") + displayName(r), sub, dot: statusTone(r), mono: !a },
+			name: { text: (r.leaderGone ? "⤷ " : "") + displayName(r), sub, ...(bundle ? { icon: `app:${bundle}` } : { dot: statusTone(r) }), mono: !a && !bundle },
 			ports: { text: "", chips: r.listen.map((l) => `:${l.port}`) },
 			cpu: { text: `${r.cpu.toFixed(1)}%`, spark: spark(o, r.pid, "cpu"), mono: true },
 			mem: { text: mem(r.rssKb), spark: spark(o, r.pid, "mem"), mono: true },
 			uptime: dur(r.etimeSec),
 		},
-		actions: ["focus", ...(url ? ["open"] : []), "output", "copy", kept ? "edit-kept" : "keep", "restart", "stop", "kill", ...(stateLabel(r.stat) ? ["why"] : [])],
+		actions: ["focus", "output", ...(url ? ["open"] : []), ...(stateLabel(r.stat) ? ["why"] : []), kept ? "edit-kept" : "keep", "copy", "restart", "stop", "kill"],
+		stats: [
+			{ label: "CPU", value: `${r.cpu.toFixed(1)}%`, spark: spark(o, r.pid, "cpu") },
+			{ label: "Memory", value: mem(r.rssKb), spark: spark(o, r.pid, "mem") },
+			{ label: "Up", value: dur(r.etimeSec) },
+		],
 		details: [
-			{ label: "Command", value: r.command, mono: true },
-			...(r.command !== r.argvCommand ? [{ label: "Running as", value: r.argvCommand, mono: true }] : []),
-			{ label: "Directory", value: tildify(r.cwd), mono: true },
-			...(branch ? [{ label: "Git branch", value: branch, mono: true }] : []),
-			{ label: "Where", value: [sectionLabel(r.where), r.termLabel && r.termLabel !== r.where ? r.termLabel : ""].filter(Boolean).join(" · ") },
-			{ label: "PID", value: `${r.pid}${r.pgid ? ` · group ${r.pgid}` : ""}`, mono: true },
-			...(r.tty ? [{ label: "TTY", value: r.tty, mono: true }] : []),
-			...(url ? [{ label: "URL", value: url, mono: true }] : []),
-			...(titles.length ? [{ label: "Page", value: titles.join(" · ") }] : []),
-			{ label: "CPU · Memory", value: `${r.cpu.toFixed(1)}% · ${mem(r.rssKb)}` },
-			{ label: "Running for", value: dur(r.etimeSec) },
-			...(stateLabel(r.stat) ? [{ label: "State", value: stateLabel(r.stat) }] : []),
-			...(r.leaderGone ? [{ label: "Launcher", value: "exited — these processes were left running" }] : []),
+			{ section: C, label: "Command", value: r.command, mono: true },
+			...(r.command !== r.argvCommand ? [{ section: C, label: "Running as", value: r.argvCommand, mono: true }] : []),
+			{ section: C, label: "Directory", value: tildify(r.cwd), mono: true },
+			...(branch ? [{ section: C, label: "Git branch", value: branch, mono: true }] : []),
+			...(kept ? [{ section: C, label: "Kept as", value: kept.name ?? kept.command }] : []),
+			...(url ? [{ section: N, label: "URL", value: url, mono: true }] : []),
+			...(titles.length ? [{ section: N, label: "Page", value: titles.join(" · ") }] : []),
 			...(a
 				? [
-						{ label: "Agent", value: [a.harness, a.model].filter(Boolean).join(" · ") },
-						{ label: "Status", value: agentState(a, o.now) },
-						...(a.tokens ? [{ label: "Tokens", value: a.tokens.toLocaleString() + (a.costUsd ? ` · $${a.costUsd.toFixed(2)}` : "") }] : []),
-						...(a.branch ? [{ label: "Agent branch", value: a.branch, mono: true }] : []),
-						...(a.resume ? [{ label: "Resume with", value: a.resume, mono: true }] : []),
+						{ section: A, label: "Agent", value: [a.harness, a.model].filter(Boolean).join(" · ") },
+						{ section: A, label: "Status", value: agentState(a, o.now) },
+						...(a.tokens ? [{ section: A, label: "Tokens", value: a.tokens.toLocaleString() + (a.costUsd ? ` · $${a.costUsd.toFixed(2)}` : "") }] : []),
+						...(a.branch ? [{ section: A, label: "Agent branch", value: a.branch, mono: true }] : []),
+						...(a.resume ? [{ section: A, label: "Resume with", value: a.resume, mono: true }] : []),
 					]
 				: []),
-			...(kept ? [{ label: "Kept as", value: kept.name ?? kept.command }] : []),
+			{ section: P, label: "Where", value: [sectionLabel(r.where), r.termLabel && r.termLabel !== r.where ? r.termLabel : ""].filter(Boolean).join(" · ") },
+			{ section: P, label: "PID", value: `${r.pid}${r.pgid ? ` · group ${r.pgid}` : ""}`, mono: true, copy: false },
+			...(r.tty ? [{ section: P, label: "TTY", value: r.tty, mono: true, copy: false }] : []),
+			...(stateLabel(r.stat) ? [{ section: P, label: "State", value: stateLabel(r.stat), tone: "warning" as const }] : []),
+			...(r.leaderGone ? [{ section: P, label: "Launcher", value: "exited — these processes were left running", tone: "warning" as const }] : []),
+			...(bundle ? [{ section: P, label: "App", value: tildify(bundle), mono: true }] : []),
 		],
 	};
 }
@@ -227,16 +262,19 @@ function memberRow(snap: Snapshot, job: ProcRow, m: Member, o: Options): Row {
 			mem: { text: mem(m.rssKb), spark: spark(o, m.pid, "mem"), mono: true },
 			uptime: dur(m.etimeSec),
 		},
-		actions: [...(url ? ["open"] : []), "output", "copy", "stop", "kill", ...(stateLabel(m.stat) ? ["why"] : [])],
+		actions: ["output", ...(url ? ["open"] : []), ...(stateLabel(m.stat) ? ["why"] : []), "copy", "stop", "kill"],
+		stats: [
+			{ label: "CPU", value: `${m.cpu.toFixed(1)}%`, spark: spark(o, m.pid, "cpu") },
+			{ label: "Memory", value: mem(m.rssKb), spark: spark(o, m.pid, "mem") },
+			{ label: "Up", value: dur(m.etimeSec) },
+		],
 		details: [
-			{ label: "Command", value: m.argvCommand, mono: true },
-			{ label: "Directory", value: tildify(m.cwd), mono: true },
-			{ label: "PID · parent", value: `${m.pid} · ${m.ppid}`, mono: true },
-			{ label: "Part of", value: displayName(job) },
-			...(url ? [{ label: "URL", value: url, mono: true }] : []),
-			{ label: "CPU · Memory", value: `${m.cpu.toFixed(1)}% · ${mem(m.rssKb)}` },
-			{ label: "Running for", value: dur(m.etimeSec) },
-			...(stateLabel(m.stat) ? [{ label: "State", value: stateLabel(m.stat) }] : []),
+			{ section: "Command", label: "Command", value: m.argvCommand, mono: true },
+			{ section: "Command", label: "Directory", value: tildify(m.cwd), mono: true },
+			...(url ? [{ section: "Network", label: "URL", value: url, mono: true }] : []),
+			{ section: "Process", label: "Part of", value: displayName(job) },
+			{ section: "Process", label: "PID · parent", value: `${m.pid} · ${m.ppid}`, mono: true, copy: false },
+			...(stateLabel(m.stat) ? [{ section: "Process", label: "State", value: stateLabel(m.stat), tone: "warning" as const }] : []),
 		],
 	};
 }

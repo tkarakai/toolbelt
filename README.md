@@ -16,7 +16,9 @@ tool looks and behaves like part of the same app.
 
 Status: early. The first plugin is **Toolbelt Processes**
 ([toolbelt-ps](https://github.com/tkarakai/toolbelt-ps)), a reimplementation of
-[running](https://github.com/tkarakai/running).
+[running](https://github.com/tkarakai/running). For now it bundles running itself (vendored in
+`plugins/processes/running/`): its engine, and its terminal UI, which Processes › Settings can
+put on your PATH as `running` (with its zsh hook in `~/.zshrc`) and remove again.
 
 Built with [Electrobun](https://github.com/blackboardsh/electrobun) (Bun + the system web view).
 
