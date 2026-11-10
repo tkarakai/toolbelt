@@ -23,6 +23,12 @@
   typo, and highlights the hits.
 - Processes: AI agents show working / idle time, model and tokens; Restart and Force stop.
 - A real app icon. The menu bar icon stays highlighted while the popover is open.
+- Processes ships running: its engine and its terminal UI are vendored and bundled with the
+  app (no checkout needed). Its Settings has one section for the `running` command and its zsh
+  hook: where the bundled TUI is, what a new terminal finds (path, version, hook loaded),
+  Install (puts `running` on your PATH via `~/.local/bin` and the hook in `~/.zshrc`; an existing
+  `running` is moved aside, not overwritten), Remove (deletes exactly what Install added) and
+  Check again. Sort, order and "show apps" left Settings: they're on the Processes toolbar.
 - ⌘Q quits, ⌘, opens Toolbelt's settings, ⌘B toggles the sidebar (menu items); ⌘ hints show
   instantly; double-clicking the title bar zooms the window.
 - Plugins can show long-running work: cards with actions, label/value details, progress bars
