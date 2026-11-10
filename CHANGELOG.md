@@ -7,6 +7,8 @@
   check every six hours by default, review updates, and follow the queue and audit logs.
   Automatic updates stay off until enabled. Bulk updates exclude apps and major upgrades.
 
+## 0.1.0 — 2026-11-09
+
 - Replaced the belt artwork with Running's process-list icons: midnight-blue official and
   amber dev Dock icons, matching menu bar glyphs and a red update badge.
 - Releases include three downloads, matching Running: the desktop DMG, the bundled

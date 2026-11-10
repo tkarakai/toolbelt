@@ -59,6 +59,22 @@ jobs:
         run: |
           bun run dmg
           bun scripts/make-terminal-archives.ts
+      - name: Diagnose disk image failures
+        if: failure()
+        run: |
+          sw_vers
+          hdiutil info
+          for image in artifacts/Toolbelt-*-arm64.dmg; do
+            [ -f "$image" ] || continue
+            hdiutil imageinfo "$image" || true
+            lsof "$image" || true
+            mkdir -p "$RUNNER_TEMP/toolbelt-dmg-debug"
+            hdiutil attach -debug -nobrowse -readonly -noautoopen \
+              -mountpoint "$RUNNER_TEMP/toolbelt-dmg-debug" "$image" \
+              > "$RUNNER_TEMP/toolbelt-dmg-debug.log" 2>&1 || true
+            tail -150 "$RUNNER_TEMP/toolbelt-dmg-debug.log"
+            hdiutil detach -force "$RUNNER_TEMP/toolbelt-dmg-debug" || true
+          done
 
   secrets:
     name: Secrets
