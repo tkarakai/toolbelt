@@ -9,3 +9,7 @@ artifacts/
 *.tmp
 build-plugins/
 .cottontail-tmp/
+
+build-seed/
+
+artifacts-tester/

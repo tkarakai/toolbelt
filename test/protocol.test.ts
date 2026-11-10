@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultScreen, parseManifest, splitLines } from "../src/shared/protocol";
 
-const base = { id: "demo", name: "Demo", protocol: 0, entry: "index.ts", screens: [{ id: "a", title: "A" }] };
+const base = { id: "demo", name: "Demo", protocol: 1, entry: "index.ts", screens: [{ id: "a", title: "A" }] };
 
 describe("parseManifest", () => {
 	test("fills defaults", () => {
@@ -12,7 +12,7 @@ describe("parseManifest", () => {
 
 	test("rejects what Toolbelt can't use", () => {
 		expect(() => parseManifest({ ...base, id: "Has Spaces" })).toThrow("`id`");
-		expect(() => parseManifest({ ...base, protocol: 1 })).toThrow("`protocol` must be 0");
+		expect(() => parseManifest({ ...base, protocol: 99 })).toThrow("`protocol` must be 1");
 		expect(() => parseManifest({ ...base, screens: [] })).toThrow("at least one screen");
 		expect(() => parseManifest({ ...base, entry: "" })).toThrow("`entry`");
 		expect(() => parseManifest(null)).toThrow("not an object");

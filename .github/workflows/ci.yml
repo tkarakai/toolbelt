@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/architecture2]
   pull_request:
-    branches: [main]
+    branches: [main, feat/architecture2]
   workflow_dispatch:
 
 permissions: {}
@@ -48,17 +48,17 @@ jobs:
           ls -la artifacts
           # The update bundle has the UI, the built-in plugins and the Bun runtime.
           tar -tf artifacts/stable-macos-arm64-Toolbelt.app.tar.zst > "$RUNNER_TEMP/bundle.txt"
-          for f in app/views/ui/index.html app/plugins/processes/toolbelt.json app/plugins/upkeep/toolbelt.json app/plugins/upkeep/index.js MacOS/bun; do
+          for f in app/views/ui/index.html app/seed/demo.tar.gz app/seed/seed.json MacOS/bun; do
             grep -q "Contents/.*$f$" "$RUNNER_TEMP/bundle.txt" || { echo "::error::missing $f in the update bundle"; exit 1; }
           done
           grep -q '"identifier":"io.github.tkarakai.toolbelt"' artifacts/stable-macos-arm64-update.json
           # Ad-hoc signed. (Electrobun's self-extracting launcher fails `codesign --verify --strict`:
           # "code has no resources but signature indicates they must be present".)
           codesign -dv build.noindex/stable-macos-arm64/Toolbelt.app 2>&1 | grep -q 'Signature=adhoc'
-      - name: Verify release downloads (desktop DMG and both terminal archives)
+      - name: Verify host and SDK artifacts
         run: |
           bun run dmg
-          bun scripts/make-terminal-archives.ts
+          bun run sdk:package
       - name: Diagnose disk image failures
         if: failure()
         run: |

@@ -20,6 +20,8 @@ export type Surface = { plugin: string; surface: string };
 export type ToolbeltRPC = {
 	bun: RPCSchema<{
 		requests: {
+			pluginManager:{params:import("../bun/plugin-manager-service").ManagerRequest;response:Awaited<ReturnType<import("../bun/plugin-manager-service").PluginManagerService["handle"]>>};
+			pluginAsset: { params: { reference:string }; response: string|null };
 			plugins: { params: {}; response: PluginInfo[] };
 			/** Start watching a surface; the current tree (if any) comes back right away. */
 			open: { params: Surface; response: Node | null };
@@ -60,6 +62,7 @@ export type ToolbeltRPC = {
 		requests: {};
 		messages: {
 			plugins: PluginInfo[];
+            pluginManagerState:ReturnType<import("../bun/plugin-manager-service").PluginManagerService["read"]>;
 			tree: Surface & { tree: Node };
 			toast: { plugin: string; text: string; tone?: "default" | "success" | "error"; action?: { id: string; label: string; payload?: unknown } };
 			/** Ask before quitting (⌘Q, Quit buttons): this view shows the confirmation. */

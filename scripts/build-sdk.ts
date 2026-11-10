@@ -1,0 +1,14 @@
+import { mkdirSync, cpSync, writeFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { SDK_VERSION } from "../src/shared/package";
+const root=resolve("artifacts/sdk-package");
+rmSync(root,{recursive:true,force:true}); mkdirSync(join(root,"src"),{recursive:true});
+cpSync("src/sdk",join(root,"src/sdk"),{recursive:true});
+mkdirSync(join(root,"src/shared"),{recursive:true});
+for(const file of ["protocol.ts","time.ts","package.ts","validation.ts"]) cpSync(`src/shared/${file}`,join(root,"src/shared",file));
+cpSync("packages/sdk/README.md",join(root,"README.md"));
+writeFileSync(join(root,"package.json"),JSON.stringify({name:"@toolbelt/sdk",version:SDK_VERSION,type:"module",exports:{".":"./src/sdk/index.ts","./search":"./src/sdk/search.ts","./testing":"./src/sdk/testing.ts","./validation":"./src/shared/validation.ts","./protocol":"./src/shared/protocol.ts","./package":"./src/shared/package.ts"}},null,2));
+const archive=resolve(`artifacts/toolbelt-sdk-${SDK_VERSION}.tgz`);
+const proc=Bun.spawn(["tar","-czf",archive,"-C",root,"."],{stdout:"inherit",stderr:"inherit"});
+if(await proc.exited) throw new Error("SDK packaging failed");
+console.log(archive);
