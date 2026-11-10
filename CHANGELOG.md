@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Generated app bundles stay out of Spotlight and app launchers, preventing duplicate
+  official Toolbelt entries alongside the installed release.
+
 ## 0.1.0 — 2026-11-09
 
 - Replaced the belt artwork with Running's process-list icons: midnight-blue official and
