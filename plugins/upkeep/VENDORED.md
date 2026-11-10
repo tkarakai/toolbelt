@@ -29,3 +29,6 @@ Local patches:
   confirmation. Individual review and automatic-update policies remain available.
 
 - Discover rows expose Stop watching when watched, so Enter reverses Watch in place.
+
+- Show Sparkle build numbers, compare bundle versions consistently, and include build-only
+  release notes and full release-note links.
