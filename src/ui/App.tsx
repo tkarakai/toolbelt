@@ -16,7 +16,8 @@ import { QuitDialog } from "./QuitDialog";
 import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { WindowZoom, ZoomKeys } from "@/lib/zoom";
 import { UpdateDot, UpdatesCard, useUpdateAvailable, useUpdateState } from "./Updates";
-import { EmptyState, Render, Dot } from "@/renderer/Render";
+import { EmptyState, Dot } from "@/renderer/Render";
+import { SafeRender as Render } from "@/renderer/SafeRender";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
@@ -267,17 +268,17 @@ function PaneHeader({ manifest, children }: { manifest: Pick<Manifest, "name" | 
 	const { state } = useSidebar();
 	const collapsed = state === "collapsed";
 	return (
-		<header onDoubleClick={zoomOnDoubleClick} className="electrobun-webkit-app-region-drag flex h-12 shrink-0 items-center gap-3 border-b pr-6" style={{ paddingLeft: collapsed ? TRAFFIC_LIGHTS_END - RAIL : 24 }}>
+		<header onDoubleClick={zoomOnDoubleClick} className="electrobun-webkit-app-region-drag flex h-12 min-w-0 shrink-0 items-center gap-3 overflow-hidden border-b pr-6" style={{ paddingLeft: collapsed ? TRAFFIC_LIGHTS_END - RAIL : 24 }}>
 			{collapsed && (
 				<div className="-ml-1">
 					<CollapseButton />
 				</div>
 			)}
-			<div className="flex items-center gap-2.5">
+			<div className="flex min-w-0 max-w-[40%] shrink-0 items-center gap-2.5">
 				<div className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
 					<Icon name={manifest.icon} className="size-4" />
 				</div>
-				<h1 className="text-sm font-semibold">{manifest.name}</h1>
+				<h1 className="truncate text-sm font-semibold">{manifest.name}</h1>
 			</div>
 			{children}
 		</header>
@@ -292,7 +293,7 @@ function PluginPane({ info, screen, go }: { info: PluginInfo; screen: string; go
 			<PaneHeader manifest={m}>
                 {development && <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">DEV</Badge>}
 				{m.screens.length > 1 && (
-					<Tabs value={screen} onValueChange={(s) => go(m.id, s)} className="electrobun-webkit-app-region-no-drag">
+					<Tabs value={screen} onValueChange={(s) => go(m.id, s)} className="electrobun-webkit-app-region-no-drag min-w-0 flex-1 overflow-x-auto">
 						<TabsList>
 							{m.screens.map((s, i) => (
 								<TabsTrigger key={s.id} value={s.id} className="flex-none gap-0 px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground! data-[state=active]:hover:text-selected-foreground!" title={`${s.title}  ${s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`}`}>

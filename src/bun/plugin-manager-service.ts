@@ -121,11 +121,22 @@ export class PluginManagerService {
             })),
           };
         }),
-      operations: [...this.operations.values()],
+      operations: [
+        ...this.operations.values(),
+        ...this.packages.recoveryWarnings
+          .slice(-10)
+          .map((detail, index) => ({
+            id: `recovery-${index}`,
+            phase: "failed",
+            detail,
+            cancellable: false,
+          })),
+      ],
       schedule: { intervalHours: 6, ...registry.updateSchedule },
     };
   }
   start() {
+    this.expireApprovals();
     if (
       !this.packages.registry().updateSchedule?.nextCheck ||
       Date.now() >= (this.packages.registry().updateSchedule?.nextCheck ?? 0)
@@ -133,6 +144,7 @@ export class PluginManagerService {
       void this.checkUpdates();
     this.timer = setInterval(
       () => {
+        this.expireApprovals();
         const schedule = this.packages.registry().updateSchedule;
         if (!schedule?.nextCheck || Date.now() >= schedule.nextCheck)
           void this.checkUpdates();
@@ -144,8 +156,20 @@ export class PluginManagerService {
   stop() {
     clearInterval(this.timer);
     for (const controller of this.controllers.values()) controller.abort();
+    for (const record of this.candidates.values())
+      this.packages.releaseCandidate(record.candidate);
+    this.candidates.clear();
+  }
+  private expireApprovals() {
+    for (const [token, record] of this.candidates)
+      if (record.expires < Date.now()) {
+        this.packages.releaseCandidate(record.candidate);
+        this.candidates.delete(token);
+      }
+    this.packages.collectCandidates();
   }
   private async resolve(request: ManagerRequest) {
+    this.expireApprovals();
     const operationId = crypto.randomUUID(),
       controller = new AbortController();
     this.controllers.set(operationId, controller);
@@ -221,6 +245,7 @@ export class PluginManagerService {
             this.available.delete(p.id);
             updates.set(p.id, undefined);
           }
+          this.packages.releaseCandidate(candidate);
         } catch (e) {
           const detail = `${p.id} (${p.repo}): ${String(e)}`;
           error = error ? `${error}\n${detail}` : detail;
@@ -254,6 +279,15 @@ export class PluginManagerService {
   async handle(request: ManagerRequest) {
     try {
       switch (request.operation) {
+        case "discard": {
+          const record = this.candidates.get(request.token ?? "");
+          if (record) {
+            this.packages.releaseCandidate(record.candidate);
+            this.candidates.delete(request.token!);
+            this.packages.collectCandidates();
+          }
+          break;
+        }
         case "resolve":
           return { candidate: await this.resolve(request) };
         case "install": {

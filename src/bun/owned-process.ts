@@ -1,4 +1,4 @@
-/** Only call for a process spawned detached by Toolbelt; observed/user terminal jobs use different groups. */
+/** Only call for processes spawned detached by Toolbelt; observed/user jobs use different groups. */
 export async function terminateOwned(
   proc: ReturnType<typeof Bun.spawn>,
   graceMs = 2000,
@@ -12,33 +12,22 @@ export async function terminateOwned(
       } catch {}
     }
   };
+  const alive = () => {
+    try {
+      process.kill(-proc.pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   signal("SIGTERM");
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      proc.exited,
-      new Promise<void>((resolve) => {
-        timer = setTimeout(() => {
-          signal("SIGKILL");
-          resolve();
-        }, graceMs);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-  let deadline: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      proc.exited,
-      new Promise<never>((_resolve, reject) => {
-        deadline = setTimeout(
-          () => reject(new Error("Owned process did not exit after SIGKILL")),
-          1000,
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(deadline);
-  }
+  const gracefulDeadline = Date.now() + graceMs;
+  // A parent exiting does not prove its owned descendants stopped.
+  while (alive() && Date.now() < gracefulDeadline) await Bun.sleep(20);
+  if (alive()) signal("SIGKILL");
+  const hardDeadline = Date.now() + 1000;
+  while (alive() && Date.now() < hardDeadline) await Bun.sleep(20);
+  if (alive())
+    throw new Error("Owned process group did not exit after SIGKILL");
+  await proc.exited;
 }

@@ -197,7 +197,7 @@ Bun.serve<{ opened: Set<string> }>({
             host.event(p.plugin, p.surface, p.name, p.payload);
             return reply(true);
           case "restartPlugin":
-            host.restart(p.plugin);
+            await host.restart(p.plugin);
             return reply(true);
           case "settings":
             return reply({

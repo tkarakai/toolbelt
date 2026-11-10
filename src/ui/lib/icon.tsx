@@ -22,7 +22,8 @@ export function Icon({ name, ...props }: { name?: string } & LucideProps) {
         className={props.className}
       />
     );
-  const C = (name && icons[pascal(name) as keyof typeof icons]) || icons.Box;
+  const key=name?pascal(name):"";
+  const C = (Object.hasOwn(icons,key)&&icons[key as keyof typeof icons]) || icons.Box;
   return <C {...props} />;
 }
 

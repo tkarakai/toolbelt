@@ -1,6 +1,6 @@
 # Architecture v2 implementation evidence
 
-Implementation assigned 2026-11-10. Root coordinates/reviews; host_sdk owns host/SDK/tester/demo; processes and upkeep agents own their respective repositories.
+Implementation assigned 2026-11-10. Root coordinates/reviews; host_sdk owns host/SDK/tester; processes owns Processes and the external SDK demo; processes and upkeep agents own their respective repositories.
 
 The user confirmed another session occupies the canonical `feat/architecture2` checkout and authorized this clean `feat/architecture-v2` checkout. Implementation PR targets `feat/architecture2`; canonical checkout remains untouched.
 
@@ -8,29 +8,29 @@ The user confirmed another session occupies the canonical `feat/architecture2` c
 
 Protocol 1, package format 1, diagnostic SDK `0.2.0-dev.1`. Existing declarative APIs preserved; adds hello/ready, prepare/shutdown, package paths/assets, migration helper, runtime validators and fake host. Typecheck passed after frozen install and Electrobun prepare. Candidate is provisional development output; host installer/runtime integration and comprehensive tests remain pending.
 
-## Current gate matrix (latest checkpoint)
+## Current gate matrix (review-fix checkpoint)
 
 | Gate | Evidence / remaining work |
 | --- | --- |
-| Complete plugin extraction/parity | Passed independent packages, behavior tests and copied-v1 data rehearsals; declarative native handoff metadata roll-forward pending |
-| SDK/package validation | Protocol1/package1, runtime nested schemas, archive/asset limits and adversarial tests pass; final SDK dev.4 asset pending checkpoint publication |
-| Generic installer/GitHub resolution | Real public packages for all3 repos pass resolve/hash/extract/prepare/probe/final-ready/disable/remove; source binding, target, digest and immutable-version guards implemented |
-| Runtime containment | Negotiation, explicit ready, crash backoff/quarantine, frame/byte/render/log limits, owned process groups and bounded termination pass |
-| Migration/recovery | Failure/timeout/final-ready rollback, parallel IDs, fsync journals, interrupted prepared/promoting/committed recovery, schema-aware snapshot restoration and helper lease retention pass unit/integration tests; successful historical restoration through actual manager UI pending |
-| Plugin manager | Independent actual RPC/store/browser install3, channel/schedule, cancellation, cleanup navigation, retain/delete, stale recovery and crash isolation pass; diagnostic attribution fixes implemented |
-| Standalone tester/native | Shared production renderer/runtime/native shell; all plugin screens/quick views/keyboard/theme/zoom/motion/blur/profile tests reported passing by agents. Exact signed real-app AX/screenshot automation blocked by platform association; DOM geometry passes; wide inspector/tool-detail browser visual recheck pending |
-| Demo/assembly | Only verified prebuilt removable demo seed, no real plugin sources/tests/builds in host; removed/disabled demo persists across app updates (regression test pass) |
-| Build/release artifacts | Host and tester build pass; real tester app extracted, versioned, ad-hoc signed and strictly verified; separate signed tar/DMG packaging implemented, final artifact rebuild pending |
-| App updater safety | Actual incompatible-plugin preflight and busy Upkeep preparation preserve same PIDs/app bytes; final one-hop signed-DMG update with isolated HOME propagation in progress |
-| CI/review | PR16 green at67c57f5, later checkpoint awaitingCI. Main merges/stable releases/user installation remain prohibited. User review and deferred documentation cleanup remain open |
+| Complete plugin extraction/parity | Independent packages, behavior tests, copied-v1 data rehearsals and SDK4 declared native handoff pass; all three plugin/demo PRs green |
+| SDK/package validation | Published immutable SDK dev.4; protocol1/package1, nested schemas, archive/asset limits and adversarial tests pass |
+| Generic installer/GitHub resolution | All3 public packages pass resolve/hash/extract/prepare/probe/final-ready/disable/remove; source binding, target, digest, immutable-version and approval candidate lease guards pass |
+| Runtime containment | Negotiation/ready, bounded frames/render/logs, crash backoff/quarantine, owned-group TERM/KILL survivor regression and byte verification on every activation/restart pass |
+| Migration/recovery | Durable staged trees/snapshots/rename directories, six fault boundaries and four actual SIGKILL recovery points pass. Actual service + real child schema1/7 → schema2/99 → historical schema1/7 restoration passes; missing snapshot refuses without stopping current child |
+| Plugin manager | Actual RPC/store/browser install3, channel/schedule, cancellation, confirmed cleanup navigation, retain/delete, stale recovery and crash isolation pass23 checks; runtime logs/update errors attributed |
+| Standalone tester/native | Shared renderer/runtime/native shell; native screens/quick/keyboard/theme/zoom/motion/Escape/blur/profile tests pass. Signed real-app AX automation limitation documented; actual Chromium wide inspector/tool-detail and414px visual rerun pass with root/body414 |
+| Demo/assembly | Only hash-pinned removable prebuilt external demo seed; removed/disabled seed persists; no plugin source/build dependencies in host |
+| Build/release artifacts | Prior host/tester build and real-app signing/tar/DMG checks pass; final source-exact artifact rebuild follows independent review-fix checkpoint |
+| App updater safety | Real signed-DMG one-hop0.1.0→0.1.1 passes hash/signature/swap/relaunch/data retention; incompatible and busy plugins defer with original PIDs/app intact; bad SHA refuses; isolated HOME/SHELL preserved |
+| CI/review | PR16 all4 green at892f5cc; review-fix checkpoint CI and coordinator re-review remain next. User testing/review and deferred docs cleanup remain open; no main merge or stable release |
 
 ## Current immutable runtime pins
 
 | Artifact | Source/release | SHA256 |
 | --- | --- | --- |
-| Processes | 582cd7a0a15a6814eb8597006e069c1de3c5a749 / architecture2-582cd7a | 20029917a8c6f4d0406757d0b012cb8f46eb509df8d2860ca97f0b135e44df51 |
+| Processes | 793142c849fd3281db67030d147c311f5907f457 / architecture2-793142c | 04194342a9da8ddccc172d3d52bcb845c80209bac2fd2f32d7e4a47ea3a5465a |
 | Upkeep | c8d8c1f32412a5a4221e0e608a398404a7ec7c3d / architecture2-eval-c8d8c1f | 4ab77de0088caaff7dcb034fe63ace2d1926ed4a210c98fc25a309c7aa596a19 |
-| SDK demo seed | 8e8fca9bae97ba073b6aa6472a749e8c1a5e0b8b / architecture2-8e8fca9 | 51a7d9845c24c4e55b71f68011b41f7708317b2ca48555952a8cd62ba57da44f |
+| SDK demo seed | c89e2e9926d8bbb1c677209081b2874d1c034248 / architecture2-c89e2e9 | e6d9e8694c8713f6737b30e8f1550776ad695c6321a429c1e0bf0f5a008e30d0 |
 
 Later plugin documentation-only heads are distinct from runtime pins. These supersede historical milestone candidates below.
 
@@ -62,11 +62,21 @@ Fault tests cover hash/metadata/path/version compatibility, traversal/absolute/d
 
 Native tester builds and source-independent copied apps exercised by plugin agents. QA found and corrected embedded sidebar containment, viewport-relative frame sizing, missing native Edit/Settings menu, null quick-view height and invalid pre-layout/negative tray geometry. Shared position fallback is tested against actual native bounds. Upkeep reports real native list/380×520 quick view visible and Escape transitions working on build 6. Final native keyboard/theme/narrow/blur evidence and full host app replay remain in progress; no final acceptance claim yet.
 
-Historical pins at milestone4 (superseded above): demo seed: `architecture2-a92399e`, SHA256 `1175e2e0c1c04a4234aaa0237049d80b657de00bbeabc48771216830bd47698b`, 7771 bytes, SDK dev.2, optional capability fallback/payload/migration coverage. Processes evaluation: `architecture2-582cd7a`, SHA256 `20029917a8c6f4d0406757d0b012cb8f46eb509df8d2860ca97f0b135e44df51`, 349645 bytes; stable launcher helper leases and confirmed cleanup screen. Upkeep probe-startup safety was subsequently fixed and packaged in c8d8c1f: staged probes do not schedule external updates or read login startup files. Host now supplies `TOOLBELT_LIFECYCLE_MODE=probe|active`, exposed as SDK Context.mode in dev.3.
+Historical pins at milestone4 (superseded above): demo seed: `architecture2-a92399e`, SHA256 `1175e2e0c1c04a4234aaa0237049d80b657de00bbeabc48771216830bd47698b`, 7771 bytes, SDK dev.2, optional capability fallback/payload/migration coverage. Processes evaluation: `architecture2-793142c`, SHA256 `04194342a9da8ddccc172d3d52bcb845c80209bac2fd2f32d7e4a47ea3a5465a`, 349645 bytes; stable launcher helper leases and confirmed cleanup screen. Upkeep probe-startup safety was subsequently fixed and packaged in c8d8c1f: staged probes do not schedule external updates or read login startup files. Host now supplies `TOOLBELT_LIFECYCLE_MODE=probe|active`, exposed as SDK Context.mode in dev.3.
 
 ## Latest source checkpoint verification
 
 `bun run typecheck`: pass. `bun test`: **371 pass / 0 fail / 3086 assertions / 21 files**.
-All tooling entrypoints also bundle with `bun build scripts/*.ts --target bun` without executing release actions. New regressions include seed persistence, active-view reattachment after package replacement, timestamp/prototype safety, native handoff metadata and cross-origin development-control rejection. SDK dev.4 adds generic declared native handoff intent, eliminating host inspection of Processes action names. Final package metadata roll-forward and current-source CI remain next steps.
+All tooling entrypoints also bundle with `bun build scripts/*.ts --target bun` without executing release actions. New regressions include seed persistence, active-view reattachment after package replacement, timestamp/prototype safety, native handoff metadata and cross-origin development-control rejection. SDK dev.4 adds generic declared native handoff intent, eliminating host inspection of Processes action names. This historical checkpoint preceded the now-published SDK4 plugin metadata roll-forward.
 
-Independent actual manager acceptance report: `/tmp/toolbelt-accept-67c57f5/REPORT.md` (23 checks). Runtime failure logs and update-check errors now include plugin/repo attribution; successful real historical recovery through UI remains separate from passing backend recovery tests.
+Independent actual manager acceptance report: `/tmp/toolbelt-accept-67c57f5/REPORT.md` (23 checks). Runtime failure logs and update-check errors now include plugin/repo attribution; real historical recovery through the actual service and real child migrations subsequently passed (see latest evidence below).
+
+## Review corrections and final independent evidence
+
+The coordinator's five findings are corrected: parent exit no longer skips descendant termination; cached approved bytes are verified for enable/restart; recursive file/directory fsync precedes committed journal and previous-data deletion; malformed journals are quarantined individually; explicit data deletion records initialization separately from package identity. Interrupted deletion/reinitialization also recover safely. Candidate leases preserve multiple reviewed versions until approval expires or is discarded; successful install and canceled review release leases.
+
+`bun run typecheck` and full `bun test`: **389 pass / 0 fail / 3167 assertions / 24 files**. Focused actual-child integrity and owned-group tests pass. `test/power-recovery.test.ts` SIGKILLs a separate installer at previous rename, candidate promotion, registry commit and journal commit, then recovers from a fresh manager. Tooling entrypoints bundle successfully without executing release actions.
+
+Actual manager evidence: `/tmp/toolbelt-accept-67c57f5/REPORT.md`. Real schema child/migration restoration evidence: `/tmp/toolbelt-schema-restore-result.json` (matching snapshot restores counter7 rather than current99, missing snapshot preserves PID88448). Real signed-DMG updater evidence: `/tmp/toolbelt-updater-rehearsal-state.json` (0.1.0PID51557→0.1.1PID53053; compatibility refusal before download; busy refusal preserves app/plugin PIDs; bad-SHA refusal; no remaining owned mounts/staged directories).
+
+Final renderer evidence lives in Processes and demo `docs/browser-acceptance.md`: actual Chromium414×896, inner/root/body414, wrapped toolbar, scrollable tabs, readable primary text,382px dialog;1440px inspector340px and expanded conversation Input/Output screenshots. App SHA256 `c1947ec25d1764851e76ebf7e0f16119fbb54a17f3c24df1786c7ad93bc0a97f`; Render SHA256 `dc55cb93f08e66ff31f47f0087c243f410fe6a5a2f32038a1a4537a4f8da94bc`. All agent-owned native/browser test sessions were closed.

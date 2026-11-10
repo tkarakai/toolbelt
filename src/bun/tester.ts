@@ -170,7 +170,7 @@ function hideNative() {
 }
 function makeRPC() {
   const rpc: any = BrowserView.defineRPC({
-    maxRequestTime: 120000,
+    maxRequestTime: 300000,
     handlers: {
       requests: {
         tester: ({ operation, ...params }: any) =>
@@ -195,8 +195,17 @@ function makeRPC() {
           runtime.host.event(p.plugin, p.surface, p.name, p.payload);
           return true;
         },
-        restartPlugin: (p: any) => {
-          runtime.host.restart(p.plugin);
+        restartPlugin: async (p: any) => {
+          try {
+            await runtime.host.restart(p.plugin);
+          } catch (error) {
+            broadcast("toast", {
+              plugin: p.plugin,
+              text: String(error),
+              tone: "error",
+            });
+            throw error;
+          }
           return true;
         },
         settings: () => ({

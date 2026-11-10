@@ -1,4 +1,5 @@
 import { terminateOwned } from "./owned-process";
+import { syncTree, syncPath, syncParents } from "./durability";
 import {
   existsSync,
   mkdirSync,
@@ -37,6 +38,8 @@ export type Installed = {
   asset?: string;
   removed?: boolean;
   availableVersion?: string;
+  dataInitialized?: boolean;
+  deleteDataPending?: boolean;
   dataSchema?: number;
   history?: {
     installed: Omit<Installed, "history">;
@@ -65,6 +68,7 @@ export type ReleaseDescriptor = {
   packages: { target: string; asset: string; sha256: string; size: number }[];
 };
 export type Candidate = {
+  lease?: string;
   manifest: PackageManifest;
   hash: string;
   packageRoot: string;
@@ -103,7 +107,9 @@ export function atomicJSON(file: string, value: unknown) {
 export function readRegistry(root: string): Registry {
   const file = join(root, "plugins/registry.json");
   if (!existsSync(file)) return { formatVersion: 1, plugins: {} };
-  const value = JSON.parse(readFileSync(file, "utf8"));
+  return validateRegistry(JSON.parse(readFileSync(file, "utf8")), root);
+}
+function validateRegistry(value: any, root: string): Registry {
   if (
     value.formatVersion !== 1 ||
     !value.plugins ||
@@ -132,6 +138,13 @@ export function readRegistry(root: string): Registry {
       (!Number.isSafeInteger(p.dataSchema) || p.dataSchema < 0)
     )
       throw new Error("Invalid managed data schema");
+    if (
+      (p.dataInitialized !== undefined &&
+        typeof p.dataInitialized !== "boolean") ||
+      (p.deleteDataPending !== undefined &&
+        typeof p.deleteDataPending !== "boolean")
+    )
+      throw new Error("Invalid data initialization state");
     if (
       p.history !== undefined &&
       (!Array.isArray(p.history) || p.history.length > 3)
@@ -334,12 +347,14 @@ export class PackageManager {
     readonly root: string,
     private hooks: RuntimeHooks,
     private hostVersion = "0.1.0",
+    private fault?: (point: string) => void,
   ) {}
   registry() {
     return readRegistry(this.root);
   }
   private save(registry: Registry) {
     atomicJSON(join(this.root, "plugins/registry.json"), registry);
+    syncParents(join(this.root, "plugins"), this.root);
   }
   private serialize<T>(id: string, run: () => Promise<T>): Promise<T> {
     if (this.hostUpgrading)
@@ -392,10 +407,31 @@ export class PackageManager {
       mkdirSync(dirname(packageRoot), { recursive: true });
       if (!existsSync(packageRoot)) renameSync(dir, packageRoot);
       else rmSync(dir, { recursive: true, force: true });
+      syncTree(packageRoot);
+      syncParents(dirname(packageRoot), this.root);
+      syncPath(join(this.root, "plugins/staging"));
       const cache = join(this.root, "cache/packages");
       mkdirSync(cache, { recursive: true });
-      writeFileSync(join(cache, expectedHash), bytes);
-      return { manifest, repo, hash: expectedHash, packageRoot };
+      const cacheFile = join(cache, expectedHash);
+      if (
+        !existsSync(cacheFile) ||
+        hash(new Uint8Array(readFileSync(cacheFile))) !== expectedHash
+      ) {
+        const pending = join(cache, `${expectedHash}-${randomUUID()}.tmp`);
+        writeFileSync(pending, bytes);
+        syncPath(pending);
+        renameSync(pending, cacheFile);
+      }
+      syncPath(cacheFile);
+      syncParents(cache, this.root);
+      const lease = randomUUID();
+      atomicJSON(join(this.root, "plugins/candidates", `${lease}.json`), {
+        id: manifest.id,
+        packageRoot,
+        hash: expectedHash,
+        expires: Date.now() + 10 * 60 * 1000,
+      });
+      return { manifest, repo, hash: expectedHash, packageRoot, lease };
     } catch (error) {
       rmSync(dir, { recursive: true, force: true });
       throw error;
@@ -409,6 +445,18 @@ export class PackageManager {
     if (!approved)
       throw new Error("Explicit publisher execution approval required");
     return this.serialize(candidate.manifest.id, async () => {
+      if (this.liveLeaseRoots(candidate.manifest.id).size)
+        throw new Error(
+          "Close this plugin's running command-line helpers before changing its managed data/version",
+        );
+      if (!existsSync(candidate.packageRoot))
+        await this.stage(
+          new Uint8Array(
+            readFileSync(join(this.root, "cache/packages", candidate.hash)),
+          ),
+          candidate.hash,
+          candidate.repo,
+        );
       verifyPackageBytes(this.root, candidate, this.hostVersion);
       const id = candidate.manifest.id,
         registry = this.registry(),
@@ -436,6 +484,7 @@ export class PackageManager {
         staged = join(txDir, "data");
       mkdirSync(txDir, { recursive: true });
       mkdirSync(dirname(backup), { recursive: true });
+      const hasData = existsSync(data) && old?.dataInitialized !== false;
       const next: Installed = {
         id,
         repo: candidate.repo,
@@ -444,7 +493,9 @@ export class PackageManager {
         packageRoot: candidate.packageRoot,
         manifest: candidate.manifest,
         enabled: true,
+        dataInitialized: true,
         dataSchema:
+          hasData &&
           !restoreSnapshot &&
           old &&
           (
@@ -467,35 +518,58 @@ export class PackageManager {
         backup,
         staged,
         previous,
+        hadData: hasData,
         phase: "prepared",
       };
       atomicJSON(join(txDir, "journal.json"), journal);
+      syncParents(txDir, this.root);
       let prepared = false;
+      let committed = false;
       try {
         await this.hooks.prepare(id, "upgrade");
         prepared = true;
         this.report(id, "stopping");
         await this.hooks.stop(id);
-        if (existsSync(data)) {
+        if (hasData) {
           cpSync(data, backup, { recursive: true });
           cpSync(restoreSnapshot ?? data, staged, { recursive: true });
+          syncTree(backup);
+          syncParents(dirname(backup), this.root);
         } else mkdirSync(staged, { recursive: true });
+        this.fault?.("snapshot-synced");
         this.report(id, "migrating");
         if (!restoreSnapshot)
-          await this.migrate(candidate, old, staged, backup, tx);
+          await this.migrate(
+            candidate,
+            hasData ? old : undefined,
+            staged,
+            backup,
+            tx,
+          );
         this.report(id, "starting");
         await this.hooks.probe(candidate, staged);
+        syncTree(staged);
+        syncParents(txDir, this.root);
+        this.fault?.("candidate-synced");
         journal.phase = "promoting";
         atomicJSON(join(txDir, "journal.json"), journal);
         mkdirSync(dirname(data), { recursive: true });
         if (existsSync(data)) {
           renameSync(data, previous);
           movedOriginal = true;
+          syncPath(dirname(data));
+          syncPath(txDir);
+          this.fault?.("previous-renamed");
         }
         renameSync(staged, data);
         promoted = true;
+        syncPath(txDir);
+        syncPath(dirname(data));
+        this.fault?.("candidate-promoted");
         await this.hooks.activate(next);
-        if (old) {
+        syncTree(data);
+        syncParents(dirname(data), this.root);
+        if (old && hasData) {
           const { history, ...previousInstalled } = old;
           next.history = [
             ...(history ?? []),
@@ -505,10 +579,14 @@ export class PackageManager {
         const fresh = this.registry();
         fresh.plugins[id] = next;
         this.save(fresh);
+        this.fault?.("registry-committed");
         journal.phase = "committed";
         atomicJSON(join(txDir, "journal.json"), journal);
+        committed = true;
+        this.fault?.("journal-committed");
         rmSync(txDir, { recursive: true, force: true });
         this.report(id, "ready");
+        this.releaseCandidate(candidate);
         try {
           this.collectPackages(id);
         } catch (error) {
@@ -520,7 +598,7 @@ export class PackageManager {
         }
         return next;
       } catch (error) {
-        if (journal.phase === "committed") {
+        if (committed) {
           this.report(
             id,
             "ready",
@@ -536,6 +614,9 @@ export class PackageManager {
         await this.hooks.stop(id);
         if (promoted) rmSync(data, { recursive: true, force: true });
         if (movedOriginal && existsSync(previous)) renameSync(previous, data);
+        if (existsSync(data)) syncTree(data);
+        syncParents(dirname(data), this.root);
+        syncPath(txDir);
         const fresh = this.registry();
         if (old) {
           fresh.plugins[id] = old;
@@ -632,6 +713,7 @@ export class PackageManager {
       if (!p || p.removed) throw new Error("Plugin not installed");
       if (enabled) {
         checkCompatibility(p.manifest, this.hostVersion);
+        verifyPackageBytes(this.root, p, this.hostVersion);
         await this.hooks.activate(p);
       } else {
         await this.hooks.prepare(id, "disable");
@@ -679,46 +761,99 @@ export class PackageManager {
       const registry = this.registry(),
         p = registry.plugins[id];
       if (!p) return;
+      if (deleteData && this.liveLeaseRoots(id).size)
+        throw new Error(
+          "Close this plugin's running command-line helpers before deleting its managed data",
+        );
       await this.hooks.prepare(id, "remove");
       await this.hooks.stop(id);
       this.hooks.remove(id);
       p.enabled = false;
       p.removed = true;
+      if (deleteData) {
+        p.dataInitialized = false;
+        p.deleteDataPending = true;
+      }
       const fresh = this.registry();
       fresh.plugins[id] = p;
       this.save(fresh);
-      if (deleteData)
+      if (deleteData) {
         rmSync(join(this.root, "data", id), {
           recursive: true,
           force: true,
         });
+        const parent = join(this.root, "data");
+        if (existsSync(parent)) syncParents(parent, this.root);
+        const completed = this.registry();
+        completed.plugins[id]!.deleteDataPending = false;
+        this.save(completed);
+      }
       this.collectPackages(id);
     });
   }
   /** Live helper leases pin immutable versions. Stale leases and unreferenced code are collected. */
-  collectPackages(id: string) {
-    const registry = this.registry(),
-      installed = registry.plugins[id];
-    const retained = new Set<string>();
-    if (installed && !installed.removed) {
-      retained.add(installed.packageRoot);
-      for (const history of installed.history ?? [])
-        retained.add(history.installed.packageRoot);
-    }
-    const leases = join(this.root, "plugins/leases", id);
+  private liveLeaseRoots(id: string) {
+    const roots = new Set<string>(),
+      leases = join(this.root, "plugins/leases", id);
     if (existsSync(leases))
       for (const file of readdirSync(leases)) {
         const path = join(leases, file);
         try {
           const lease = JSON.parse(readFileSync(path, "utf8"));
-          if (!Number.isSafeInteger(lease.pid) || lease.pid < 1)
-            throw new Error("invalid lease");
+          if (
+            !Number.isSafeInteger(lease.pid) ||
+            lease.pid < 1 ||
+            typeof lease.packageRoot !== "string"
+          )
+            throw new Error("Invalid lease");
           process.kill(lease.pid, 0);
-          retained.add(lease.packageRoot);
+          roots.add(lease.packageRoot);
         } catch {
           rmSync(path, { force: true });
         }
       }
+    return roots;
+  }
+  releaseCandidate(candidate: Candidate) {
+    if (candidate.lease && /^[a-f0-9-]{36}$/.test(candidate.lease))
+      rmSync(join(this.root, "plugins/candidates", `${candidate.lease}.json`), {
+        force: true,
+      });
+  }
+  collectCandidates() {
+    const root = join(this.root, "plugins/packages");
+    if (existsSync(root))
+      for (const id of readdirSync(root))
+        if (/^[a-z0-9][a-z0-9-]*$/.test(id) && !this.operations.has(id))
+          this.collectPackages(id);
+  }
+  collectPackages(id: string) {
+    const registry = this.registry(),
+      installed = registry.plugins[id];
+    const retained = new Set<string>();
+    const candidates = join(this.root, "plugins/candidates");
+    if (existsSync(candidates))
+      for (const file of readdirSync(candidates)) {
+        const path = join(candidates, file);
+        try {
+          const candidate = JSON.parse(readFileSync(path, "utf8"));
+          if (
+            !Number.isFinite(candidate.expires) ||
+            candidate.expires <= Date.now()
+          )
+            throw new Error("Expired candidate");
+          if (candidate.id === id && typeof candidate.packageRoot === "string")
+            retained.add(candidate.packageRoot);
+        } catch {
+          rmSync(path, { force: true });
+        }
+      }
+    if (installed && !installed.removed) {
+      retained.add(installed.packageRoot);
+      for (const history of installed.history ?? [])
+        retained.add(history.installed.packageRoot);
+    }
+    for (const path of this.liveLeaseRoots(id)) retained.add(path);
     const packages = join(this.root, "plugins/packages", id);
     if (existsSync(packages))
       for (const name of readdirSync(packages)) {
@@ -726,6 +861,10 @@ export class PackageManager {
         if (!retained.has(path)) rmSync(path, { recursive: true, force: true });
       }
     const backups = join(this.root, "backups", id);
+    const quarantine = join(this.root, "plugins/quarantine-transactions"),
+      quarantined = new Set(
+        existsSync(quarantine) ? readdirSync(quarantine) : [],
+      );
     const snapshots = new Set(
       installed && !installed.removed
         ? (installed.history ?? []).map((h) => h.snapshot)
@@ -734,13 +873,34 @@ export class PackageManager {
     if (existsSync(backups))
       for (const name of readdirSync(backups)) {
         const path = join(backups, name);
-        if (!snapshots.has(path))
+        if (!snapshots.has(path) && !quarantined.has(name))
           rmSync(path, { recursive: true, force: true });
       }
   }
+  readonly recoveryWarnings: string[] = [];
   async recover() {
+    const quarantine = join(this.root, "plugins/quarantine-transactions");
+    if (existsSync(quarantine) && readdirSync(quarantine).length)
+      this.recoveryWarnings.push(
+        `${readdirSync(quarantine).length} quarantined recovery transaction(s) retained for review`,
+      );
+    const pending = this.registry();
+    let changed = false;
+    for (const p of Object.values(pending.plugins))
+      if (p.deleteDataPending) {
+        const data = join(this.root, "data", p.id);
+        rmSync(data, { recursive: true, force: true });
+        if (existsSync(dirname(data))) syncParents(dirname(data), this.root);
+        p.dataInitialized = false;
+        p.deleteDataPending = false;
+        changed = true;
+      }
+    if (changed) this.save(pending);
     const root = join(this.root, "plugins/transactions");
-    if (!existsSync(root)) return;
+    if (!existsSync(root)) {
+      this.collectCandidates();
+      return;
+    }
     for (const tx of readdirSync(root)) {
       const txDir = join(root, tx),
         file = join(txDir, "journal.json");
@@ -748,25 +908,42 @@ export class PackageManager {
         rmSync(txDir, { recursive: true, force: true });
         continue;
       }
-      const j = JSON.parse(readFileSync(file, "utf8"));
-      if (
-        !/^[a-z0-9][a-z0-9-]*$/.test(j.id) ||
-        j.data !== join(this.root, "data", j.id) ||
-        j.backup !== join(this.root, "backups", j.id, tx) ||
-        j.staged !== join(txDir, "data") ||
-        j.previous !== join(txDir, "previous") ||
-        !["prepared", "promoting", "committed"].includes(j.phase) ||
-        (j.old && j.old.id !== j.id) ||
-        j.next?.id !== j.id
-      ) {
+      let j: any;
+      try {
+        if (lstatSync(file).size > 2 * 1024 * 1024)
+          throw new Error("Journal size limit");
+        j = JSON.parse(readFileSync(file, "utf8"));
+        if (
+          !j ||
+          typeof j !== "object" ||
+          !/^[a-z0-9][a-z0-9-]*$/.test(j.id) ||
+          j.data !== join(this.root, "data", j.id) ||
+          j.backup !== join(this.root, "backups", j.id, tx) ||
+          j.staged !== join(txDir, "data") ||
+          j.previous !== join(txDir, "previous") ||
+          !["prepared", "promoting", "committed"].includes(j.phase) ||
+          j.next?.id !== j.id ||
+          (j.old && j.old.id !== j.id)
+        )
+          throw new Error("Journal structure/path mismatch");
+        validateRegistry(
+          { formatVersion: 1, plugins: { [j.id]: j.next } },
+          this.root,
+        );
+        if (j.old)
+          validateRegistry(
+            { formatVersion: 1, plugins: { [j.id]: j.old } },
+            this.root,
+          );
+      } catch (error) {
         const quarantine = join(this.root, "plugins/quarantine-transactions");
         mkdirSync(quarantine, { recursive: true });
         renameSync(txDir, join(quarantine, tx));
-        this.report(
-          "registry",
-          "failed",
-          "Invalid transaction journal quarantined",
-        );
+        syncParents(quarantine, this.root);
+        syncPath(root);
+        const warning = `Recovery journal ${tx} quarantined: ${String(error)}`;
+        this.recoveryWarnings.push(warning);
+        this.report("registry", "failed", warning);
         continue;
       }
       if (j.phase !== "committed") {
@@ -774,7 +951,18 @@ export class PackageManager {
           if (existsSync(j.previous)) {
             rmSync(j.data, { recursive: true, force: true });
             renameSync(j.previous, j.data);
-          } else if (!j.old) rmSync(j.data, { recursive: true, force: true });
+          } else if ((j.hadData ?? !!j.old) && existsSync(j.backup)) {
+            rmSync(j.data, { recursive: true, force: true });
+            cpSync(j.backup, j.data, { recursive: true });
+          } else if (!(j.hadData ?? !!j.old))
+            rmSync(j.data, { recursive: true, force: true });
+          else
+            throw new Error(
+              `Recovery snapshot missing for ${j.id}; journal retained`,
+            );
+          if (existsSync(j.data)) syncTree(j.data);
+          syncParents(dirname(j.data), this.root);
+          syncPath(txDir);
         }
         const registry = this.registry();
         if (j.old) registry.plugins[j.id] = j.old;
@@ -782,7 +970,9 @@ export class PackageManager {
         this.save(registry);
       }
       rmSync(txDir, { recursive: true, force: true });
+      syncPath(root);
     }
+    this.collectCandidates();
   }
 }
 export async function boundedText(

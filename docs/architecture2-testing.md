@@ -25,9 +25,9 @@ then approve execution:
 
 | Plugin | Repository | Evaluation release |
 | --- | --- | --- |
-| Processes | tkarakai/toolbelt-ps | architecture2-582cd7a |
+| Processes | tkarakai/toolbelt-ps | architecture2-793142c |
 | Upkeep | tkarakai/toolbelt-upkeep | architecture2-eval-c8d8c1f |
-| SDK demo (bundled) | tkarakai/toolbelt-sdk-demo | architecture2-8e8fca9 |
+| SDK demo (bundled) | tkarakai/toolbelt-sdk-demo | architecture2-c89e2e9 |
 
 These are immutable development snapshots. Several earlier snapshots share plugin semantic
 version 0.0.1, so use a fresh evaluation profile when changing snapshot tags. The host

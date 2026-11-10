@@ -122,7 +122,7 @@ const inApp =
 function connect(): Transport {
   if (inApp) {
     const r = Electroview.defineRPC<ToolbeltRPC>({
-      maxRequestTime: 10_000,
+      maxRequestTime: 300_000,
       handlers: { requests: {}, messages: handlers as never },
     });
     new Electroview({ rpc: r });
@@ -301,6 +301,9 @@ registerPluginManagerAdapter({
   },
   cancel: async (operationId) => {
     await managerRequest({ operation: "cancel", operationId });
+  },
+  discard: async (token) => {
+    await managerRequest({ operation: "discard", token });
   },
   checkUpdates: async () => {
     await managerRequest({ operation: "checkUpdates" });

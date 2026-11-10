@@ -51,7 +51,10 @@ async function archive(m = manifest()) {
   const hash = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
   return { bytes, hash, source };
 }
-function setup(overrides: Partial<RuntimeHooks> = {}) {
+function setup(
+  overrides: Partial<RuntimeHooks> = {},
+  fault?: (point: string) => void,
+) {
   const root = mkdtempSync(join(tmpdir(), "tb-packages-"));
   const hooks: RuntimeHooks = {
     prepare: async () => {},
@@ -61,7 +64,7 @@ function setup(overrides: Partial<RuntimeHooks> = {}) {
     remove: () => {},
     ...overrides,
   };
-  return { root, manager: new PackageManager(root, hooks) };
+  return { root, manager: new PackageManager(root, hooks, "0.1.0", fault) };
 }
 test("verified archive installs then disables and retains data on removal", async () => {
   const a = await archive(),
@@ -538,4 +541,191 @@ test("app seed never reinstalls removed or disabled demo across app updates", as
     }
   }
 });
-test('native handoff intent is declarative and requires negotiated capability',()=>{expect(()=>parsePackageManifest({...manifest(),handoffActions:['focus-owned']})).toThrow('native.handoff');expect(parsePackageManifest({...manifest(),capabilities:{required:['ui.core','native.handoff'],optional:[]},handoffActions:['focus-owned']}).handoffActions).toEqual(['focus-owned'])});
+test("native handoff intent is declarative and requires negotiated capability", () => {
+  expect(() =>
+    parsePackageManifest({ ...manifest(), handoffActions: ["focus-owned"] }),
+  ).toThrow("native.handoff");
+  expect(
+    parsePackageManifest({
+      ...manifest(),
+      capabilities: { required: ["ui.core", "native.handoff"], optional: [] },
+      handoffActions: ["focus-owned"],
+    }).handoffActions,
+  ).toEqual(["focus-owned"]);
+});
+
+test("enabling changed extracted code is rejected before activation", async () => {
+  let activations = 0;
+  const { root, manager } = setup({
+      activate: async () => {
+        activations++;
+      },
+    }),
+    a = await archive();
+  try {
+    const c = await manager.stage(a.bytes, a.hash, "test/fixture");
+    await manager.install(c, true);
+    await manager.enabled("fixture", false);
+    writeFileSync(
+      join(c.packageRoot, "index.js"),
+      'throw new Error("tampered code executed")',
+    );
+    const count = activations;
+    await expect(manager.enabled("fixture", true)).rejects.toThrow(
+      "bytes changed",
+    );
+    expect(activations).toBe(count);
+    expect(manager.registry().plugins.fixture?.enabled).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("malformed JSON journal quarantines without aborting host recovery", async () => {
+  const { root, manager } = setup();
+  const tx = join(root, "plugins/transactions/broken");
+  mkdirSync(tx, { recursive: true });
+  writeFileSync(join(tx, "journal.json"), "{");
+  try {
+    await manager.recover();
+    expect(
+      existsSync(
+        join(root, "plugins/quarantine-transactions/broken/journal.json"),
+      ),
+    ).toBe(true);
+    expect(manager.recoveryWarnings[0]).toContain("quarantined");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("remove with data deletion reinitializes unchanged schema on reinstall", async () => {
+  const { root, manager } = setup(),
+    a = await migrationArchive(
+      "1.0.0",
+      1,
+      'const r=JSON.parse(await Bun.stdin.text());await Bun.write(r.targetDir+"/initialized",r.fromSchema===null?"initial":"wrong-existing-schema");console.log(JSON.stringify({type:"migration-complete"}));',
+    );
+  try {
+    let c = await manager.stage(a.bytes, a.hash, "test/fixture");
+    await manager.install(c, true);
+    expect(readFileSync(join(root, "data/fixture/initialized"), "utf8")).toBe(
+      "initial",
+    );
+    await manager.remove("fixture", true);
+    expect(existsSync(join(root, "data/fixture"))).toBe(false);
+    c = await manager.stage(a.bytes, a.hash, "test/fixture");
+    await manager.install(c, true);
+    expect(readFileSync(join(root, "data/fixture/initialized"), "utf8")).toBe(
+      "initial",
+    );
+    expect(manager.registry().plugins.fixture?.dataInitialized).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+for (const point of [
+  "snapshot-synced",
+  "candidate-synced",
+  "previous-renamed",
+  "candidate-promoted",
+  "registry-committed",
+  "journal-committed",
+])
+  test(`durability boundary failure at ${point} preserves a recoverable selection`, async () => {
+    let fail = false;
+    const seen: string[] = [];
+    const { root, manager } = setup({}, (p) => {
+        seen.push(p);
+        if (fail && p === point) throw new Error("injected " + point);
+      }),
+      a = await archive(),
+      b = await archive(manifest("1.1.0"));
+    try {
+      await manager.install(
+        await manager.stage(a.bytes, a.hash, "test/fixture"),
+        true,
+      );
+      writeFileSync(join(root, "data/fixture/state"), "frozen-old-data");
+      fail = true;
+      const work = manager.install(
+        await manager.stage(b.bytes, b.hash, "test/fixture"),
+        true,
+      );
+      if (point === "journal-committed") await work;
+      else await expect(work).rejects.toThrow("injected");
+      await manager.recover();
+      expect(manager.registry().plugins.fixture?.version).toBe(
+        point === "journal-committed" ? "1.1.0" : "1.0.0",
+      );
+      expect(readFileSync(join(root, "data/fixture/state"), "utf8")).toBe(
+        "frozen-old-data",
+      );
+      expect(seen).toContain(point);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+test("pending verified candidates survive another version install and release on discard/expiry", async () => {
+  const { root, manager } = setup(),
+    a = await archive(),
+    b = await archive(manifest("1.1.0"));
+  try {
+    const first = await manager.stage(a.bytes, a.hash, "test/fixture"),
+      second = await manager.stage(b.bytes, b.hash, "test/fixture");
+    await manager.install(first, true);
+    expect(existsSync(second.packageRoot)).toBe(true);
+    await manager.install(second, true);
+    expect(manager.registry().plugins.fixture?.version).toBe("1.1.0");
+    const third = await archive(manifest("1.2.0")),
+      candidate = await manager.stage(third.bytes, third.hash, "test/fixture");
+    manager.releaseCandidate(candidate);
+    manager.collectCandidates();
+    expect(existsSync(candidate.packageRoot)).toBe(false);
+    const fourth = await archive(manifest("1.3.0")),
+      expired = await manager.stage(fourth.bytes, fourth.hash, "test/fixture");
+    const pin = join(root, "plugins/candidates", `${expired.lease}.json`);
+    const value = JSON.parse(readFileSync(pin, "utf8"));
+    value.expires = Date.now() - 1;
+    writeFileSync(pin, JSON.stringify(value));
+    manager.collectCandidates();
+    expect(existsSync(expired.packageRoot)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("recovery of interrupted reinstall after delete-data does not require an old snapshot", async () => {
+  const { root, manager } = setup(),
+    a = await archive();
+  try {
+    await manager.install(
+      await manager.stage(a.bytes, a.hash, "test/fixture"),
+      true,
+    );
+    await manager.remove("fixture", true);
+    const old = manager.registry().plugins.fixture!,
+      tx = "reinitialize",
+      txDir = join(root, "plugins/transactions", tx),
+      data = join(root, "data/fixture");
+    mkdirSync(txDir, { recursive: true });
+    mkdirSync(data, { recursive: true });
+    writeFileSync(join(data, "partial"), "new-uncommitted");
+    writeFileSync(
+      join(txDir, "journal.json"),
+      JSON.stringify({
+        id: "fixture",
+        old,
+        next: { ...old, enabled: true, removed: false },
+        data,
+        backup: join(root, "backups/fixture", tx),
+        staged: join(txDir, "data"),
+        previous: join(txDir, "previous"),
+        phase: "promoting",
+        hadData: false,
+      }),
+    );
+    await manager.recover();
+    expect(existsSync(data)).toBe(false);
+    expect(manager.registry().plugins.fixture?.removed).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

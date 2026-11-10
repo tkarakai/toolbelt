@@ -2,7 +2,7 @@ import { terminateOwned } from "./owned-process";
 // Finds plugins, starts each as a Bun child process, and relays its UI trees to the web views.
 // No Electrobun imports here, so it can be tested on its own.
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, basename } from "node:path";
 import {
   PROTOCOL_VERSION,
   parseManifest,
@@ -91,6 +91,10 @@ export class PluginProcess {
   private stderrBytes = 0;
   waitReady() {
     if (this.state === "running") return Promise.resolve();
+    if (this.state === "crashed")
+      return Promise.reject(
+        new Error(this.error ?? "Plugin activation failed"),
+      );
     return new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve;
       this.readyReject = reject;
@@ -111,7 +115,16 @@ export class PluginProcess {
   async stopAndWait() {
     const proc = this.proc;
     this.stop();
-    if (proc) await terminateOwned(proc);
+    if (proc) await this.terminate(proc);
+  }
+  private terminations = new WeakMap<ReturnType<typeof Bun.spawn>, Promise<void>>();
+  private terminate(proc: ReturnType<typeof Bun.spawn>) {
+    const existing = this.terminations.get(proc);
+    if (existing) return existing;
+    const work = terminateOwned(proc);
+    this.terminations.set(proc, work);
+    void work.catch(() => {});
+    return work;
   }
 
   state: PluginState = "stopped";
@@ -137,6 +150,7 @@ export class PluginProcess {
       configRoot?: string;
       mode?: "probe" | "active";
       diagnostic?: (plugin: string, kind: string, detail: unknown) => void;
+      verify?: () => void;
     },
     private readonly changed: () => void,
     private readonly listener: Listener,
@@ -152,6 +166,17 @@ export class PluginProcess {
   }
 
   start() {
+    try {
+      this.opts.verify?.();
+      this.startUnchecked();
+    } catch (error) {
+      this.state = "crashed";
+      this.error = String(error);
+      this.readyReject?.(new Error(this.error));
+      this.changed();
+    }
+  }
+  private startUnchecked() {
     this.messageWindow = Date.now();
     this.messageCount = 0;
     this.inputWindow = Date.now();
@@ -228,19 +253,14 @@ export class PluginProcess {
     try {
       (this.proc?.stdin as import("bun").FileSink | undefined)?.end();
     } catch {}
-    if (this.proc) {
-      try {
-        process.kill(-this.proc.pid, "SIGTERM");
-      } catch {
-        this.proc.kill();
-      }
-    }
+    if (this.proc) void this.terminate(this.proc);
   }
 
-  restart() {
-    this.stop();
+  async restart() {
+    await this.stopAndWait();
     this.restarts = 0;
-    this.restartTimer = setTimeout(() => this.start(), 200);
+    this.start();
+    await this.waitReady();
   }
 
   send(msg: HostMessage) {
@@ -467,7 +487,7 @@ export class PluginProcess {
     }
   }
 
-  private exited(proc: ReturnType<typeof Bun.spawn>, code: number | null) {
+  private async exited(proc: ReturnType<typeof Bun.spawn>, code: number | null) {
     if (proc !== this.proc) return; // an older process after a restart
     clearTimeout(this.handshakeTimer);
     this.readyReject?.(
@@ -476,14 +496,20 @@ export class PluginProcess {
       ),
     );
     this.readyReject = undefined;
+    try {
+      await this.terminate(proc);
+    } catch (error) {
+      this.state = "crashed";
+      this.error = String(error);
+      this.changed();
+      return;
+    }
+    if (proc !== this.proc) return;
     if (this.stopping) {
       if (this.state !== "crashed") this.state = "stopped";
       this.changed();
       return;
     }
-    try {
-      process.kill(-proc.pid, "SIGKILL");
-    } catch {}
     this.log(`exited with ${code}`);
     // Restart a crashing plugin a few times, backing off; then leave it crashed.
     if (this.restarts < 3) {
@@ -508,6 +534,7 @@ export class PluginProcess {
 }
 
 export class PluginHost {
+  private restarting = new Map<string, Promise<void>>();
   private plugins = new Map<string, PluginProcess>();
   private listeners = new Set<Listener>();
 
@@ -593,8 +620,20 @@ export class PluginHost {
     this.get(plugin).send({ type: "event", surface, name, payload });
   }
 
-  restart(plugin: string) {
-    this.get(plugin).restart();
+  async restart(plugin: string) {
+    const existing = this.restarting.get(plugin);
+    if (existing) return existing;
+    const p = this.get(plugin),
+      work = (async () => {
+        await p.prepare("restart");
+        await p.restart();
+      })();
+    this.restarting.set(plugin, work);
+    try {
+      await work;
+    } finally {
+      if (this.restarting.get(plugin) === work) this.restarting.delete(plugin);
+    }
   }
 
   async prepare(id: string, reason: string) {
@@ -650,6 +689,28 @@ export class PluginHost {
         data,
         configRoot: this.opts.registryRoot,
         diagnostic: this.opts.diagnostic,
+        verify: this.opts.registryRoot
+          ? () => {
+              const m = parsePackageManifest(manifest),
+                hash = basename(dir).slice(m.version.length + 1);
+              if (
+                !/^[a-f0-9]{64}$/.test(hash) ||
+                resolve(dir) !==
+                  resolve(
+                    this.opts.registryRoot!,
+                    "plugins/packages",
+                    m.id,
+                    `${m.version}-${hash}`,
+                  )
+              )
+                throw new Error("Unapproved package activation path");
+              verifyPackageBytes(
+                this.opts.registryRoot!,
+                { manifest: m, hash, packageRoot: dir, repo: m.repo },
+                this.opts.host.version,
+              );
+            }
+          : undefined,
       },
       () => this.emitPlugins(),
       {

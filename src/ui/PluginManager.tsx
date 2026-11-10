@@ -145,8 +145,15 @@ export function PluginManager({
       if (mounted.current) setBusy(false);
     }
   }
-  const review = (source: string, tag?: string, pre = prerelease) => {
+  const dismissCandidate = () => {
+    if (candidate && adapter.discard)
+      void adapter
+        .discard(candidate.token)
+        .catch((error) => setError(String(error)));
     setCandidate(undefined);
+  };
+  const review = (source: string, tag?: string, pre = prerelease) => {
+    dismissCandidate();
     void run(async () => {
       const c = await adapter.resolve({
         repo: source.trim(),
@@ -454,7 +461,7 @@ export function PluginManager({
         </section>
         <Dialog
           open={!!candidate}
-          onOpenChange={(open) => !open && !busy && setCandidate(undefined)}
+          onOpenChange={(open) => !open && !busy && dismissCandidate()}
         >
           <DialogContent className="max-h-[85vh] overflow-auto">
             <DialogHeader>
@@ -499,7 +506,7 @@ export function PluginManager({
                   <Button
                     variant="outline"
                     disabled={busy}
-                    onClick={() => setCandidate(undefined)}
+                    onClick={dismissCandidate}
                   >
                     Cancel
                   </Button>

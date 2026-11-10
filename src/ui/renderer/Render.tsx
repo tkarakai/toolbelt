@@ -316,7 +316,7 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 						<FilterMenu key={f.id} filter={f} emit={emit} />
 					))}
 					{node.summary && <span className="truncate text-sm text-muted-foreground tabular-nums">{node.summary}</span>}
-					<div className="ml-auto flex items-center gap-2">
+					<div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-2">
 						<ActionButtons actions={node.actions ?? []} onRun={(a) => run(a)} />
 					</div>
 				</div>

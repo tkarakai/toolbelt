@@ -116,7 +116,7 @@ manager.subscribe((state) =>
 
 function makeRPC() {
   const rpc: any = BrowserView.defineRPC<ToolbeltRPC>({
-    maxRequestTime: 10_000,
+    maxRequestTime: 300_000,
     handlers: {
       requests: {
         pluginManager: (request) => manager.handle(request),
@@ -137,7 +137,13 @@ function makeRPC() {
               "Toolbelt is preparing to update; plugin actions are temporarily deferred",
             );
           // Register Toolbelt as the foreground application before handing focus away.
-          if (host.list().find(p=>p.manifest.id===plugin)?.manifest.handoffActions?.includes(name) && win) {
+          if (
+            host
+              .list()
+              .find((p) => p.manifest.id === plugin)
+              ?.manifest.handoffActions?.includes(name) &&
+            win
+          ) {
             await win.activate();
             prepareAppHandoff();
           }
@@ -146,8 +152,15 @@ function makeRPC() {
         },
         openUrl: ({ url }) =>
           /^(https?:|mailto:)/i.test(url) && Utils.openExternal(url),
-        restartPlugin: ({ plugin }) => {
-          host.restart(plugin);
+        restartPlugin: async ({ plugin }): Promise<true> => {
+          try {
+            await host.restart(plugin);
+          } catch (error) {
+            views.forEach((view) =>
+              view.send.toast({ plugin, text: String(error), tone: "error" }),
+            );
+            throw error;
+          }
           return true;
         },
         settings: () => ({
@@ -407,7 +420,20 @@ const updater = new AppUpdater({
   relaunch: (app) => {
     const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
     const env = Object.entries({ ...process.env, TOOLBELT_OPEN_WINDOW: "1" })
-      .filter(([k, v]) => (k.startsWith("TOOLBELT_")||["HOME","SHELL","PATH","TMPDIR","LANG","LC_ALL","USER"].includes(k)) && v !== undefined)
+      .filter(
+        ([k, v]) =>
+          (k.startsWith("TOOLBELT_") ||
+            [
+              "HOME",
+              "SHELL",
+              "PATH",
+              "TMPDIR",
+              "LANG",
+              "LC_ALL",
+              "USER",
+            ].includes(k)) &&
+          v !== undefined,
+      )
       .map(([k, v]) => `--env ${q(`${k}=${v}`)}`)
       .join(" ");
     Bun.spawn(
@@ -554,7 +580,8 @@ if (
     hostname: "127.0.0.1",
     port: Number(process.env.TOOLBELT_DEBUG_PORT),
     async fetch(req) {
-      if(!localControlRequest(req))return new Response("Forbidden origin",{status:403});
+      if (!localControlRequest(req))
+        return new Response("Forbidden origin", { status: 403 });
       const url = new URL(req.url);
       const q = url.searchParams;
       switch (url.pathname) {
