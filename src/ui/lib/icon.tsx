@@ -10,13 +10,9 @@ const pascal = (name: string) => name.replace(/(^|-)([a-z0-9])/g, (_, __, c: str
 
 export const isFileIcon = (name?: string) => !!name && /^(app|file):/.test(name);
 
-const agentLogos = import.meta.glob("../assets/agents/*.svg", { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
+
 export function Icon({ name, ...props }: { name?: string } & LucideProps) {
-	if (name?.startsWith("agent:")) {
-        const svg = agentLogos[`../assets/agents/${name.slice(6)}.svg`];
-        if (svg) return <span className={cn("inline-flex size-4 shrink-0 [&>svg]:size-full [&>svg]:fill-current", props.className)} dangerouslySetInnerHTML={{ __html: svg }} />;
-        return <icons.Bot {...props} />;
-    }
+	if(name?.startsWith("asset:"))return <PackageIcon reference={name} className={props.className}/>;
     if (isFileIcon(name)) return <FileIcon path={name!.replace(/^(app|file):/, "")} className={props.className} />;
 	const C = (name && icons[pascal(name) as keyof typeof icons]) || icons.Box;
 	return <C {...props} />;
@@ -51,3 +47,5 @@ function FileIcon({ path, className }: { path: string; className?: string }) {
 	if (!url) return <icons.AppWindow className={cn("size-4 shrink-0 text-muted-foreground", className)} />;
 	return <img src={url} alt="" draggable={false} className={cn("size-4 shrink-0 object-contain animate-in fade-in-0 duration-200", className)} />;
 }
+
+function PackageIcon({reference,className}:{reference:string;className?:string}){const[url,setUrl]=useState<string|null>(null);useEffect(()=>{let live=true;void rpc.request.pluginAsset({reference}).then(value=>live&&setUrl(value));return()=>{live=false}},[reference]);return url?<img src={url} alt="" className={cn("size-4 shrink-0 object-contain",className)}/>:<icons.Box className={className}/>;}

@@ -20,6 +20,8 @@ export type Surface = { plugin: string; surface: string };
 export type ToolbeltRPC = {
 	bun: RPCSchema<{
 		requests: {
+			pluginManager: { params: { operation:"list"|"resolve"|"install"|"enable"|"remove"; repo?:string; release?:string; prerelease?:boolean; token?:string; id?:string; enabled?:boolean; deleteData?:boolean }; response: { installed?: import("../bun/packages").Installed[]; candidate?: {token:string;id:string;name:string;version:string;repo:string;hash:string}; error?:string } };
+			pluginAsset: { params: { reference:string }; response: string|null };
 			plugins: { params: {}; response: PluginInfo[] };
 			/** Start watching a surface; the current tree (if any) comes back right away. */
 			open: { params: Surface; response: Node | null };

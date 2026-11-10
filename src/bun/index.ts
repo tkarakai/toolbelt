@@ -1,10 +1,12 @@
 // Toolbelt's main process: the menu bar icon and its popover, the main window, the global
 // shortcut, and the plugin host that feeds both web views.
 import Electrobun, { BrowserView, BrowserWindow, Screen, Tray, Updater, Utils, ApplicationMenu } from "electrobun/main";
-import { PATHS } from "electrobun/main";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { PluginHost, configDir, pluginDirs } from "./host";
+import { PluginHost, configDir } from "./host";
+import { PackageManager, type Candidate } from "./packages";
+import { resolveGithub } from "./plugin-github";
+import { pluginAsset } from "./plugin-assets";
 import { FileIcons } from "./file-icon";
 import { clearHotKey, displayAccelerator, setHotKey } from "./hotkey";
 import { DEFAULTS, loadSettings, saveSettings, type Settings } from "./settings";
@@ -29,11 +31,15 @@ const viewUrl = (hash = "") => (devServer ? "http://localhost:5173/" : "views://
 
 // ── plugins ──────────────────────────────────────────────────────────────
 const host = new PluginHost({
-	dirs: pluginDirs({ bundled: join(PATHS.RESOURCES_FOLDER, "app/plugins"), home: homedir(), extra: process.env.TOOLBELT_PLUGINS }),
+	dirs: [],
+	registryRoot: configDir(homedir()),
 	bun: process.execPath,
 	host: { name: variant.name, version: pkg.version },
 	data: join(configDir(homedir()), "data"),
 });
+const packages = new PackageManager(configDir(homedir()),{prepare:(id,reason)=>host.prepare(id,reason),stop:id=>host.stopPlugin(id),probe:(candidate,data)=>host.probe(candidate,data),activate:p=>host.activate(p),remove:id=>host.remove(id)},pkg.version);
+await packages.recover();
+const candidates=new Map<string,Candidate>();
 
 const icons = new FileIcons(join(configDir(homedir()), "cache/icons"));
 
@@ -50,6 +56,16 @@ function makeRPC() {
 		maxRequestTime: 10_000,
 		handlers: {
 			requests: {
+				pluginManager: async (request) => {
+					try {
+						if(request.operation==="resolve"){const candidate=await resolveGithub(packages,request.repo??"",{release:request.release,prerelease:request.prerelease});const token=crypto.randomUUID();candidates.set(token,candidate);return{candidate:{token,id:candidate.manifest.id,name:candidate.manifest.name,version:candidate.manifest.version,repo:candidate.repo,hash:candidate.hash}}}
+						if(request.operation==="install"){const candidate=candidates.get(request.token??"");if(!candidate)throw new Error("Resolve the release before approval");await packages.install(candidate,true);candidates.delete(request.token!)}
+						if(request.operation==="enable")await packages.enabled(request.id!,!!request.enabled);
+						if(request.operation==="remove")await packages.remove(request.id!,!!request.deleteData);
+						return{installed:Object.values(packages.registry().plugins).filter(p=>!p.removed)};
+					}catch(error){return{error:String(error)}}
+				},
+				pluginAsset: ({reference})=>pluginAsset(packages,reference),
 				plugins: () => host.list(),
 				open: ({ plugin, surface }) => {
 					opened.get(rpc)?.add(`${plugin}\n${surface}`);

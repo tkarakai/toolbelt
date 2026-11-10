@@ -1,3 +1,4 @@
+import { PluginManager } from "./PluginManager";
 // The main window: the app sidebar (resizable, collapses to an icon rail) and the selected
 // plugin's pane with its tabs. Route: #/<plugin>/<screen>, or #/toolbelt for Toolbelt's own page.
 //
@@ -142,7 +143,7 @@ export default function App() {
 				) : current && screen ? (
 					<PluginPane key={current.manifest.id} info={current} screen={screen} go={go} />
 				) : plugins.length ? null : (
-					<Loading />
+					<div className="p-8"><h1 className="text-lg font-medium">Welcome to Toolbelt</h1><p className="my-3 text-muted-foreground">Install a plugin to get started.</p><Button onClick={()=>go(TOOLBELT)}>Manage plugins</Button></div>
 				)}
 			</SidebarInset>
 		</SidebarProvider>
@@ -374,7 +375,8 @@ function ToolbeltPage({ plugins, onClose }: { plugins: PluginInfo[]; onClose: ()
 			</PaneHeader>
 			<div className="min-h-0 flex-1 overflow-auto">
 				<div className="mx-auto max-w-4xl space-y-6 px-6 py-6">
-					<UpdatesCard />
+					<PluginManager />
+                    <UpdatesCard />
 					<AppearanceSetting />
 					<Card>
 						<CardHeader>

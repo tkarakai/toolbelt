@@ -18,7 +18,7 @@ function harness() {
 			}
 		},
 	};
-	const write = (line: string) => out.push(JSON.parse(line));
+	const write = (line: string) => JSON.parse(line).type!=="hello" && JSON.parse(line).type!=="ready" && out.push(JSON.parse(line));
 	return { out, input, write, send: (m: HostMessage) => push(m) };
 }
 
@@ -30,7 +30,7 @@ test("renders open surfaces, skips unchanged trees, coalesces invalidations", as
 	let renders = 0;
 	const ctx = definePlugin({ render: { "screen:a": () => (renders++, { type: "text", text: `n=${n}` }) } }, { write: h.write, input: h.input });
 	await tick();
-	h.send({ type: "hello", protocol: 0, plugin: { id: "t" }, host: { name: "test", version: "0" } });
+	h.send({ type: "hello", protocol: 1, plugin: { id: "t" }, host: { name: "test", version: "0" } });
 	h.send({ type: "open", surface: "screen:a" });
 	await tick();
 	expect(h.out).toEqual([{ type: "render", surface: "screen:a", tree: { type: "text", text: "n=0" } }]);
