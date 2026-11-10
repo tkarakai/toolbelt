@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Processes detects known agent harnesses launched by T3 Code and other GUI clients,
+  even without a terminal or network listener.
 - Upkeep tables support single-key row actions, with shortcut hints in menus and details.
 
 - Upkeep shows Sparkle build numbers so same-version rebuilds have distinct installed and

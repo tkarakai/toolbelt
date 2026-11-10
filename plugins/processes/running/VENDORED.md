@@ -24,6 +24,7 @@ How Toolbelt uses it (nothing here is edited for that):
 - The dependencies (`ink`, `yaml`, `react`) come from Toolbelt's `package.json`.
 
 Local patches:
+- `src/procs.ts` / `src/codex-server.ts` / `src/agents.ts`: collect GUI-hosted agents using Toolbelt's agent registry (`../../agents.ts`), without attributing a shared Codex host to one conversation.
 - `src/procs.ts`: include noninteractive shell scripts as terminal jobs; exclude only interactive shells.
 - `src/serve.ts`: offer environment differences for agent jobs as well as other commands.
 - `src/procs.ts` / `src/serve.ts`: preserve CMUX workspace/surface identity in terminal metadata and row DTOs.

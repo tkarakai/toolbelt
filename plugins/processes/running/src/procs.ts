@@ -14,6 +14,8 @@ import { readFileSync, statSync } from "node:fs";
 import { procArgs, procCwd, procPath, procStart } from "./native.ts";
 import { historyBetween, readLog, termForTty, typedFor, type Typed } from "./hook.ts";
 import { isAppContainer } from "./fingerprint.ts";
+import { isCodexAppServer } from "./codex-server.ts";
+import { detectAgent } from "../../agents.ts";
 
 export type Kind = "term" | "server" | "daemon" | "app";
 
@@ -327,6 +329,21 @@ export async function collect(opts: { selfPid: number }): Promise<Row[]> {
   for (const p of procs.values()) {
     if (p.uid !== MY_UID || p.ppid !== 1 || p.tty !== "??" || excluded.has(p.pid) || claimed.has(p.pid) || roots.has(p.pid)) continue;
     if (SYSTEM_PATH.test(exeOf(p.pid)) || DAEMON_IGNORE.has(base(exeOf(p.pid)))) continue;
+    roots.set(p.pid, "daemon");
+  }
+
+  // GUI clients launch agent harnesses over stdio, without a tty, TCP
+  // listener, or launchd parent. Keep recognized harnesses as their own jobs.
+  for (const p of procs.values()) {
+    if (p.uid !== MY_UID || excluded.has(p.pid) || claimed.has(p.pid) || roots.has(p.pid)) continue;
+    const a = argsOf(p.pid);
+    if (!a) continue;
+    const argv = collapseShebang(a.argv, a.env);
+    const agent = detectAgent(argv, exeOf(p.pid));
+    if (!agent) continue;
+    // Codex's package also contains worker binaries; those aren't harnesses.
+    if (agent.id === "codex" && base(argv[0] ?? "") !== "codex" && base(exeOf(p.pid)) !== "codex") continue;
+    if (agent.id === "codex" && argv[1] === "app-server" && !isCodexAppServer(argv)) continue;
     roots.set(p.pid, "daemon");
   }
 

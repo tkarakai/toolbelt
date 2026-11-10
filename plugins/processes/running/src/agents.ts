@@ -11,6 +11,7 @@ import { join, basename } from "node:path";
 import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { procStart } from "./native.ts";
 import { base, type Row } from "./procs.ts";
+import { isCodexAppServer } from "./codex-server.ts";
 
 export type Harness = "codex" | "claude" | "pi";
 
@@ -91,6 +92,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function codex(r: Row, started: number): AgentInfo {
   const info: AgentInfo = { harness: "codex" };
+  // An app-server can host many conversations; its cwd/start time identifies
+  // neither a specific thread nor that thread's activity or resume command.
+  if (isCodexAppServer(r.argv)) return info;
   const i = r.argv.indexOf("resume");
   const fromArgv = i >= 0 && UUID.test(r.argv[i + 1] ?? "") ? r.argv[i + 1] : undefined;
   const db = codexThreads();
