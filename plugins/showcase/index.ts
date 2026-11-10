@@ -119,10 +119,12 @@ const ctx = definePlugin({
 				const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
 				return sort.desc ? -c : c;
 			});
+			const groupCounts = new Map<string, number>();
+            for (const job of sorted) groupCounts.set(job.region, (groupCounts.get(job.region) ?? 0) + 1);
 			const rows: Row[] = sorted.map((j, i) => ({
 				id: j.id,
 				// A path-like group label with its important part (`strong`) and a branch.
-				group: [{ id: j.region, label: `clusters/${j.region}/jobs`, strong: j.region, sub: j.region === "eu-west" ? "main" : "release/2.0" }],
+				group: [{ id: j.region, label: `clusters/${j.region}/jobs`, strong: j.region, sub: j.region === "eu-west" ? "main" : "release/2.0", summary: { label: "Visible jobs", value: String(groupCounts.get(j.region) ?? 0) } }],
 				cells: {
 					name: {
 						text: j.name,

@@ -759,9 +759,9 @@ function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setCho
  *  headers it sits under (for indentation). */
 type Visible = { row: Row; depth: number; parent?: string; indent: number; group?: string };
 
-type GroupLevel = { key: string; label: string; strong?: string; sub?: string; tag?: string; muted?: boolean; icon?: string };
+type GroupLevel = { summary?: { label: string; value: string; description?: string }; key: string; label: string; strong?: string; sub?: string; tag?: string; muted?: boolean; icon?: string };
 const groupPath = (g: Row["group"]): GroupLevel[] =>
-	g === undefined ? [] : (typeof g === "string" ? [g] : g).map((l: GroupLabel) => (typeof l === "string" ? { key: l, label: l } : { key: l.id ?? l.label, label: l.label, strong: l.strong, sub: l.sub, tag: l.tag, muted: l.muted, icon: l.icon }));
+	g === undefined ? [] : (typeof g === "string" ? [g] : g).map((l: GroupLabel) => (typeof l === "string" ? { key: l, label: l } : { key: l.id ?? l.label, label: l.label, strong: l.strong, sub: l.sub, tag: l.tag, muted: l.muted, icon: l.icon, summary: l.summary }));
 
 /** Group headers are selectable too; their ids can't clash with row ids. */
 const HEADER = "\u0001group:";
@@ -1205,6 +1205,9 @@ function GroupHeader({ item, colSpan, selected, onSelect, onToggle }: { item: Ex
 						</Badge>
 					)}
 					<span className="shrink-0 text-xs text-muted-foreground tabular-nums">{count}</span>
+                    {g.summary && <Tooltip><TooltipTrigger asChild>
+                        <span tabIndex={0} aria-label={`${g.summary.label}: ${g.summary.value}`} className="ml-auto shrink-0 rounded px-1 font-mono text-xs text-muted-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring">{g.summary.value}</span>
+                    </TooltipTrigger><TooltipContent className="max-w-xs"><div><div className="font-medium">{g.summary.label}</div>{g.summary.description && <p className="mt-1 leading-relaxed">{g.summary.description}</p>}</div></TooltipContent></Tooltip>}
 				</div>
 			</td>
 		</tr>
@@ -1306,7 +1309,9 @@ function GroupSummary({ item, onToggle, onClose }: { item: Extract<Item, { kind:
 				<div className="grid grid-cols-2 gap-2">
 					<StatTile label="Items" value={String(item.count)} />
 					<StatTile label="State" value={item.collapsed ? "Collapsed" : "Expanded"} />
+                    {g.summary && <StatTile label={g.summary.label} value={g.summary.value} />}
 				</div>
+                {g.summary?.description && <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{g.summary.description}</p>}
 			</div>
 			<div className="border-t p-3">
 				<Button size="sm" variant="outline" onClick={onToggle}>

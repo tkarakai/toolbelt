@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { ProcRow, Snapshot } from "../plugins/processes/core";
 import { AGENTS, detectAgent } from "../plugins/processes/agents";
 import { activity, agentState, facetsOf, SERVICE, build, facetCounts, projectPart, sortTree, statusDot, stripAnsi } from "../plugins/processes/model";
-import { HUES, type Cell, type Dot, type GroupLabel } from "../src/shared/protocol";
+import { HUES, type Cell, type Dot, type GroupLabel, type Row } from "../src/shared/protocol";
 
 const job = (p: Partial<ProcRow> & { pid: number }): ProcRow => ({
 	kind: "term", command: `cmd${p.pid}`, argvCommand: `cmd${p.pid}`, displayArgv: [], source: "typed", leaderGone: false, cwd: "/w/a", listen: [], where: "Orca",
@@ -61,7 +61,7 @@ describe("sorting and search", () => {
 		expect(build(s, { ...opts, desc: true }).rows.map((r) => r.id)).toEqual(["1", "2"]);
 	});
 
-	test("by memory, sections order by their total", () => {
+	test("by memory, sections order by their largest command", () => {
 		const s = snap([job({ pid: 1, where: "A", rssKb: 10 }), job({ pid: 2, where: "B", rssKb: 500 })]);
 		expect(build(s, { ...opts, sort: "memory", desc: true }).rows.map((r) => r.id)).toEqual(["2", "1"]);
 	});
@@ -222,4 +222,50 @@ test("CMUX workspace and surface names are visible and searchable independently 
     const rows = build(snap([r]), { ...opts, query: "Different workspace" }).rows;
     expect(rows).toHaveLength(1);
     expect(rows[0].cells.name).toMatchObject({ sub: expect.stringContaining("Different workspace / Upgrade dependencies") });
+});
+
+const groupSummary = (row: Row, level: number) => (row.group as Exclude<GroupLabel, string>[])[level].summary;
+
+test("memory sorting ranks apps and folders by the largest command, not the displayed total", () => {
+    const commands = [
+        job({pid:1,where:"Many",cwd:"/many",rssKb:300*1024}),
+        job({pid:2,where:"Many",cwd:"/many",rssKb:250*1024}),
+        job({pid:3,where:"Many",cwd:"/many",rssKb:350*1024}),
+        job({pid:4,where:"Largest",cwd:"/largest",rssKb:500*1024}),
+    ];
+    const descending = build(snap(commands), {...opts,sort:"memory",desc:true}).rows;
+    expect(descending.map(r=>r.id)).toEqual(["4","3","1","2"]);
+    expect(groupSummary(descending[0],0)?.value).toBe("Σ 500 MB");
+    expect(groupSummary(descending[1],0)?.value).toBe("Σ 900 MB");
+    expect(build(snap(commands),{...opts,sort:"memory",desc:false}).rows.map(r=>r.id)).toEqual(["2","1","3","4"]);
+    const sameApp = commands.map(r=>({...r,where:"Terminal"}));
+    expect(build(snap(sameApp),{...opts,sort:"memory",desc:true}).rows.map(r=>r.id)).toEqual(["4","3","1","2"]);
+    expect(build(snap(sameApp),{...opts,sort:"memory",desc:false}).rows.map(r=>r.id)).toEqual(["2","1","3","4"]);
+});
+
+test("group totals include nested jobs once without recounting ordinary process members", () => {
+    const rows = [
+        job({pid:1,rssKb:1024,members:[{pid:11,ppid:1,depth:0,displayArgv:[],argvCommand:"helper",cwd:"/w/a",listen:[],tty:"",stat:"S",etimeSec:1,rssKb:512,cpu:0,pidCount:1}]}),
+        job({pid:2,parentRow:1,cwd:"/w/b",rssKb:2048,command:"uniquenestedcommand"}),
+        job({pid:3,rssKb:4096}),
+        job({pid:4,cwd:"/w/c",rssKb:8192}),
+    ];
+    const built = build(snap(rows),opts).rows;
+    expect(groupSummary(built[0],0)?.value).toBe("Σ 15 MB");
+    expect(groupSummary(built.find(r=>r.id==="1")!,1)?.value).toBe("Σ 7 MB");
+    expect(groupSummary(built.find(r=>r.id==="4")!,1)?.value).toBe("Σ 8 MB");
+    expect(built.find(r=>r.id==="1")!.children?.some(r=>r.id==="2")).toBe(true);
+    const filtered = build(snap(rows),{...opts,query:"uniquenestedcommand"}).rows;
+    expect(filtered.map(r=>r.id)).toEqual(["2"]);
+    expect(groupSummary(filtered[0],0)?.value).toBe("Σ 2 MB");
+    expect(groupSummary(filtered[0],1)?.value).toBe("Σ 2 MB");
+});
+
+test("a folder ranks by its largest nested job and CPU grouping still uses sums", () => {
+    const rows = [job({pid:1,rssKb:1024,cpu:3}),job({pid:2,parentRow:1,cwd:"/different",rssKb:10240,cpu:0}),job({pid:3,cwd:"/z",rssKb:5120,cpu:1})];
+    const memory = build(snap(rows),{...opts,sort:"memory",desc:true}).rows;
+    expect(memory.map(r=>r.id)).toEqual(["1","3"]);
+    expect(groupSummary(memory[0],1)?.value).toBe("Σ 11 MB");
+    const apps = [job({pid:1,where:"Many",cpu:3}),job({pid:2,where:"Many",cpu:3}),job({pid:3,where:"Single",cpu:5})];
+    expect(build(snap(apps),{...opts,sort:"cpu",desc:true}).rows.map(r=>r.id)).toEqual(["1","2","3"]);
 });

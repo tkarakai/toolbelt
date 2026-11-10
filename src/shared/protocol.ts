@@ -169,6 +169,8 @@ export type GroupLabel =
 			sub?: string;
 			/** a small badge ("app", "no terminal") */
 			tag?: string;
+			/** Informational aggregate, displayed independently of sorting and collapsed state. */
+            summary?: { label: string; value: string; description?: string };
 			/** dimmed (app sections) */
 			muted?: boolean;
 			icon?: string;

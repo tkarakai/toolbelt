@@ -244,20 +244,30 @@ export function build(snap: Snapshot, o: Options): Built {
 	const cmp = (a: Val, b: Val) => sign * (typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b), undefined, { numeric: true }));
 	const jobVal = (j: ProcRow): Val => (o.sort === "started" ? j.etimeSec : o.sort === "memory" ? j.rssKb : o.sort === "cpu" ? j.cpu : displayName(j).toLowerCase());
 	const memberVal = (m: Member): Val => (o.sort === "started" ? m.etimeSec : o.sort === "memory" ? m.rssKb : o.sort === "cpu" ? m.cpu : m.argvCommand.toLowerCase());
-	const sum = o.sort === "memory" || o.sort === "cpu";
-	const groupVal = (js: ProcRow[], label: string): Val => (sum ? js.reduce((t, j) => t + (jobVal(j) as number), 0) : label);
+	const rankGroups = o.sort === "memory" || o.sort === "cpu";
+	const groupVal = (js: ProcRow[], label: string): Val => (
+        o.sort === "memory" ? js.reduce((largest, j) => Math.max(largest, j.rssKb), 0)
+        : o.sort === "cpu" ? js.reduce((total, j) => total + j.cpu, 0) : label
+    );
+    // A job's RSS already includes its ordinary members. Nested jobs are disjoint
+    // rows in running-core, so add those rows once, never their expanded members.
+    const memorySummary = (jobs: ProcRow[]) => ({
+        label: "Memory total (RSS)",
+        value: `Σ ${mem(jobs.reduce((total, j) => total + j.rssKb, 0))}`,
+        description: "Combined resident memory of the matching commands in this group, including their child processes. Shared memory may be counted by more than one process. Collapsing the group does not change this total.",
+    });
 	const byKey = (a: ProcRow, b: ProcRow) => cmp(jobVal(a), jobVal(b)) || a.pid - b.pid;
 
 	const all = snap.rows;
 	const apps = all.filter((r) => r.kind === "app");
 	const visible = all.filter((r) => (o.showAll || r.kind !== "app") && s.test(searchable(snap, r)) && passes(facetsOf(snap, r, o), o.filters));
 
-	// Sections: by where, terminals before servers before apps, then by name (or by total).
+	// Sections: by where, terminals before servers before apps, then by name (or the largest command for memory sorting).
 	const sections = new Map<string, ProcRow[]>();
 	for (const j of visible) { const where = j.where.startsWith("tmux") ? "tmux" : j.where; sections.set(where, [...(sections.get(where) ?? []), j]); }
 	const rank = (js: ProcRow[]) => Math.min(...js.map((j) => KIND_RANK[j.kind] ?? 9));
 	let ordered = [...sections.entries()].sort((a, b) => rank(a[1]) - rank(b[1]) || sectionLabel(a[0]).localeCompare(sectionLabel(b[0])));
-	if (sum) ordered = ordered.sort((a, b) => cmp(groupVal(a[1], a[0]), groupVal(b[1], b[0])));
+	if (rankGroups) ordered = ordered.sort((a, b) => cmp(groupVal(a[1], a[0]), groupVal(b[1], b[0])));
 
 	const rows: Row[] = [];
 	for (const [where, js] of ordered) {
@@ -268,17 +278,32 @@ export function build(snap: Snapshot, o: Options): Built {
 			tag: where === "detached" ? "no terminal" : isApp ? "app" : undefined,
 			muted: isApp,
 			icon: sectionIcon(where, js, isApp, all),
+            summary: memorySummary(js),
 		};
 		const pids = new Set(js.map((j) => j.pid));
 		const roots = js.filter((j) => j.parentRow === undefined || !pids.has(j.parentRow));
+        const childJobsByParent = new Map<number, ProcRow[]>();
+        for (const job of js) if (job.parentRow !== undefined) childJobsByParent.set(job.parentRow, [...(childJobsByParent.get(job.parentRow) ?? []), job]);
+        const jobsUnder = (roots: ProcRow[]) => {
+            const jobs: ProcRow[] = [], seen = new Set<number>(), pending = [...roots];
+            while (pending.length) {
+                const job = pending.pop()!;
+                if (seen.has(job.pid)) continue;
+                seen.add(job.pid); jobs.push(job);
+                pending.push(...(childJobsByParent.get(job.pid) ?? []));
+            }
+            return jobs;
+        };
 		const dirs = new Map<string, ProcRow[]>();
 		for (const j of roots) dirs.set(j.cwd, [...(dirs.get(j.cwd) ?? []), j]);
-		const dirList = [...dirs.entries()].sort((a, b) => (sum ? cmp(groupVal(a[1], a[0]), groupVal(b[1], b[0])) : tildify(a[0]).localeCompare(tildify(b[0]), undefined, { numeric: true })));
+		const directoryJobs = new Map([...dirs.entries()].map(([dir, roots]) => [dir, jobsUnder(roots)]));
+        const dirRank = ([dir, roots]: [string, ProcRow[]]) => groupVal(o.sort === "memory" ? directoryJobs.get(dir)! : roots, dir);
+        const dirList = [...dirs.entries()].sort((a, b) => (rankGroups ? cmp(dirRank(a), dirRank(b)) : tildify(a[0]).localeCompare(tildify(b[0]), undefined, { numeric: true })));
 		for (const [dir, djs] of dirList) {
 			const branch = dir && dir !== "/" ? (snap.branches[dir] ?? undefined) : undefined;
-			const group = [section, { id: `d:${where}:${dir}`, label: tildify(dir) || "—", strong: dir && dir !== "/" ? projectPart(tildify(dir)) : undefined, sub: branch ?? undefined }];
+			const group = [section, { id: `d:${where}:${dir}`, label: tildify(dir) || "—", strong: dir && dir !== "/" ? projectPart(tildify(dir)) : undefined, sub: branch ?? undefined, summary: memorySummary(directoryJobs.get(dir)!) }];
 			const place = (j: ProcRow): Row => {
-				const childJobs = js.filter((c) => c.parentRow === j.pid).sort(byKey);
+				const childJobs = [...(childJobsByParent.get(j.pid) ?? [])].sort(byKey);
 				const members = sortTree(j.members, memberVal, cmp).map((m) => memberRow(snap, j, m, o));
 				// Expanded when jobs were started from it, or the search matched one of its processes.
 				const memberHit = !s.empty && j.members.some((m) => s.test(memberSearchable(m)));

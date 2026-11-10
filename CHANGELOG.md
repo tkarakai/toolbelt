@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- App and folder headers show matching-command memory totals (RSS), independent of expansion. Memory sorting ranks groups by their largest command; totals are informational and include nested jobs without recounting expanded child processes.
+
 - Filter selectors match the fixed-width search field’s height. Dropdown searches retain typing focus, scroll only vertically, and stay open when Show all clears selections.
 
 - Fixed selected-row contrast for neutral status pills (including idle), placeholders, path labels, branch pills and open action buttons.
