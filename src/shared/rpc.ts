@@ -1,6 +1,9 @@
 // What the web views (main window, menu bar popover) and the Bun main process say to each other.
 import type { RPCSchema } from "electrobun/view";
 import type { Manifest, Node } from "./protocol";
+import type { UpdateState } from "../bun/updater";
+
+export type { Phase as UpdatePhase, Release, UpdateState } from "../bun/updater";
 
 export type PluginState = "starting" | "running" | "crashed" | "stopped";
 
@@ -31,6 +34,14 @@ export type ToolbeltRPC = {
 			pauseShortcut: { params: { paused: boolean }; response: true };
 			/** The icon macOS shows for a file or app bundle, as a PNG data URL (null: no such file). */
 			fileIcon: { params: { path: string }; response: string | null };
+			/** Updates (src/bun/updater.ts): where they stand; changes arrive as `updateState`. */
+			updateState: { params: {}; response: UpdateState };
+			checkForUpdates: { params: {}; response: true };
+			installUpdate: { params: {}; response: true };
+			/** Stop the download. */
+			cancelUpdate: { params: {}; response: true };
+			/** Close a failed update (back to idle). */
+			dismissUpdate: { params: {}; response: true };
 		};
 		messages: {
 			/** From the popover: show the main window on this plugin (and screen). */
@@ -58,6 +69,7 @@ export type ToolbeltRPC = {
 			/** Popover: it's about to be hidden — play the closing animation. */
 			popoverHiding: {};
 			settingsChanged: {};
+			updateState: UpdateState;
 			/** From the app menu: a command for the window (toggleSidebar…). */
 			command: { name: string };
 		};

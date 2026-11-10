@@ -14,6 +14,7 @@ import { THEMES, tokens } from "./themes";
 import { QuitDialog } from "./QuitDialog";
 import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { WindowZoom, ZoomKeys } from "@/lib/zoom";
+import { UpdateDot, UpdatesCard, useUpdateAvailable } from "./Updates";
 import { EmptyState, Render, Dot } from "@/renderer/Render";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -160,6 +161,7 @@ function FakeTrafficLights() {
 function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[]; current?: string; go: (p: string, s?: string) => void; onResize: (w: number) => void }) {
 	const { state, setOpen } = useSidebar();
 	const hints = useHeldModifiers({ meta: true });
+	const update = useUpdateAvailable();
 	return (
 		<Sidebar collapsible="icon" className="group-data-[side=left]:border-r-0">
 			<SidebarCommands />
@@ -202,6 +204,7 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Toolbelt  ⌘," onClick={() => go(TOOLBELT)} className={ACTIVE}>
 							<Settings2 />
 							<span>Toolbelt</span>
+							{update && <UpdateDot className="ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:top-1 group-data-[collapsible=icon]:right-1" />}
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
@@ -366,6 +369,7 @@ function ToolbeltPage({ plugins, onClose }: { plugins: PluginInfo[]; onClose: ()
 			</PaneHeader>
 			<div className="min-h-0 flex-1 overflow-auto">
 				<div className="mx-auto max-w-4xl space-y-6 px-6 py-6">
+					<UpdatesCard />
 					<AppearanceSetting />
 					<Card>
 						<CardHeader>

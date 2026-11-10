@@ -76,3 +76,10 @@
   expanded rows, collapsed groups, filter and scroll position — across closing the window and
   restarts. Processes remembers "Show apps" and where kept commands start.
 - Esc on Toolbelt's page, or its new close button, goes back to the tool you came from.
+- Toolbelt updates itself from GitHub releases: it checks at launch and every 6 hours (and
+  after waking, and when the window opens if it's been an hour); a newer version puts a red dot
+  on the menu bar icon, on *Toolbelt* in the sidebar and in the popover. Toolbelt's page shows
+  the version, when it last checked (*Check now*), and what's new; *Update* downloads the disk
+  image with progress (cancellable), checks its checksum, bundle id, version and signature,
+  swaps the app in place and reopens it. *Check for Updates…* is in the app menu. Dev builds
+  don't update themselves.

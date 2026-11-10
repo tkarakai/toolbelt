@@ -16,6 +16,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { QuitDialog, askQuit } from "./QuitDialog";
+import { PopoverUpdateRow } from "./Updates";
 
 export default function Popover() {
 	const plugins = usePlugins();
@@ -88,6 +89,7 @@ export default function Popover() {
 						<span className="text-sm font-semibold">Toolbelt</span>
 						{settings && <Kbd className="ml-auto">{settings.shortcutLabel}</Kbd>}
 					</div>
+					<PopoverUpdateRow />
 					<div className="flex-1 overflow-auto px-2 pb-2">
 						{plugins.map((p, i) => (
 							<button

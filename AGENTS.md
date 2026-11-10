@@ -16,6 +16,23 @@ protocol; Toolbelt renders them. See `README.md`.
 - Workflow files: pin actions to full commit SHAs, keep `permissions` minimal. Only
   GitHub-owned actions, `oven-sh/setup-bun` and `zizmorcore/zizmor-action` are allowed.
 
+## Releases
+
+1. Release PR: bump `version` in `package.json`, rename `## Unreleased` in `CHANGELOG.md` to
+   `## X.Y.Z — YYYY-MM-DD`, merge it.
+2. On an up-to-date, clean `main`, with `bun run dev` stopped: `bun run release` (try
+   `bun run release --dry-run` first). It checks everything, runs typecheck + tests, builds,
+   makes `artifacts/Toolbelt-X.Y.Z-arm64.dmg` (`bun run dmg`, `scripts/make-dmg.ts`), tags
+   `vX.Y.Z`, and creates the GitHub release with the CHANGELOG section + download notes,
+   the disk image attached.
+3. Installed copies find it within 6 hours (`src/bun/updater.ts` reads GitHub's latest release:
+   the `-arm64.dmg` asset, its `digest`, the notes up to `## Downloads`).
+
+The DMG is ours, not Electrobun's: Electrobun's holds a self-extracting stub without
+`CFBundleShortVersionString` whose signature doesn't verify. `make-dmg.ts` takes the real app
+from the update bundle (`artifacts/stable-macos-arm64-Toolbelt.app.tar.zst`), adds the version,
+signs the bundle ad hoc and checks it the way the updater will.
+
 ## How it fits together
 
 - `src/bun/` — the main process. `index.ts`: window, tray + popover, global shortcut, app menu,
@@ -82,6 +99,18 @@ motion (macOS setting) turns animations off globally.
   copy the checkout elsewhere (`rsync -a --exclude /build --exclude /dist --exclude /.hutch
   --exclude /build-plugins --exclude /.git`) and run your copy there, with its own
   `TOOLBELT_DEBUG_PORT` and `TOOLBELT_CONFIG_DIR`.
+- Updates (`src/bun/updater.ts`, UI in `src/ui/Updates.tsx`): only `stable` builds
+  (`bun run build`) update themselves, or any build with `TOOLBELT_UPDATE_FEED`. Rehearse an
+  update without touching installed apps: build two versions (temporarily set
+  `package.json`'s version, `bun run build && bun run dmg`, don't commit the bump), copy the
+  older app out of its DMG into a temp folder, serve a GitHub-style `release.json` (with
+  `tag_name`, `assets[].name/size/digest/browser_download_url`) and the newer DMG from a local
+  `Bun.serve`, and run the old app with `TOOLBELT_UPDATE_FEED=http://127.0.0.1:…/release.json
+  TOOLBELT_DEBUG_PORT=… TOOLBELT_CONFIG_DIR=<tmp>` (give its `settings.json` another
+  `shortcut`). The debug channel is on for stable builds when `TOOLBELT_UPDATE_FEED` or
+  `TOOLBELT_DEBUG` is set; `/state` has `update`, `trayAlert`, `pid`. Kill only the PIDs you
+  started. `bun run preview` fakes an update: `GET /update?phase=downloading|verifying|…|failed`,
+  `?available=0`, `?error=…`, `?channel=dev`.
 - Global shortcuts: use `src/bun/hotkey.ts` (Carbon), not Electrobun's `GlobalShortcut` — that
   one silently needs Accessibility permission.
 - Never kill, restart or type into the user's own processes or terminals while testing — the

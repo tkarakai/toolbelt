@@ -17,6 +17,9 @@ export default {
 			"dist/index.html": "views/ui/index.html",
 			"dist/assets": "views/ui/assets",
 			"assets/tray-icon@2x.png": "views/assets/tray-icon@2x.png",
+			// With a red dot, when an update is available (scripts/make-icons.ts).
+			"assets/tray-icon-update-light@2x.png": "views/assets/tray-icon-update-light@2x.png",
+			"assets/tray-icon-update-dark@2x.png": "views/assets/tray-icon-update-dark@2x.png",
 			"build-plugins": "plugins",
 		},
 		watchIgnore: ["dist/**", "build-plugins/**"],
