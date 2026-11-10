@@ -26,9 +26,9 @@ export default {
 			// With a red dot, when an update is available (scripts/make-icons.ts).
 			"assets/tray-icon-update-light@2x.png": "views/assets/tray-icon-update-light@2x.png",
 			"assets/tray-icon-update-dark@2x.png": "views/assets/tray-icon-update-dark@2x.png",
-			"build-plugins": "plugins",
+			"build-seed": "seed",
 		},
-		watchIgnore: ["dist/**", "build-plugins/**"],
+		watchIgnore: ["dist/**", "build-seed/**"],
 		mac: {
 			bundleCEF: false,
 			// bun run icons (Running's official/dev artwork)

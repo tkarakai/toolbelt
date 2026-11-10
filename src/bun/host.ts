@@ -11,13 +11,18 @@ import {
   type Node,
   type PluginMessage,
 } from "../shared/protocol";
-import { LIMITS, type PackageManifest } from "../shared/package";
+import {
+  LIMITS,
+  parsePackageManifest,
+  type PackageManifest,
+} from "../shared/package";
 import { validateMessage } from "../shared/validation";
 import {
   runtimeEnv,
   type Candidate,
   type Installed,
   readRegistry,
+  checkCompatibility,
 } from "./packages";
 import type { PluginInfo, PluginState } from "../shared/rpc";
 
@@ -119,6 +124,7 @@ export class PluginProcess {
       env: Record<string, string | undefined>;
       host: { name: string; version: string };
       data: string;
+      configRoot?: string;
     },
     private readonly changed: () => void,
     private readonly listener: Listener,
@@ -152,6 +158,8 @@ export class PluginProcess {
       cwd: this.dir,
       detached: true,
       env: {
+        TOOLBELT_CONFIG_DIR:
+          this.opts.configRoot ?? resolve(this.opts.data, ".."),
         ...runtimeEnv(
           { manifest: this.manifest as PackageManifest, packageRoot: this.dir },
           data,
@@ -423,28 +431,21 @@ export class PluginHost {
           .map((p) => ({ manifest: p.manifest, dir: p.packageRoot }))
       : discover(this.opts.dirs);
     for (const { manifest, dir } of entries) {
-      const p = new PluginProcess(
-        manifest,
-        dir,
-        {
-          bun: this.opts.bun,
-          env: this.opts.env ?? process.env,
-          host: this.opts.host,
-          data: this.opts.data,
-        },
-        () => this.emitPlugins(),
-        {
-          plugins: () => {},
-          tree: (plugin, surface, tree) =>
-            this.listeners.forEach((l) => l.tree(plugin, surface, tree)),
-          toast: (plugin, text, tone, action) =>
-            this.listeners.forEach((l) => l.toast(plugin, text, tone, action)),
-          clipboard: (plugin, text) =>
-            this.listeners.forEach((l) => l.clipboard?.(plugin, text)),
-        },
-      );
+      const p = this.makeProcess(manifest, dir, this.opts.data);
       this.plugins.set(manifest.id, p);
-      p.start();
+      try {
+        if (this.opts.registryRoot) {
+          checkCompatibility(
+            parsePackageManifest(manifest),
+            this.opts.host.version,
+          );
+        }
+        p.start();
+      } catch (error) {
+        p.state = "crashed";
+        p.error = String(error);
+        this.emitPlugins();
+      }
     }
   }
 
@@ -525,6 +526,7 @@ export class PluginHost {
         env: this.opts.env ?? {},
         host: this.opts.host,
         data,
+        configRoot: this.opts.registryRoot,
       },
       () => this.emitPlugins(),
       {

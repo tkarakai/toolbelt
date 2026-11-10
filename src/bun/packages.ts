@@ -278,8 +278,10 @@ export class PackageManager {
         phase: "prepared",
       };
       atomicJSON(join(txDir, "journal.json"), journal);
+      let prepared = false;
       try {
         await this.hooks.prepare(id, "upgrade");
+        prepared = true;
         await this.hooks.stop(id);
         if (existsSync(data)) {
           cpSync(data, backup, { recursive: true });
@@ -305,6 +307,10 @@ export class PackageManager {
         rmSync(txDir, { recursive: true, force: true });
         return next;
       } catch (error) {
+        if (!prepared) {
+          rmSync(txDir, { recursive: true, force: true });
+          throw error;
+        }
         await this.hooks.stop(id);
         if (promoted) rmSync(data, { recursive: true, force: true });
         if (movedOriginal && existsSync(previous)) renameSync(previous, data);

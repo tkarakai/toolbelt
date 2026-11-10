@@ -37,3 +37,9 @@ Generic package stage/hash/ustar validation, GitHub release descriptor resolutio
 Provisional gaps remain: exhaustive nested UI validation and adversarial matrix, journal validation/fsync/fault recovery, package leases/retention/downgrade flows, periodic update UX, generic assembly/demo seed, tester/native validation and CI. This checkpoint is for integration, not an acceptance claim.
 
 Plugin candidate pins: Processes commit `309ac877658a56616ee6de1229d79f686a10c6da`, prerelease `architecture2-309ac87`, sha256 `0e846395b9001200c6783b7f7f987ebacc664f288c5b5eb66d35f6eda2653ff0`; Upkeep prerelease `architecture2-eval-20be059`, sha256 `c5ca2835add9d98e87416129266e2d2a3174c286c7634505c46cadbafa856c98` (33878 bytes). Earlier non-ustar candidates are superseded.
+
+## Milestone 3: generic assembly
+
+Processes/Upkeep implementation, assets and business tests removed from Toolbelt after both independently built archives passed real generic installer/runtime execution. The hidden conversation parser tests were transferred to Processes (68 tests/384 assertions). App assembly downloads only a hash-pinned prebuilt demo seed; it executes no plugin build commands. Host terminal source compilation removed; plugin terminal artifacts belong to Processes. SDK remains a host output. Generic preview uses an independent v2 profile and registry.
+
+`bun test`: 327 pass, 0 fail, 2941 assertions across 13 files (before added fault tests). `bun run typecheck` and `bun run views` pass. Further mandatory acceptance gates remain pending; UI/native/tester and CI are not yet proven.

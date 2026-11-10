@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Architecture v2 installs independent prebuilt plugin packages at runtime, with publisher review, lifecycle recovery, plugin-owned data and removable SDK demonstration.
+
 - Processes detects known agent harnesses launched by T3 Code and other GUI clients,
   even without a terminal or network listener.
 - Upkeep tables support single-key row actions, with shortcut hints in menus and details.

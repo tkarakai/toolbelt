@@ -17,7 +17,6 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { BUNDLE_ID, makeDmg } from "./make-dmg";
-import { makeTerminalArchives } from "./make-terminal-archives";
 
 const dry = process.argv.includes("--dry-run");
 process.chdir(join(import.meta.dir, ".."));
@@ -64,9 +63,9 @@ await $`bun run build`.quiet().catch(() => fail("build failed (run `bun run buil
 const asset = await makeDmg().catch((e) => fail(`disk image: ${(e as Error).message}`));
 const mb = (Number((await $`stat -f %z ${asset}`.text()).trim()) / 1048576).toFixed(1);
 ok(`built ${asset} (${mb} MB): Toolbelt ${version}, ${BUNDLE_ID}, signature verifies`);
-const terminalAssets = await makeTerminalArchives().catch((e) => fail(`terminal archives: ${(e as Error).message}`));
-const assets = [asset, ...terminalAssets];
-ok("built and verified both terminal archives (version, Bun runtime, zsh hook)");
+await $`bun run sdk:package`;
+const sdkAsset="artifacts/toolbelt-sdk-0.2.0-dev.1.tgz";
+const assets=[asset,sdkAsset];
 
 // ── release notes ────────────────────────────────────────────────────────
 const notes = `${changes}
@@ -82,22 +81,9 @@ menu bar icon shows a red badge and Toolbelt's page offers the update.
 > **Open**, or clear the flag once: \`xattr -dr com.apple.quarantine /Applications/Toolbelt.app\`
 > (downloading with \`gh release download ${tag} --repo ${repo}\` avoids it too).
 
-The other two downloads contain the same patched \`running\` terminal UI bundled with
-Toolbelt (upstream version ${JSON.parse(readFileSync("plugins/processes/running/package.json", "utf8")).version}).
-Their filenames use the Toolbelt release version. Each archive contains one executable,
-\`running\`: put it on your PATH (e.g. \`~/.local/bin\`), then add
-\`eval "$(command running init)"\` to \`~/.zshrc\`.
+Plugin packages and terminal downloads are independently published by their plugin repositories.
+The SDK archive is for plugin authors.
 
-**\`${basename(terminalAssets[0])}\`** — the small bundle, needs [Bun](https://bun.sh).
-Built and tested with **Bun ${Bun.version}**; that is the version it expects. If another
-Bun version misbehaves, use the standalone build. \`running --help\` shows both versions.
-
-**\`${basename(terminalAssets[1])}\`** — self-contained, Bun ${Bun.version} embedded,
-Apple silicon only. Nothing else to install.
-
-> **Gatekeeper:** the standalone binary is not signed by an Apple developer account.
-> Download with \`gh release download ${tag} --repo ${repo}\`, or clear the flag once:
-> \`xattr -d com.apple.quarantine running\`.
 `;
 
 if (dry) {
