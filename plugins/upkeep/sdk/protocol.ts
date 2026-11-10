@@ -95,6 +95,8 @@ export type Action = {
 	/** The main action of a toolbar, card or dialog: drawn as a filled button. */
 	primary?: boolean;
 	disabled?: boolean;
+	/** One-key shortcut for the selected table row; shown in menus and details. */
+	key?: string;
 };
 
 export type Row = {
