@@ -671,17 +671,6 @@ const choicesFor = (row: Row, a: Action): Target[] | undefined => {
 	return t?.length ? t : undefined;
 };
 
-/** An action's label with its key, for tooltips. */
-function LabelWithKey({ a, extra }: { a: Action; extra?: string }) {
-	return (
-		<span className="flex items-center gap-2">
-			{a.label}
-			{extra && <Kbd>{extra}</Kbd>}
-			{a.key && <Kbd className="uppercase">{a.key}</Kbd>}
-		</span>
-	);
-}
-
 /** "Which one?" — an action's targets; 1…9 pick one. */
 function TargetItems({ a, targets, onPick }: { a: Action; targets: Target[]; onPick: (t: Target) => void }) {
 	return (
@@ -706,33 +695,53 @@ const pickByDigit = (targets: Target[], onPick: (t: Target) => void) => (e: Reac
 };
 
 function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setChoosing }: { actions: Action[]; row: Row; run: Run; menuOpen: boolean; setMenuOpen: (open: boolean) => void; choosing: string | null; setChoosing: (action: string | null) => void }) {
-    const self = useRef<HTMLDivElement>(null);
-    const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    useEffect(() => { if (!menuOpen && !choosing) { clearTimeout(timer.current); } }, [menuOpen, choosing]);
-    useEffect(() => () => clearTimeout(timer.current), []);
-    if (!actions.length) return null;
-    const pending = actions.find(a => a.id === choosing);
-    const targets = pending && choicesFor(row, pending);
-    const stay = () => clearTimeout(timer.current);
-    const leave = () => { timer.current = setTimeout(() => { setMenuOpen(false); setChoosing(null); }, 180); };
-    const close = () => { setMenuOpen(false); setChoosing(null); };
-    const pick = (a: Action, target?: string) => { close(); run(a, row.id, target ? { target } : undefined); };
-    return <div ref={self} onClick={e => e.stopPropagation()}>
-        <DropdownMenu modal={false} open={menuOpen || !!targets} onOpenChange={open => { stay(); setMenuOpen(open); if(!open) setChoosing(null); }}>
-            <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" className={cn(ROW_BUTTON, "data-[state=open]:bg-muted data-[state=open]:text-foreground")} aria-label="Row actions" onPointerEnter={() => { stay(); setMenuOpen(true); }} onPointerDown={e => { if (menuOpen) e.preventDefault(); }} onPointerLeave={leave}><MoreHorizontal /></Button></DropdownMenuTrigger>
-            <DropdownMenuContent side="left" align="start" sideOffset={4} className={cn("max-h-[70vh] overflow-y-auto rounded-xl border bg-popover p-1 shadow-xl duration-200 data-[state=closed]:duration-150", targets ? "w-72" : "w-[76px] min-w-0")} onPointerEnter={stay} onPointerLeave={leave} onCloseAutoFocus={e => { e.preventDefault(); refocusTable(self.current); }}>
-                {pending && targets ? <TargetItems a={pending} targets={targets} onPick={t => pick(pending, t.id)} /> : groupActions(actions).map((group, gi) => <DropdownMenuGroup key={gi}>
-                    {gi > 0 && <DropdownMenuSeparator />}
-                    {group.map(a => {
-                        const choices = choicesFor(row, a);
-                        const contents = <><Icon name={a.icon} className="size-4 shrink-0" />{a.key && <Kbd className="ml-auto h-4 min-w-4 px-1 text-[10px] uppercase">{a.key}</Kbd>}<span className="sr-only">{a.label}</span></>;
-                        if (choices) return <DropdownMenuSub key={a.id}><DropdownMenuSubTrigger disabled={a.disabled} aria-label={a.label} title={a.label} className="gap-1 px-2 py-2 [&>svg:last-child]:hidden">{contents}</DropdownMenuSubTrigger><DropdownMenuSubContent className="w-72" onPointerEnter={stay} onPointerLeave={leave}><TargetItems a={a} targets={choices} onPick={t => pick(a,t.id)} /></DropdownMenuSubContent></DropdownMenuSub>;
-                        return <Tooltip key={a.id} delayDuration={0}><TooltipTrigger asChild><DropdownMenuItem disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : "default"} aria-label={a.label} className="gap-1 px-2 py-2" onSelect={() => pick(a)}>{contents}</DropdownMenuItem></TooltipTrigger><TooltipContent side="left"><LabelWithKey a={a} /></TooltipContent></Tooltip>;
-                    })}
-                </DropdownMenuGroup>)}
-            </DropdownMenuContent>
-        </DropdownMenu>
-    </div>;
+	const self = useRef<HTMLDivElement>(null);
+	if (!actions.length) return null;
+	const pending = actions.find(a => a.id === choosing);
+	const targets = pending && choicesFor(row, pending);
+	const close = () => { setMenuOpen(false); setChoosing(null); };
+	const pick = (a: Action, target?: string) => { close(); run(a, row.id, target ? { target } : undefined); };
+	return (
+		<div ref={self} onClick={e => e.stopPropagation()}>
+			<DropdownMenu open={menuOpen || !!targets} onOpenChange={open => { setMenuOpen(open); if (!open) setChoosing(null); }}>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<DropdownMenuTrigger asChild>
+							<Button variant="ghost" size="icon-sm" className={cn(ROW_BUTTON, "data-[state=open]:bg-muted data-[state=open]:text-foreground")} aria-label="Row actions">
+								<MoreHorizontal />
+							</Button>
+						</DropdownMenuTrigger>
+					</TooltipTrigger>
+					<TooltipContent><span className="flex items-center gap-2">All actions <Kbd>.</Kbd></span></TooltipContent>
+				</Tooltip>
+				<DropdownMenuContent align="end" className={targets ? "w-72" : "w-60"} onCloseAutoFocus={e => { e.preventDefault(); refocusTable(self.current); }} onKeyDown={targets && pending ? pickByDigit(targets, t => pick(pending, t.id)) : undefined}>
+					{pending && targets ? <TargetItems a={pending} targets={targets} onPick={t => pick(pending, t.id)} /> : groupActions(actions).map((group, gi) => (
+						<DropdownMenuGroup key={gi}>
+							{gi > 0 && <DropdownMenuSeparator />}
+							{group.map(a => {
+								const choices = choicesFor(row, a);
+								if (choices) return (
+									<DropdownMenuSub key={a.id}>
+										<DropdownMenuSubTrigger disabled={a.disabled}>
+											{a.icon && <Icon name={a.icon} />}{a.label}
+											{a.key && <DropdownMenuShortcut className="mr-1 uppercase">{a.key}</DropdownMenuShortcut>}
+										</DropdownMenuSubTrigger>
+										<DropdownMenuSubContent className="w-72"><TargetItems a={a} targets={choices} onPick={t => pick(a, t.id)} /></DropdownMenuSubContent>
+									</DropdownMenuSub>
+								);
+								return (
+									<DropdownMenuItem key={a.id} disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : "default"} onSelect={() => pick(a)}>
+										{a.icon && <Icon name={a.icon} />}{a.label}
+										{a.key && <DropdownMenuShortcut className="uppercase">{a.key}</DropdownMenuShortcut>}
+									</DropdownMenuItem>
+								);
+							})}
+						</DropdownMenuGroup>
+					))}
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</div>
+	);
 }
 
 /** A row as displayed: flattened from the tree, with its depth, parent, and how many group

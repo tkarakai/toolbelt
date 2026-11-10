@@ -18,8 +18,8 @@
   nonempty search fields have a highlighted border and tinted background.
 - CMUX processes show saved workspace/surface names; Jump to terminal targets that surface.
   tmux sessions share one TMUX section, grouped by directory, with session names alongside titles.
-- Compact rows show one port plus an overflow count and one ellipsis that opens an animated
-  vertical action rail with icons, shortcut hints and tooltips. Truncated descriptions expose
+- Compact rows show one port plus an overflow count and one ellipsis that opens the standard
+  labeled action menu with icons, shortcut hints and submenus. Truncated descriptions expose
   their full text on hover. Removed Refresh; the list updates automatically.
 - Selected rows preserve readable semantic colors, tested for contrast in every theme.
   Fixed group-selection styling and switch/checkbox state styling and positioning.
