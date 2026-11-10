@@ -1,6 +1,7 @@
 // Every theme, light and dark, keeps text readable: WCAG AA (4.5:1) for each text/background
 // pairing the UI uses, and 3:1 for the focus ring against the page.
 import { describe, expect, test } from "bun:test";
+import { HUES } from "../src/shared/protocol";
 import { THEMES, contrast, textPairs, tokens } from "../src/ui/themes";
 
 describe.each(THEMES.flatMap((t) => (["light", "dark"] as const).map((mode) => [`${t.name} ${mode}`, t[mode]] as const)))("%s", (_name, palette) => {
@@ -18,8 +19,11 @@ describe.each(THEMES.flatMap((t) => (["light", "dark"] as const).map((mode) => [
 describe.each(THEMES.flatMap(t => [t.light,t.dark]))("selection semantics", palette => {
     test("all semantic colors retain AA contrast on the selection and their pills", () => {
         const values = tokens(palette);
-        for (const [name, color] of Object.entries(values)) {
-            if (!name.startsWith("selected-") || name.endsWith("-pill") || name === "selected-foreground") continue;
+        for (const tone of ["default", "muted", "success", "warning", "danger", "info", ...HUES]) {
+            const name = `selected-${tone}`;
+            const color = values[name];
+            expect(color).toMatch(/^#[0-9a-f]{6}$/);
+            expect(values[`${name}-pill`]).toMatch(/^#[0-9a-f]{6}$/);
             expect(contrast(color,palette.selected)).toBeGreaterThanOrEqual(4.5);
             expect(contrast(color,values[`${name}-pill`])).toBeGreaterThanOrEqual(4.5);
         }

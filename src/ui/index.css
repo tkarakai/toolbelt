@@ -170,7 +170,7 @@
    Unlayered on purpose, so they win over Tailwind's utility classes. */
 [data-selected="true"] .text-muted-foreground,
 [data-active="true"] .text-muted-foreground {
-  color: color-mix(in oklab, var(--selected-foreground) 75%, transparent);
+  color: var(--selected-muted, var(--selected-foreground));
 }
 [data-selected="true"] [data-slot="badge"] {
   color: var(--selected-foreground);
@@ -274,3 +274,11 @@ mark.hit {
 [data-selected="true"] .tb-tone-info { color: var(--selected-info) !important; }
 [data-selected="true"] .tb-pill-info { color: var(--selected-info) !important; background: var(--selected-info-pill) !important; }
 [data-selected="true"] button:hover { color: var(--selected-foreground); background-color: color-mix(in srgb, var(--selected-foreground) 12%, transparent); }
+
+/* Neutral tags (idle/default), placeholders and faded path context are text too. */
+[data-selected="true"] .tb-tone-default { color: var(--selected-default) !important; }
+[data-selected="true"] .tb-tone-muted { color: var(--selected-muted) !important; }
+[data-selected="true"] .tb-pill-default { color: var(--selected-default) !important; background: var(--selected-default-pill) !important; }
+[data-selected="true"] .tb-pill-muted { color: var(--selected-muted) !important; background: var(--selected-muted-pill) !important; }
+[data-selected="true"] [data-path-context] { color: var(--selected-muted); opacity: 1; }
+[data-selected="true"] button[data-state="open"] { color: var(--selected-default) !important; background: var(--selected-default-pill) !important; }

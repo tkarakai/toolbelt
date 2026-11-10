@@ -163,5 +163,19 @@ export function selectionTokens(p: Palette): Record<string,string> {
         out[`selected-${name}`] = foreground;
         out[`selected-${name}-pill`] = mix(foreground,p.selected,.10);
     }
+    // Neutral pills need both colors adapted too: a normal muted background can be
+    // the opposite polarity of the selected row (for example dark idle on light selection).
+    let neutralBackground = mix(p.selectedFg, p.selected, .10);
+    for (let tint = 9; contrast(p.selectedFg, neutralBackground) < 4.5 && tint >= 0; tint--)
+        neutralBackground = mix(p.selectedFg, p.selected, tint / 100);
+    let neutralMuted = p.selectedFg;
+    for (let strength = 75; strength <= 100; strength++) {
+        neutralMuted = mix(p.selectedFg, p.selected, strength / 100);
+        if (contrast(neutralMuted, p.selected) >= 4.5 && contrast(neutralMuted, neutralBackground) >= 4.5) break;
+    }
+    out["selected-default"] = p.selectedFg;
+    out["selected-default-pill"] = neutralBackground;
+    out["selected-muted"] = neutralMuted;
+    out["selected-muted-pill"] = neutralBackground;
     return out;
 }

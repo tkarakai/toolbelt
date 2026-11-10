@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed selected-row contrast for neutral status pills (including idle), placeholders, path labels, branch pills and open action buttons.
+
 - The menu bar popover fits its tools, up to six rows, then scrolls without a scroll bar.
   Each tool has a visible letter shortcut that opens it in the main window.
 - Processes tabs use ⌘P, ⌘K and ⌘S, with visible hints and an inverted active-tab selection.

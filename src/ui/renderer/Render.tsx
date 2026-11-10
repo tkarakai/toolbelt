@@ -78,13 +78,13 @@ function Strong({ text, strong }: { text: string; strong?: string }) {
 	if (!strong || at < 0) return <Hl text={text} />;
 	return (
 		<>
-			<span className="opacity-70">
+			<span data-path-context className="opacity-70">
 				<Hl text={text.slice(0, at)} />
 			</span>
 			<span className="font-semibold">
 				<Hl text={strong} />
 			</span>
-			<span className="opacity-70">
+			<span data-path-context className="opacity-70">
 				<Hl text={text.slice(at + strong.length)} />
 			</span>
 		</>
@@ -94,8 +94,7 @@ function Strong({ text, strong }: { text: string; strong?: string }) {
 /** A small colored pill; its tooltip shows instantly. */
 function TagPill({ tag }: { tag: Tag }) {
 	const pill = (
-		<span className={cn("inline-flex h-4 shrink-0 items-center gap-1 rounded px-1.5 text-[10.5px] leading-none font-medium whitespace-nowrap", pillClass(tag.color), // On the selection color, pills follow it (! beats the hue's dark: shade).
-			"")}>
+		<span className={cn("inline-flex h-4 shrink-0 items-center gap-1 rounded px-1.5 text-[10.5px] leading-none font-medium whitespace-nowrap", pillClass(tag.color))}>
 			{tag.icon && <Icon name={tag.icon} className="size-2.5" />}
 			<Hl text={tag.text} />
 		</span>
@@ -523,7 +522,7 @@ function ResizableDialog({ d, emit, close }: { d: DialogNode; emit: Emit; close:
 
 // ── table: groups, nested rows, actions, inspector ───────────────────────
 function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
-	if (cell === undefined || cell === null) return <span className="text-muted-foreground/50">—</span>;
+	if (cell === undefined || cell === null) return <span className="text-muted-foreground/50 tb-tone-muted">—</span>;
 	if (typeof cell !== "object") return <span className={cn(col.mono && "font-mono text-[0.8rem] tabular-nums")}><Hl text={String(cell)} /></span>;
 	const mono = cell.mono ?? col.mono;
 	return (
@@ -1181,7 +1180,7 @@ function GroupHeader({ item, colSpan, selected, onSelect, onToggle }: { item: Ex
 					</span>
 					{g.sub && (
 						// The branch: a violet pill, so it stands out from the path next to it.
-						<span className={cn("flex min-w-0 shrink-[2] items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-medium", selected ? "bg-selected-foreground/15 text-selected-foreground" : "bg-violet-500/12 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300")}>
+						<span className={cn("tb-pill-violet flex min-w-0 shrink-[2] items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-medium", selected ? "bg-selected-foreground/15 text-selected-foreground" : "bg-violet-500/12 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300")}>
 							<Icon name="git-branch" className="size-3 shrink-0" />
 							<span className="truncate">
 								<Hl text={g.sub} />
