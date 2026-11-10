@@ -5,9 +5,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const url =
-  "https://github.com/tkarakai/toolbelt-sdk-demo/releases/download/architecture2-60d7c82/toolbelt-sdk-demo-0.0.1-darwin-arm64.tar.gz";
+  "https://github.com/tkarakai/toolbelt-sdk-demo/releases/download/architecture2-a92399e/toolbelt-sdk-demo-0.0.1-darwin-arm64.tar.gz";
 const sha256 =
-  "624425604433c4d3c1a37c1d5fc7b28c208ad0261c248cdf55adb006beeb9596";
+  "1175e2e0c1c04a4234aaa0237049d80b657de00bbeabc48771216830bd47698b";
 mkdirSync("build-seed", { recursive: true });
 let bytes: Uint8Array;
 if (await Bun.file("build-seed/demo.tar.gz").exists())

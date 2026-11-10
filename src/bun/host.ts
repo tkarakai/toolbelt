@@ -17,7 +17,7 @@ import {
   parsePackageManifest,
   type PackageManifest,
 } from "../shared/package";
-import { validateMessage } from "../shared/validation";
+import { validateMessage, validateEventPayload } from "../shared/validation";
 import {
   runtimeEnv,
   type Candidate,
@@ -82,6 +82,8 @@ export class PluginProcess {
   >();
   private messageWindow = Date.now();
   private messageCount = 0;
+  private stderrWindow = Date.now();
+  private stderrBytes = 0;
   waitReady() {
     if (this.state === "running") return Promise.resolve();
     return new Promise<void>((resolve, reject) => {
@@ -102,9 +104,23 @@ export class PluginProcess {
     });
   }
   async stopAndWait() {
-    const proc=this.proc;this.stop();if(!proc)return;
-    let timer:ReturnType<typeof setTimeout>|undefined;
-    await Promise.race([proc.exited,new Promise(resolve=>{timer=setTimeout(()=>{try{process.kill(-proc.pid,"SIGKILL")}catch{proc.kill("SIGKILL")}resolve(null)},2000)})]);
+    const proc = this.proc;
+    this.stop();
+    if (!proc) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      proc.exited,
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          try {
+            process.kill(-proc.pid, "SIGKILL");
+          } catch {
+            proc.kill("SIGKILL");
+          }
+          resolve(null);
+        }, 2000);
+      }),
+    ]);
     clearTimeout(timer);
   }
   state: PluginState = "stopped";
@@ -128,6 +144,8 @@ export class PluginProcess {
       host: { name: string; version: string };
       data: string;
       configRoot?: string;
+      mode?: "probe" | "active";
+      diagnostic?: (plugin: string, kind: string, detail: unknown) => void;
     },
     private readonly changed: () => void,
     private readonly listener: Listener,
@@ -165,7 +183,9 @@ export class PluginProcess {
           { manifest: this.manifest as PackageManifest, packageRoot: this.dir },
           data,
         ),
-        TOOLBELT_CONFIG_DIR:this.opts.configRoot ?? resolve(this.opts.data,".."),
+        TOOLBELT_CONFIG_DIR:
+          this.opts.configRoot ?? resolve(this.opts.data, ".."),
+        TOOLBELT_LIFECYCLE_MODE: this.opts.mode ?? "active",
         ...Object.fromEntries(
           Object.entries(this.opts.env).filter(([k]) =>
             k.startsWith("TOOLBELT_TEST_"),
@@ -180,7 +200,7 @@ export class PluginProcess {
     this.send({
       type: "hello",
       protocol: PROTOCOL_VERSION,
-      capabilities:[...CAPABILITIES],
+      capabilities: [...CAPABILITIES],
       plugin: { id: this.manifest.id },
       host: this.opts.host,
     });
@@ -189,8 +209,16 @@ export class PluginProcess {
       LIMITS.handshakeMs,
     );
     this.changed();
-    void this.read(proc.stdout as ReadableStream<Uint8Array>,proc).catch(error=>{if(this.proc===proc)this.fail(String(error))});
-    void this.readErr(proc.stderr as ReadableStream<Uint8Array>,proc).catch(error=>{if(this.proc===proc)this.fail(String(error))});
+    void this.read(proc.stdout as ReadableStream<Uint8Array>, proc).catch(
+      (error) => {
+        if (this.proc === proc) this.fail(String(error));
+      },
+    );
+    void this.readErr(proc.stderr as ReadableStream<Uint8Array>, proc).catch(
+      (error) => {
+        if (this.proc === proc) this.fail(String(error));
+      },
+    );
     void proc.exited.then((code) => this.exited(proc, code));
   }
 
@@ -221,6 +249,7 @@ export class PluginProcess {
     const stdin = this.proc?.stdin as import("bun").FileSink | undefined;
     if (!stdin || this.state === "crashed") return;
     try {
+      this.opts.diagnostic?.(this.manifest.id, "host-message", msg);
       stdin.write(JSON.stringify(msg) + "\n");
       stdin.flush();
     } catch {}
@@ -240,11 +269,14 @@ export class PluginProcess {
     if (n === 0) this.send({ type: "close", surface });
   }
 
-  private async read(stream: ReadableStream<Uint8Array>,proc:ReturnType<typeof Bun.spawn>) {
+  private async read(
+    stream: ReadableStream<Uint8Array>,
+    proc: ReturnType<typeof Bun.spawn>,
+  ) {
     const decoder = new TextDecoder();
     let buf = "";
     for await (const chunk of stream) {
-      if(this.proc!==proc||this.stopping)return;
+      if (this.proc !== proc || this.stopping) return;
       const { lines, rest } = splitLines(
         buf + decoder.decode(chunk, { stream: true }),
       );
@@ -274,20 +306,37 @@ export class PluginProcess {
           this.fail(`Invalid protocol message`);
           return;
         }
+        this.opts.diagnostic?.(
+          this.manifest.id,
+          "plugin-message",
+          line.slice(0, 16000),
+        );
         this.handle(msg);
       }
     }
   }
 
-  private async readErr(stream: ReadableStream<Uint8Array>,proc:ReturnType<typeof Bun.spawn>) {
+  private async readErr(
+    stream: ReadableStream<Uint8Array>,
+    proc: ReturnType<typeof Bun.spawn>,
+  ) {
     const decoder = new TextDecoder();
     for await (const chunk of stream) {
-      if(this.proc!==proc||this.stopping)return;
+      if (this.proc !== proc || this.stopping) return;
+      if (Date.now() - this.stderrWindow >= 1000) {
+        this.stderrWindow = Date.now();
+        this.stderrBytes = 0;
+      }
+      this.stderrBytes += chunk.length;
+      if (this.stderrBytes > LIMITS.logs) {
+        this.fail("Diagnostic log rate exceeded");
+        return;
+      }
       const text = decoder.decode(chunk, { stream: true });
       for (const line of text.split("\n").filter(Boolean)) {
         this.stderrTail.push(line.slice(0, 4096));
         if (this.stderrTail.length > 20) this.stderrTail.shift();
-        this.log(line.slice(0,4096));
+        this.log(line.slice(0, 4096));
       }
     }
   }
@@ -356,6 +405,31 @@ export class PluginProcess {
     }
     switch (msg.type) {
       case "render":
+        {
+          const check = (value: unknown): void => {
+            if (!value || typeof value !== "object") return;
+            for (const [key, child] of Object.entries(value)) {
+              if (
+                key === "icon" &&
+                typeof child === "string" &&
+                child.startsWith("asset:")
+              ) {
+                const prefix = `asset:${this.manifest.id}@${this.manifest.version}/`;
+                if (
+                  !child.startsWith(prefix) ||
+                  !(this.manifest as PackageManifest).assets?.[
+                    child.slice(prefix.length)
+                  ]
+                )
+                  throw new Error(
+                    "Undeclared or cross-package asset reference",
+                  );
+              }
+              if (child && typeof child === "object") check(child);
+            }
+          };
+          check(msg.tree);
+        }
         if (
           !this.manifest.screens.some(
             (s) => `screen:${s.id}` === msg.surface,
@@ -391,7 +465,9 @@ export class PluginProcess {
       this.changed();
       return;
     }
-    try{process.kill(-proc.pid,"SIGKILL")}catch{}
+    try {
+      process.kill(-proc.pid, "SIGKILL");
+    } catch {}
     this.log(`exited with ${code}`);
     // Restart a crashing plugin a few times, backing off; then leave it crashed.
     if (this.restarts < 3) {
@@ -410,7 +486,8 @@ export class PluginProcess {
   }
 
   private log(line: string) {
-    console.error(`[${this.manifest.id}] ${line}`);
+    this.opts.diagnostic?.(this.manifest.id, "stderr", line.slice(0, 4096));
+    console.error(`[${this.manifest.id}] ${line.slice(0, 4096)}`);
   }
 }
 
@@ -422,6 +499,7 @@ export class PluginHost {
   constructor(
     private readonly opts: {
       registryRoot?: string;
+      diagnostic?: (plugin: string, kind: string, detail: unknown) => void;
       dirs: string[];
       bun: string;
       env?: Record<string, string | undefined>;
@@ -477,6 +555,14 @@ export class PluginHost {
   }
 
   event(plugin: string, surface: string, name: string, payload?: unknown) {
+    if (
+      typeof name !== "string" ||
+      name.length > 256 ||
+      typeof surface !== "string" ||
+      surface.length > 256
+    )
+      throw new Error("Invalid event metadata");
+    validateEventPayload(payload);
     this.get(plugin).send({ type: "event", surface, name, payload });
   }
 
@@ -516,6 +602,7 @@ export class PluginHost {
     // Probe uses explicit staged path, not a production plugin data location.
     (p as any).opts.data = resolve(dataDir, "..");
     (p as any).dataOverride = dataDir;
+    (p as any).opts.mode = "probe";
     p.start();
     try {
       await p.waitReady();
@@ -533,6 +620,7 @@ export class PluginHost {
         host: this.opts.host,
         data,
         configRoot: this.opts.registryRoot,
+        diagnostic: this.opts.diagnostic,
       },
       () => this.emitPlugins(),
       {
@@ -567,7 +655,11 @@ export class PluginHost {
 
   private emitPlugins() {
     const list = this.list();
-    this.listeners.forEach((l) => {try{l.plugins(list)}catch{}});
+    this.listeners.forEach((l) => {
+      try {
+        l.plugins(list);
+      } catch {}
+    });
   }
 }
 

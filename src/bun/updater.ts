@@ -143,6 +143,8 @@ export const sh: Shell = async (exe, ...args) => {
 };
 
 export type UpdaterOptions = {
+	/** Reject before disrupting the current app when installed plugins cannot use the target host. */
+	preflight?: (version:string)=>void;
 	version: string;
 	channel: string;
 	/** TOOLBELT_UPDATE_FEED: a local server or file to try the whole update against. */
@@ -303,6 +305,7 @@ export class Updater {
 		const work = join(tmpdir(), `toolbelt-update-${randomUUID()}`);
 		const abort = (this.abort = new AbortController());
 		try {
+			this.o.preflight?.(r.version);
 			const problem = installProblem(this.o.appPath, this.o.writable);
 			if (problem) throw new UpdateError(problem);
 			const target = this.o.appPath!;

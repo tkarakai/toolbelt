@@ -8,8 +8,11 @@ import {
   cpSync,
   readdirSync,
   lstatSync,
+  openSync,
+  fsyncSync,
+  closeSync,
 } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import {
@@ -32,14 +35,18 @@ export type Installed = {
   release?: string;
   asset?: string;
   removed?: boolean;
-  dataSchema?:number;
-  history?: { installed: Omit<Installed,"history">; snapshot: string; at:number }[];
+  dataSchema?: number;
+  history?: {
+    installed: Omit<Installed, "history">;
+    snapshot: string;
+    at: number;
+  }[];
 };
 export type Registry = {
   formatVersion: 1;
   plugins: Record<string, Installed>;
   seeded?: boolean;
-  updateSchedule?: {lastChecked?:number;nextCheck?:number;error?:string};
+  updateSchedule?: { lastChecked?: number; nextCheck?: number; error?: string };
 };
 export type ReleaseDescriptor = {
   formatVersion: 1;
@@ -56,7 +63,7 @@ export type Candidate = {
   repo: string;
   release?: string;
   asset?: string;
-  channel?: "stable"|"prerelease";
+  channel?: "stable" | "prerelease";
 };
 export type RuntimeHooks = {
   prepare(id: string, reason: string): Promise<void>;
@@ -71,7 +78,19 @@ export function atomicJSON(file: string, value: unknown) {
   mkdirSync(dirname(file), { recursive: true });
   const temp = file + "." + randomUUID();
   writeFileSync(temp, JSON.stringify(value, null, 2));
+  const fd = openSync(temp, "r");
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
   renameSync(temp, file);
+  const directory = openSync(dirname(file), "r");
+  try {
+    fsyncSync(directory);
+  } finally {
+    closeSync(directory);
+  }
 }
 export function readRegistry(root: string): Registry {
   const file = join(root, "plugins/registry.json");
@@ -83,6 +102,24 @@ export function readRegistry(root: string): Registry {
     typeof value.plugins !== "object"
   )
     throw new Error("Invalid plugin registry");
+  for (const [id, p] of Object.entries(value.plugins) as [
+    string,
+    Installed,
+  ][]) {
+    const manifest = parsePackageManifest(p.manifest);
+    if (
+      id !== manifest.id ||
+      p.id !== id ||
+      p.version !== manifest.version ||
+      p.repo.toLowerCase() !== manifest.repo.toLowerCase() ||
+      !/^[a-f0-9]{64}$/.test(p.hash) ||
+      typeof p.enabled !== "boolean" ||
+      !["stable", "prerelease"].includes(p.channel) ||
+      resolve(p.packageRoot) !==
+        resolve(root, "plugins/packages", id, `${p.version}-${p.hash}`)
+    )
+      throw new Error("Invalid installed plugin identity/path");
+  }
   return value;
 }
 export function checkCompatibility(m: PackageManifest, hostVersion = "0.1.0") {
@@ -108,11 +145,20 @@ export function extractArchive(bytes: Uint8Array, target: string) {
   const seen = new Set<string>();
   let files = 0;
   let offset = 0;
+  let ended = false;
   mkdirSync(target, { recursive: true });
   while (offset + 512 <= tar.length) {
     const header = tar.subarray(offset, offset + 512);
     offset += 512;
-    if (header.every((x) => x === 0)) break;
+    if (header.every((x) => x === 0)) {
+      if (
+        offset + 512 > tar.length ||
+        !tar.subarray(offset).every((x) => x === 0)
+      )
+        throw new Error("Invalid tar trailer");
+      ended = true;
+      break;
+    }
     const text = (a: number, n: number) =>
       header
         .subarray(a, a + n)
@@ -136,6 +182,8 @@ export function extractArchive(bytes: Uint8Array, target: string) {
     const size = parseInt(text(124, 12).trim() || "0", 8);
     if (!Number.isSafeInteger(size) || size < 0 || offset + size > tar.length)
       throw new Error("Invalid tar size");
+    if (type === "5" && size !== 0)
+      throw new Error("Directory with file contents");
     const path = join(target, name);
     if (type === "5") mkdirSync(path, { recursive: true });
     else {
@@ -146,7 +194,11 @@ export function extractArchive(bytes: Uint8Array, target: string) {
     }
     offset += Math.ceil(size / 512) * 512;
   }
-  if (offset > tar.length || !existsSync(join(target, "toolbelt.json")))
+  if (
+    !ended ||
+    offset > tar.length ||
+    !existsSync(join(target, "toolbelt.json"))
+  )
     throw new Error("Incomplete plugin archive");
 }
 function validateFiles(root: string, m: PackageManifest) {
@@ -162,8 +214,16 @@ function validateFiles(root: string, m: PackageManifest) {
   }
 }
 export class PackageManager {
-  readonly listeners=new Set<(id:string,phase:string,detail?:string)=>void>();
-  private report(id:string,phase:string,detail?:string){for(const listener of this.listeners){try{listener(id,phase,detail)}catch{}}}
+  readonly listeners = new Set<
+    (id: string, phase: string, detail?: string) => void
+  >();
+  private report(id: string, phase: string, detail?: string) {
+    for (const listener of this.listeners) {
+      try {
+        listener(id, phase, detail);
+      } catch {}
+    }
+  }
   private operations = new Map<string, Promise<unknown>>();
   constructor(
     readonly root: string,
@@ -186,6 +246,50 @@ export class PackageManager {
       })
       .catch(() => {});
     return current;
+  }
+  private verifyCandidate(candidate: Candidate) {
+    const bytes = new Uint8Array(
+      readFileSync(join(this.root, "cache/packages", candidate.hash)),
+    );
+    if (hash(bytes) !== candidate.hash)
+      throw new Error("Approved cached archive bytes changed");
+    const expected = join(this.root, "plugins/staging", randomUUID());
+    try {
+      extractArchive(bytes, expected);
+      const files = (root: string): Map<string, string> => {
+        const out = new Map<string, string>();
+        const walk = (dir: string, relative: string) => {
+          for (const name of readdirSync(dir)) {
+            const path = join(dir, name),
+              key = relative ? `${relative}/${name}` : name,
+              stat = lstatSync(path);
+            if (stat.isSymbolicLink())
+              throw new Error("Package path became a link");
+            if (stat.isDirectory()) walk(path, key);
+            else if (stat.isFile())
+              out.set(key, hash(new Uint8Array(readFileSync(path))));
+            else throw new Error("Package special file");
+          }
+        };
+        walk(root, "");
+        return out;
+      };
+      const wanted = files(expected),
+        actual = files(candidate.packageRoot);
+      if (
+        wanted.size !== actual.size ||
+        [...wanted].some(([file, digest]) => actual.get(file) !== digest)
+      )
+        throw new Error("Approved extracted package bytes changed");
+      const manifest = parsePackageManifest(
+        JSON.parse(readFileSync(join(expected, "toolbelt.json"), "utf8")),
+      );
+      if (JSON.stringify(manifest) !== JSON.stringify(candidate.manifest))
+        throw new Error("Approved manifest changed");
+      checkCompatibility(manifest, this.hostVersion);
+    } finally {
+      rmSync(expected, { recursive: true, force: true });
+    }
   }
   async stage(
     bytes: Uint8Array,
@@ -228,10 +332,15 @@ export class PackageManager {
       throw error;
     }
   }
-  async install(candidate: Candidate, approved: boolean, restoreSnapshot?:string) {
+  async install(
+    candidate: Candidate,
+    approved: boolean,
+    restoreSnapshot?: string,
+  ) {
     if (!approved)
       throw new Error("Explicit publisher execution approval required");
     return this.serialize(candidate.manifest.id, async () => {
+      this.verifyCandidate(candidate);
       const id = candidate.manifest.id,
         registry = this.registry(),
         old = registry.plugins[id];
@@ -266,7 +375,14 @@ export class PackageManager {
         packageRoot: candidate.packageRoot,
         manifest: candidate.manifest,
         enabled: true,
-        dataSchema: !restoreSnapshot&&old&&(candidate.manifest.data.supports??[candidate.manifest.data.schema]).includes(old.dataSchema??old.manifest.data.schema)?old.dataSchema??old.manifest.data.schema:candidate.manifest.data.schema,
+        dataSchema:
+          !restoreSnapshot &&
+          old &&
+          (
+            candidate.manifest.data.supports ?? [candidate.manifest.data.schema]
+          ).includes(old.dataSchema ?? old.manifest.data.schema)
+            ? (old.dataSchema ?? old.manifest.data.schema)
+            : candidate.manifest.data.schema,
         channel: candidate.channel ?? old?.channel ?? "stable",
         release: candidate.release,
         asset: candidate.asset,
@@ -289,15 +405,16 @@ export class PackageManager {
       try {
         await this.hooks.prepare(id, "upgrade");
         prepared = true;
-        this.report(id,"stopping");
+        this.report(id, "stopping");
         await this.hooks.stop(id);
         if (existsSync(data)) {
           cpSync(data, backup, { recursive: true });
-          cpSync(restoreSnapshot??data, staged, { recursive: true });
+          cpSync(restoreSnapshot ?? data, staged, { recursive: true });
         } else mkdirSync(staged, { recursive: true });
-        this.report(id,"migrating");
-        if(!restoreSnapshot)await this.migrate(candidate, old, staged, backup, tx);
-        this.report(id,"starting");
+        this.report(id, "migrating");
+        if (!restoreSnapshot)
+          await this.migrate(candidate, old, staged, backup, tx);
+        this.report(id, "starting");
         await this.hooks.probe(candidate, staged);
         journal.phase = "promoting";
         atomicJSON(join(txDir, "journal.json"), journal);
@@ -309,17 +426,40 @@ export class PackageManager {
         renameSync(staged, data);
         promoted = true;
         await this.hooks.activate(next);
-        if(old){const {history,...previousInstalled}=old;next.history=[...(history??[]),{installed:previousInstalled,snapshot:backup,at:Date.now()}].slice(-3);}
+        if (old) {
+          const { history, ...previousInstalled } = old;
+          next.history = [
+            ...(history ?? []),
+            { installed: previousInstalled, snapshot: backup, at: Date.now() },
+          ].slice(-3);
+        }
         const fresh = this.registry();
         fresh.plugins[id] = next;
         this.save(fresh);
         journal.phase = "committed";
         atomicJSON(join(txDir, "journal.json"), journal);
         rmSync(txDir, { recursive: true, force: true });
-        this.report(id,"ready");
+        this.report(id, "ready");
+        try {
+          this.collectPackages(id);
+        } catch (error) {
+          this.report(
+            id,
+            "ready",
+            `Deferred package cleanup: ${String(error)}`,
+          );
+        }
         return next;
       } catch (error) {
-        this.report(id,"failed",String(error));
+        if (journal.phase === "committed") {
+          this.report(
+            id,
+            "ready",
+            `Deferred transaction cleanup: ${String(error)}`,
+          );
+          return next;
+        }
+        this.report(id, "failed", String(error));
         if (!prepared) {
           rmSync(txDir, { recursive: true, force: true });
           throw error;
@@ -350,7 +490,13 @@ export class PackageManager {
     transactionId: string,
   ) {
     const m = candidate.manifest;
-    if (old&&(m.data.supports??[m.data.schema]).includes(old.dataSchema??old.manifest.data.schema)) return;
+    if (
+      old &&
+      (m.data.supports ?? [m.data.schema]).includes(
+        old.dataSchema ?? old.manifest.data.schema,
+      )
+    )
+      return;
     if (!m.migration) {
       if (!old) return;
       throw new Error("Schema change requires migration entrypoint");
@@ -360,7 +506,10 @@ export class PackageManager {
       {
         cwd: candidate.packageRoot,
         detached: true,
-        env: runtimeEnv(candidate, targetDir),
+        env: {
+          ...runtimeEnv(candidate, targetDir),
+          TOOLBELT_CONFIG_DIR: this.root,
+        },
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
@@ -372,7 +521,7 @@ export class PackageManager {
         transactionId,
         fromVersion: old?.version ?? null,
         toVersion: m.version,
-          fromSchema: old?.dataSchema??old?.manifest.data.schema ?? null,
+        fromSchema: old?.dataSchema ?? old?.manifest.data.schema ?? null,
         toSchema: m.data.schema,
         sourceDir,
         targetDir,
@@ -430,13 +579,25 @@ export class PackageManager {
       this.save(fresh);
     });
   }
-  async restore(id:string,choiceId:string){
-    const current=this.registry().plugins[id];const index=Number(choiceId);
-    if(!current||!Number.isSafeInteger(index)||String(index)!==choiceId)throw new Error("Invalid recovery choice");
-    const choice=current.history?.[index];if(!choice)throw new Error("Recovery choice expired");
-    const compatible=(choice.installed.manifest.data.supports??[choice.installed.manifest.data.schema]).includes(current.dataSchema??current.manifest.data.schema);
-    if(!compatible&&!existsSync(choice.snapshot))throw new Error("Matching data snapshot unavailable");
-    return this.install({...choice.installed,repo:current.repo},true,compatible?undefined:choice.snapshot);
+  async restore(id: string, choiceId: string) {
+    const current = this.registry().plugins[id];
+    const index = Number(choiceId);
+    if (!current || !Number.isSafeInteger(index) || String(index) !== choiceId)
+      throw new Error("Invalid recovery choice");
+    const choice = current.history?.[index];
+    if (!choice) throw new Error("Recovery choice expired");
+    const compatible = (
+      choice.installed.manifest.data.supports ?? [
+        choice.installed.manifest.data.schema,
+      ]
+    ).includes(current.dataSchema ?? current.manifest.data.schema);
+    if (!compatible && !existsSync(choice.snapshot))
+      throw new Error("Matching data snapshot unavailable");
+    return this.install(
+      { ...choice.installed, repo: current.repo },
+      true,
+      compatible ? undefined : choice.snapshot,
+    );
   }
   async remove(id: string, deleteData = false) {
     return this.serialize(id, async () => {
@@ -455,8 +616,52 @@ export class PackageManager {
         rmSync(join(this.root, "data", id), {
           recursive: true,
           force: true,
-        }); /* Retain immutable code for independently running CLI helpers. */
+        });
+      this.collectPackages(id);
     });
+  }
+  /** Live helper leases pin immutable versions. Stale leases and unreferenced code are collected. */
+  collectPackages(id: string) {
+    const registry = this.registry(),
+      installed = registry.plugins[id];
+    const retained = new Set<string>();
+    if (installed && !installed.removed) {
+      retained.add(installed.packageRoot);
+      for (const history of installed.history ?? [])
+        retained.add(history.installed.packageRoot);
+    }
+    const leases = join(this.root, "plugins/leases", id);
+    if (existsSync(leases))
+      for (const file of readdirSync(leases)) {
+        const path = join(leases, file);
+        try {
+          const lease = JSON.parse(readFileSync(path, "utf8"));
+          if (!Number.isSafeInteger(lease.pid) || lease.pid < 1)
+            throw new Error("invalid lease");
+          process.kill(lease.pid, 0);
+          retained.add(lease.packageRoot);
+        } catch {
+          rmSync(path, { force: true });
+        }
+      }
+    const packages = join(this.root, "plugins/packages", id);
+    if (existsSync(packages))
+      for (const name of readdirSync(packages)) {
+        const path = join(packages, name);
+        if (!retained.has(path)) rmSync(path, { recursive: true, force: true });
+      }
+    const backups = join(this.root, "backups", id);
+    const snapshots = new Set(
+      installed && !installed.removed
+        ? (installed.history ?? []).map((h) => h.snapshot)
+        : [],
+    );
+    if (existsSync(backups))
+      for (const name of readdirSync(backups)) {
+        const path = join(backups, name);
+        if (!snapshots.has(path))
+          rmSync(path, { recursive: true, force: true });
+      }
   }
   async recover() {
     const root = join(this.root, "plugins/transactions");
@@ -469,6 +674,26 @@ export class PackageManager {
         continue;
       }
       const j = JSON.parse(readFileSync(file, "utf8"));
+      if (
+        !/^[a-z0-9][a-z0-9-]*$/.test(j.id) ||
+        j.data !== join(this.root, "data", j.id) ||
+        j.backup !== join(this.root, "backups", j.id, tx) ||
+        j.staged !== join(txDir, "data") ||
+        j.previous !== join(txDir, "previous") ||
+        !["prepared", "promoting", "committed"].includes(j.phase) ||
+        (j.old && j.old.id !== j.id) ||
+        j.next?.id !== j.id
+      ) {
+        const quarantine = join(this.root, "plugins/quarantine-transactions");
+        mkdirSync(quarantine, { recursive: true });
+        renameSync(txDir, join(quarantine, tx));
+        this.report(
+          "registry",
+          "failed",
+          "Invalid transaction journal quarantined",
+        );
+        continue;
+      }
       if (j.phase !== "committed") {
         if (j.phase === "promoting") {
           if (existsSync(j.previous)) {

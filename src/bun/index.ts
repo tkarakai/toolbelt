@@ -1,5 +1,5 @@
 import { EDIT_MENU } from "./edit-menu";
-import { createNativePopover } from "./native-popover";
+import { createNativePopover,positionPopover } from "./native-popover";
 // Toolbelt's main process: the menu bar icon and its popover, the main window, the global
 // shortcut, and the plugin host that feeds both web views.
 import Electrobun, {
@@ -293,21 +293,7 @@ let hiddenAt = 0;
 function showPopover() {
   clearTimeout(hideTimer);
   hideTimer = undefined;
-  const b = tray.getBounds();
-  const display = Screen.getPrimaryDisplay();
-  // Like a macOS menu: hanging from the menu bar, left edge just left of the icon (and kept on
-  // screen). Window frames are top-left based, but tray bounds come back in Cocoa's bottom-left
-  // coordinates — flip them.
-  const x = Math.round(
-    Math.min(
-      Math.max(b.x - 2, display.workArea.x + 4),
-      display.workArea.x + display.workArea.width - POPOVER.width - 4,
-    ),
-  );
-  const trayBottom = b.height
-    ? display.bounds.height - b.y
-    : display.workArea.y;
-  const y = Math.round(trayBottom - 1);
+  const {x,y}=positionPopover(tray,POPOVER.width);
   // It opens on the tool list, so at the list's height.
   popoverHeight = listHeight;
   popover.setFrame(x, y, POPOVER.width, popoverHeight);
@@ -367,6 +353,7 @@ function showTrayAlert(on: boolean) {
 }
 
 const updater = new AppUpdater({
+  preflight:version=>{const incompatible=Object.values(packages.registry().plugins).filter(p=>p.enabled&&!p.removed&&!Bun.semver.satisfies(version,p.manifest.requires.host));if(incompatible.length)throw new Error(`Update or disable these plugins before installing Toolbelt ${version}: ${incompatible.map(p=>p.manifest.name).join(", ")}`)},
   version: pkg.version,
   channel,
   feed: process.env.TOOLBELT_UPDATE_FEED,
