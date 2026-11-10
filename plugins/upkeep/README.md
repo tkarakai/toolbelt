@@ -40,3 +40,14 @@ Toolbelt runs `index.ts` directly with Bun. `TOOLBELT_CONFIG_DIR` keeps the tria
 
 The plugin SDK is vendored in `sdk/` until Toolbelt publishes it as a package. Update it with
 `bun scripts/sync-sdk.ts <path to a toolbelt checkout>`.
+
+## Table keyboard shortcuts
+
+Select a row with the arrow keys. Watching: **C** check, **U** review & update,
+**N** release notes, **E** settings, **H** history, **S** skip version,
+**P** pin/unpin, **R** roll back, **X** stop watching.
+Discover: **W** watch, **X** stop watching. Activity: **L** show log.
+Only actions available for the selected row run; confirmations still apply.
+Shortcuts are shown in row menus and details. **.** opens the row menu,
+**Enter** runs the first inline action, and **Space** toggles a bulk selection.
+Typing in a search or form field does not trigger row actions.
