@@ -29,7 +29,7 @@ export default {
 		watchIgnore: ["dist/**", "build-plugins/**"],
 		mac: {
 			bundleCEF: false,
-			// bun scripts/make-app-icon.ts
+			// bun run icons (Running's official/dev artwork)
 			icons: variant.icons,
 		},
 	},

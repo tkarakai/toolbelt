@@ -32,7 +32,7 @@ bun run typecheck && bun test
 bun run build      # artifacts/: the .dmg and the update bundle
 ```
 
-Toolbelt starts in the menu bar only; click the belt icon, press the shortcut, or "Open
+Toolbelt starts in the menu bar only; click the process-list icon, press the shortcut, or "Open
 Toolbelt" for the window. The first run downloads Electrobun's build tool (Hutch) through the
 pinned `electrobun` npm package, which checks its SHA-256.
 
@@ -69,3 +69,20 @@ icons, a DEV badge, and preferences in `~/Library/Application Support/Toolbelt D
 Its default shortcut is **⌃⌥⇧⌘T**, leaving the official app's **⌃⌥⇧T** available.
 `TOOLBELT_CONFIG_DIR` still overrides the preferences directory for test runs.
 `bun run build` produces the official Toolbelt identity; development builds do not self-update.
+
+## Releases
+
+Like Running, each release attaches three Apple silicon downloads: `Toolbelt-X.Y.Z-arm64.dmg`
+for the desktop app, `toolbelt-X.Y.Z-macos.tar.xz` for the bundled `running` terminal UI
+(requires the Bun version listed in the release notes), and
+`toolbelt-X.Y.Z-macos-arm64-standalone.tar.xz` for the same TUI with Bun embedded.
+Both archives contain one executable named `running`; its upstream version is separate
+from Toolbelt's release version. The app can also install the TUI from Processes › Settings.
+
+Prepare a release PR with the version in `package.json` and a dated `CHANGELOG.md` section.
+After CI passes and it is squash-merged, use a clean, up-to-date `main` checkout, with its
+dev app stopped: `bun run release --dry-run`, then `bun run release`. Both run typecheck,
+tests and builds, mount and verify the DMG's version, identity and signature, and extract
+and smoke-test both terminal archives. Publishing pushes the tag, creates a draft, uploads
+all three downloads with retries, then marks the release latest. Only the DMG is used by
+the app's GitHub updater; Electrobun's intermediate artifacts are not release downloads.

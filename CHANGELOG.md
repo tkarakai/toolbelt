@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Replaced the belt artwork with Running's process-list icons: midnight-blue official and
+  amber dev Dock icons, matching menu bar glyphs and a red update badge.
+- Releases include three downloads, matching Running: the desktop DMG, the bundled
+  `running` terminal UI for Bun, and a standalone terminal UI with Bun embedded.
+
 - App and folder headers show matching-command memory totals (RSS), independent of expansion. Memory sorting ranks groups by their largest command; totals are informational and include nested jobs without recounting expanded child processes.
 
 - Filter selectors match the fixed-width search field’s height. Dropdown searches retain typing focus, scroll only vertically, and stay open when Show all clears selections.

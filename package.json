@@ -12,7 +12,7 @@
 		"devkit": "electrobun prepare",
 		"typecheck": "tsc --noEmit -p .",
 		"test": "bun test",
-		"icons": "bun scripts/make-icons.ts && bun scripts/make-app-icon.ts && bun scripts/make-app-icon.ts --dev",
+		"icons": "bun scripts/make-icons.ts",
 		"preview": "bun run plugins && vite build && bun scripts/preview.ts",
 		"dmg": "bun scripts/make-dmg.ts",
 		"release": "bun scripts/release.ts",
