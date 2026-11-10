@@ -54,15 +54,31 @@ export async function makeDmg(root = join(import.meta.dir, "..")): Promise<strin
 export async function verifyDmg(dmg: string, version: string) {
 	const mnt = mkdtempSync(join(tmpdir(), "toolbelt-dmg-check-"));
 	console.log(`Verifying ${dmg}`);
-	await $`/usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint ${mnt} ${dmg}`;
+	let mounted = false;
 	try {
+		// A newly created image can still be busy when DiskImages first opens it on CI.
+		// Retry only transient resource errors; malformed images and other failures stop here.
+		for (let attempt = 1; ; attempt++) {
+			const result = await $`/usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint ${mnt} ${dmg}`.nothrow();
+			if (result.exitCode === 0) {
+				mounted = true;
+				break;
+			}
+			const detail = result.stderr.toString().trim();
+			if (attempt === 5 || !/Resource temporarily unavailable|Resource busy/i.test(detail)) {
+				throw new Error(`mounting ${dmg} failed (attempt ${attempt}): ${detail}`);
+			}
+			const delay = 1000 * 2 ** (attempt - 1);
+			console.warn(`Disk image temporarily busy; retrying mount in ${delay / 1000}s (attempt ${attempt}/5)`);
+			await Bun.sleep(delay);
+		}
 		const plist = join(mnt, "Toolbelt.app/Contents/Info.plist");
 		const v = (await $`/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" ${plist}`.text()).trim();
 		const id = (await $`/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" ${plist}`.text()).trim();
 		if (v !== version || id !== BUNDLE_ID) throw new Error(`${dmg} holds ${id} ${v}, expected ${BUNDLE_ID} ${version}`);
 		await $`/usr/bin/codesign --verify --strict ${join(mnt, "Toolbelt.app")}`;
 	} finally {
-		await $`/usr/bin/hdiutil detach -force ${mnt}`.quiet().nothrow();
+		if (mounted) await $`/usr/bin/hdiutil detach -force ${mnt}`.quiet().nothrow();
 		rmSync(mnt, { recursive: true, force: true });
 	}
 }
