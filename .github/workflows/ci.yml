@@ -55,6 +55,10 @@ jobs:
           # Ad-hoc signed. (Electrobun's self-extracting launcher fails `codesign --verify --strict`:
           # "code has no resources but signature indicates they must be present".)
           codesign -dv build/stable-macos-arm64/Toolbelt.app 2>&1 | grep -q 'Signature=adhoc'
+      - name: Verify release downloads (desktop DMG and both terminal archives)
+        run: |
+          bun run dmg
+          bun scripts/make-terminal-archives.ts
 
   secrets:
     name: Secrets

@@ -255,8 +255,8 @@ popover.on("blur", () => {
 });
 
 // ── updates (official builds only; src/bun/updater.ts) ───────────────────
-// An available update puts a red dot on the menu bar icon. A template image can't be red, so
-// that one is a plain image, with the belt drawn for the menu bar's current shade.
+// An available update puts a red badge on the menu bar icon. A template image can't be red,
+// so that one is a plain image, with the glyph drawn for the menu bar's current shade.
 const TRAY_IMAGE = channel === "dev" ? "views://assets/tray-icon-dev@2x.png" : "views://assets/tray-icon@2x.png";
 let trayAlert: null | "light" | "dark" = null;
 function showTrayAlert(on: boolean) {

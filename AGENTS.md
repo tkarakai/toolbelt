@@ -24,7 +24,9 @@ protocol; Toolbelt renders them. See `README.md`.
    `bun run release --dry-run` first). It checks everything, runs typecheck + tests, builds,
    makes `artifacts/Toolbelt-X.Y.Z-arm64.dmg` (`bun run dmg`, `scripts/make-dmg.ts`), tags
    `vX.Y.Z`, and creates the GitHub release with the CHANGELOG section + download notes,
-   the disk image attached.
+   three downloads attached: the disk image, `toolbelt-X.Y.Z-macos.tar.xz` (the bundled
+   `running` TUI, needs Bun) and `toolbelt-X.Y.Z-macos-arm64-standalone.tar.xz` (Bun embedded).
+   Both terminal archives are extracted and checked for version, runtime and shell hook.
 3. Installed copies find it within 6 hours (`src/bun/updater.ts` reads GitHub's latest release:
    the `-arm64.dmg` asset, its `digest`, the notes up to `## Downloads`).
 
