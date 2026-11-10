@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Processes detects known agent harnesses launched by T3 Code and other GUI clients,
+  even without a terminal or network listener.
+
 - Upkeep shows Sparkle build numbers so same-version rebuilds have distinct installed and
   available versions, and includes their release-note links.
 
