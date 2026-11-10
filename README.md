@@ -20,6 +20,15 @@ Status: early. The first plugin is **Toolbelt Processes**
 `plugins/processes/running/`): its engine, and its terminal UI, which Processes › Settings can
 put on your PATH as `running` (with its zsh hook in `~/.zshrc`) and remove again.
 
+**Upkeep** ([toolbelt-upkeep](https://github.com/tkarakai/toolbelt-upkeep)) is also bundled.
+Open Upkeep › Discover and scan to choose which apps, runtimes, packages and git clones to
+watch. Checks run every six hours by default while Toolbelt is running, with per-item
+intervals and **Check now**. Review updates and release notes, follow jobs in Queue, and see
+every attempt in Activity. A fresh install watches nothing, and automatic updates are off.
+macOS and App Store updates are not covered yet; Sparkle apps and Go use vendor handoffs.
+The pinned source and local changes are documented in
+[`plugins/upkeep/VENDORED.md`](plugins/upkeep/VENDORED.md).
+
 Built with [Electrobun](https://github.com/blackboardsh/electrobun) (Bun + the system web view).
 
 ## Development
