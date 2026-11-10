@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Generated app bundles stay out of Spotlight and app launchers, preventing duplicate
+  official Toolbelt entries alongside the installed release.
 - Press Enter again on a watched Discover row to stop watching it immediately.
 
 - Remove the Showcase demo plugin. Toolbelt now bundles Processes and Upkeep.

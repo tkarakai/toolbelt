@@ -11,6 +11,8 @@ export default {
 		version: pkg.version,
 	},
 	build: {
+		// Build copies must stay out of Spotlight and app launchers; install from the DMG.
+		buildFolder: "build.noindex",
 		mainProcess: "bun",
 		bun: {
 			entrypoint: "src/bun/index.ts",
@@ -33,7 +35,7 @@ export default {
 			icons: variant.icons,
 		},
 	},
-	scripts: { postBuild: "./scripts/dev-identity.ts" },
+	scripts: { postBuild: "./scripts/post-build.ts" },
 	runtime: {
 		// A menu bar app: closing the window doesn't quit.
 		exitOnLastWindowClosed: false,

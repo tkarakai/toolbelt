@@ -78,6 +78,9 @@ icons, a DEV badge, and preferences in `~/Library/Application Support/Toolbelt D
 Its default shortcut is **⌃⌥⇧⌘T**, leaving the official app's **⌃⌥⇧T** available.
 `TOOLBELT_CONFIG_DIR` still overrides the preferences directory for test runs.
 `bun run build` produces the official Toolbelt identity; development builds do not self-update.
+Generated apps live under `build.noindex/` and are unregistered after each build, so they
+stay out of Spotlight and app launchers. The official app is installed from its release DMG
+into `/Applications/Toolbelt.app`.
 
 ## Releases
 

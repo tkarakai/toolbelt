@@ -90,6 +90,8 @@ motion (macOS setting) turns animations off globally.
 
 - `bun run typecheck`, `bun test`, `bun run build` (artifacts/). `bun run dev` launches the app;
   stop it before `bun run build` (they share Hutch's lock).
+- Generated bundles live in `build.noindex/` and `scripts/post-build.ts` unregisters them
+  from Launch Services, so only installed apps appear in Spotlight and app launchers.
 - Verify UI changes in a browser: `bun run preview` serves the built UI with the real plugins
   at http://localhost:5174 (`/#popover` for the popover; reload after changing the hash —
   the surface is picked at load). Drive and screenshot it with `chrome-devtools-axi`.
@@ -99,7 +101,7 @@ motion (macOS setting) turns animations off globally.
   (`window.__tbEvent(plugin, surface, name, payload)` sends plugin events; `window.__tbPerf`
   holds render timings). A window behind others reports `document.hidden` and is throttled.
 - If the person has `bun run dev` running, it holds Hutch's build lock: don't stop their app —
-  copy the checkout elsewhere (`rsync -a --exclude /build --exclude /dist --exclude /.hutch
+  copy the checkout elsewhere (`rsync -a --exclude /build --exclude /build.noindex --exclude /dist --exclude /.hutch
   --exclude /build-plugins --exclude /.git`) and run your copy there, with its own
   `TOOLBELT_DEBUG_PORT` and `TOOLBELT_CONFIG_DIR`.
 - Updates (`src/bun/updater.ts`, UI in `src/ui/Updates.tsx`): only `stable` builds

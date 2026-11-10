@@ -1,6 +1,7 @@
 .hutch/
 node_modules/
 build/
+build.noindex/
 dist/
 artifacts/
 *.tsbuildinfo
