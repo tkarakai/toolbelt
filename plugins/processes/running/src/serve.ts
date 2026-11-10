@@ -88,7 +88,7 @@ function rowDTO(r: Row) {
     source: r.source, leaderGone: r.leaderGone, exe: r.exe, cwd: r.cwd, listen: r.listen, where: r.where, tty: r.tty,
     stat: r.stat, etimeSec: r.etimeSec, rssKb: r.rssKb, cpu: r.cpu, pidCount: r.pids.length,
     members: r.members.map((m) => ({ pid: m.pid, ppid: m.ppid, depth: m.depth, displayArgv: m.displayArgv, argvCommand: m.argvCommand, cwd: m.cwd, listen: m.listen, tty: m.tty, stat: m.stat, etimeSec: m.etimeSec, rssKb: m.rssKb, cpu: m.cpu, pidCount: m.pids.length })),
-    parentRow: r.parentRow, via: r.via, termLabel: termLabel(r), shellAlive: !!r.shellPid,
+    parentRow: r.parentRow, via: r.via, term: r.term, termLabel: termLabel(r), shellAlive: !!r.shellPid,
     keptIndex: k ? kept.indexOf(k) : undefined,
     agent: agent ?? undefined,
   };
@@ -226,7 +226,7 @@ const methods: Record<string, (p: Params, ctx: Ctx) => unknown | Promise<unknown
       command: agent?.resume ?? r.command,
       cwd: tildify(r.cwd),
       note: "",
-      env: agent ? [] : envChoices(r.env, r.baseEnv, ownEnv, prefixVars(r.command)),
+      env: envChoices(r.env, r.baseEnv, ownEnv, prefixVars(r.command)),
     };
   },
 

@@ -51,7 +51,8 @@ signs the bundle ad hoc and checks it the way the updater will.
   them; `RUNNING_CORE_SCRIPT` overrides the engine), `install.ts` (puts the TUI on PATH and the
   zsh hook in ~/.zshrc — every path derives from `TOOLBELT_PS_HOME`, else the real home: test
   only against temp homes, `test/processes-install.test.ts`), `tui.ts` (that Settings card),
-  `core.ts` (running-core client), `model.ts` (grouping/sorting/search,
+  `core.ts` (running-core client), `agents.ts` (known AI agent CLIs: binaries, npm packages,
+  colors — add new ones there), `model.ts` (grouping/sorting/search, filters, dots,
   pure — tested in `test/processes-model.test.ts`), `index.ts` (screens, dialogs, actions).
   Testing it touches the person's real processes: open dialogs, never save/stop/kill/focus.
 - `src/ui/themes.ts` — palettes (light + dark each); `test/themes.test.ts` enforces WCAG AA for

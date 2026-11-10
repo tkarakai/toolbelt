@@ -7,15 +7,17 @@
 	"scripts": {
 		"plugins": "bun scripts/build-plugins.ts",
 		"views": "vite build",
-		"dev": "bun run plugins && electrobun prepare && vite build && electrobun dev",
-		"build": "bun run plugins && electrobun prepare && vite build && electrobun build --env=stable",
+		"dev": "TOOLBELT_VARIANT=dev bun run dev:app",
+		"build": "TOOLBELT_VARIANT=official bun run build:app",
 		"devkit": "electrobun prepare",
 		"typecheck": "tsc --noEmit -p .",
 		"test": "bun test",
-		"icons": "bun scripts/make-icons.ts && bun scripts/make-app-icon.ts",
+		"icons": "bun scripts/make-icons.ts && bun scripts/make-app-icon.ts && bun scripts/make-app-icon.ts --dev",
 		"preview": "bun run plugins && vite build && bun scripts/preview.ts",
 		"dmg": "bun scripts/make-dmg.ts",
-		"release": "bun scripts/release.ts"
+		"release": "bun scripts/release.ts",
+		"dev:app": "bun run plugins && electrobun prepare && vite build && electrobun dev",
+		"build:app": "bun run plugins && electrobun prepare && vite build && electrobun build --env=stable"
 	},
 	"dependencies": {
 		"@fontsource-variable/geist": "^5.3.0",

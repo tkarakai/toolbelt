@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { Markdown, When } from "@/renderer/Render";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { KeyHint } from "@/components/key-hint";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 
@@ -185,7 +186,11 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
 
 	return (
 		<Dialog open={open} onOpenChange={(o) => !o && close()}>
-			<DialogContent className="gap-0 p-0 sm:max-w-lg" showCloseButton={!busy} onEscapeKeyDown={(e) => busy && e.preventDefault()} onInteractOutside={(e) => busy && e.preventDefault()}>
+			<DialogContent className="gap-0 p-0 sm:max-w-lg" showCloseButton={!busy} onEscapeKeyDown={(e) => {
+					if (!busy) return;
+					e.preventDefault();
+					if (kind === "downloading") void rpc.request.cancelUpdate({}); // the Cancel button's esc
+				}} onInteractOutside={(e) => busy && e.preventDefault()}>
 				<DialogHeader className="flex-row items-center gap-4 border-b p-5">
 					<div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
 						<Download className="size-6" />
@@ -245,15 +250,18 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
 						<>
 							<Button variant="outline" onClick={close}>
 								Later
+								<KeyHint keys="esc" />
 							</Button>
 							<Button autoFocus onClick={() => void rpc.request.installUpdate({})}>
 								Update &amp; Restart
+								<KeyHint keys="↵" />
 							</Button>
 						</>
 					)}
 					{kind === "downloading" && (
 						<Button variant="outline" onClick={() => void rpc.request.cancelUpdate({})}>
 							Cancel
+							<KeyHint keys="esc" />
 						</Button>
 					)}
 					{(kind === "verifying" || kind === "installing" || kind === "relaunching") && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
@@ -261,9 +269,11 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
 						<>
 							<Button variant="outline" onClick={close}>
 								Close
+								<KeyHint keys="esc" />
 							</Button>
 							<Button autoFocus onClick={() => void rpc.request.installUpdate({})}>
 								Try Again
+								<KeyHint keys="↵" />
 							</Button>
 						</>
 					)}

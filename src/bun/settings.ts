@@ -17,11 +17,11 @@ export const DEFAULTS: Settings = { shortcut: "Control+Option+Shift+T", theme: "
 const dir = () => process.env.TOOLBELT_CONFIG_DIR ?? join(homedir(), "Library/Application Support/Toolbelt");
 const file = () => join(dir(), "settings.json");
 
-export function loadSettings(): Settings {
+export function loadSettings(defaults: Settings = DEFAULTS): Settings {
 	try {
-		return { ...DEFAULTS, ...JSON.parse(readFileSync(file(), "utf8")) };
+		return { ...defaults, ...JSON.parse(readFileSync(file(), "utf8")) };
 	} catch {
-		return { ...DEFAULTS };
+		return { ...defaults };
 	}
 }
 

@@ -5,7 +5,7 @@ import { Power } from "lucide-react";
 import { rpc, useCommand } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Kbd } from "@/components/ui/kbd";
+import { KeyHint } from "@/components/key-hint";
 
 let openQuit: () => void = () => {};
 /** Ask to quit (for Quit buttons). */
@@ -34,12 +34,12 @@ export function QuitDialog() {
 				<DialogFooter>
 					<Button variant="outline" onClick={() => setOpen(false)}>
 						Cancel
-						<Kbd className="ml-1">esc</Kbd>
+						<KeyHint keys="esc" />
 					</Button>
 					<Button variant="destructive" autoFocus onClick={() => rpc.send.quit({})}>
 						<Power />
 						Quit
-						<Kbd className="ml-1 bg-white/20 text-white">⌘Q</Kbd>
+						<KeyHint keys="↵" />
 					</Button>
 				</DialogFooter>
 			</DialogContent>

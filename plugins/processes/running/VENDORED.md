@@ -1,6 +1,6 @@
 # Vendored: running
 
-A copy of [running](https://github.com/tkarakai/running), **unmodified**, taken with `git archive`
+A copy of [running](https://github.com/tkarakai/running), with the local patches listed below, taken with `git archive`
 from commit `c9d55727a7b38b4738b31608b8480c1eccebf8d0` (v0.8.0): `src/`, `package.json`,
 `tsconfig.json`, `README.md`, `CHANGELOG.md`. (running has no LICENSE file; it's the same author.)
 
@@ -22,3 +22,9 @@ How Toolbelt uses it (nothing here is edited for that):
   `src/stubs/react-devtools-core.ts`. `init.zsh` comes in through Bun's text import.
 - Toolbelt's `tsc` excludes this folder (running uses TypeScript 7 and its own settings).
 - The dependencies (`ink`, `yaml`, `react`) come from Toolbelt's `package.json`.
+
+Local patches:
+- `src/procs.ts`: include noninteractive shell scripts as terminal jobs; exclude only interactive shells.
+- `src/serve.ts`: offer environment differences for agent jobs as well as other commands.
+- `src/procs.ts` / `src/serve.ts`: preserve CMUX workspace/surface identity in terminal metadata and row DTOs.
+- `src/actions.ts`: use CMUX navigation deep links for exact-surface jumps.

@@ -1,11 +1,15 @@
+import { EnvironmentEditor } from "./EnvironmentEditor";
 // Turns a plugin's UI tree into shadcn/ui components. Every node type in shared/protocol.ts
 // has one renderer here; plugins never ship their own components.
 //
 // Keyboard (tables): ↑/↓ move · →/← expand/collapse (← again: to the parent) · ↵ first action
-// · . row menu · esc clear. Pages: ⌘F or / to filter, esc back to the list.
+// · an action's own key (`Action.key`: J, P…) · . row menu · esc clear. The table is the
+// keyboard's home: menus hand focus back to it when they close. Pages: ⌘F or / to filter, esc
+// back to the list.
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, Search, X } from "lucide-react";
-import type { Action, Cell, Column, DetailItem, Dialog as DialogNode, Field, GroupLabel, Node, Row, Tone } from "../../shared/protocol";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, Search, X } from "lucide-react";
+import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Tag, Target, Tone } from "../../shared/protocol";
+import { dotClass, dotSpec, pillClass, textClass } from "./colors";
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { cn } from "@/lib/utils";
 import { Icon, isFileIcon } from "@/lib/icon";
@@ -21,35 +25,22 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
+import { KeyHint } from "@/components/key-hint";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
+const ACTIVE_QUERY = "border-primary! bg-primary/10! ring-1 ring-primary/30";
+
 export type Emit = (name: string, payload?: unknown) => void;
 
-const dotColor: Record<Tone, string> = {
-	default: "bg-foreground/40",
-	muted: "bg-muted-foreground/40",
-	success: "bg-emerald-500 shadow-[0_0_0_3px] shadow-emerald-500/15",
-	warning: "bg-amber-500 shadow-[0_0_0_3px] shadow-amber-500/15",
-	danger: "bg-red-500 shadow-[0_0_0_3px] shadow-red-500/15",
-	info: "bg-sky-500 shadow-[0_0_0_3px] shadow-sky-500/15",
-};
-const textTone: Record<Tone, string> = {
-	default: "",
-	muted: "text-muted-foreground",
-	success: "text-emerald-600 dark:text-emerald-400",
-	warning: "text-amber-600 dark:text-amber-400",
-	danger: "text-red-600 dark:text-red-400",
-	info: "text-sky-600 dark:text-sky-400",
-};
 
 // ── search hits ──────────────────────────────────────────────────────────
 const HighlightContext = createContext<RegExp | null>(null);
@@ -64,8 +55,71 @@ export function Hl({ text }: { text: string }) {
 	return <>{parts.map((p, i) => (i % 2 ? <mark key={i} className="hit">{p}</mark> : p))}</>;
 }
 
-export function Dot({ tone = "default", className }: { tone?: Tone; className?: string }) {
-	return <span className={cn("inline-block size-2 shrink-0 rounded-full", dotColor[tone], className)} />;
+/** A status dot. With a label, hovering it says what it means (instantly). `pulse` breathes
+ *  slowly (an opacity animation, so it costs next to nothing). */
+export function Dot({ tone, dot, className }: { tone?: Tone; dot?: DotNode; className?: string }) {
+	const d = dotSpec(dot ?? tone ?? "default");
+	const el = <span aria-label={d.label} className={cn("inline-block size-2 shrink-0 rounded-full", dotClass(d.color, d.dim), d.pulse && "tb-pulse", className)} />;
+	if (!d.label) return el;
+	return (
+		<Tooltip delayDuration={0}>
+			<TooltipTrigger asChild>
+				{/* A larger hover target than the dot itself. */}
+				<span className={cn("-m-1 inline-flex shrink-0 p-1", className)}>{el}</span>
+			</TooltipTrigger>
+			<TooltipContent>{d.label}</TooltipContent>
+		</Tooltip>
+	);
+}
+
+/** `text` with its `strong` part drawn stronger (and search hits marked). */
+function Strong({ text, strong }: { text: string; strong?: string }) {
+	const at = strong ? text.lastIndexOf(strong) : -1;
+	if (!strong || at < 0) return <Hl text={text} />;
+	return (
+		<>
+			<span data-path-context className="opacity-70">
+				<Hl text={text.slice(0, at)} />
+			</span>
+			<span className="font-semibold">
+				<Hl text={strong} />
+			</span>
+			<span data-path-context className="opacity-70">
+				<Hl text={text.slice(at + strong.length)} />
+			</span>
+		</>
+	);
+}
+
+/** A small colored pill; its tooltip shows instantly. */
+function TagPill({ tag }: { tag: Tag }) {
+	const pill = (
+		<span className={cn("inline-flex h-4 shrink-0 items-center gap-1 rounded px-1.5 text-[10.5px] leading-none font-medium whitespace-nowrap", pillClass(tag.color))}>
+			{tag.icon && <Icon name={tag.icon} className="size-2.5" />}
+			<Hl text={tag.text} />
+		</span>
+	);
+	if (!tag.tooltip) return pill;
+	return (
+		<Tooltip delayDuration={0}>
+			<TooltipTrigger asChild>{pill}</TooltipTrigger>
+			<TooltipContent>{tag.tooltip}</TooltipContent>
+		</Tooltip>
+	);
+}
+
+/** An icon after a cell's text, explained by an instant tooltip. */
+function MarkIcon({ mark }: { mark: Mark }) {
+	return (
+		<Tooltip delayDuration={0}>
+			<TooltipTrigger asChild>
+				<span className={cn("inline-flex shrink-0 p-0.5", mark.color ? textClass(mark.color) : "text-muted-foreground", "")} aria-label={mark.tooltip}>
+					<Icon name={mark.icon} className="size-3.5" />
+				</span>
+			</TooltipTrigger>
+			<TooltipContent>{mark.tooltip}</TooltipContent>
+		</Tooltip>
+	);
 }
 
 /** A moment shown relative to now ("in 2h 14m"), redrawn as often as its wording changes. */
@@ -93,7 +147,7 @@ function Elapsed({ at }: { at: number }) {
 }
 
 /** Buttons for toolbar, card and dialog actions; `checked` actions are switches. */
-function ActionButtons({ actions, onRun, size = "sm" }: { actions: Action[]; onRun: (a: Action) => void; size?: "sm" | "default" }) {
+function ActionButtons({ actions, onRun, size = "sm", enter }: { actions: Action[]; onRun: (a: Action) => void; size?: "sm" | "default"; enter?: Action }) {
 	return (
 		<>
 			{actions.map((a) =>
@@ -106,6 +160,7 @@ function ActionButtons({ actions, onRun, size = "sm" }: { actions: Action[]; onR
 					<Button key={a.id} size={size} disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onClick={() => onRun(a)}>
 						{a.icon && <Icon name={a.icon} />}
 						{a.label}
+						{a === enter && <KeyHint keys="↵" />}
 					</Button>
 				),
 			)}
@@ -152,7 +207,7 @@ export function Render({ node, emit }: { node: Node; emit: Emit }): ReactNode {
 		case "empty":
 			return <EmptyState title={node.title} description={node.description} icon={node.icon} />;
 		case "text":
-			return <p className={cn("text-sm leading-relaxed whitespace-pre-line", textTone[node.tone ?? "default"], node.mono && "font-mono")}>{node.text}</p>;
+			return <p className={cn("text-sm leading-relaxed whitespace-pre-line", textClass(node.tone ?? "default"), node.mono && "font-mono")}>{node.text}</p>;
 		case "card":
 			return <CardNode node={node} emit={emit} />;
 		case "details":
@@ -229,7 +284,7 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 			{hasToolbar && (
 				<div className={cn("flex w-full shrink-0 items-center gap-3 px-6 pt-4 pb-3", narrow && "mx-auto max-w-4xl")}>
 					{node.search && (
-						<InputGroup className="max-w-sm">
+						<InputGroup data-filtering={!!query} className={cn("w-64 shrink-0 transition-colors duration-200", !!query && ACTIVE_QUERY)}>
 							<InputGroupAddon>
 								<Search />
 							</InputGroupAddon>
@@ -257,6 +312,9 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 							</InputGroupAddon>
 						</InputGroup>
 					)}
+					{node.filters?.map((f) => (
+						<FilterMenu key={f.id} filter={f} emit={emit} />
+					))}
 					{node.summary && <span className="truncate text-sm text-muted-foreground tabular-nums">{node.summary}</span>}
 					<div className="ml-auto flex items-center gap-2">
 						<ActionButtons actions={node.actions ?? []} onRun={(a) => run(a)} />
@@ -274,6 +332,76 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 			<PageDialog dialog={node.dialog} emit={emit} />
 		</div>
 		</HighlightContext.Provider>
+	);
+}
+
+/**
+ * A multi-select filter: a toolbar button ("Agent", or "Agent · Claude Code" / "Agent · 2") and
+ * a menu of checkboxes that stays open while you tick. The choice shows at once; the plugin
+ * hears it as a `filter` event and filters.
+ */
+function FilterMenu({ filter, emit }: { filter: Filter; emit: Emit }) {
+	// Ticks show immediately; the plugin's next render confirms them.
+	const [picked, setPicked] = useState(filter.selected);
+    const searchInput = useRef<HTMLInputElement>(null);
+    const [query, setQuery] = useState("");
+    const matches = filter.options.filter(o => o.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+    const present = matches.filter(o => (o.count ?? 1) > 0);
+    const absent = matches.filter(o => o.count === 0);
+	const sent = JSON.stringify(filter.selected);
+	useEffect(() => setPicked(filter.selected), [sent]);
+	const set = (values: string[]) => {
+		setPicked(values);
+		emit("filter", { filter: filter.id, values });
+	};
+	const on = new Set(picked);
+	const names = filter.options.filter((o) => on.has(o.value)).map((o) => o.label);
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button variant="outline" size="sm" data-filtering={picked.length > 0} className={cn("h-8 shrink-0 gap-1.5 transition-colors duration-200", picked.length > 0 && ACTIVE_QUERY)}>
+					{filter.icon && <Icon name={filter.icon} />}
+					{filter.label}
+					{names.length > 0 && <span className="max-w-36 truncate font-normal text-muted-foreground">· {names.length === 1 ? names[0] : names.length}</span>}
+					<ChevronDown className="size-3.5 opacity-60" />
+				</Button>
+			</DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64 overflow-x-hidden" onCloseAutoFocus={toTable}>
+                <div className="px-2 pt-2 pb-1">
+                    <Input ref={searchInput} className={cn("min-w-0 transition-colors duration-200", !!query && ACTIVE_QUERY)} autoFocus aria-label={`Search ${filter.label} options`} placeholder="Search options…" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => {
+                        if (e.key === "Escape") return;
+                        // Stop at the input: stopping on Content is too late to prevent Radix's
+                        // typeahead handler on that same element from moving focus to an item.
+                        e.stopPropagation();
+                        if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            (e.currentTarget.closest('[role=menu]')?.querySelector('[role=menuitemcheckbox]') as HTMLElement)?.focus();
+                        }
+                    }} />
+                </div>
+				<DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{filter.label}: show only…</DropdownMenuLabel>
+                <div className="max-h-72 min-w-0 overflow-x-hidden overflow-y-auto">
+                    {[present, absent].map((group, i) => <div key={i}>
+                        {i === 1 && present.length > 0 && absent.length > 0 && <DropdownMenuSeparator />}
+                        {group.map(o => <DropdownMenuCheckboxItem key={o.value} checked={on.has(o.value)} onSelect={e => e.preventDefault()} onCheckedChange={c => set(c ? [...picked, o.value] : picked.filter(v => v !== o.value))}>
+                        {o.dot && <Dot dot={typeof o.dot === "string" ? o.dot : { ...o.dot, label: undefined }} />}
+                        <span className="min-w-0 flex-1 truncate">{o.label}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">{o.count}</span>
+                    </DropdownMenuCheckboxItem>)}
+                    </div>)}
+                    {!matches.length && <p className="px-2 py-4 text-sm text-muted-foreground">No matching options.</p>}
+                </div>
+				{picked.length > 0 && (
+					<>
+						<DropdownMenuSeparator />
+						<DropdownMenuItem onSelect={e => { e.preventDefault(); set([]); searchInput.current?.focus(); }}>
+							<X />
+							Show all
+						</DropdownMenuItem>
+					</>
+				)}
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -297,8 +425,18 @@ const FILLS = new Set(["terminal", "conversation"]);
 
 function DialogBody({ d, emit, close, className, style, header, children }: { d: DialogNode; emit: Emit; close: () => void; className?: string; style?: React.CSSProperties; header?: ReactNode; children?: ReactNode }) {
 	const fills = d.children.some((c) => FILLS.has(c.type));
+	// ↵ runs the main action, wherever focus is — unless it's on another button, or in a field
+	// or terminal that wants the key itself. Esc (Cancel / Close) is the dialog's own.
+	const main = d.actions?.find((a) => a.primary && !a.disabled && a.checked === undefined);
+	const onKeyDown = (e: React.KeyboardEvent) => {
+		if (e.key !== "Enter" || !main || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.nativeEvent.isComposing) return;
+		if ((e.target as HTMLElement).closest("button, a, input, textarea, select, [contenteditable], [role=switch], .tb-terminal")) return;
+		e.preventDefault();
+		emit(main.id, { dialog: d.id });
+	};
 	return (
 		<DialogContent
+			onKeyDown={onKeyDown}
 			className={cn("flex max-h-[85vh] flex-col gap-0 p-0 duration-200", d.wide ? "sm:max-w-3xl" : "sm:max-w-lg", className)}
 			style={style}
 			// Focus the dialog itself, not its first button (a ring on "Maximize" reads as a state).
@@ -320,8 +458,9 @@ function DialogBody({ d, emit, close, className, style, header, children }: { d:
 			<DialogFooter className="mx-0 mb-0 flex-wrap gap-y-2 px-6 py-4">
 				<Button variant="outline" onClick={close}>
 					{d.actions?.some((a) => a.primary) ? "Cancel" : "Close"}
+					<KeyHint keys="esc" />
 				</Button>
-				<ActionButtons size="default" actions={d.actions ?? []} onRun={(a) => emit(a.id, { dialog: d.id })} />
+				<ActionButtons size="default" actions={d.actions ?? []} enter={main} onRun={(a) => emit(a.id, { dialog: d.id })} />
 			</DialogFooter>
 			{children}
 		</DialogContent>
@@ -395,40 +534,50 @@ function ResizableDialog({ d, emit, close }: { d: DialogNode; emit: Emit; close:
 
 // ── table: groups, nested rows, actions, inspector ───────────────────────
 function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
-	if (cell === undefined || cell === null) return <span className="text-muted-foreground/50">—</span>;
+	if (cell === undefined || cell === null) return <span className="text-muted-foreground/50 tb-tone-muted">—</span>;
 	if (typeof cell !== "object") return <span className={cn(col.mono && "font-mono text-[0.8rem] tabular-nums")}><Hl text={String(cell)} /></span>;
 	const mono = cell.mono ?? col.mono;
 	return (
 		<div className="flex min-w-0 items-center gap-2.5">
-			{cell.dot && <Dot tone={cell.dot} />}
+			{cell.dot && <Dot dot={cell.dot} />}
 			{cell.icon && <Icon name={cell.icon} className={cn("shrink-0", isFileIcon(cell.icon) ? "size-6" : "size-4 text-muted-foreground")} />}
-			<div className="min-w-0">
+			<div className="min-w-0" title={[cell.text, cell.sub].filter(Boolean).join("\n")}>
 				{cell.at !== undefined ? (
-					<When at={cell.at} className={cn("block truncate", mono && "font-mono text-[0.8rem] tabular-nums", textTone[cell.tone ?? "default"])} />
+					<When at={cell.at} className={cn("block truncate", mono && "font-mono text-[0.8rem] tabular-nums", textClass(cell.tone ?? "default"))} />
 				) : cell.text &&
 					(cell.badge ? (
 						<Badge variant="secondary"><Hl text={cell.text} /></Badge>
+					) : cell.marks?.length ? (
+						<div className="flex min-w-0 items-center gap-1">
+							<div className={cn("truncate", mono && "font-mono text-[0.8rem] tabular-nums", textClass(cell.tone ?? "default"))}><Strong text={cell.text} strong={cell.strong} /></div>
+							{cell.marks.map((m) => <MarkIcon key={m.icon + m.tooltip} mark={m} />)}
+						</div>
 					) : (
-						<div className={cn("truncate", mono && "font-mono text-[0.8rem] tabular-nums", textTone[cell.tone ?? "default"])}><Hl text={cell.text} /></div>
+						<div className={cn("truncate", mono && "font-mono text-[0.8rem] tabular-nums", textClass(cell.tone ?? "default"))}><Strong text={cell.text} strong={cell.strong} /></div>
 					))}
-				{cell.sub && <div className="truncate text-xs text-muted-foreground"><Hl text={cell.sub} /></div>}
+				{(cell.sub || cell.tags?.length) && (
+					<div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+						{cell.tags?.map((t) => <TagPill key={t.text} tag={t} />)}
+						{cell.sub && <span className="truncate"><Hl text={cell.sub} /></span>}
+					</div>
+				)}
 			</div>
 			{cell.spark && cell.spark.length > 1 && <Spark values={cell.spark} tone={cell.tone} />}
 			{cell.chips && cell.chips.length > 0 && (
 				<div className="flex shrink-0 flex-nowrap gap-1">
-					{cell.chips.slice(0, 3).map((c) => (
+					{cell.chips.slice(0, 1).map((c) => (
 						<Badge key={c} variant="outline" className="font-mono text-[0.7rem] font-normal">
 							<Hl text={c} />
 						</Badge>
 					))}
-					{cell.chips.length > 3 && (
+					{cell.chips.length > 1 && (
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Badge variant="secondary" className="font-mono text-[0.7rem] font-normal">
-									+{cell.chips.length - 3}
+									+{cell.chips.length - 1}
 								</Badge>
 							</TooltipTrigger>
-							<TooltipContent className="max-w-xs font-mono">{cell.chips.slice(3).join("  ")}</TooltipContent>
+							<TooltipContent className="max-w-xs font-mono">{cell.chips.slice(1).join("  ")}</TooltipContent>
 						</Tooltip>
 					)}
 				</div>
@@ -444,7 +593,7 @@ function Spark({ values, tone, fill }: { values: number[]; tone?: Tone; fill?: b
 	const span = max - min || 1;
 	const pts = values.map((v, i) => `${((i / (values.length - 1)) * w).toFixed(1)},${(h - 1 - ((v - min) / span) * (h - 2)).toFixed(1)}`).join(" ");
 	return (
-		<svg width={fill ? "100%" : w} height={fill ? 16 : h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio={fill ? "none" : undefined} className={cn("shrink-0 opacity-70", fill && "mt-1 block", textTone[tone ?? "default"])} aria-hidden>
+		<svg width={fill ? "100%" : w} height={fill ? 16 : h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio={fill ? "none" : undefined} className={cn("shrink-0 opacity-70", fill && "mt-1 block", textClass(tone ?? "default"))} aria-hidden>
 			<polyline points={pts} fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
 		</svg>
 	);
@@ -472,6 +621,7 @@ function useConfirm(emit: Emit) {
 				<DialogFooter>
 					<Button variant="outline" onClick={() => setPending(null)}>
 						Cancel
+						<KeyHint keys="esc" />
 					</Button>
 					<Button
 						variant={pending?.action.tone === "destructive" ? "destructive" : "default"}
@@ -482,6 +632,7 @@ function useConfirm(emit: Emit) {
 						}}
 					>
 						{pending?.action.label}
+						<KeyHint keys="↵" />
 					</Button>
 				</DialogFooter>
 			</DialogContent>
@@ -512,51 +663,91 @@ export async function copyText(text: string) {
 const ROW_BUTTON =
 	"text-muted-foreground hover:text-foreground group-data-[selected=true]/row:hover:bg-selected-foreground/15 group-data-[selected=true]/row:hover:text-selected-foreground";
 
-function RowActions({ actions, rowId, run, menuOpen, setMenuOpen }: { actions: Action[]; rowId: string; run: Run; menuOpen: boolean; setMenuOpen: (open: boolean) => void }) {
-	if (!actions.length) return null;
-	const inline = actions.filter((a) => a.inline);
-	const groups = groupActions(actions);
+/** A row's (or group header's) element. Not by selector: header ids hold U+0000, which
+ *  CSS.escape turns into U+FFFD, so the selector would never match (and nothing scrolled). */
+const rowElement = (wrap: HTMLElement | null, id: string) => [...(wrap?.querySelectorAll<HTMLElement>("[data-row-id]") ?? [])].find((el) => el.dataset.rowId === id);
+
+/** The table a menu belonged to gets the keyboard back when the menu closes (↑/↓ keep working). */
+const TABLE = "[data-table-focus]";
+const refocusTable = (from: Element | null | undefined) => (from?.closest(TABLE) as HTMLElement | null)?.focus({ preventScroll: true });
+/** For menus outside the table (filters, the drawer's buttons): back to the page's table. */
+const toTable = (e: Event) => {
+	e.preventDefault();
+	(document.querySelector(TABLE) as HTMLElement | null)?.focus({ preventScroll: true });
+};
+
+/** The targets an action can apply to on this row, when there's a choice. */
+const choicesFor = (row: Row, a: Action): Target[] | undefined => {
+	const t = row.targets?.[a.id];
+	return t?.length ? t : undefined;
+};
+
+/** "Which one?" — an action's targets; 1…9 pick one. */
+function TargetItems({ a, targets, onPick }: { a: Action; targets: Target[]; onPick: (t: Target) => void }) {
 	return (
-		<div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
-			{inline.map((a) => (
-				<Tooltip key={a.id}>
-					<TooltipTrigger asChild>
-						<Button variant="ghost" size="icon-sm" tabIndex={-1} className={cn(ROW_BUTTON, "opacity-0 transition-opacity duration-200 group-hover/row:opacity-100 group-data-[selected=true]/row:opacity-100")} onClick={() => run(a, rowId)} aria-label={a.label}>
-							<Icon name={a.icon} />
-						</Button>
-					</TooltipTrigger>
-					<TooltipContent>{a.label}</TooltipContent>
-				</Tooltip>
+		<>
+			<DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{a.label} — which one?</DropdownMenuLabel>
+			{targets.map((t, i) => (
+				<DropdownMenuItem key={t.id} onSelect={() => onPick(t)}>
+					{t.icon && <Icon name={t.icon} />}
+					<div className="min-w-0 flex-1">
+						<div className="truncate font-mono text-[0.8rem]">{t.label}</div>
+						{t.sub && <div className="truncate text-xs text-muted-foreground">{t.sub}</div>}
+					</div>
+					{i < 9 && <DropdownMenuShortcut>{i + 1}</DropdownMenuShortcut>}
+				</DropdownMenuItem>
 			))}
-			<DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-				<DropdownMenuTrigger asChild>
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						tabIndex={-1}
-						className={cn(
-							ROW_BUTTON,
-							// Open: a visible pressed state, on plain rows and on the selection color alike.
-							"data-[state=open]:bg-muted data-[state=open]:text-foreground group-data-[selected=true]/row:data-[state=open]:bg-selected-foreground/20 group-data-[selected=true]/row:data-[state=open]:text-selected-foreground",
-						)}
-						aria-label="More actions"
-					>
-						<MoreHorizontal />
-					</Button>
-				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="w-56">
-					{groups.map((g, gi) => (
-						<div key={gi}>
+		</>
+	);
+}
+const pickByDigit = (targets: Target[], onPick: (t: Target) => void) => (e: React.KeyboardEvent) => {
+	const n = Number(e.key);
+	if (n >= 1 && n <= 9 && targets[n - 1]) (e.preventDefault(), onPick(targets[n - 1]));
+};
+
+function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setChoosing }: { actions: Action[]; row: Row; run: Run; menuOpen: boolean; setMenuOpen: (open: boolean) => void; choosing: string | null; setChoosing: (action: string | null) => void }) {
+	const self = useRef<HTMLDivElement>(null);
+	if (!actions.length) return null;
+	const pending = actions.find(a => a.id === choosing);
+	const targets = pending && choicesFor(row, pending);
+	const close = () => { setMenuOpen(false); setChoosing(null); };
+	const pick = (a: Action, target?: string) => { close(); run(a, row.id, target ? { target } : undefined); };
+	return (
+		<div ref={self} onClick={e => e.stopPropagation()}>
+			<DropdownMenu open={menuOpen || !!targets} onOpenChange={open => { setMenuOpen(open); if (!open) setChoosing(null); }}>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<DropdownMenuTrigger asChild>
+							<Button variant="ghost" size="icon-sm" className={cn(ROW_BUTTON, "data-[state=open]:bg-muted data-[state=open]:text-foreground")} aria-label="Row actions">
+								<MoreHorizontal />
+							</Button>
+						</DropdownMenuTrigger>
+					</TooltipTrigger>
+					<TooltipContent><span className="flex items-center gap-2">All actions <Kbd>.</Kbd></span></TooltipContent>
+				</Tooltip>
+				<DropdownMenuContent align="end" className={targets ? "w-72" : "w-60"} onCloseAutoFocus={e => { e.preventDefault(); refocusTable(self.current); }} onKeyDown={targets && pending ? pickByDigit(targets, t => pick(pending, t.id)) : undefined}>
+					{pending && targets ? <TargetItems a={pending} targets={targets} onPick={t => pick(pending, t.id)} /> : groupActions(actions).map((group, gi) => (
+						<DropdownMenuGroup key={gi}>
 							{gi > 0 && <DropdownMenuSeparator />}
-							<DropdownMenuGroup>
-								{g.map((a) => (
-									<DropdownMenuItem key={a.id} variant={a.tone === "destructive" ? "destructive" : "default"} disabled={a.disabled} onSelect={() => run(a, rowId)}>
-										{a.icon && <Icon name={a.icon} />}
-										{a.label}
+							{group.map(a => {
+								const choices = choicesFor(row, a);
+								if (choices) return (
+									<DropdownMenuSub key={a.id}>
+										<DropdownMenuSubTrigger disabled={a.disabled}>
+											{a.icon && <Icon name={a.icon} />}{a.label}
+											{a.key && <DropdownMenuShortcut className="mr-1 uppercase">{a.key}</DropdownMenuShortcut>}
+										</DropdownMenuSubTrigger>
+										<DropdownMenuSubContent className="w-72"><TargetItems a={a} targets={choices} onPick={t => pick(a, t.id)} /></DropdownMenuSubContent>
+									</DropdownMenuSub>
+								);
+								return (
+									<DropdownMenuItem key={a.id} disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : "default"} onSelect={() => pick(a)}>
+										{a.icon && <Icon name={a.icon} />}{a.label}
+										{a.key && <DropdownMenuShortcut className="uppercase">{a.key}</DropdownMenuShortcut>}
 									</DropdownMenuItem>
-								))}
-							</DropdownMenuGroup>
-						</div>
+								);
+							})}
+						</DropdownMenuGroup>
 					))}
 				</DropdownMenuContent>
 			</DropdownMenu>
@@ -568,9 +759,9 @@ function RowActions({ actions, rowId, run, menuOpen, setMenuOpen }: { actions: A
  *  headers it sits under (for indentation). */
 type Visible = { row: Row; depth: number; parent?: string; indent: number; group?: string };
 
-type GroupLevel = { key: string; label: string; sub?: string; tag?: string; muted?: boolean; icon?: string };
+type GroupLevel = { summary?: { label: string; value: string; description?: string }; key: string; label: string; strong?: string; sub?: string; tag?: string; muted?: boolean; icon?: string };
 const groupPath = (g: Row["group"]): GroupLevel[] =>
-	g === undefined ? [] : (typeof g === "string" ? [g] : g).map((l: GroupLabel) => (typeof l === "string" ? { key: l, label: l } : { key: l.id ?? l.label, label: l.label, sub: l.sub, tag: l.tag, muted: l.muted, icon: l.icon }));
+	g === undefined ? [] : (typeof g === "string" ? [g] : g).map((l: GroupLabel) => (typeof l === "string" ? { key: l, label: l } : { key: l.id ?? l.label, label: l.label, strong: l.strong, sub: l.sub, tag: l.tag, muted: l.muted, icon: l.icon, summary: l.summary }));
 
 /** Group headers are selectable too; their ids can't clash with row ids. */
 const HEADER = "\u0001group:";
@@ -582,7 +773,7 @@ type Item =
 	| { kind: "row"; id: string; v: Visible; muted: boolean };
 
 const TableRow = memo(
-	function TableRow({ v, muted, columns, actions, selected, expanded, menuOpen, checked, onSelect, onToggle, onMenu, onCheck, run, ready }: { v: Visible; muted?: boolean; sig: string; columns: Column[]; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onCheck?: (id: string) => void; run: Run; ready: { current: boolean } }) {
+	function TableRow({ v, muted, columns, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, run, ready }: { v: Visible; muted?: boolean; sig: string; columns: Column[]; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; run: Run; ready: { current: boolean } }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
 		// Rows that appear after the table is up (expanded, new processes) fade in.
@@ -591,12 +782,13 @@ const TableRow = memo(
 			<tr
 				data-row-id={row.id}
 				data-selected={selected}
-				onClick={() => onSelect(row.id)}
+				onClick={(e) => (onSelect(row.id), refocusTable(e.currentTarget))}
 				onDoubleClick={() => hasChildren && onToggle(row.id)}
 				className={cn(
-					"group/row cursor-default transition-colors duration-200 hover:bg-muted/50 data-[selected=true]:bg-selected data-[selected=true]:text-selected-foreground [&>td]:border-b [&>td]:border-border/50",
-					depth > 0 && "bg-muted/20",
-					muted && "text-muted-foreground",
+					"group/row cursor-default transition-[background-color] duration-200 [&>td]:border-b [&>td]:border-border/50",
+                    selected ? "bg-selected text-selected-foreground" : "hover:bg-muted/50",
+					depth > 0 && !selected && "bg-muted/20",
+					muted && !selected && "text-muted-foreground",
 					fresh && "animate-in fade-in-0 slide-in-from-top-1 duration-200",
 				)}
 			>
@@ -626,13 +818,13 @@ const TableRow = memo(
 						)}
 					</td>
 				))}
-				<td className="w-0 pr-4 pl-1 whitespace-nowrap">
-					<RowActions actions={actions} rowId={row.id} run={run} menuOpen={menuOpen} setMenuOpen={(o) => onMenu(o ? row.id : null)} />
+				<td className="w-10 px-1 whitespace-nowrap">
+					<RowActions actions={actions} row={row} run={run} menuOpen={menuOpen} setMenuOpen={(o) => onMenu(o ? row.id : null)} choosing={choosing} setChoosing={(a) => onChoose(a ? { row: row.id, action: a } : null)} />
 				</td>
 			</tr>
 		);
 	},
-	(a, b) => a.sig === b.sig && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.actions === b.actions && a.run === b.run,
+	(a, b) => a.sig === b.sig && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.choosing === b.choosing && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.actions === b.actions && a.run === b.run,
 );
 
 function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emit: Emit }) {
@@ -655,6 +847,8 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	}, [node.rows, overrides]);
 	const expanded = openIds;
 	const [menuFor, setMenuFor] = useState<string | null>(null);
+	// An action's "which one?" menu, open on a row.
+	const [choosing, setChoosing] = useState<{ row: string; action: string } | null>(null);
 	const { run, dialog } = useConfirm(emit);
 	const allColumns = useMemo(() => node.columns, [JSON.stringify(node.columns)]);
 	const allActions = useMemo(() => node.actions ?? [], [JSON.stringify(node.actions ?? [])]);
@@ -667,6 +861,16 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 			return cache.get(k)!;
 		};
 	}, [allActions]);
+	/** Run a row action — or, when it could apply to several processes, ask which one. Actions
+	 *  only in the row menu open that menu instead (their choice is a submenu there). */
+	const trigger = useCallback(
+		(a: Action, row: Row) => {
+			if (!choicesFor(row, a)) return run(a, row.id);
+			if (a.inline) setChoosing({ row: row.id, action: a.id });
+			else setMenuFor(row.id);
+		},
+		[run],
+	);
 	const toggle = useCallback((id: string) => setOverrides((o) => ({ ...o, [id]: !openIds.has(id) })), [setOverrides, openIds]);
 	const toggleGroup = useCallback((key: string) => setCollapsedGroups((c) => ({ ...c, [key]: !c[key] })), [setCollapsedGroups]);
 
@@ -692,7 +896,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		setAvailable(el.clientWidth);
 		return () => ro.disconnect();
 	}, [node.rows.length > 0]);
-	const hiddenCols = fitColumns(allColumns, available, (c) => measured.current[c.key] ?? 96, (measured.current["\u0001actions"] ?? 72) + (bulk.length ? 40 : 0));
+	const hiddenCols = fitColumns(allColumns, available, (c) => measured.current[c.key] ?? 96, (measured.current["\u0001actions"] ?? 40) + (bulk.length ? 40 : 0));
 	const hiddenKey = [...hiddenCols].join(",");
 	const columns = useMemo(() => allColumns.filter((c) => !hiddenCols.has(c.key)), [allColumns, hiddenKey]);
 	// Natural widths of the columns on screen (the widest seen), for deciding what fits.
@@ -756,7 +960,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const select = useCallback(
 		(id: string | null) => {
 			setSelected(id);
-			if (id) requestAnimationFrame(() => wrap.current?.querySelector(`[data-row-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest" }));
+			if (id) requestAnimationFrame(() => rowElement(wrap.current, id)?.scrollIntoView({ block: "nearest" }));
 		},
 		[setSelected],
 	);
@@ -767,7 +971,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		if (ready.current || !items.length || !wrap.current) return;
 		const top = uiState.get<number>(surface, `${node.id}:scroll`);
 		if (top) wrap.current.scrollTop = top;
-		if (selected) wrap.current.querySelector(`[data-row-id="${CSS.escape(selected)}"]`)?.scrollIntoView({ block: "nearest" });
+		if (selected) rowElement(wrap.current, selected)?.scrollIntoView({ block: "nearest" });
 		requestAnimationFrame(() => (ready.current = true));
 	});
 
@@ -812,7 +1016,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						break;
 					}
 					const a = cur && actionsFor(cur.v.row).find((x) => x.inline);
-					if (a) (e.preventDefault(), run(a, cur.v.row.id));
+					if (a) (e.preventDefault(), trigger(a, cur.v.row));
 					break;
 				}
 				case ".":
@@ -828,11 +1032,22 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				case "End":
 					if (items.length) (e.preventDefault(), select(items[e.key === "Home" ? 0 : items.length - 1].id));
 					break;
+				default: {
+					// An action's own key ("j", "p"…) on the selected row.
+					if (cur?.kind !== "row" || e.key.length !== 1) break;
+					const a = actionsFor(cur.v.row).find((x) => x.key && x.key.toLowerCase() === e.key.toLowerCase() && !x.disabled);
+					if (a) (e.preventDefault(), trigger(a, cur.v.row));
+				}
 			}
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [items, selected, expanded, toggle, toggleGroup, select, actionsFor, run, setSelected, bulk, check]);
+	}, [items, selected, expanded, toggle, toggleGroup, select, actionsFor, trigger, setSelected, bulk, check]);
+
+	// The table takes the keyboard when it appears, unless something else already has it.
+	useEffect(() => {
+		if (document.activeElement === document.body) wrap.current?.focus({ preventScroll: true });
+	}, [node.rows.length > 0]);
 
 	if (!node.rows.length) return node.empty ? <EmptyState {...node.empty} /> : null;
 
@@ -855,7 +1070,15 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						</div>
 					</div>
 				)}
-				<div ref={wrap} onScroll={(e) => uiState.set(surface, `${node.id}:scroll`, e.currentTarget.scrollTop)} className="min-h-0 min-w-0 flex-1 overflow-auto">
+				{/* The keyboard's home on this pane: menus and dialogs hand focus back here. The scroll
+				    padding keeps rows moved to from hiding under the sticky header. */}
+				<div
+					ref={wrap}
+					tabIndex={0}
+					data-table-focus
+					onScroll={(e) => uiState.set(surface, `${node.id}:scroll`, e.currentTarget.scrollTop)}
+					className="min-h-0 min-w-0 flex-1 scroll-pt-9 overflow-auto outline-none"
+				>
 					<table className="w-full border-separate border-spacing-0 text-left">
 						<thead className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
 							<tr ref={headRow}>
@@ -908,6 +1131,8 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 										selected={it.v.row.id === selected}
 										expanded={expanded.has(it.v.row.id)}
 										menuOpen={menuFor === it.v.row.id}
+										choosing={choosing?.row === it.v.row.id ? choosing.action : null}
+										onChoose={setChoosing}
 										onSelect={select}
 										onToggle={toggle}
 										onMenu={setMenuFor}
@@ -940,18 +1165,19 @@ function GroupHeader({ item, colSpan, selected, onSelect, onToggle }: { item: Ex
 	const { group: g, level, count, muted, collapsed } = item;
 	const top = level === 0;
 	return (
-		<tr data-row-id={item.id} data-group-level={level} data-selected={selected} onClick={onSelect} onDoubleClick={onToggle} className="group/row cursor-default">
+		<tr data-row-id={item.id} data-group-level={level} data-selected={selected} onClick={(e) => (onSelect(), refocusTable(e.currentTarget))} onDoubleClick={onToggle} className="group/row cursor-default">
 			<td
 				colSpan={colSpan}
 				className={cn(
-					"border-b transition-colors duration-200 group-data-[selected=true]/row:bg-selected group-data-[selected=true]/row:text-selected-foreground",
-					top ? "bg-muted/60 py-1.5 hover:bg-muted" : "bg-background py-1 hover:bg-muted/50",
+					"border-b transition-colors duration-200",
+                    selected ? "bg-selected text-selected-foreground" : top ? "bg-muted/60 hover:bg-muted" : "bg-background hover:bg-muted/50",
+					top ? "py-2" : "py-1",
 				)}
 				style={{ paddingLeft: 12 + level * 16, paddingRight: 24 }}
 			>
 				{/* w-0 + min-w-full: the header never makes the table wider than the window; long
 				    labels truncate instead. */}
-				<div className={cn("flex w-0 min-w-full items-center gap-2", top ? "text-[13px]" : "text-xs", muted && !selected && "opacity-70")}>
+				<div className={cn("flex w-0 min-w-full items-center gap-2", top ? "text-[15px]" : "text-xs", muted && !selected && "opacity-70")}>
 					<button
 						tabIndex={-1}
 						aria-label={collapsed ? "Expand group" : "Collapse group"}
@@ -960,12 +1186,13 @@ function GroupHeader({ item, colSpan, selected, onSelect, onToggle }: { item: Ex
 					>
 						<ChevronRight className={cn("size-3.5 transition-transform duration-200", !collapsed && "rotate-90")} />
 					</button>
-					{g.icon && <Icon name={g.icon} className={cn("shrink-0 text-muted-foreground", isFileIcon(g.icon) ? "size-5" : "size-4")} />}
-					<span className={cn("truncate", top ? "font-semibold" : "font-mono font-medium text-group group-data-[selected=true]/row:text-selected-foreground")}>
-						<Hl text={g.label} />
+					{g.icon && <Icon name={g.icon} className={cn("shrink-0 text-muted-foreground", isFileIcon(g.icon) ? (top ? "size-7" : "size-5") : top ? "size-5" : "size-4")} />}
+					<span className={cn("truncate", top ? "font-semibold" : "font-mono font-medium", selected ? "text-selected-foreground" : "text-group")}>
+						<Strong text={g.label} strong={g.strong} />
 					</span>
 					{g.sub && (
-						<span className="flex min-w-0 shrink-[2] items-center gap-1 font-mono text-xs text-muted-foreground">
+						// The branch: a violet pill, so it stands out from the path next to it.
+						<span className={cn("tb-pill-violet flex min-w-0 shrink-[2] items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-medium", selected ? "bg-selected-foreground/15 text-selected-foreground" : "bg-violet-500/12 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300")}>
 							<Icon name="git-branch" className="size-3 shrink-0" />
 							<span className="truncate">
 								<Hl text={g.sub} />
@@ -978,6 +1205,9 @@ function GroupHeader({ item, colSpan, selected, onSelect, onToggle }: { item: Ex
 						</Badge>
 					)}
 					<span className="shrink-0 text-xs text-muted-foreground tabular-nums">{count}</span>
+                    {g.summary && <Tooltip><TooltipTrigger asChild>
+                        <span tabIndex={0} aria-label={`${g.summary.label}: ${g.summary.value}`} className="ml-auto shrink-0 rounded px-1 font-mono text-xs text-muted-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring">{g.summary.value}</span>
+                    </TooltipTrigger><TooltipContent className="max-w-xs"><div><div className="font-medium">{g.summary.label}</div>{g.summary.description && <p className="mt-1 leading-relaxed">{g.summary.description}</p>}</div></TooltipContent></Tooltip>}
 				</div>
 			</td>
 		</tr>
@@ -1033,7 +1263,7 @@ function Inspector({ item, actions, run, onToggleGroup, onClose }: { item: Inspe
 	);
 }
 
-function DrawerHeader({ icon, dot, title, sub, onClose, children }: { icon?: string; dot?: Tone; title: string; sub?: string; onClose: () => void; children?: ReactNode }) {
+function DrawerHeader({ icon, dot, title, sub, onClose, children }: { icon?: string; dot?: DotNode; title: string; sub?: string; onClose: () => void; children?: ReactNode }) {
 	return (
 		<div className="flex items-start gap-3 border-b px-4 py-3.5">
 			{icon ? (
@@ -1041,7 +1271,7 @@ function DrawerHeader({ icon, dot, title, sub, onClose, children }: { icon?: str
 					<Icon name={icon} className="size-4.5" />
 				</div>
 			) : (
-				dot && <Dot tone={dot} className="mt-2" />
+				dot && <Dot dot={dot} className="mt-2" />
 			)}
 			<div className="min-w-0 flex-1">
 				<div className="line-clamp-2 font-medium break-words select-text">
@@ -1050,8 +1280,9 @@ function DrawerHeader({ icon, dot, title, sub, onClose, children }: { icon?: str
 				{sub && <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{sub}</div>}
 				{children}
 			</div>
-			<Button variant="ghost" size="icon-sm" className="-mt-0.5 -mr-1.5 shrink-0" onClick={onClose} aria-label="Close details">
+			<Button variant="ghost" size="sm" className="-mt-0.5 -mr-1.5 shrink-0 gap-1 px-1.5 text-muted-foreground" onClick={onClose} aria-label="Close details">
 				<X />
+				<KeyHint keys="esc" />
 			</Button>
 		</div>
 	);
@@ -1078,13 +1309,15 @@ function GroupSummary({ item, onToggle, onClose }: { item: Extract<Item, { kind:
 				<div className="grid grid-cols-2 gap-2">
 					<StatTile label="Items" value={String(item.count)} />
 					<StatTile label="State" value={item.collapsed ? "Collapsed" : "Expanded"} />
+                    {g.summary && <StatTile label={g.summary.label} value={g.summary.value} />}
 				</div>
+                {g.summary?.description && <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{g.summary.description}</p>}
 			</div>
 			<div className="border-t p-3">
 				<Button size="sm" variant="outline" onClick={onToggle}>
 					<ChevronRight className={cn("transition-transform duration-200", !item.collapsed && "rotate-90")} />
 					{item.collapsed ? "Expand" : "Collapse"}
-					<Kbd className="ml-1">↵</Kbd>
+					<KeyHint keys="↵" />
 				</Button>
 			</div>
 		</>
@@ -1095,7 +1328,7 @@ function StatTile({ label, value, spark, tone }: { label: string; value: string;
 	return (
 		<div className="min-w-0 rounded-lg border bg-background px-3 py-2">
 			<div className="truncate text-[11px] text-muted-foreground">{label}</div>
-			<div className={cn("truncate text-sm font-semibold tabular-nums", textTone[tone ?? "default"])}>{value}</div>
+			<div className={cn("truncate text-sm font-semibold tabular-nums", textClass(tone ?? "default"))}>{value}</div>
 			{spark && spark.length > 1 ? <Spark values={spark} tone={tone} fill /> : spark && <div className="h-4" />}
 		</div>
 	);
@@ -1108,13 +1341,17 @@ function RowDetails({ row, actions, run, onClose }: { row: Row; actions: Action[
 	const icon = first && typeof first === "object" ? first.icon : undefined;
 	const dot = first && typeof first === "object" ? first.dot : undefined;
 	const chips = Object.values(row.cells).flatMap((c) => (c && typeof c === "object" && c.chips ? c.chips : []));
+	const tags = first && typeof first === "object" ? (first.tags ?? []) : [];
 	const groups = groupActions(actions);
 	const main = actions.find((a) => a.inline);
 	return (
 		<>
 			<DrawerHeader icon={icon} dot={dot} title={title.replace(/^⤷ /, "")} sub={sub} onClose={onClose}>
-				{chips.length > 0 && (
-					<div className="mt-2 flex flex-wrap gap-1">
+				{(chips.length > 0 || tags.length > 0) && (
+					<div className="mt-2 flex flex-wrap items-center gap-1">
+						{tags.map((t) => (
+							<TagPill key={t.text} tag={t} />
+						))}
 						{chips.map((c) => (
 							<Badge key={c} variant="outline" className="font-mono text-[0.7rem] font-normal">
 								{c}
@@ -1136,13 +1373,13 @@ function RowDetails({ row, actions, run, onClose }: { row: Row; actions: Action[
 						{s.title && <h3 className="px-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{s.title}</h3>}
 						<dl className="divide-y overflow-hidden rounded-lg border bg-background">
 							{s.items.map((d) => (
-								<DetailRow key={d.label} d={d} />
+								<DetailRow key={d.label + (d.actionRow ?? "")} d={d} run={(a) => run(a, d.actionRow ?? row.id)} />
 							))}
 						</dl>
 					</section>
 				))}
 			</div>
-			{groups.length > 0 && <InspectorActions groups={groups} main={main} run={(a) => run(a, row.id)} />}
+			{groups.length > 0 && <InspectorActions groups={groups} main={main} row={row} run={(a, target) => run(a, row.id, target ? { target } : undefined)} />}
 		</>
 	);
 }
@@ -1151,18 +1388,46 @@ function RowDetails({ row, actions, run, onClose }: { row: Row; actions: Action[
  * The drawer's actions, by group: the first group as buttons (the main action filled, ↵), the
  * other everyday groups as one quieter row split by dividers, destructive groups last, apart.
  */
-function InspectorActions({ groups, main, run }: { groups: Action[][]; main?: Action; run: (a: Action) => void }) {
+function InspectorActions({ groups, main, row, run }: { groups: Action[][]; main?: Action; row: Row; run: (a: Action, target?: string) => void }) {
 	const risky = (g: Action[]) => g.every((a) => a.tone === "destructive");
 	const [first, ...rest] = groups.filter((g) => !risky(g));
 	const middle = rest;
 	const danger = groups.filter(risky).flat();
-	const button = (a: Action, variant: "default" | "outline" | "ghost" | "destructive") => (
-		<Button key={a.id} size="sm" disabled={a.disabled} variant={variant} onClick={() => run(a)} className={cn(variant === "ghost" && "px-2 text-muted-foreground hover:text-foreground")}>
-			{a.icon && <Icon name={a.icon} />}
-			{a.label}
-			{a === main && <Kbd className="ml-1 bg-primary-foreground/15 text-primary-foreground">↵</Kbd>}
-		</Button>
-	);
+	const button = (a: Action, variant: "default" | "outline" | "ghost" | "destructive") => {
+		const targets = choicesFor(row, a);
+		const hints = (
+			<>
+				{a === main && <KeyHint keys="↵" />}
+				{a.key && <KeyHint keys={a.key.toUpperCase()} />}
+			</>
+		);
+		const cls = cn(variant === "ghost" && "px-2 text-muted-foreground hover:text-foreground");
+		if (!targets)
+			return (
+				<Button key={a.id} size="sm" disabled={a.disabled} variant={variant} onClick={() => run(a)} className={cls}>
+					{a.icon && <Icon name={a.icon} />}
+					{a.label}
+					{hints}
+				</Button>
+			);
+		// Several processes it could apply to: the button asks which.
+		const pick = (t: Target) => run(a, t.id);
+		return (
+			<DropdownMenu key={a.id}>
+				<DropdownMenuTrigger asChild>
+					<Button size="sm" disabled={a.disabled} variant={variant} className={cls}>
+						{a.icon && <Icon name={a.icon} />}
+						{a.label}
+						<ChevronDown className="-ml-0.5 size-3.5 opacity-70" />
+						{hints}
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="start" className="w-72" onCloseAutoFocus={toTable} onKeyDown={pickByDigit(targets, pick)}>
+					<TargetItems a={a} targets={targets} onPick={pick} />
+				</DropdownMenuContent>
+			</DropdownMenu>
+		);
+	};
 	return (
 		<div className="space-y-2 border-t p-3">
 			{first && <div className="flex flex-wrap gap-1.5">{first.map((a) => button(a, a === main ? "default" : "outline"))}</div>}
@@ -1180,15 +1445,34 @@ function InspectorActions({ groups, main, run }: { groups: Action[][]; main?: Ac
 	);
 }
 
-function DetailRow({ d }: { d: DetailItem }) {
+function DetailRow({ d, run }: { d: DetailItem; run: (a: Action) => void }) {
 	const [copied, setCopied] = useState(false);
 	const [all, setAll] = useState(false);
-	const canCopy = d.copy ?? d.mono;
+	const acts = d.actions ?? [];
+	const canCopy = !acts.length && (d.copy ?? d.mono);
 	const long = d.value.length > 200;
 	return (
 		<div className="group/detail relative px-3 py-2">
-			<dt className="text-[11px] text-muted-foreground">{d.label}</dt>
-			<dd className={cn("pr-6 text-sm break-words select-text", d.mono && "font-mono text-[0.8rem]", long && !all && "line-clamp-4", textTone[d.tone ?? "default"])}>
+			<dt className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+				{d.dot && <Dot dot={d.dot} className="size-1.5" />}
+				{d.label}
+			</dt>
+			{acts.length > 0 && (
+				// The item's own actions (Peek or open one of the processes listed here).
+				<div className="absolute top-1.5 right-1.5 flex items-center gap-0.5">
+					{acts.map((a) => (
+						<Tooltip key={a.id}>
+							<TooltipTrigger asChild>
+								<Button variant="ghost" size="icon-xs" className="text-muted-foreground hover:text-foreground" aria-label={a.label} onClick={() => run(a)}>
+									<Icon name={a.icon} />
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent>{a.label}</TooltipContent>
+						</Tooltip>
+					))}
+				</div>
+			)}
+			<dd className={cn(acts.length > 1 ? "pr-14" : "pr-6", "text-sm break-words select-text", d.mono && "font-mono text-[0.8rem]", long && !all && "line-clamp-4", textClass(d.tone ?? "default"))}>
 				<Hl text={d.value} />
 			</dd>
 			{long && (
@@ -1246,7 +1530,8 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 		<div className="flex flex-col">
 			{node.items.map((it) => (
 				<div key={it.id} data-item-id={it.id} data-active={it.id === active} onMouseEnter={() => setActive(it.id)} className="group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground">
-					{it.dot && <Dot tone={it.dot} />}
+					{it.dot && <Dot dot={it.dot} />}
+                    {it.icon && <Icon name={it.icon} className="size-4 shrink-0" />}
 					<div className="min-w-0 flex-1">
 						<div className="truncate text-sm font-medium">{it.title}</div>
 						{it.subtitle && <div className="truncate font-mono text-xs text-muted-foreground">{it.subtitle}</div>}
@@ -1283,7 +1568,7 @@ function Stats({ node }: { node: Extract<Node, { type: "stats" }> }) {
 				<Card key={s.label} className="gap-1 py-4">
 					<CardHeader className="px-4">
 						<CardDescription className="text-xs">{s.label}</CardDescription>
-						<CardTitle className={cn("text-2xl font-semibold tabular-nums", textTone[s.tone ?? "default"])}>{s.at !== undefined ? <When at={s.at} /> : s.value}</CardTitle>
+						<CardTitle className={cn("text-2xl font-semibold tabular-nums", textClass(s.tone ?? "default"))}>{s.at !== undefined ? <When at={s.at} /> : s.value}</CardTitle>
 					</CardHeader>
 					{s.hint && <CardContent className="px-4 text-xs text-muted-foreground">{s.hint}</CardContent>}
 				</Card>
@@ -1294,7 +1579,7 @@ function Stats({ node }: { node: Extract<Node, { type: "stats" }> }) {
 
 // ── forms (settings) ─────────────────────────────────────────────────────
 function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emit }) {
-	const change = (field: Field, value: string | boolean) => emit("field", { form: node.id, field: field.id, value });
+	const change = (field: Field, value: string | boolean | EnvironmentEntry[]) => emit("field", { form: node.id, field: field.id, value });
 	return (
 		<Card>
 			{(node.title || node.description) && (
@@ -1305,9 +1590,9 @@ function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emi
 			)}
 			<CardContent className="divide-y">
 				{node.fields.map((f) => (
-					<div key={f.id} className="flex items-center justify-between gap-6 py-4 first:pt-0 last:pb-0">
+					<div key={f.id} className={cn("py-4 first:pt-0 last:pb-0", f.type === "environment" ? "space-y-3" : "flex items-center justify-between gap-6")}>
 						<div className="space-y-1">
-							<Label htmlFor={`${node.id}-${f.id}`}>{f.label}</Label>
+							{f.type === "environment" ? <div className="text-sm font-medium">{f.label}</div> : <Label htmlFor={`${node.id}-${f.id}`}>{f.label}</Label>}
 							{f.description && <p className="text-sm text-muted-foreground">{f.description}</p>}
 						</div>
 						<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} />
@@ -1318,9 +1603,11 @@ function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emi
 	);
 }
 
-function FieldControl({ id, field, onChange }: { id: string; field: Field; onChange: (v: string | boolean) => void }) {
+function FieldControl({ id, field, onChange }: { id: string; field: Field; onChange: (v: string | boolean | EnvironmentEntry[]) => void }) {
 	switch (field.type) {
-		case "select":
+		case "environment":
+            return <EnvironmentEditor value={field.value} onChange={onChange} />;
+        case "select":
 			return (
 				<Select value={field.value} onValueChange={onChange}>
 					<SelectTrigger id={id} className="w-48">
@@ -1345,7 +1632,7 @@ function FieldControl({ id, field, onChange }: { id: string; field: Field; onCha
 function TextField({ id, field, onChange }: { id: string; field: Extract<Field, { type: "text" }>; onChange: (v: string) => void }) {
 	const [v, setV] = useState(field.value);
 	useEffect(() => setV(field.value), [field.value]);
-	return <Input id={id} className="w-64" value={v} placeholder={field.placeholder} onChange={(e) => setV(e.target.value)} onBlur={() => v !== field.value && onChange(v)} onKeyDown={(e) => e.key === "Enter" && onChange(v)} />;
+	return <Input id={id} type={field.sensitive ? "password" : "text"} className="w-64" value={v} placeholder={field.placeholder} onChange={(e) => setV(e.target.value)} onBlur={() => v !== field.value && onChange(v)} onKeyDown={(e) => e.key === "Enter" && onChange(v)} />;
 }
 
 // ── cards, details, logs, progress ───────────────────────────────────────
@@ -1394,7 +1681,7 @@ function Details({ items }: { items: Extract<Node, { type: "details" }>["items"]
 			{items.map((d) => (
 				<div key={d.label} className="contents">
 					<dt className="text-muted-foreground">{d.label}</dt>
-					<dd className={cn("min-w-0 break-words select-text", d.mono && "font-mono text-[0.8rem]", textTone[d.tone ?? "default"])}>{d.value}</dd>
+					<dd className={cn("min-w-0 break-words select-text", d.mono && "font-mono text-[0.8rem]", textClass(d.tone ?? "default"))}>{d.value}</dd>
 				</div>
 			))}
 		</dl>
@@ -1420,7 +1707,7 @@ function Log({ node }: { node: Extract<Node, { type: "log" }> }) {
 			className="max-h-80 overflow-auto rounded-md border bg-muted/40 px-3 py-2 font-mono text-[0.75rem] leading-relaxed select-text"
 		>
 			{node.lines.map((l, i) => (
-				<div key={i} className={cn("break-all whitespace-pre-wrap", textTone[l.tone ?? "default"])}>
+				<div key={i} className={cn("break-all whitespace-pre-wrap", textClass(l.tone ?? "default"))}>
 					{l.at !== undefined && <span className="mr-2 text-muted-foreground/70">{new Date(l.at).toLocaleTimeString(undefined, { hour12: false })}</span>}
 					{l.text}
 				</div>
@@ -1434,7 +1721,7 @@ function ProgressNode({ node }: { node: Extract<Node, { type: "progress" }> }) {
 	return (
 		<div className="space-y-1.5">
 			<div className="flex items-center gap-2 text-xs text-muted-foreground">
-				<span className={cn("min-w-0 flex-1 truncate", textTone[node.tone ?? "default"])}>{node.label ?? "Working…"}</span>
+				<span className={cn("min-w-0 flex-1 truncate", textClass(node.tone ?? "default"))}>{node.label ?? "Working…"}</span>
 				{known && <span className="tabular-nums">{Math.round(node.value! * 100)}%</span>}
 				{node.at !== undefined && <Elapsed at={node.at} />}
 			</div>

@@ -30,3 +30,9 @@ describe("splitLines", () => {
 		expect(splitLines("\n\n  \n")).toEqual({ lines: [], rest: "" });
 	});
 });
+
+test("screen shortcuts preserve explicit letters and reject ambiguous bindings", () => {
+    expect(parseManifest({ ...base, screens: [{ id: "kept", title: "Kept", shortcut: "k" }] }).screens[0].shortcut).toBe("k");
+    expect(() => parseManifest({ ...base, screens: [{ id: "a", title: "A", shortcut: "Cmd+A" }] })).toThrow("one lowercase letter");
+    expect(() => parseManifest({ ...base, screens: [{ id: "a", title: "A", shortcut: "p" }, { id: "b", title: "B", shortcut: "p" }] })).toThrow("unique");
+});

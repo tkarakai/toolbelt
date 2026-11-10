@@ -3,6 +3,7 @@
 //   focus  — bring its terminal tab to the front (tmux, Orca, Terminal, iTerm…)
 //   peek   — show its recent output (tmux scrollback, Orca terminal, or log file)
 import { openSync, readSync, closeSync, fstatSync } from "node:fs";
+import { cmuxLink } from "../../cmux";
 import type { Listen, Row } from "./procs.ts";
 
 // ── HTTP probe ───────────────────────────────────────────────────────────
@@ -70,6 +71,11 @@ export function focus(r: Row): FocusResult {
         prompt: `tmux attach -t ${session} \\; select-window -t ${session}:${win} \\; select-pane -t ${t.tmux}`,
       };
     }
+  }
+  const cmux = cmuxLink(t.cmuxworkspace, t.cmuxsurface);
+  if (cmux) {
+    const res = sh(["open", "-a", "cmux", cmux]);
+    return { ok: res.ok, message: res.ok ? "requested its CMUX workspace and surface" : "couldn't open its CMUX surface" };
   }
   if (t.orca) {
     const res = sh(["orca", "terminal", "switch", "--terminal", t.orca]);

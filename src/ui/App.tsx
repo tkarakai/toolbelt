@@ -1,10 +1,10 @@
 // The main window: the app sidebar (resizable, collapses to an icon rail) and the selected
 // plugin's pane with its tabs. Route: #/<plugin>/<screen>, or #/toolbelt for Toolbelt's own page.
 //
-// Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · ⌥⌘1…9 tabs (hold ⌥⌘) · ⌃⇥ / ⌃⇧⇥ next and
+// Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · ⌘P / ⌘K / ⌘S Processes tabs · ⌃⇥ / ⌃⇧⇥ next and
 // previous tab · ⌘B sidebar · ⌘W closes the window (app menu).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Check, Monitor, Moon, PanelLeft, RotateCw, Settings2, Sun, X } from "lucide-react";
+import { Check, Monitor, Moon, PanelLeft, RotateCw, Settings, Sun, X } from "lucide-react";
 import { defaultScreen, type Manifest } from "../shared/protocol";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
@@ -14,11 +14,12 @@ import { THEMES, tokens } from "./themes";
 import { QuitDialog } from "./QuitDialog";
 import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { WindowZoom, ZoomKeys } from "@/lib/zoom";
-import { UpdateDot, UpdatesCard, useUpdateAvailable } from "./Updates";
+import { UpdateDot, UpdatesCard, useUpdateAvailable, useUpdateState } from "./Updates";
 import { EmptyState, Render, Dot } from "@/renderer/Render";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { KeyHint } from "@/components/key-hint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -107,6 +108,8 @@ export default function App() {
 		const onKey = (e: KeyboardEvent) => {
 			const n = Number(e.key) || Number(e.code.replace("Digit", ""));
 			const screens = current?.manifest.screens ?? [];
+            const tab = e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey ? screens.find(s => s.shortcut === e.key.toLowerCase()) : undefined;
+            if (tab && current) { e.preventDefault(); go(current.manifest.id, tab.id); return; }
 			if (e.metaKey && !e.altKey && !e.ctrlKey && n >= 1 && n <= 9) {
 				const p = plugins[n - 1];
 				if (p) (e.preventDefault(), go(p.manifest.id));
@@ -201,10 +204,11 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 			<SidebarFooter>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Toolbelt  ⌘," onClick={() => go(TOOLBELT)} className={ACTIVE}>
-							<Settings2 />
-							<span>Toolbelt</span>
-							{update && <UpdateDot className="ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:top-1 group-data-[collapsible=icon]:right-1" />}
+						{/* Toolbelt's settings: just the cog and its shortcut. */}
+						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Settings  ⌘," aria-label="Toolbelt settings" onClick={() => go(TOOLBELT)} className={cn("relative w-fit", ACTIVE)}>
+							<Settings />
+							<Kbd className="group-data-[collapsible=icon]:hidden in-data-[active=true]:bg-selected-foreground/15 in-data-[active=true]:text-selected-foreground">⌘,</Kbd>
+							{update && <UpdateDot className="absolute top-1 left-5" />}
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
@@ -217,8 +221,9 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 function CollapseButton() {
 	const { toggleSidebar, state } = useSidebar();
 	return (
-		<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag text-muted-foreground" onClick={toggleSidebar} aria-label={state === "expanded" ? "Collapse sidebar (⌘B)" : "Expand sidebar (⌘B)"} title={state === "expanded" ? "Collapse sidebar  ⌘B" : "Expand sidebar  ⌘B"}>
+		<Button variant="ghost" size="sm" className="electrobun-webkit-app-region-no-drag gap-1 px-1.5 text-muted-foreground" onClick={toggleSidebar} aria-label={state === "expanded" ? "Collapse sidebar (⌘B)" : "Expand sidebar (⌘B)"} title={state === "expanded" ? "Collapse sidebar  ⌘B" : "Expand sidebar  ⌘B"}>
 			<PanelLeft />
+			<KeyHint keys="⌘B" />
 		</Button>
 	);
 }
@@ -280,18 +285,18 @@ function PaneHeader({ manifest, children }: { manifest: Pick<Manifest, "name" | 
 
 function PluginPane({ info, screen, go }: { info: PluginInfo; screen: string; go: (p: string, s?: string) => void }) {
 	const m = info.manifest;
-	const hints = useHeldModifiers({ meta: true, alt: true });
+    const development = useUpdateState()?.channel === "dev";
 	return (
 		<div className="flex h-svh min-h-0 flex-col animate-in fade-in-0 duration-200">
 			<PaneHeader manifest={m}>
+                {development && <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">DEV</Badge>}
 				{m.screens.length > 1 && (
 					<Tabs value={screen} onValueChange={(s) => go(m.id, s)} className="electrobun-webkit-app-region-no-drag">
 						<TabsList>
 							{m.screens.map((s, i) => (
-								<TabsTrigger key={s.id} value={s.id} className="gap-1.5 px-3" title={`${s.title}  ⌥⌘${i + 1}`}>
-									{s.icon && <Icon name={s.icon} />}
-									{s.title}
-									{hints && i < 9 && <Kbd className="ml-0.5 h-4 min-w-4 px-1 text-[10px]">{i + 1}</Kbd>}
+								<TabsTrigger key={s.id} value={s.id} className="flex-none gap-0 px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground! data-[state=active]:hover:text-selected-foreground!" title={`${s.title}  ${s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`}`}>
+									<span className="inline-flex items-center gap-1.5">{s.icon && <Icon name={s.icon} />}{s.title}</span>
+                                    <KeyHint className="ml-1.5 shrink-0" keys={s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`} />
 								</TabsTrigger>
 							))}
 						</TabsList>
@@ -362,7 +367,7 @@ function ToolbeltPage({ plugins, onClose }: { plugins: PluginInfo[]; onClose: ()
 	}, [onClose]);
 	return (
 		<div className="flex h-svh min-h-0 flex-col animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
-			<PaneHeader manifest={{ name: "Toolbelt", icon: "settings-2" }}>
+			<PaneHeader manifest={{ name: "Settings", icon: "settings" }}>
 				<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag ml-auto -mr-2 text-muted-foreground" onClick={onClose} aria-label="Close settings" title="Close  esc">
 					<X />
 				</Button>
@@ -416,13 +421,17 @@ function ToolbeltPage({ plugins, onClose }: { plugins: PluginInfo[]; onClose: ()
 						</CardHeader>
 						<CardContent className="grid grid-cols-[1fr_auto] items-center gap-y-3 text-sm">
 							<Shortcut label="Switch tool (hold ⌘ to see the numbers)" keys={["⌘1 … ⌘9"]} />
-							<Shortcut label="Switch tab (hold ⌥⌘)" keys={["⌥⌘1 … ⌥⌘9"]} />
+							<Shortcut label="Processes / Kept / Settings" keys={["⌘P", "⌘K", "⌘S"]} />
 							<Shortcut label="Next / previous tab" keys={["⌃⇥", "⌃⇧⇥"]} />
 							<Shortcut label="Collapse or expand the sidebar" keys={["⌘B"]} />
 							<Shortcut label="Filter" keys={["⌘F", "/"]} />
 							<Shortcut label="Move through rows · expand / collapse" keys={["↑", "↓", "→", "←"]} />
 							<Shortcut label="Row: main action · all actions · deselect" keys={["↵", ".", "esc"]} />
+							<Shortcut label="Row actions have letters (Processes: J jump, P peek, B browser) — shown on hover and in the details" keys={["J", "P", "B", "…"]} />
+							<Shortcut label="“Which one?” menus: pick by number" keys={["1 … 9"]} />
 							<Shortcut label="Toolbelt settings (this page)" keys={["⌘,"]} />
+							<Shortcut label="Menu bar popover: open a tool in this window (its letter is on the row)" keys={["P", "S", "…"]} />
+							<Shortcut label="Dialogs: main action · cancel" keys={["↵", "esc"]} />
 							<Shortcut label="Close the window · quit Toolbelt" keys={["⌘W", "⌘Q"]} />
 						</CardContent>
 					</Card>
@@ -491,7 +500,14 @@ function ShortcutSetting() {
 			<div className="flex items-center gap-2">
 				<Kbd className={cn("h-7 px-2 text-sm", recording && "animate-pulse")}>{recording ? "…" : (settings?.shortcutLabel ?? "")}</Kbd>
 				<Button variant="outline" size="sm" onClick={() => (setError(null), setRecording((r) => !r))}>
-					{recording ? "Cancel" : "Change"}
+					{recording ? (
+						<>
+							Cancel
+							<KeyHint keys="esc" />
+						</>
+					) : (
+						"Change"
+					)}
 				</Button>
 			</div>
 		</div>

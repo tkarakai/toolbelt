@@ -47,6 +47,8 @@ export type ToolbeltRPC = {
 			/** From the popover: show the main window on this plugin (and screen). */
 			showWindow: { plugin?: string; screen?: string };
 			hidePopover: {};
+			/** From the popover: the height its content wants (px), or null for the full height. */
+			popoverSize: { height: number | null };
 			closeWindow: {};
 			zoomWindow: {};
 			/** Debug channel: the value of a script the main process evaluated in this view. */

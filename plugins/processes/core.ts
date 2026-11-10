@@ -10,7 +10,7 @@ export type ProcRow = {
 	pid: number; pgid?: number; kind: "job" | "term" | "server" | "daemon" | "app" | string; command: string; argvCommand: string; displayArgv: string[];
 	source: "typed" | "script" | "history" | "argv" | string; leaderGone: boolean; exe?: string; cwd: string; listen: Listen[]; where: string; tty: string;
 	stat: string; etimeSec: number; rssKb: number; cpu: number; pidCount: number; members: Member[]; parentRow?: number; via?: string;
-	termLabel: string; shellAlive: boolean; keptIndex?: number; agent?: Agent;
+	term?: Record<string, string>; cmux?: { workspace: string; surface: string }; termLabel: string; shellAlive: boolean; keptIndex?: number; agent?: Agent;
 };
 export type KeptDTO = { index: number; name?: string; command: string; cwd: string; env: Record<string, string>; note: string; ports: number[]; session?: string; kept?: string; line: string; livePid?: number };
 export type Probe = { pid: number; port: number; pending: boolean; web?: boolean; url?: string; title?: string; status?: number };

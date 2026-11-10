@@ -10,8 +10,14 @@ const pascal = (name: string) => name.replace(/(^|-)([a-z0-9])/g, (_, __, c: str
 
 export const isFileIcon = (name?: string) => !!name && /^(app|file):/.test(name);
 
+const agentLogos = import.meta.glob("../assets/agents/*.svg", { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
 export function Icon({ name, ...props }: { name?: string } & LucideProps) {
-	if (isFileIcon(name)) return <FileIcon path={name!.replace(/^(app|file):/, "")} className={props.className} />;
+	if (name?.startsWith("agent:")) {
+        const svg = agentLogos[`../assets/agents/${name.slice(6)}.svg`];
+        if (svg) return <span className={cn("inline-flex size-4 shrink-0 [&>svg]:size-full [&>svg]:fill-current", props.className)} dangerouslySetInnerHTML={{ __html: svg }} />;
+        return <icons.Bot {...props} />;
+    }
+    if (isFileIcon(name)) return <FileIcon path={name!.replace(/^(app|file):/, "")} className={props.className} />;
 	const C = (name && icons[pascal(name) as keyof typeof icons]) || icons.Box;
 	return <C {...props} />;
 }

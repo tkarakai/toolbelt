@@ -73,6 +73,7 @@ export const themeById = (id: string) => THEMES.find((t) => t.id === id) ?? THEM
 /** The CSS variables a palette sets (names without the leading `--`). */
 export function tokens(p: Palette): Record<string, string> {
 	return {
+        ...selectionTokens(p),
 		background: p.bg,
 		foreground: p.fg,
 		card: p.surface,
@@ -146,4 +147,35 @@ export function textPairs(p: Palette): [string, string, string][] {
 		["group header on page", p.group, p.bg],
 		["group header on subtle", p.group, p.subtle],
 	];
+}
+
+/** Preserve semantic hue on an inverted selection while meeting AA in every theme. */
+export const SELECTION_HUES = {"red":"#ef4444","orange":"#f97316","amber":"#f59e0b","yellow":"#eab308","lime":"#84cc16","green":"#22c55e","emerald":"#10b981","teal":"#14b8a6","cyan":"#06b6d4","sky":"#0ea5e9","blue":"#3b82f6","indigo":"#6366f1","violet":"#8b5cf6","purple":"#a855f7","fuchsia":"#d946ef","pink":"#ec4899","rose":"#f43f5e","slate":"#64748b","stone":"#78716c","success":"#10b981","warning":"#f59e0b","danger":"#ef4444","info":"#0ea5e9"};
+export function selectionTokens(p: Palette): Record<string,string> {
+    const out: Record<string,string> = {};
+    for (const [name, base] of Object.entries(SELECTION_HUES)) {
+        let foreground = base;
+        for(let step=0; step<=100; step++) {
+            foreground = mix(p.selectedFg, base, step/100);
+            const background = mix(foreground, p.selected, .10);
+            if(contrast(foreground,p.selected)>=4.5 && contrast(foreground,background)>=4.5) break;
+        }
+        out[`selected-${name}`] = foreground;
+        out[`selected-${name}-pill`] = mix(foreground,p.selected,.10);
+    }
+    // Neutral pills need both colors adapted too: a normal muted background can be
+    // the opposite polarity of the selected row (for example dark idle on light selection).
+    let neutralBackground = mix(p.selectedFg, p.selected, .10);
+    for (let tint = 9; contrast(p.selectedFg, neutralBackground) < 4.5 && tint >= 0; tint--)
+        neutralBackground = mix(p.selectedFg, p.selected, tint / 100);
+    let neutralMuted = p.selectedFg;
+    for (let strength = 75; strength <= 100; strength++) {
+        neutralMuted = mix(p.selectedFg, p.selected, strength / 100);
+        if (contrast(neutralMuted, p.selected) >= 4.5 && contrast(neutralMuted, neutralBackground) >= 4.5) break;
+    }
+    out["selected-default"] = p.selectedFg;
+    out["selected-default-pill"] = neutralBackground;
+    out["selected-muted"] = neutralMuted;
+    out["selected-muted-pill"] = neutralBackground;
+    return out;
 }

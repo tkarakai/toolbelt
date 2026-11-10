@@ -11,17 +11,20 @@
 			"id": "processes",
 			"title": "Processes",
 			"icon": "list",
-			"default": true
+			"default": true,
+			"shortcut": "p"
 		},
 		{
 			"id": "kept",
 			"title": "Kept",
-			"icon": "bookmark"
+			"icon": "bookmark",
+			"shortcut": "k"
 		},
 		{
 			"id": "settings",
 			"title": "Settings",
-			"icon": "settings"
+			"icon": "settings",
+			"shortcut": "s"
 		}
 	],
 	"quickView": true,

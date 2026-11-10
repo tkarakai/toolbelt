@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+- App and folder headers show matching-command memory totals (RSS), independent of expansion. Memory sorting ranks groups by their largest command; totals are informational and include nested jobs without recounting expanded child processes.
+
+- Filter selectors match the fixed-width search field’s height. Dropdown searches retain typing focus, scroll only vertically, and stay open when Show all clears selections.
+
+- Fixed selected-row contrast for neutral status pills (including idle), placeholders, path labels, branch pills and open action buttons.
+
+- The menu bar popover fits its tools, up to six rows, then scrolls without a scroll bar.
+  Each tool has a visible letter shortcut that opens it in the main window.
+- Processes tabs use ⌘P, ⌘K and ⌘S, with visible hints and an inverted active-tab selection.
+  Settings in the sidebar is a cog with ⌘,; dialogs and action buttons show their shortcuts.
+- Processes includes terminal shell scripts, including commands that do not listen on a port.
+- Kept commands support notes and an environment editor with multiple editable variables,
+  inclusion controls, removal and secret masking. Saved variables are used when starting commands.
+- Kept commands offer Start in the default terminal, a Start in… submenu/dropdown for other
+  installed terminals, and Reveal directory in Finder. Settings explains the default terminal.
+- Known AI agents have colored badges and bundled logos where available. Codex is blue,
+  Claude amber; agents waiting for input have pulsing fuchsia dots.
+- Agent and State filters share the row-dot classification, show zero-count options below
+  a divider, and support searching options without changing selections. Active filters and
+  nonempty search fields have a highlighted border and tinted background.
+- CMUX processes show saved workspace/surface names; Jump to terminal targets that surface.
+  tmux sessions share one TMUX section, grouped by directory, with session names alongside titles.
+- Compact rows show one port plus an overflow count and one ellipsis that opens the standard
+  labeled action menu with icons, shortcut hints and submenus. Truncated descriptions expose
+  their full text on hover. Removed Refresh; the list updates automatically.
+- Selected rows preserve readable semantic colors, tested for contrast in every theme.
+  Fixed group-selection styling and switch/checkbox state styling and positioning.
+- Row actions support keyboard shortcuts and target selection for individual child processes;
+  details list the processes a command started, with Peek/Open actions.
+- Folders emphasize their project name; branches have violet pills; heavy CPU and memory
+  have warning colors; running kept commands have a bookmark.
+- Toolbelt explicitly activates its process before handing focus to a terminal, to retain
+  its place in the macOS application switcher.
+- Toolbelt Dev has a separate bundle identity, preferences, amber Dock/menu-bar icons,
+  a DEV badge and a global shortcut that can coexist with the official app.
+- Right-click menus stay available in text fields and selected text. Keyboard navigation
+  keeps rows visible below the table header and restores list focus after menus close.
+
 - The spike: Toolbelt as an Electrobun app — a main window with a sidebar of tools that
   collapses to icons, each tool's tabs, tables with groups, row actions and an inspector,
   forms and stats, all drawn with shadcn/ui; a menu bar icon whose popover lists the tools and
