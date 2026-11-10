@@ -27,7 +27,7 @@ export async function makeDmg(root = join(import.meta.dir, "..")): Promise<strin
 		const tar = join(stage, "app.tar");
 		writeFileSync(tar, Bun.zstdDecompressSync(readFileSync(bundle)));
 		const vol = join(stage, "Toolbelt");
-		await $`mkdir -p ${vol} && tar -xf ${tar} -C ${vol}`.quiet();
+		await $`mkdir -p ${vol} && tar -xf ${tar} -C ${vol}`;
 		rmSync(tar);
 		const app = join(vol, "Toolbelt.app");
 		const plist = join(app, "Contents/Info.plist");
@@ -37,11 +37,12 @@ export async function makeDmg(root = join(import.meta.dir, "..")): Promise<strin
 		const id = (await $`/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" ${plist}`.text()).trim();
 		if (id !== BUNDLE_ID) throw new Error(`the built app is ${id}, expected ${BUNDLE_ID}`);
 		await $`/usr/libexec/PlistBuddy -c ${`Delete :CFBundleShortVersionString`} ${plist}`.quiet().nothrow();
-		await $`/usr/libexec/PlistBuddy -c ${`Add :CFBundleShortVersionString string ${version}`} ${plist}`.quiet();
-		await $`/usr/bin/codesign --force --sign - ${app}`.quiet();
-		await $`/usr/bin/codesign --verify --strict ${app}`.quiet();
+		await $`/usr/libexec/PlistBuddy -c ${`Add :CFBundleShortVersionString string ${version}`} ${plist}`;
+		await $`/usr/bin/codesign --force --sign - ${app}`;
+		await $`/usr/bin/codesign --verify --strict ${app}`;
 		symlinkSync("/Applications", join(vol, "Applications"));
-		await $`/usr/bin/hdiutil create -volname Toolbelt -srcfolder ${vol} -ov -format ULMO ${out}`.quiet();
+		console.log(`Creating ${out}`);
+		await $`/usr/bin/hdiutil create -volname Toolbelt -srcfolder ${vol} -ov -format ULMO ${out}`;
 	} finally {
 		rmSync(stage, { recursive: true, force: true });
 	}
@@ -52,13 +53,14 @@ export async function makeDmg(root = join(import.meta.dir, "..")): Promise<strin
 /** Mount it and check what the updater will check: bundle id, version, signature. */
 export async function verifyDmg(dmg: string, version: string) {
 	const mnt = mkdtempSync(join(tmpdir(), "toolbelt-dmg-check-"));
-	await $`/usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint ${mnt} ${dmg}`.quiet();
+	console.log(`Verifying ${dmg}`);
+	await $`/usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint ${mnt} ${dmg}`;
 	try {
 		const plist = join(mnt, "Toolbelt.app/Contents/Info.plist");
 		const v = (await $`/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" ${plist}`.text()).trim();
 		const id = (await $`/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" ${plist}`.text()).trim();
 		if (v !== version || id !== BUNDLE_ID) throw new Error(`${dmg} holds ${id} ${v}, expected ${BUNDLE_ID} ${version}`);
-		await $`/usr/bin/codesign --verify --strict ${join(mnt, "Toolbelt.app")}`.quiet();
+		await $`/usr/bin/codesign --verify --strict ${join(mnt, "Toolbelt.app")}`;
 	} finally {
 		await $`/usr/bin/hdiutil detach -force ${mnt}`.quiet().nothrow();
 		rmSync(mnt, { recursive: true, force: true });
