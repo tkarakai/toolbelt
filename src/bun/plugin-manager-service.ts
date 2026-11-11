@@ -261,8 +261,11 @@ export class PluginManagerService {
       }
       const registry = this.packages.registry();
       for (const [id, version] of updates) {
-        if (registry.plugins[id])
-          registry.plugins[id]!.availableVersion = version;
+        const plugin = registry.plugins[id];
+        if (plugin) {
+          plugin.availableSince = version ? (plugin.availableVersion === version ? plugin.availableSince ?? Date.now() : Date.now()) : undefined;
+          plugin.availableVersion = version;
+        }
       }
       registry.updateSchedule = {
         lastChecked: Date.now(),

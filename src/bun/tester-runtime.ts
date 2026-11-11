@@ -29,7 +29,7 @@ export class TesterRuntime {
       registryRoot: root,
       dirs: [],
       bun,
-      host: { name: "Toolbelt Plugin Tester", version },
+      host: { name: "ToolBelt Plugin Tester", version },
       data: join(root, "data"),
       env: {},
       diagnostic: (plugin, kind, detail) =>

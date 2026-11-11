@@ -3,7 +3,7 @@ import { localControlRequest } from "./loopback";
 import { materializeSeed } from "./seed";
 import { EDIT_MENU } from "./edit-menu";
 import { createNativePopover, layoutNativePopover } from "./native-popover";
-// Toolbelt's main process: the menu bar icon and its popover, the main window, the global
+// ToolBelt's main process: the menu bar icon and its popover, the main window, the global
 // shortcut, and the plugin host that feeds both web views.
 import Electrobun, {
   BrowserView,
@@ -110,9 +110,12 @@ type ViewRPC = ReturnType<typeof makeRPC>;
 const views = new Set<ViewRPC>();
 // Which surfaces each view has open, so a closed window releases them.
 const opened = new Map<ViewRPC, Set<string>>();
-manager.subscribe((state) =>
-  views.forEach((view) => view.send.pluginManagerState(state)),
-);
+let pluginUpdateAvailable = manager.read().plugins.some(p => !p.removed && !!p.availableVersion);
+manager.subscribe((state) => {
+  views.forEach((view) => view.send.pluginManagerState(state));
+  pluginUpdateAvailable = state.plugins.some(p => !p.removed && !!p.availableVersion);
+  showTrayAlert(pluginUpdateAvailable || !!updater.state().available);
+});
 
 function makeRPC() {
   const rpc: any = BrowserView.defineRPC<ToolbeltRPC>({
@@ -147,9 +150,9 @@ function makeRPC() {
         event: async ({ plugin, surface, name, payload }): Promise<true> => {
           if (packages.upgradingHost)
             throw new Error(
-              "Toolbelt is preparing to update; plugin actions are temporarily deferred",
+              "ToolBelt is preparing to update; plugin actions are temporarily deferred",
             );
-          // Register Toolbelt as the foreground application before handing focus away.
+          // Register ToolBelt as the foreground application before handing focus away.
           if (
             host
               .list()
@@ -350,6 +353,7 @@ const togglePopover = () =>
       ? undefined
       : showPopover();
 
+setTimeout(() => setTrayTemplate(!trayAlert && channel !== "dev"), 500);
 tray.on("tray-clicked", () => togglePopover());
 // Clicking anywhere else dismisses it (ignore the blur that the click on the icon itself causes).
 popover.on("blur", () => {
@@ -357,8 +361,7 @@ popover.on("blur", () => {
 });
 
 // ── updates (official builds only; src/bun/updater.ts) ───────────────────
-// An available update puts a red badge on the menu bar icon. A template image can't be red,
-// so that one is a plain image, with the glyph drawn for the menu bar's current shade.
+// Available updates use a neutral badge drawn for the menu bar’s current shade.
 const TRAY_IMAGE =
   channel === "dev"
     ? "views://assets/tray-icon-dev@2x.png"
@@ -405,7 +408,7 @@ const updater = new AppUpdater({
     );
     if (incompatible.length)
       throw new Error(
-        `Update or disable these plugins before installing Toolbelt ${version}: ${incompatible.map((p) => p.manifest.name).join(", ")}`,
+        `Update or disable these plugins before installing ToolBelt ${version}: ${incompatible.map((p) => p.manifest.name).join(", ")}`,
       );
   },
   version: pkg.version,
@@ -415,7 +418,7 @@ const updater = new AppUpdater({
   appPath: bundleOf(process.execPath),
   onChange: (s: UpdateState) => {
     views.forEach((v) => v.send.updateState(s));
-    showTrayAlert(!!s.available);
+    showTrayAlert(pluginUpdateAvailable || !!s.available);
   },
   // Start the new version once this one is gone, with its window open (and TOOLBELT_*
   // settings such as a test feed kept), then quit.
@@ -456,7 +459,10 @@ if (shortcutError) console.error(`shortcut: ${shortcutError}`);
 // ── app menu (Edit gives copy/paste/select-all in the web views) ─────────
 ApplicationMenu.setApplicationMenu([
   {
+    label: variant.name,
     submenu: [
+      { label: "About ToolBelt", role: "about" },
+      { type: "separator" },
       {
         label: `Open ${variant.name}`,
         action: "open-window",
@@ -658,7 +664,7 @@ setInterval(() => {
   if (trayAlert) showTrayAlert(true); // the menu bar may have changed shade
 }, 60_000);
 console.log(
-  `Toolbelt ${pkg.version} (${channel}) — plugins: ${
+  `ToolBelt ${pkg.version} (${channel}) — plugins: ${
     host
       .list()
       .map((p) => p.manifest.id)

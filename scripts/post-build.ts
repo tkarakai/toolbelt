@@ -8,7 +8,7 @@ if (process.env.TOOLBELT_VARIANT === "dev" && process.platform === "darwin") {
     // Electrobun appends its channel to CFBundleName; show the explicit dev identity instead.
     const plist = join(build, `dev-macos-${process.arch}/Toolbelt-dev.app/Contents/Info.plist`);
     for (const key of ["CFBundleName", "CFBundleDisplayName"]) {
-        const result = Bun.spawnSync(["/usr/bin/plutil", "-replace", key, "-string", "Toolbelt Dev", plist], { stderr: "inherit" });
+        const result = Bun.spawnSync(["/usr/bin/plutil", "-replace", key, "-string", "ToolBelt Dev", plist], { stderr: "inherit" });
         if(result.exitCode !== 0) throw new Error(`Couldn't set ${key} in the dev bundle`);
     }
 }

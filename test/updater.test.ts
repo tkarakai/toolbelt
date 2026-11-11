@@ -139,7 +139,7 @@ test("bundle path and install problems", () => {
     "Applications folder",
   );
   expect(installProblem("/Applications/Toolbelt.app", () => false)).toBe(
-    "Toolbelt can't write to /Applications.",
+    "ToolBelt can't write to /Applications.",
   );
 });
 

@@ -243,7 +243,7 @@ export function PluginManager({
         </form>
         {busy && (
           <p role="status" className="text-sm text-muted-foreground">
-            Waiting for Toolbelt…
+            Waiting for ToolBelt…
           </p>
         )}
         {error && (
@@ -601,7 +601,7 @@ export function PluginManager({
               </DialogDescription>
             </DialogHeader>
             <p className="text-sm">
-              Recovery covers only data managed by Toolbelt. External files,
+              Recovery covers only data managed by ToolBelt. External files,
               databases, services and machine changes require the plugin’s own
               recovery steps.
             </p>

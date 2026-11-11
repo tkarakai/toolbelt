@@ -8,7 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { setTheme } from "@/lib/theme";
 import { useSettings } from "@/lib/store";
 
-/** Keeps this view's colors in step with Toolbelt's appearance settings. */
+/** Keeps this view's colors in step with ToolBelt's appearance settings. */
 function ThemeSync() {
 	const [settings] = useSettings();
 	useEffect(() => {

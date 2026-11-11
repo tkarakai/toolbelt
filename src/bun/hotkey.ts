@@ -88,7 +88,7 @@ function installHandler() {
  */
 export function setHotKey(accel: string, action: () => void): string | null {
 	const parsed = parseAccelerator(accel);
-	if (!parsed) return `“${accel}” isn't a shortcut Toolbelt can use (it needs ⌘, ⌃ or ⌥ and a letter, digit or symbol)`;
+	if (!parsed) return `“${accel}” isn't a shortcut ToolBelt can use (it needs ⌘, ⌃ or ⌥ and a letter, digit or symbol)`;
 	if (!installHandler()) return "couldn't install the keyboard event handler";
 	clearHotKey();
 	const ref = new BigUint64Array(1);

@@ -5,7 +5,7 @@ import { usePluginDrag } from "./lib/use-plugin-drag";
 // The menu-bar tool list stays visible beside the selected plugin's quick view.
 // ↑/↓ and plugin hotkeys select; Enter opens the window; Escape closes.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Maximize2, Power } from "lucide-react";
+import { ChevronLeft, ChevronRight, Maximize2, Power, Settings } from "lucide-react";
 import { defaultScreen } from "../shared/protocol";
 import { popoverLayout, type PopoverLayout } from "../shared/popover";
 import { assignLetters } from "../shared/letters";
@@ -33,6 +33,8 @@ export default function Popover() {
     const development = useUpdateState()?.channel === "dev";
     const [settings] = useSettings();
     const [selected, setSelected] = usePersisted<string | null>("toolbelt.popoverPlugin", null);
+    const [updatePanelOpen, setUpdatePanelOpen] = useState(false);
+    const [controlFocused, setControlFocused] = useState(false);
     const [activePane, setActivePane] = useState<"menu" | "detail">("menu");
     const detailMemory = useRef(new Map<string, PaneBookmark>());
     const lastCollection = useRef(new Map<string, string>());
@@ -69,10 +71,26 @@ export default function Popover() {
         pendingFocus.current = false;
         setShown(s => ({ ...s, closing: true }));
     }, []));
-    useEffect(() => {
-        if (shown.closing) return;
-        const timer = setTimeout(() => setRevealReady(true), 200);
-        return () => clearTimeout(timer);
+    // Hidden WKWebViews can advance animation clocks before the compositor presents
+    // their first frame. Hold the initial pose until two visible animation frames.
+    useLayoutEffect(() => {
+        const element = box.current;
+        if (!element || shown.closing) return;
+        const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const animation = element.animate([
+            { opacity: 0, transform: "scale(.95)" },
+            { opacity: 1, transform: "scale(1)" },
+        ], { duration: reduced ? 1 : 200, easing: "cubic-bezier(.16,1,.3,1)", fill: "both" });
+        animation.pause();
+        let second = 0;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const first = requestAnimationFrame(() => {
+            second = requestAnimationFrame(() => {
+                animation.play();
+                timer = setTimeout(() => setRevealReady(true), 200);
+            });
+        });
+        return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); clearTimeout(timer); animation.cancel(); };
     }, [shown.n, shown.closing]);
     const letters = useMemo(() => assignLetters(plugins.map(p => ({ id: p.manifest.id, name: p.manifest.name }))), [plugins]);
     const hasDetails = !!current?.manifest.quickView;
@@ -168,11 +186,16 @@ export default function Popover() {
             entered.current = key;
             const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
             const towardItem = layout.side === "left" ? 12 : -12;
-            pane.animate([
+            const animation = pane.animate([
                 { opacity: 0, transform: `translateX(${towardItem}px)`, offset: 0 },
                 { opacity: 1, transform: `translateX(${-Math.sign(towardItem)}px)`, offset: .8 },
                 { opacity: 1, transform: "translateX(0)", offset: 1 },
-            ], { duration: reduced ? 1 : 200, easing: "cubic-bezier(.16,1,.3,1)" });
+            ], { duration: reduced ? 1 : 200, easing: "cubic-bezier(.16,1,.3,1)", fill: "backwards" });
+            animation.pause();
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                if (pane.isConnected) animation.play();
+                else animation.cancel();
+            }));
         }
         if (pendingFocus.current) { pendingFocus.current = false; focusDetails(); }
     }, [panelVisible, current?.manifest.id, shown.n, layout, active, focusDetails]);
@@ -219,6 +242,15 @@ export default function Popover() {
                 }
                 return;
             }
+            if (event.key === "Tab") return;
+            const controls = Array.from(menu.current?.querySelectorAll<HTMLButtonElement>("[data-update-notice], [data-plugin-sort], [data-footer-control]") ?? []);
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                const from = controls.indexOf(event.target as HTMLButtonElement);
+                const index = from >= 0 ? from : controls.findIndex(button => button.dataset.pluginSort === current?.manifest.id);
+                const next = controls[index + (event.key === "ArrowDown" ? 1 : -1)];
+                if (next) { consume(); next.focus({ preventScroll: true }); return; }
+            }
+            if ((event.target as HTMLElement).closest("button:not([data-plugin-sort])")) return;
             if (event.key === towardDetails) { consume(); focusDetails(); return; }
             if (event.key === towardMenu) { consume(); return; }
             // Footer controls retain their normal Enter/Space behavior.
@@ -254,16 +286,16 @@ export default function Popover() {
             }}
             style={{ width: layout.width, height: layout.height, maxWidth: "100%", marginLeft: layout.side === "left" ? "auto" : 0 }}
             className={cn("relative",
-                shown.closing ? "animate-out fade-out-0 zoom-out-95 fill-mode-forwards duration-150" : "animate-in fade-in-0 zoom-in-95 duration-200")}>
+                shown.closing ? "animate-out fade-out-0 zoom-out-95 fill-mode-forwards duration-150" : "")}>
             <section ref={menu} tabIndex={-1} aria-label="Plugins" data-keyboard-pane="menu" data-keyboard-active={activePane === "menu"}
-                onFocusCapture={() => setActivePane("menu")}
-                style={{ width: layout.menuWidth, maxHeight: layout.menuHeight, left: layout.side === "left" ? layout.width - layout.menuWidth : 0 }}
+                onFocusCapture={event => { setActivePane("menu"); setControlFocused(!!(event.target as HTMLElement).closest("button:not([data-plugin-sort])")); }}
+                style={{ minHeight: updatePanelOpen ? 300 : undefined, width: layout.menuWidth, maxHeight: layout.menuHeight, left: layout.side === "left" ? layout.width - layout.menuWidth : 0 }}
                 className={cn(panelStyle, "absolute top-0 z-10 outline-none")}>
 					<div className="flex shrink-0 items-center gap-2 px-4 pt-3.5 pb-2">
-						<span className="text-sm font-semibold">{development ? "Toolbelt Dev" : "Toolbelt"}</span>
-						{settings && <Kbd className="ml-auto">{settings.shortcutLabel}</Kbd>}
+						<span className="text-sm font-semibold">{development ? "ToolBelt Dev" : "ToolBelt"}</span>
+						{settings && <Kbd>{settings.shortcutLabel}</Kbd>}
+                        <PopoverUpdateRow onPanelChange={setUpdatePanelOpen} />
 					</div>
-					<PopoverUpdateRow />
 					{/* Six rows, then it scrolls (without a scroll bar). */}
 					<div {...drag} data-plugin-list className="no-scrollbar max-h-[calc(6*3.25rem+0.5rem)] min-h-0 overflow-auto px-2 pb-2">
 						{plugins.map((p, i) => (
@@ -272,11 +304,11 @@ export default function Popover() {
 								data-plugin-sort={p.manifest.id}
                                 style={{ touchAction: "none", userSelect: "none" }}
                                 data-index={i}
-								data-active={i === active}
+								data-active={i === active && !controlFocused}
 								onMouseEnter={() => { if (mouseNavigation.current) select(i); }}
                                 onMouseMove={() => { if (mouseNavigation.current && (activePane !== "menu" || selected !== p.manifest.id)) select(i); }}
                                 tabIndex={i === active ? 0 : -1}
-                                aria-current={i === active ? "true" : undefined}
+                                aria-current={i === active && !controlFocused ? "true" : undefined}
                                 onFocus={() => { if (selected !== p.manifest.id) select(i); }}
 								onClick={() => pick(p)}
 								className="group flex h-13 w-full items-center gap-3 rounded-lg px-2.5 text-left outline-none data-[active=true]:bg-selected data-[active=true]:text-selected-foreground"
@@ -306,7 +338,8 @@ export default function Popover() {
 						))}
 					</div>
 					<div className="flex shrink-0 flex-wrap items-center gap-1 border-t px-2 py-1.5">
-						<Button variant="ghost" size="sm" className="ml-auto text-muted-foreground" onClick={askQuit}>
+						<Button data-footer-control variant="ghost" size="sm" title="Settings" aria-label="Settings" onClick={() => rpc.send.showWindow({ plugin: "toolbelt" })}><Settings /><KeyHint keys="⌘," /></Button>
+                        <Button data-footer-control variant="ghost" size="sm" className="ml-auto text-muted-foreground" onClick={askQuit}>
 							<Power />
 							Quit
 							<KeyHint keys="⌘Q" />
@@ -346,7 +379,7 @@ function PluginDetails({ info, onOpen }: { info: PluginInfo; onOpen: () => void 
             <Icon name={m.icon} className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate text-sm font-semibold">{m.name}</span>
             <Button variant="ghost" size="sm" className="shrink-0 text-muted-foreground"
-                onClick={onOpen} title="Open in the Toolbelt window">
+                onClick={onOpen} title="Open in the ToolBelt window">
                 <Maximize2 /> Open
             </Button>
         </div>

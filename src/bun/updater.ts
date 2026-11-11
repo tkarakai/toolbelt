@@ -160,13 +160,13 @@ export function installProblem(
   appPath: string | null,
   writable: (dir: string) => boolean,
 ): string | null {
-  if (!appPath) return "This copy of Toolbelt isn't an app bundle.";
+  if (!appPath) return "This copy of ToolBelt isn't an app bundle.";
   if (appPath.includes("/AppTranslocation/") || appPath.startsWith("/Volumes/"))
-    return "Move Toolbelt to your Applications folder first, then update.";
+    return "Move ToolBelt to your Applications folder first, then update.";
   if (!appPath.endsWith(".app"))
-    return "This copy of Toolbelt isn't an app bundle.";
+    return "This copy of ToolBelt isn't an app bundle.";
   if (!writable(dirname(appPath)))
-    return `Toolbelt can't write to ${dirname(appPath)}.`;
+    return `ToolBelt can't write to ${dirname(appPath)}.`;
   return null;
 }
 

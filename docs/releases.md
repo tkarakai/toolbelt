@@ -47,7 +47,7 @@ read permissions. The publisher creates an annotated tag and draft, uploads exac
 downloads and compares every file and checks inventory before publishing. The release record is
 also a release asset. Existing differing tags or bytes are conflicts, never overwritten.
 
-Stable app releases advance Toolbelt Latest. SDK releases and all prereleases use Latest=false.
+Stable app releases advance ToolBelt Latest. SDK releases and all prereleases use Latest=false.
 Stable plugin releases advance Latest only in their own repository. Published assets and tags are
 immutable. Corrections require a new version. App notes retain the `## Downloads` boundary used
 by the updater. App DMGs are ad-hoc signed and verified, not Apple-notarized.

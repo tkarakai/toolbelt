@@ -1,7 +1,7 @@
 # Plugin authoring and updates
 
-A Toolbelt plugin is an independently built Bun program with a runtime manifest. It sends
-declarative UI trees; Toolbelt renders them in the main window and optional menu-bar quick
+A ToolBelt plugin is an independently built Bun program with a runtime manifest. It sends
+declarative UI trees; ToolBelt renders them in the main window and optional menu-bar quick
 view. The plugin owns its dependencies, data schema, migrations, assets, helpers, tests and
 GitHub releases. The host never builds plugin source or installs its dependencies.
 
@@ -45,7 +45,7 @@ following dependency identifies the currently published SDK; freeze it in `bun.l
 ```
 
 Use Bun to install dependencies. Import from `@toolbelt/sdk` and its public subpaths, never
-from a Toolbelt checkout or copied SDK files. Keep implementation code in the plugin repo.
+from a ToolBelt checkout or copied SDK files. Keep implementation code in the plugin repo.
 
 ```ts
 import { definePlugin, type Node } from "@toolbelt/sdk";
@@ -144,7 +144,7 @@ references by plugin/version, validates file paths/content and rejects unsafe SV
 image formats include PNG, JPEG, GIF, WebP and SVG. Lucide icon names and `app:`/`file:` Finder
 icons are available without extra bundled images. No executable browser assets are supported.
 
-Optional CLI metadata declares `command`, payload `path` and `cleanupScreen`. Toolbelt preserves
+Optional CLI metadata declares `command`, payload `path` and `cleanupScreen`. ToolBelt preserves
 payloads but does not automatically run installers or change the user's shell. Plugin screens
 own explicit install/cleanup confirmations. A stable launcher resolves the active package in
 `plugins/registry.json`, checks enabled/removal state and creates a live PID lease in
@@ -280,7 +280,7 @@ For an update:
    Exercise upgrade, failed migration, busy-operation deferral and matching-data recovery.
 4. Build/test/extract the complete archive independently of source and dependencies, then
    publish a new immutable GitHub release with descriptor/hash/target metadata.
-5. In Toolbelt, use **Check updates** or **Review release**, review the publisher/version/
+5. In ToolBelt, use **Check updates** or **Review release**, review the publisher/version/
    compatibility and approve. Stable is default; enable prereleases or select an explicit
    tag when testing such releases. Automatic checks notify; they do not install.
 
@@ -288,7 +288,7 @@ Users can enter `owner/repo` or its public GitHub URL in Settings → Plugins. P
 authentication is not supported. Publisher identity changes are not followed silently.
 Disabling retains code/data; removing retains data unless explicit deletion is selected.
 For locally rebuilt same-version packages, use a fresh tester profile rather than disabling
-integrity checks. Updating plugin implementation requires no Toolbelt source changes; only
+integrity checks. Updating plugin implementation requires no ToolBelt source changes; only
 a newly required public capability needs corresponding host/SDK/renderer support.
 
 ### Group summary columns
@@ -297,4 +297,4 @@ a newly required public capability needs corresponding host/SDK/renderer support
 summary in that column with the same alignment and horizontal padding as row values,
 including on collapsed groups. A hidden or unknown column hides the summary in the table;
 the group inspector retains it. Omit `column` to keep a trailing, full-width summary.
-Column-bound summaries require Toolbelt 0.2.2 or newer.
+Column-bound summaries require ToolBelt 0.2.2 or newer.

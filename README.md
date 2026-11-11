@@ -1,7 +1,7 @@
-# Toolbelt
+# ToolBelt
 
-Toolbelt is a macOS app for independently installed tools. Each plugin runs as a Bun
-process and describes its screens with declarative UI nodes. Toolbelt renders those nodes
+ToolBelt is a macOS app for independently installed tools. Each plugin runs as a Bun
+process and describes its screens with declarative UI nodes. ToolBelt renders those nodes
 with React and shadcn/ui in its main window and menu-bar popover.
 
 Open **Settings → Plugins**, enter a public GitHub repository, review its release and
@@ -11,7 +11,7 @@ approval. Removal keeps plugin data unless you explicitly choose deletion.
 
 A fresh profile includes the removable SDK Explorer. [Processes](https://github.com/tkarakai/toolbelt-ps)
 and [Upkeep](https://github.com/tkarakai/toolbelt-upkeep) are installed separately. Processes
-owns its `running` terminal command and shell integration; Toolbelt does not install them
+owns its `running` terminal command and shell integration; ToolBelt does not install them
 implicitly. Plugins execute with your user privileges; process isolation is not a security
 sandbox.
 
@@ -27,7 +27,7 @@ bun test
 bun run dev
 ```
 
-`bun run dev` launches Toolbelt Dev with a separate identity, profile and shortcut.
+`bun run dev` launches ToolBelt Dev with a separate identity, profile and shortcut.
 `bun run preview` serves the production UI and runtime at http://localhost:5174 with an
 independent preview profile. `bun run build` produces the official app identity;
 `bun run dmg` packages its signed app. Do not replace an installed app when testing builds.

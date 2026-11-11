@@ -228,7 +228,7 @@ export function Render({ node, emit }: { node: Node; emit: Emit }): ReactNode {
 		case "segmented":
 			return <Segmented node={node} emit={emit} />;
 		default:
-			return <EmptyState title="Unknown component" description={`This Toolbelt can't draw “${(node as { type: string }).type}” yet.`} icon="puzzle" />;
+			return <EmptyState title="Unknown component" description={`This ToolBelt can't draw “${(node as { type: string }).type}” yet.`} icon="puzzle" />;
 	}
 }
 
