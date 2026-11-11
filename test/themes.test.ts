@@ -29,3 +29,17 @@ describe.each(THEMES.flatMap(t => [t.light,t.dark]))("selection semantics", pale
         }
     });
 });
+
+describe.each(THEMES.flatMap(theme => [theme.light, theme.dark]))("inactive selection semantics", palette => {
+    test("quiet selections and semantic pills retain AA contrast", () => {
+        const values = tokens(palette);
+        const background = values["inactive-selected"];
+        expect(contrast(values["inactive-selected-foreground"], background)).toBeGreaterThanOrEqual(4.5);
+        expect(background).not.toBe(palette.selected);
+        for (const tone of ["default", "muted", "success", "warning", "danger", "info", ...HUES]) {
+            const foreground = values[`inactive-selected-${tone}`];
+            expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.5);
+            expect(contrast(foreground, values[`inactive-selected-${tone}-pill`])).toBeGreaterThanOrEqual(4.5);
+        }
+    });
+});

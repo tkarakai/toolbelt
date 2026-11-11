@@ -23,6 +23,8 @@ export type ToolbeltRPC = {
 			pluginManager:{params:import("../bun/plugin-manager-service").ManagerRequest;response:Awaited<ReturnType<import("../bun/plugin-manager-service").PluginManagerService["handle"]>>};
 			pluginAsset: { params: { reference:string }; response: string|null };
 			plugins: { params: {}; response: PluginInfo[] };
+            initialNavigation: { params: {}; response: import("./navigation").WindowNavigation | null };
+            popoverLayout: { params: { height: number; details: boolean; anchorTop: number; reserveHeight?: number }; response: import("./popover").PopoverLayout };
 			/** Start watching a surface; the current tree (if any) comes back right away. */
 			open: { params: Surface; response: Node | null };
 			close: { params: Surface; response: true };
@@ -47,10 +49,9 @@ export type ToolbeltRPC = {
 		};
 		messages: {
 			/** From the popover: show the main window on this plugin (and screen). */
-			showWindow: { plugin?: string; screen?: string };
+			showWindow: { plugin?: string; screen?: string; selection?: import("./navigation").NavigationSelection };
 			hidePopover: {};
-			/** From the popover: the height its content wants (px), or null for the full height. */
-			popoverSize: { height: number | null };
+            selectionChanged: { plugin: string; selection: import("./navigation").NavigationSelection | null };
 			closeWindow: {};
 			zoomWindow: {};
 			/** Debug channel: the value of a script the main process evaluated in this view. */
@@ -62,13 +63,14 @@ export type ToolbeltRPC = {
 		requests: {};
 		messages: {
 			plugins: PluginInfo[];
+            selectionChanged: { plugin: string; selection: import("./navigation").NavigationSelection | null };
             pluginManagerState:ReturnType<import("../bun/plugin-manager-service").PluginManagerService["read"]>;
 			tree: Surface & { tree: Node };
 			toast: { plugin: string; text: string; tone?: "default" | "success" | "error"; action?: { id: string; label: string; payload?: unknown } };
 			/** Ask before quitting (⌘Q, Quit buttons): this view shows the confirmation. */
 			confirmQuit: {};
 			/** Main window: switch to this plugin/screen. */
-			navigate: { plugin: string; screen?: string };
+			navigate: import("./navigation").WindowNavigation;
 			/** Popover: it was just shown (reset to the list, focus search). */
 			popoverShown: {};
 			/** Popover: it's about to be hidden — play the closing animation. */

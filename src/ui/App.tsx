@@ -1,3 +1,7 @@
+import { SharedSelectionProvider, writeSharedSelection } from "./lib/shared-selection";
+import { findSelectionTarget, type NavigationSelection } from "../shared/navigation";
+import { SelectionHandoffContext, SelectionRequestContext } from "./lib/selection-handoff";
+import { usePluginDrag } from "./lib/use-plugin-drag";
 import { PluginManager } from "./PluginManager";
 // The main window: the app sidebar (resizable, collapses to an icon rail) and the selected
 // plugin's pane with its tabs. Route: #/<plugin>/<screen>, or #/toolbelt for Toolbelt's own page.
@@ -78,6 +82,7 @@ export default function App() {
 	const [lastPlugin, setLastPlugin] = usePersisted<string | null>("toolbelt.plugin", null);
 	// Where Toolbelt's own page goes back to (esc, its close button).
 	const before = useRef<string>("");
+    const [handoff, setHandoff] = useState<{ plugin: string; selection: NavigationSelection; token: number } | null>(null);
 
 	useEffect(() => {
 		const on = () => setRoute(parseHash());
@@ -85,19 +90,25 @@ export default function App() {
 		return () => window.removeEventListener("hashchange", on);
 	}, []);
 	const go = useCallback((plugin: string, screen?: string) => {
+        setHandoff(null);
 		if (plugin === TOOLBELT && parseHash().plugin !== TOOLBELT) before.current = location.hash;
 		location.hash = `#/${plugin}${screen ? `/${screen}` : ""}`;
 	}, []);
 	const back = useCallback(() => {
 		location.hash = before.current && !before.current.startsWith(`#/${TOOLBELT}`) ? before.current : "#/";
 	}, []);
-	useNavigate(go);
+    const navigationToken = useRef(0);
+    useNavigate(useCallback((plugin: string, screen?: string, selection?: NavigationSelection) => {
+        if (selection) writeSharedSelection(plugin, selection);
+        go(plugin, screen);
+        setHandoff(selection ? { plugin, selection, token: ++navigationToken.current } : null);
+    }, [go]));
 
 	// Default route: the remembered plugin, else the first.
 	const pluginId = route.plugin ?? lastPlugin ?? plugins[0]?.manifest.id;
 	useEffect(() => {
-		if (route.plugin) setLastPlugin(route.plugin);
-	}, [route.plugin, setLastPlugin]);
+		if (pluginId) setLastPlugin(pluginId);
+	}, [pluginId, setLastPlugin]);
 	const current = plugins.find((p) => p.manifest.id === pluginId);
 	const screen = current ? (route.screen ?? lastScreen.current[current.manifest.id] ?? defaultScreen(current.manifest)) : undefined;
 	useEffect(() => {
@@ -138,11 +149,11 @@ export default function App() {
 			<ZoomKeys />
 			<WindowZoom />
 			<AppSidebar plugins={plugins} current={route.plugin === TOOLBELT ? TOOLBELT : pluginId} go={go} onResize={setWidth} />
-			<SidebarInset className="min-w-0">
+			<SidebarInset className="min-w-0" onPointerDownCapture={() => setHandoff(null)} onKeyDownCapture={() => setHandoff(null)}>
 				{route.plugin === TOOLBELT ? (
 					<ToolbeltPage plugins={plugins} onClose={back} />
 				) : current && screen ? (
-					<PluginPane key={current.manifest.id} info={current} screen={screen} go={go} />
+					<PluginPane key={current.manifest.id} info={current} screen={screen} go={go} handoff={handoff?.plugin === current.manifest.id ? handoff : null} onHandoffApplied={() => setHandoff(null)} />
 				) : plugins.length ? null : (
 					<div className="p-8"><h1 className="text-lg font-medium">Welcome to Toolbelt</h1><p className="my-3 text-muted-foreground">Install a plugin to get started.</p><Button onClick={()=>go(TOOLBELT)}>Manage plugins</Button></div>
 				)}
@@ -167,6 +178,7 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 	const { state, setOpen } = useSidebar();
 	const hints = useHeldModifiers({ meta: true });
 	const update = useUpdateAvailable();
+	const drag = usePluginDrag(plugins.map(p => p.manifest.id));
 	return (
 		<Sidebar collapsible="icon" className="group-data-[side=left]:border-r-0">
 			<SidebarCommands />
@@ -179,9 +191,9 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 				<SidebarGroup>
 					<SidebarGroupLabel>Tools</SidebarGroupLabel>
 					<SidebarGroupContent>
-						<SidebarMenu>
+						<SidebarMenu {...drag}>
 							{plugins.map((p, i) => (
-								<SidebarMenuItem key={p.manifest.id}>
+								<SidebarMenuItem key={p.manifest.id} data-plugin-sort={p.manifest.id} style={{ touchAction: "none", userSelect: "none" }}>
 									<SidebarMenuButton isActive={current === p.manifest.id} tooltip={`${p.manifest.name}  ⌘${i + 1}`} onClick={() => go(p.manifest.id)} className={cn("h-9", ACTIVE)}>
 										<Icon name={p.manifest.icon} />
 										<span className="truncate">{p.manifest.name}</span>
@@ -285,7 +297,7 @@ function PaneHeader({ manifest, children }: { manifest: Pick<Manifest, "name" | 
 	);
 }
 
-function PluginPane({ info, screen, go }: { info: PluginInfo; screen: string; go: (p: string, s?: string) => void }) {
+function PluginPane({ info, screen, go, handoff, onHandoffApplied }: { info: PluginInfo; screen: string; go: (p: string, s?: string) => void; handoff: { selection: NavigationSelection; token: number } | null; onHandoffApplied: () => void }) {
 	const m = info.manifest;
     const development = useUpdateState()?.channel === "dev";
 	return (
@@ -310,21 +322,26 @@ function PluginPane({ info, screen, go }: { info: PluginInfo; screen: string; go
 					</Badge>
 				)}
 			</PaneHeader>
-			<div className="min-h-0 flex-1">{info.state === "crashed" ? <Crashed info={info} /> : <Screen key={screen} plugin={m.id} surface={`screen:${screen}`} />}</div>
+			<div className="min-h-0 flex-1">{info.state === "crashed" ? <Crashed info={info} /> : <Screen key={screen} plugin={m.id} surface={`screen:${screen}`} handoff={handoff} onHandoffApplied={onHandoffApplied} />}</div>
 		</div>
 	);
 }
 
-function Screen({ plugin, surface }: { plugin: string; surface: string }) {
+function Screen({ plugin, surface, handoff, onHandoffApplied }: { plugin: string; surface: string; handoff: { selection: NavigationSelection; token: number } | null; onHandoffApplied: () => void }) {
 	const tree = useSurface(plugin, surface);
 	const emit = useCallback((name: string, payload?: unknown) => sendEvent(plugin, surface, name, payload), [plugin, surface]);
 	useLayoutEffect(() => committed(plugin, surface), [tree, plugin, surface]);
+    const target = tree && handoff ? findSelectionTarget(tree, handoff.selection) : null;
 	if (!tree) return <Loading />;
 	return (
 		<SurfaceContext.Provider value={`${plugin}/${surface}`}>
+            <SelectionRequestContext.Provider value={handoff}>
+            <SelectionHandoffContext.Provider value={target && handoff ? { ...target, token: handoff.token, onApplied: onHandoffApplied } : null}>
 			<div className="h-full min-h-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
-				<Render node={tree} emit={emit} />
+                <SharedSelectionProvider plugin={plugin} tree={tree} seedLegacy><Render node={tree} emit={emit} /></SharedSelectionProvider>
 			</div>
+            </SelectionHandoffContext.Provider>
+            </SelectionRequestContext.Provider>
 		</SurfaceContext.Provider>
 	);
 }

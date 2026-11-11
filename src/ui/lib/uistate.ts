@@ -1,3 +1,4 @@
+import { readUIEntries, writeUIEntry } from "./ui-storage";
 // UI state that belongs to the renderer, not the plugin: filter text, expanded rows, the
 // selected row, scroll positions… Kept per surface, so switching tools and back finds things as
 // they were — and saved (localStorage), so closing the window or quitting doesn't forget them.
@@ -16,12 +17,12 @@ const storageKey = (key: string) =>
   profile ? `toolbelt.profile.${profile}.${key}` : key;
 const STORE = storageKey("toolbelt.ui");
 const session = new Map<string, unknown>(load());
+const dirty = new Set<string>();
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 function load(): [string, unknown][] {
   try {
-    const raw = localStorage.getItem(STORE);
-    return raw ? (Object.entries(JSON.parse(raw)) as [string, unknown][]) : [];
+    return readUIEntries(localStorage, STORE);
   } catch {
     return [];
   }
@@ -31,7 +32,10 @@ function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
-      localStorage.setItem(STORE, JSON.stringify(Object.fromEntries(session)));
+      for (const key of dirty) {
+        writeUIEntry(localStorage, STORE, key, session.get(key));
+        dirty.delete(key);
+      }
     } catch {}
   }, 300);
 }
@@ -41,7 +45,9 @@ export const uiState = {
   get: <T>(surface: string, name: string): T | undefined =>
     session.get(`${surface}\n${name}`) as T | undefined,
   set: (surface: string, name: string, value: unknown) => {
-    session.set(`${surface}\n${name}`, value);
+    const key = `${surface}\n${name}`;
+    session.set(key, value);
+    dirty.add(key);
     save();
   },
 };
@@ -63,6 +69,7 @@ export function useUIState<T>(name: string, initial: T): [T, Set<T>] {
         const v =
           typeof next === "function" ? (next as (p: T) => T)(prev) : next;
         session.set(key, v);
+        dirty.add(key);
         save();
         return v;
       }),

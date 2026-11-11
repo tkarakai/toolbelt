@@ -174,7 +174,10 @@ Bun.serve<{ opened: Set<string> }>({
     },
     async message(ws, raw) {
       const m = JSON.parse(String(raw));
-      if (m.kind !== "request") return;
+      if (m.kind !== "request") {
+        if (m.kind === "message" && m.name === "selectionChanged") broadcast("selectionChanged", m.payload);
+        return;
+      }
       const p = m.params ?? {};
       const reply = (result: unknown) =>
         ws.send(JSON.stringify({ kind: "response", id: m.id, result }));
@@ -184,6 +187,8 @@ Bun.serve<{ opened: Set<string> }>({
             return reply(pluginAsset(packages, p.reference));
           case "pluginManager":
             return reply(await manager.handle(p));
+          case "initialNavigation":
+            return reply(null);
           case "plugins":
             return reply(host.list());
           case "open":

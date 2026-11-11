@@ -1,4 +1,4 @@
-import { popoverPosition } from "../shared/popover";
+import { popoverPosition, popoverLayout } from "../shared/popover";
 import { BrowserWindow, Tray, Screen } from 'electrobun/main';
 /** Shared native shell; production and tester render the same Popover inside it. */
 export function createNativePopover(options:{title:string;url:string;image:string;template:boolean;rpc:any}){
@@ -7,3 +7,10 @@ export function createNativePopover(options:{title:string;url:string;image:strin
  popover.setAlwaysOnTop(true);popover.setVisibleOnAllWorkspaces(true);return{tray,popover};
 }
 export function positionPopover(tray:Tray,width=380){return popoverPosition(tray.getBounds(),Screen.getPrimaryDisplay(),width)}
+
+/** Resize the combined list/details window without changing the list's tray anchor. */
+export function layoutNativePopover(tray: Tray, popover: BrowserWindow, height: number, details: boolean, anchorTop = 0, reserveHeight = 0) {
+ const layout = popoverLayout(tray.getBounds(), Screen.getPrimaryDisplay(), height, details, anchorTop, reserveHeight);
+ popover.setFrame(layout.x, layout.y, layout.width, layout.height);
+ return layout;
+}

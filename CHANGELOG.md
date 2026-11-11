@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Keep the selected plugin’s quick view beside the popover list, aligned to its row with a
+  slight overlap on the side with room. Hover, Up/Down and plugin hotkeys select; click or
+  Enter opens the main window. Plugins without quick views keep the compact list. Remove
+  the redundant Open Toolbelt button from the popover footer.
+- Side arrows switch keyboard focus between the list and quick view, restoring each
+  selection. Active and inactive selections use distinct fills, with a subtle active-pane
+  border. One selected item per plugin stays synchronized between the main window and quick
+  view; Enter from either pane carries it into the main window. Remove Command+Enter hints
+  and behavior. Delay the first quick view by 200 ms without moving the menu, with directional
+  reveal and close transitions from the selected plugin row.
+- Drag plugins to reorder them in the menu-bar popover or window sidebar, with animated
+  pickup and placement, spring-driven sway, and one saved order shared by both surfaces.
+
 ## 0.2.0 — 2026-11-11
 - Non-interactive release PR preparation and verified CI publication through the shared SDK release tooling. App updates recognize release candidates and select the exact app DMG.
 
