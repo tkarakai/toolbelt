@@ -1,7 +1,8 @@
 # Toolbelt agent instructions
 
 Read [README.md](README.md), [docs/architecture.md](docs/architecture.md) and
-[docs/maintenance.md](docs/maintenance.md) before changing the host. For SDK, protocol or
+[docs/maintenance.md](docs/maintenance.md) before changing the host. Read
+[docs/releases.md](docs/releases.md) before any version/tag/publication work. For SDK, protocol or
 plugin work also read [docs/plugins.md](docs/plugins.md). These documents describe the
 current system; keep them accurate when behavior or contracts change. Write maintenance
 references, not implementation diaries, plans or reasoning transcripts.
@@ -71,3 +72,9 @@ excluding `.git`, `.hutch`, `build`, `build.noindex`, `dist`, `build-seed`, `art
 official app identity: launch via `bun scripts/run-evaluation.ts` to use an isolated copy.
 Global shortcuts use Carbon through `hotkey.ts`; avoid Electrobun GlobalShortcut's silent
 Accessibility dependency. Release and updater rehearsal details are in maintenance.md.
+
+Release commands must match the runbook and current scripts. The host publication command
+creates tags/releases and advances Latest; a passing build/CI does not authorize it. Preserve
+immutable published bytes, verify draft assets where publishing manually, and use the documented
+retry boundary rather than rerunning a tagged release. Do not assume plugin repos have a
+`release` script or that app publication updates their releases/SDK pins.

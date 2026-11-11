@@ -158,5 +158,6 @@ package and runtime contracts. It does not depend on an installed Toolbelt or pl
 App updates are a separate signed-DMG flow in `updater.ts`, with installed-plugin compatibility
 preflight and busy-plugin preparation. The app release contains its DMG, SDK archive and tester
 DMG/tarball. Plugin packages and terminal distributions have independent releases. Build and
-release procedures are in [maintenance.md](maintenance.md); author contracts are in
+release procedures are in [releases.md](releases.md); maintenance is in
+[maintenance.md](maintenance.md), and author contracts are in
 [plugins.md](plugins.md).

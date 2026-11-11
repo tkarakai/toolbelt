@@ -102,22 +102,15 @@ historical packages/snapshots intact during collection. Never manually delete tr
 backup or registry entries to unblock an upgrade. Use an isolated profile to reproduce
 recovery failures and preserve the affected user's data.
 
-## App releases
+## Releases
 
-1. Prepare a release PR changing `package.json` version and renaming Unreleased in
-   `CHANGELOG.md` to `X.Y.Z — YYYY-MM-DD`. Pass CI and obtain the user's merge decision.
-2. Use a clean, up-to-date `main` with your dev app stopped. Run `bun run release --dry-run`,
-   then publish with `bun run release` only when authorized.
-3. The release command checks Git state, typechecks/tests, builds and verifies the app DMG,
-   packages the SDK and native tester, creates the tag and a draft release, uploads assets,
-   then publishes it. It refuses an existing tag. App and SDK versions are independent.
+[releases.md](releases.md) is the authoritative app, SDK and tester runbook. It identifies
+which commands publish, exact prerequisites/artifacts, tag/draft/verification/publication
+steps, SDK/plugin dependency ordering and failure recovery. `bun run release` actually
+publishes a stable GitHub app release from this machine; local build/package commands do not.
+Read that runbook before invoking any publication command.
 
-Release assets are `Toolbelt-X.Y.Z-arm64.dmg`, `toolbelt-sdk-<SDK_VERSION>.tgz`,
-`Toolbelt-Plugin-Tester-X.Y.Z-arm64.dmg` and
-`Toolbelt-Plugin-Tester-X.Y.Z-macos-arm64.tar.gz`. The tester tarball and DMG contain the
-real signed application, not a self-extracting build launcher. Terminal archives are published
-by Processes. The app updater selects its `-arm64.dmg`, verifies the release digest, and
-shows release notes before `## Downloads`. Keep that naming/heading contract.
+## Updater rehearsal
 
 To rehearse an app update, build old/new versions in a disposable source copy (temporary
 version changes only there), copy the old signed app out of its DMG into a temporary folder,

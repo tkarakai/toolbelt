@@ -75,3 +75,11 @@ JSON with an `operation` and its parameters. Operations include archive `load`, 
 `load`/`watch` require explicit `approved: true` and the selected archive/repository. These
 controls operate only the tester instance; use a distinct port/profile and clean up owned
 processes after automation. `src/bun/tester.ts` is the authoritative request implementation.
+
+## Distribution
+
+`bun scripts/build-tester.ts` builds local artifacts only. The root app version also versions
+the tester. The app release command publishes its DMG/tarball alongside the app and SDK;
+separate tester publication is a manual `--latest=false` operation. Follow the exact
+[release runbook](releases.md#dedicated-tester-release) for tags, draft verification, publication
+and retries. CI does not publish or build the tester automatically.

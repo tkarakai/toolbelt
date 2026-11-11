@@ -215,6 +215,13 @@ Mutating tests use disposable resources and temporary homes only.
 
 ## Publish and update a plugin
 
+Use the owning repository's exact release runbook:
+[Processes](https://github.com/tkarakai/toolbelt-ps/blob/main/docs/releases.md),
+[Upkeep](https://github.com/tkarakai/toolbelt-upkeep/blob/main/docs/releases.md), or
+[SDK Explorer](https://github.com/tkarakai/toolbelt-sdk-demo/blob/main/docs/releases.md).
+Those repos have local build/package commands and manual GitHub publication, not the host's
+`bun run release` publisher. Host SDK/tester publication is in [releases.md](releases.md).
+
 Publish from the plugin's own repository, with frozen dependencies and pinned Bun/actions
 in CI. The release must contain the ready-to-run archive plus exactly one
 `toolbelt-release.json` descriptor. Its shape is:

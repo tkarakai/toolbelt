@@ -46,3 +46,9 @@ reserved. Screen IDs are unique lowercase letters/digits/dashes.
 See the host repository's [plugin authoring guide](https://github.com/tkarakai/toolbelt/blob/main/docs/plugins.md)
 and [Plugin Tester guide](https://github.com/tkarakai/toolbelt/blob/main/docs/plugin-tester.md),
 and the [SDK Explorer](https://github.com/tkarakai/toolbelt-sdk-demo) for complete examples.
+
+SDK packaging is local-only. Dedicated `sdk-v<version>` releases and app-bundled SDK assets
+have distinct URLs; neither updates plugin dependencies automatically. The
+[release runbook](https://github.com/tkarakai/toolbelt/blob/main/docs/releases.md#dedicated-sdk-release)
+describes versioning, draft byte verification, publication without changing the app feed,
+and failure recovery. No npm publication is performed.

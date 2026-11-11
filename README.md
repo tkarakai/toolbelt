@@ -39,8 +39,13 @@ home. Stop only development processes you started; app development and builds sh
 - [Architecture](docs/architecture.md): runtime, storage, rendering, recovery and boundaries.
 - [Plugin authoring and updates](docs/plugins.md): SDK, manifest, packaging and releases.
 - [Plugin Tester](docs/plugin-tester.md): local archives, profiles and visual development.
-- [Maintenance](docs/maintenance.md): checks, debugging, SDK/seed changes and app releases.
+- [Maintenance](docs/maintenance.md): checks, debugging and SDK/seed changes.
+- [Releases](docs/releases.md): exact app, SDK and tester build/publish/recovery procedures.
 - [Agent instructions](AGENTS.md): working conventions and verification requirements.
 
 The app, SDK and standalone tester are released from this repository. Plugin archives,
 helpers and terminal distributions are released by their owning plugin repositories.
+
+`bun run release` publishes the real stable GitHub app release using the local Git/`gh`
+account. It is not a local build alias. Read the release runbook and obtain authorization
+before running it; CI does not publish releases.
