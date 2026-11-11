@@ -40,7 +40,10 @@ export async function makeDmg(root = join(import.meta.dir, "..")): Promise<strin
 		await $`/usr/libexec/PlistBuddy -c ${`Delete :CFBundleShortVersionString`} ${plist}`.quiet().nothrow();
 		await $`/usr/libexec/PlistBuddy -c ${`Add :CFBundleShortVersionString string ${version}`} ${plist}`;
 		console.log("Disk image: signing and verifying the app");
-        for (const key of ["CFBundleName", "CFBundleDisplayName"]) {
+        const sourceCommit = process.env.TOOLBELT_SOURCE_COMMIT || Bun.spawnSync(["git", "rev-parse", "--short=7", "HEAD"]).stdout.toString().trim();
+  if (sourceCommit) await Bun.$`/usr/bin/plutil -replace CFBundleVersion -string ${sourceCommit} ${plist}`;
+  await Bun.$`/usr/bin/plutil -replace NSHumanReadableCopyright -string "Copyright NetSense LLC." ${plist}`;
+  for (const key of ["CFBundleName", "CFBundleDisplayName"]) {
             await $`/usr/bin/plutil -replace ${key} -string ToolBelt ${plist}`;
         }
 		await $`/usr/bin/codesign --force --sign - ${app}`;

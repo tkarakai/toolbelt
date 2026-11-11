@@ -33,6 +33,14 @@ Dev and app builds share a lock. If an existing dev session is running, leave it
 build a disposable source copy with separate config/ports. Tester builds stage their own
 source tree and emit into `artifacts-tester/`, separate from app artifact cleanup.
 
+## Previewing app updates
+
+In ToolBelt Dev, open Settings → About → Updates and use **Development preview**.
+Choose Available to review the confirmation, then select download, verification,
+installation, restart or failure stages inside the dialog. Off restores live state.
+This renderer-only simulation intercepts update actions and never downloads, replaces
+or restarts an app. The browser preview also has its existing simulated update flow.
+
 ## Tests by boundary
 
 | Change | Checks |

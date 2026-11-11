@@ -311,6 +311,7 @@ registerPluginManagerAdapter({
   discard: async (token) => {
     await managerRequest({ operation: "discard", token });
   },
+  restart: async (id) => { await rpc.request.restartPlugin({plugin: id}); },
   checkUpdates: async () => {
     await managerRequest({ operation: "checkUpdates" });
   },

@@ -1,5 +1,5 @@
 import { SharedSelectionProvider, writeSharedSelection } from "./lib/shared-selection";
-import { findSelectionTarget, type NavigationSelection } from "../shared/navigation";
+import { findSelectionTarget, settingsReturnHash, type NavigationSelection } from "../shared/navigation";
 import { SelectionHandoffContext, SelectionRequestContext } from "./lib/selection-handoff";
 import { usePluginDrag } from "./lib/use-plugin-drag";
 import { PluginManager } from "./PluginManager";
@@ -9,7 +9,7 @@ import { PluginManager } from "./PluginManager";
 // Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · manifest-declared tab shortcuts · ⌃⇥ / ⌃⇧⇥ next and
 // previous tab · ⌘B sidebar · ⌘W closes the window (app menu).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Check, Monitor, Moon, PanelLeft, RotateCw, Settings, Sun, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, ExternalLink, Check, PanelLeft, RotateCw, Settings, X } from "lucide-react";
 import { defaultScreen, type Manifest } from "../shared/protocol";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
@@ -19,7 +19,7 @@ import { THEMES, tokens } from "./themes";
 import { QuitDialog } from "./QuitDialog";
 import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { WindowZoom, ZoomKeys } from "@/lib/zoom";
-import { UpdateDot, UpdatesCard, useAnyUpdateAvailable, useUpdateState } from "./Updates";
+import { UpdateIndicator, UpdatesCard, useAnyUpdateAvailable, usePluginUpdateAvailable, useUpdateAvailable, useUpdateState } from "./Updates";
 import { EmptyState, Dot } from "@/renderer/Render";
 import { SafeRender as Render } from "@/renderer/SafeRender";
 import { Badge } from "@/components/ui/badge";
@@ -27,8 +27,9 @@ import { Button } from "@/components/ui/button";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { KeyHint } from "@/components/key-hint";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { HeaderTab } from "./components/header-tab";
+import { Tabs, TabsList } from "@/components/ui/tabs";
+import { SettingsGroup, SettingsRow } from "./components/settings-layout";
 import {
 	Sidebar,
 	SidebarContent,
@@ -95,8 +96,8 @@ export default function App() {
 		location.hash = `#/${plugin}${screen ? `/${screen}` : ""}`;
 	}, []);
 	const back = useCallback(() => {
-		location.hash = before.current && !before.current.startsWith(`#/${TOOLBELT}`) ? before.current : "#/";
-	}, []);
+        location.hash = settingsReturnHash(before.current, lastPlugin, plugins.map(p => p.manifest.id));
+    }, [plugins, lastPlugin]);
     const navigationToken = useRef(0);
     useNavigate(useCallback((plugin: string, screen?: string, selection?: NavigationSelection) => {
         if (selection) writeSharedSelection(plugin, selection);
@@ -106,9 +107,9 @@ export default function App() {
     }, [go]));
 
 	// Default route: the remembered plugin, else the first.
-	const pluginId = route.plugin ?? lastPlugin ?? plugins[0]?.manifest.id;
+	const pluginId = route.plugin ?? (plugins.some(p => p.manifest.id === lastPlugin) ? lastPlugin ?? undefined : plugins[0]?.manifest.id);
 	useEffect(() => {
-		if (pluginId) setLastPlugin(pluginId);
+		if (pluginId && pluginId !== TOOLBELT) setLastPlugin(pluginId);
 	}, [pluginId, setLastPlugin]);
 	const current = plugins.find((p) => p.manifest.id === pluginId);
 	const screen = current ? (route.screen ?? lastScreen.current[current.manifest.id] ?? defaultScreen(current.manifest)) : undefined;
@@ -120,6 +121,15 @@ export default function App() {
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
+            if (e.defaultPrevented) return;
+            if (e.key === "F6" && current) {
+                e.preventDefault();
+                const tabs = document.querySelector('[role="tablist"]');
+                const pane = document.querySelector<HTMLElement>('[data-plugin-pane]');
+                if (pane?.contains(document.activeElement)) tabs?.querySelector<HTMLElement>('[data-state="active"]')?.focus();
+                else pane?.focus();
+                return;
+            }
 			const n = Number(e.key) || Number(e.code.replace("Digit", ""));
 			const screens = current?.manifest.screens ?? [];
             const tab = e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey ? screens.find(s => s.shortcut === e.key.toLowerCase()) : undefined;
@@ -220,10 +230,9 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 				<SidebarMenu>
 					<SidebarMenuItem>
 						{/* ToolBelt's settings: just the cog and its shortcut. */}
-						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Settings" title="Settings" aria-label="ToolBelt settings" onClick={() => go(TOOLBELT)} className={cn("relative w-fit", ACTIVE)}>
-							<Settings />
-							<Kbd className="group-data-[collapsible=icon]:hidden in-data-[active=true]:bg-selected-foreground/15 in-data-[active=true]:text-selected-foreground">⌘,</Kbd>
-							{update && <UpdateDot className="absolute top-1 left-5" />}
+						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Settings" title="Settings" aria-label="ToolBelt settings" onClick={() => go(TOOLBELT)} className={cn("relative w-full", ACTIVE)}>
+							<span className="relative inline-flex size-4 shrink-0"><Settings className="size-4"/>{update && <UpdateIndicator className="absolute -right-1 -top-1" />}</span>
+							<KeyHint keys="⌘," className="group-data-[collapsible=icon]:hidden" />
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
@@ -306,24 +315,22 @@ function PluginPane({ info, screen, go, handoff, onHandoffApplied }: { info: Plu
 			<PaneHeader manifest={m}>
                 {development && <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">DEV</Badge>}
 				{m.screens.length > 1 && (
-					<Tabs value={screen} onValueChange={(s) => go(m.id, s)} className="electrobun-webkit-app-region-no-drag min-w-0 flex-1 overflow-x-auto">
+					<Tabs value={screen} onValueChange={(s) => go(m.id, s)} className="electrobun-webkit-app-region-no-drag min-w-0 shrink overflow-hidden">
 						<TabsList>
 							{m.screens.map((s, i) => (
-								<TabsTrigger key={s.id} value={s.id} className="flex-none gap-0 px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground! data-[state=active]:hover:text-selected-foreground!" title={`${s.title}  ${s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`}`}>
-									<span className="inline-flex items-center gap-1.5">{s.icon && <Icon name={s.icon} />}{s.title}</span>
-                                    <KeyHint className="ml-1.5 shrink-0" keys={s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`} />
-								</TabsTrigger>
+								<HeaderTab key={s.id} value={s.id} label={s.title} icon={s.icon && <Icon name={s.icon}/>} shortcut={s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`} title={`${s.title}  ${s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`}`}/>
 							))}
 						</TabsList>
 					</Tabs>
 				)}
+                <div data-window-drag-handle aria-hidden="true" className="electrobun-webkit-app-region-drag min-w-8 flex-1 self-stretch" />
 				{info.state !== "running" && (
 					<Badge variant={info.state === "crashed" ? "destructive" : "secondary"} className="electrobun-webkit-app-region-no-drag ml-auto">
 						{info.state}
 					</Badge>
 				)}
 			</PaneHeader>
-			<div className="min-h-0 flex-1">{info.state === "crashed" ? <Crashed info={info} /> : <Screen key={screen} plugin={m.id} surface={`screen:${screen}`} handoff={handoff} onHandoffApplied={onHandoffApplied} />}</div>
+			<div data-plugin-pane tabIndex={0} role="region" aria-label={`${m.name} content`} className="min-h-0 flex-1 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring">{info.state === "crashed" ? <Crashed info={info} /> : <Screen key={screen} plugin={m.id} surface={`screen:${screen}`} handoff={handoff} onHandoffApplied={onHandoffApplied} />}</div>
 		</div>
 	);
 }
@@ -374,10 +381,43 @@ function Loading() {
 }
 
 // ── ToolBelt's own page ──────────────────────────────────────────────────
-function ToolbeltPage({ plugins, onClose, section }: { plugins: PluginInfo[]; onClose: () => void; section?: string }) {
+const SETTINGS_TABS = [
+    {id: "appearance", label: "Appearance", shortcut: "a", icon: "palette"},
+    {id: "plugins", label: "Plugins", shortcut: "p", icon: "puzzle"},
+    {id: "keyboard", label: "Keyboard", shortcut: "k", icon: "keyboard"},
+    {id: "about", label: "About", shortcut: "i", icon: "info"},
+];
+function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: () => void; section?: string }) {
+    const pluginUpdates = usePluginUpdateAvailable();
+    const appUpdate = useUpdateAvailable();
+    const [remembered, remember] = usePersisted<string>("toolbelt.settings-tab", "appearance");
+    const fallback = SETTINGS_TABS.some(t => t.id === remembered) ? remembered : "appearance";
+    const initialTab = section === "updates" ? "about" : section === "tools" ? "plugins" : section || fallback;
+    const [tab, setTab] = useState(initialTab);
+    useEffect(() => { if (!section) return; setTab(section === "updates" ? "about" : section === "tools" ? "plugins" : section || fallback); }, [section]);
+
+    useEffect(() => { remember(tab); }, [tab]);
     useEffect(() => {
-        if (section === "updates") document.getElementById("updates")?.scrollIntoView({ block: "start" });
-    }, [section]);
+        const tabs = ["appearance", "plugins", "keyboard", "about"];
+        const onKey = (e: KeyboardEvent) => {
+            if (e.defaultPrevented || document.querySelector('[role="dialog"]')) return;
+            const n = Number(e.code.replace("Digit", ""));
+            let next: string | undefined;
+            if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && !isTyping(e)) next = SETTINGS_TABS.find(t => t.shortcut === e.key.toLowerCase())?.id;
+            if (e.metaKey && e.altKey && n >= 1 && n <= tabs.length) next = tabs[n - 1];
+            else if (e.ctrlKey && e.key === "Tab") next = tabs[(tabs.indexOf(tab) + (e.shiftKey ? -1 : 1) + tabs.length) % tabs.length];
+            if (next) { e.preventDefault(); setTab(next); location.hash = `#/toolbelt/${next}`; }
+            if (e.key === "F6") {
+                e.preventDefault();
+                const root = document.querySelector('[aria-label="Settings tabs"]');
+                const content = document.querySelector<HTMLElement>('[aria-label="Settings content"]');
+                if (content?.contains(document.activeElement)) root?.querySelector<HTMLElement>('[data-state="active"]')?.focus();
+                else content?.focus();
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [tab]);
 	// Esc goes back to where you were — unless something on the page wants it (a dialog, a field).
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
@@ -391,62 +431,27 @@ function ToolbeltPage({ plugins, onClose, section }: { plugins: PluginInfo[]; on
 	return (
 		<div className="flex h-svh min-h-0 flex-col animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
 			<PaneHeader manifest={{ name: "Settings", icon: "settings" }}>
+                <Tabs value={tab} onValueChange={next => { setTab(next); location.hash = `#/toolbelt/${next}`; }} className="electrobun-webkit-app-region-no-drag min-w-0 shrink overflow-hidden">
+                    <TabsList aria-label="Settings tabs">{SETTINGS_TABS.map(t => <HeaderTab key={t.id} value={t.id} label={t.label} icon={<Icon name={t.icon}/>} shortcut={`⌘${t.shortcut.toUpperCase()}`} title={`${t.label} · ⌘${t.shortcut.toUpperCase()}`} indicator={((t.id === "plugins" && pluginUpdates) || (t.id === "about" && appUpdate)) ? <UpdateIndicator className="ring-0"/> : undefined}/>)}</TabsList>
+                </Tabs>
+                <div data-window-drag-handle aria-hidden="true" className="electrobun-webkit-app-region-drag min-w-8 flex-1 self-stretch" />
 				<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag ml-auto -mr-2 text-muted-foreground" onClick={onClose} aria-label="Close settings" title="Close  esc">
 					<X />
 				</Button>
 			</PaneHeader>
-			<div className="min-h-0 flex-1 overflow-auto">
-				<div className="mx-auto max-w-4xl space-y-6 px-6 py-6">
-					<PluginManager />
-                    <UpdatesCard />
-					<AppearanceSetting />
-					<Card>
-						<CardHeader>
-							<CardTitle>Menu bar</CardTitle>
-							<CardDescription>Open the menu bar popover from anywhere with a keyboard shortcut.</CardDescription>
-						</CardHeader>
-						<CardContent>
-							<ShortcutSetting />
-						</CardContent>
-					</Card>
-					<Card>
-						<CardHeader>
-							<CardTitle>Installed tools</CardTitle>
-							<CardDescription>Each tool is its own program; ToolBelt starts it and draws its screens.</CardDescription>
-						</CardHeader>
-						<CardContent className="divide-y">
-							{plugins.map((p, i) => (
-								<div key={p.manifest.id} className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
-									<div className="flex size-9 items-center justify-center rounded-lg border bg-muted/40">
-										<Icon name={p.manifest.icon} className="size-4" />
-									</div>
-									<div className="min-w-0 flex-1">
-										<div className="flex items-center gap-2 text-sm font-medium">
-											{p.manifest.name}
-											<span className="font-mono text-xs font-normal text-muted-foreground">{p.manifest.version}</span>
-											{i < 9 && <Kbd className="text-[10px]">⌘{i + 1}</Kbd>}
-										</div>
-										<div className="truncate text-sm text-muted-foreground">{p.manifest.description}</div>
-									</div>
-									<Badge variant="outline" className="gap-1.5">
-										<Dot tone={p.state === "running" ? "success" : p.state === "crashed" ? "danger" : "warning"} />
-										{p.state}
-									</Badge>
-									<Button variant="ghost" size="icon-sm" onClick={() => void rpc.request.restartPlugin({ plugin: p.manifest.id })} aria-label="Restart">
-										<RotateCw />
-									</Button>
-								</div>
-							))}
-						</CardContent>
-					</Card>
-					<Card>
-						<CardHeader>
-							<CardTitle>Keyboard</CardTitle>
-						</CardHeader>
-						<CardContent className="grid grid-cols-[1fr_auto] items-center gap-y-3 text-sm">
-							<Shortcut label="Switch tool (hold ⌘ to see the numbers)" keys={["⌘1 … ⌘9"]} />
-							<Shortcut label="Plugin tabs (declared by the plugin)" keys={["⌘letter", "⌥⌘1 …"]} />
-							<Shortcut label="Next / previous tab" keys={["⌃⇥", "⌃⇧⇥"]} />
+			<div key={tab} className="settings-scroll min-h-0 flex-1 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring" tabIndex={0} role="region" aria-label="Settings content">
+				<div className="mx-auto max-w-4xl space-y-8 px-6 py-8">
+                    {tab === "plugins" && <PluginManager />}
+
+                    {tab === "appearance" && <AppearanceSetting />}
+                    {tab === "about" && <AboutSettings />}
+                    {tab === "keyboard" && <>
+                    <SettingsGroup title="Menu bar"><div className="p-5"><ShortcutSetting /></div></SettingsGroup>
+                    <SettingsGroup title="Navigation and actions"><div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 p-5 text-sm">
+                            <Shortcut label="Switch tool (hold ⌘ to see the numbers)" keys={["⌘1 … ⌘9"]} />
+							<Shortcut label="Plugin or Settings tabs" keys={["⌘letter", "⌥⌘1 …"]} />
+							<Shortcut label="Switch between tabs and pane content" keys={["F6"]} />
+                            <Shortcut label="Next / previous tab" keys={["⌃⇥", "⌃⇧⇥"]} />
 							<Shortcut label="Collapse or expand the sidebar" keys={["⌘B"]} />
 							<Shortcut label="Filter" keys={["⌘F", "/"]} />
 							<Shortcut label="Move through rows · expand / collapse" keys={["↑", "↓", "→", "←"]} />
@@ -457,8 +462,7 @@ function ToolbeltPage({ plugins, onClose, section }: { plugins: PluginInfo[]; on
 							<Shortcut label="Menu bar popover: open a tool in this window (its letter is on the row)" keys={["P", "S", "…"]} />
 							<Shortcut label="Dialogs: main action · cancel" keys={["↵", "esc"]} />
 							<Shortcut label="Close the window · quit ToolBelt" keys={["⌘W", "⌘Q"]} />
-						</CardContent>
-					</Card>
+                    </div></SettingsGroup></>}
 				</div>
 			</div>
 		</div>
@@ -518,7 +522,7 @@ function ShortcutSetting() {
 			<div className="space-y-1">
 				<div className="text-sm font-medium">Popover shortcut</div>
 				<p className={cn("text-sm", error || settings?.shortcutError ? "text-destructive" : "text-muted-foreground")}>
-					{recording ? "Press the new shortcut — it needs ⌘, ⌃ or ⌥. Esc cancels." : (error ?? settings?.shortcutError ?? "Works in any app; no extra permissions needed.")}
+					{recording ? "Press the new shortcut — it needs ⌘, ⌃ or ⌥. Esc cancels." : (error ?? settings?.shortcutError ?? "Choose the keyboard shortcut for the popover.")}
 				</p>
 			</div>
 			<div className="flex items-center gap-2">
@@ -538,73 +542,72 @@ function ShortcutSetting() {
 	);
 }
 
-/** Theme swatches (each shows its light and dark half) and the light / dark / system switch. */
+/** Color scheme and palette previews share the same visual vocabulary. */
+function AppearancePreview({theme, modes}: {theme: typeof THEMES[number]; modes: ("light" | "dark")[]}) {
+    return <div className="flex h-20" aria-hidden="true">{modes.map(mode => {
+        const p = tokens(theme[mode]);
+        return <div key={mode} className="flex min-w-0 flex-1 gap-2 p-2.5" style={{background:p.background}}>
+            <div className="w-1/5 rounded-sm" style={{background:p.sidebar, border:`1px solid ${p.border}`}} />
+            <div className="flex flex-1 flex-col gap-1.5"><div className="h-1.5 w-3/4 rounded-full" style={{background:p.foreground}}/><div className="h-1.5 w-1/2 rounded-full" style={{background:p["muted-foreground"]}}/><div className="mt-auto h-3 rounded" style={{background:p.selected}}/></div>
+        </div>;
+    })}</div>;
+}
 function AppearanceSetting() {
-	const [settings, reload] = useSettings();
-	const set = async (v: { theme?: string; mode?: string }) => {
-		await rpc.request.setAppearance(v);
-		reload();
-	};
-	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Appearance</CardTitle>
-				<CardDescription>Every theme has a light and a dark version, and keeps text at WCAG AA contrast or better.</CardDescription>
-			</CardHeader>
-			<CardContent className="space-y-5">
-				<div className="flex items-center justify-between gap-6">
-					<div className="text-sm font-medium">Mode</div>
-					<Tabs value={settings?.mode ?? "system"} onValueChange={(mode) => void set({ mode })}>
-						<TabsList>
-							<TabsTrigger value="light" className="gap-1.5 px-3">
-								<Sun />
-								Light
-							</TabsTrigger>
-							<TabsTrigger value="dark" className="gap-1.5 px-3">
-								<Moon />
-								Dark
-							</TabsTrigger>
-							<TabsTrigger value="system" className="gap-1.5 px-3">
-								<Monitor />
-								System
-							</TabsTrigger>
-						</TabsList>
-					</Tabs>
-				</div>
-				<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-					{THEMES.map((t) => {
-						const active = (settings?.theme ?? "graphite") === t.id;
-						return (
-							<button
-								key={t.id}
-								onClick={() => void set({ theme: t.id })}
-								aria-pressed={active}
-								className={cn("group overflow-hidden rounded-xl border text-left outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring", active ? "ring-2 ring-selected ring-offset-2 ring-offset-background" : "hover:shadow-md")}
-							>
-								<div className="flex h-20">
-									{(["light", "dark"] as const).map((m) => {
-										const p = tokens(t[m]);
-										return (
-											<div key={m} className="flex flex-1 flex-col gap-1.5 p-2.5" style={{ background: p.background }}>
-												<div className="h-1.5 w-3/4 rounded-full" style={{ background: p.foreground }} />
-												<div className="h-1.5 w-1/2 rounded-full" style={{ background: p["muted-foreground"] }} />
-												<div className="mt-auto flex items-center gap-1">
-													<div className="h-3 flex-1 rounded" style={{ background: p.selected }} />
-													<div className="size-3 rounded-full" style={{ background: p.primary }} />
-												</div>
-											</div>
-										);
-									})}
-								</div>
-								<div className="flex items-center justify-between border-t px-3 py-2 text-sm">
-									<span className="font-medium">{t.name}</span>
-									{active && <Check className="size-4" />}
-								</div>
-							</button>
-						);
-					})}
-				</div>
-			</CardContent>
-		</Card>
-	);
+    const [settings, reload] = useSettings();
+    const set = async (value: {theme?: string; mode?: string}) => { await rpc.request.setAppearance(value); reload(); };
+    const theme = THEMES.find(t => t.id === settings?.theme) ?? THEMES[0]!;
+    const card = (active: boolean) => cn("min-w-0 overflow-hidden rounded-xl border text-left outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring", active ? "ring-2 ring-selected ring-offset-2 ring-offset-card" : "hover:bg-accent hover:shadow-sm");
+    return <div className="space-y-8">
+        <SettingsGroup title="Color scheme"><div className="p-5"><p className="mb-4 text-sm text-muted-foreground">Use light or dark colors, or follow your system setting.</p><div className="grid max-w-xl grid-cols-1 gap-3 min-[400px]:grid-cols-3">
+            {([['light', 'Light', 'sun'], ['dark', 'Dark', 'moon'], ['system', 'System', 'monitor']] as const).map(([mode,label,icon]) => {
+                const active = (settings?.mode ?? "system") === mode;
+                return <button key={mode} aria-pressed={active} onClick={() => void set({mode})} className={card(active)}>
+                    <AppearancePreview theme={theme} modes={mode === "system" ? ["light", "dark"] : [mode]} />
+                    <div className="flex items-center gap-2 border-t px-3 py-2 text-sm"><Icon name={icon} className="size-4"/><span>{label}</span>{active && <Check className="ml-auto size-4"/>}</div>
+                </button>;
+            })}
+        </div></div></SettingsGroup>
+        <SettingsGroup title="Theme"><div className="p-5"><p className="mb-4 text-sm text-muted-foreground">Choose the palette used for backgrounds, text, and controls.</p><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {THEMES.map(t => {
+                const active = (settings?.theme ?? "graphite") === t.id;
+                return <button key={t.id} aria-pressed={active} onClick={() => void set({theme:t.id})} className={card(active)}><AppearancePreview theme={t} modes={["light", "dark"]}/><div className="flex items-center justify-between border-t px-3 py-2 text-sm"><span className="font-medium">{t.name}</span>{active && <Check className="size-4"/>}</div></button>;
+            })}
+        </div></div></SettingsGroup>
+    </div>;
+}
+
+function AboutSettings() {
+ const [legal, setLegal] = useState(false);
+ const [acknowledgments, setAcknowledgments] = useState<{name: string; version: string; license: string; text: string; url?: string; licenseUrl?: string}[]>([]);
+ useEffect(() => { if (legal) void import("./acknowledgments").then(module => setAcknowledgments(module.acknowledgments)); }, [legal]);
+ const [query, setQuery] = useState("");
+ const opener = useRef<HTMLButtonElement>(null);
+ const back = () => { setLegal(false); requestAnimationFrame(() => opener.current?.focus()); };
+ useEffect(() => {
+   if (!legal) return;
+   const key = (e: KeyboardEvent) => { if (e.key === "Escape" || (e.altKey && e.key === "ArrowLeft")) { e.preventDefault(); e.stopImmediatePropagation(); back(); } };
+   window.addEventListener("keydown", key, true);
+   return () => window.removeEventListener("keydown", key, true);
+ }, [legal]);
+ const notices = acknowledgments.filter(d => `${d.name} ${d.version} ${d.license} ${d.text}`.toLowerCase().includes(query.toLowerCase()));
+ if (legal) return <section className="space-y-4 animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+   <Button variant="ghost" size="sm" onClick={back}><ArrowLeft />About</Button>
+   <div className="flex flex-wrap items-center gap-3"><h2 className="mr-auto text-base font-semibold">Third-party notices</h2><span className="text-sm text-muted-foreground">{notices.length} notices</span><input autoFocus aria-label="Search licenses" placeholder="Search licenses" value={query} onChange={e => setQuery(e.target.value)} className="min-w-0 rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" /></div>
+   <div className="overflow-hidden rounded-xl border bg-card py-1">{notices.map(d => <details key={`${d.name}@${d.version}`} className="group"><summary className="flex cursor-pointer list-none flex-wrap items-center gap-3 px-5 py-2 text-sm hover:bg-accent focus-visible:outline-ring"><ChevronRight className="size-4 shrink-0 transition-transform duration-200 group-open:rotate-90 motion-reduce:transition-none"/><span className="min-w-0 break-words font-medium"><LicenseHit text={d.name} query={query}/></span><span className="font-mono text-muted-foreground">{d.version}</span><span className="ml-auto text-xs text-muted-foreground"><LicenseHit text={d.license} query={query}/></span>{d.licenseUrl && <button type="button" aria-label={`Open license for ${d.name}`} title="Open license in browser" className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-ring" onClick={e => { e.preventDefault(); e.stopPropagation(); void rpc.request.openUrl({url:d.licenseUrl!}); }}><ExternalLink className="size-3.5"/></button>}</summary><div className="px-5 pb-5 sm:pl-12"><pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted-foreground"><LicenseHit text={d.text} query={query}/></pre>{d.licenseUrl && <button className="mt-3 inline-flex items-center gap-1 text-sm hover:underline" onClick={() => rpc.request.openUrl({url:d.licenseUrl!})}>View license<ExternalLink className="size-3"/></button>}{d.url && <button className="ml-4 mt-3 inline-flex items-center gap-1 text-sm hover:underline" onClick={() => rpc.request.openUrl({url:d.url!})}>Project repository<ExternalLink className="size-3"/></button>}</div></details>)}{!notices.length && <p className="p-5 text-sm text-muted-foreground">No matching notices.</p>}</div>
+ </section>;
+ return <div className="space-y-8"><UpdatesCard /><SettingsGroup title="Legal"><SettingsRow title="Privacy Policy" description="ToolBelt is an installed app and collects no information."/><SettingsRow title="Open source licenses" description="Notices and license terms for dependencies used by ToolBelt."><Button ref={opener} variant="outline" onClick={() => setLegal(true)}>View licenses<ChevronRight /></Button></SettingsRow></SettingsGroup></div>;
+}
+
+function LicenseHit({text, query}: {text: string; query: string}) {
+    if (!query) return <>{text}</>;
+    const lower = text.toLowerCase(), term = query.toLowerCase();
+    const parts: ReactNode[] = [];
+    let start = 0, at = lower.indexOf(term);
+    while (at !== -1) {
+        parts.push(text.slice(start, at), <mark className="hit" key={at}>{text.slice(at, at + query.length)}</mark>);
+        start = at + query.length;
+        at = lower.indexOf(term, start);
+    }
+    parts.push(text.slice(start));
+    return <>{parts}</>;
 }

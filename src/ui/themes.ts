@@ -87,7 +87,7 @@ export function tokens(p: Palette): Record<string, string> {
 		"secondary-foreground": p.fg,
 		muted: p.subtle,
 		"muted-foreground": p.mutedFg,
-		accent: p.accent,
+		accent: hoverColor(p),
 		"accent-foreground": p.fg,
 		destructive: p.destructive,
 		border: p.border,
@@ -100,7 +100,7 @@ export function tokens(p: Palette): Record<string, string> {
 		"sidebar-foreground": p.fg,
 		"sidebar-primary": p.primary,
 		"sidebar-primary-foreground": p.primaryFg,
-		"sidebar-accent": p.accent,
+		"sidebar-accent": hoverColor(p),
 		"sidebar-accent-foreground": p.fg,
 		"sidebar-border": p.border,
 		"sidebar-ring": p.ring,
@@ -134,7 +134,7 @@ export function textPairs(p: Palette): [string, string, string][] {
 		["text on page", p.fg, p.bg],
 		["text on surface", p.fg, p.surface],
 		["text on subtle", p.fg, p.subtle],
-		["text on hover", p.fg, p.accent],
+		["text on hover", p.fg, hoverColor(p)],
 		["text on sidebar", p.fg, p.sidebar],
 		["muted on page", p.mutedFg, p.bg],
 		["muted on surface", p.mutedFg, p.surface],
@@ -196,4 +196,14 @@ export function inactiveSelectionTokens(p: Palette): Record<string, string> {
         "inactive-selected-foreground": foreground,
         ...Object.fromEntries(Object.entries(colors).map(([key, value]) => [`inactive-${key}`, value])),
     };
+}
+
+/** Shared hover fill: visible against page, card and sidebar, retaining readable text. */
+export function hoverColor(p: Palette) {
+    let color = mix(p.fg, p.bg, .12);
+    for (let amount = 12; amount >= 4; amount--) {
+        color = mix(p.fg, p.bg, amount / 100);
+        if (contrast(p.fg, color) >= 4.5 && contrast(p.mutedFg, color) >= 4.5) break;
+    }
+    return color;
 }

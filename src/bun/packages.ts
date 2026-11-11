@@ -28,16 +28,23 @@ import {
 export type Installed = {
   id: string;
   repo: string;
+  commit?: string;
   version: string;
   hash: string;
   packageRoot: string;
   enabled: boolean;
   manifest: PackageManifest;
+  /** Preference for future checks; independent of the installed release. */
   channel: "stable" | "prerelease";
+  checkActivities?: string[];
+  installedChannel?: "stable" | "prerelease";
   release?: string;
+  requestedRelease?: string;
   asset?: string;
   removed?: boolean;
   availableVersion?: string;
+  availableChannel?: "stable" | "prerelease";
+  availableCommit?: string;
   availableSince?: number;
   dataInitialized?: boolean;
   deleteDataPending?: boolean;
@@ -74,7 +81,9 @@ export type Candidate = {
   hash: string;
   packageRoot: string;
   repo: string;
+  commit?: string;
   release?: string;
+  requestedRelease?: string;
   asset?: string;
   channel?: "stable" | "prerelease";
 };
@@ -134,6 +143,12 @@ function validateRegistry(value: any, root: string): Registry {
         resolve(root, "plugins/packages", id, `${p.version}-${p.hash}`)
     )
       throw new Error("Invalid installed plugin identity/path");
+    if (p.checkActivities !== undefined && (!Array.isArray(p.checkActivities) || p.checkActivities.length > 3 || p.checkActivities.some(line => typeof line !== "string" || line.length > 20000))) throw new Error("Invalid plugin check activities");
+    for (const channel of [p.installedChannel, p.availableChannel]) {
+      if (channel !== undefined && !["stable", "prerelease"].includes(channel)) throw new Error("Invalid release channel");
+    }
+    if (p.requestedRelease !== undefined && (typeof p.requestedRelease !== "string" || !p.requestedRelease.trim() || p.requestedRelease.length > 1024)) throw new Error("Invalid requested release tag");
+    if (p.availableCommit !== undefined && !/^[a-f0-9]{40}$/.test(p.availableCommit)) throw new Error("Invalid available release commit");
     if (
       p.dataSchema !== undefined &&
       (!Number.isSafeInteger(p.dataSchema) || p.dataSchema < 0)
@@ -158,6 +173,7 @@ function validateRegistry(value: any, root: string): Registry {
         previous.id !== id ||
         metadata.id !== id ||
         previous.version !== metadata.version ||
+        (previous.installedChannel !== undefined && !["stable", "prerelease"].includes(previous.installedChannel)) ||
         previous.repo.toLowerCase() !== p.repo.toLowerCase() ||
         !/^[a-f0-9]{64}$/.test(previous.hash) ||
         resolve(previous.packageRoot) !==
@@ -490,6 +506,7 @@ export class PackageManager {
       const next: Installed = {
         id,
         repo: candidate.repo,
+        commit: candidate.commit,
         version: candidate.manifest.version,
         hash: candidate.hash,
         packageRoot: candidate.packageRoot,
@@ -505,8 +522,10 @@ export class PackageManager {
           ).includes(old.dataSchema ?? old.manifest.data.schema)
             ? (old.dataSchema ?? old.manifest.data.schema)
             : candidate.manifest.data.schema,
-        channel: candidate.channel ?? old?.channel ?? "stable",
+        channel: old?.channel ?? candidate.channel ?? "stable",
+        installedChannel: candidate.channel,
         release: candidate.release,
+        requestedRelease: candidate.requestedRelease,
         asset: candidate.asset,
       };
       const previous = join(txDir, "previous");
@@ -753,7 +772,7 @@ export class PackageManager {
         current.repo,
       );
     return this.install(
-      { ...choice.installed, repo: current.repo },
+      { ...choice.installed, repo: current.repo, channel: choice.installed.installedChannel },
       true,
       compatible ? undefined : choice.snapshot,
     );

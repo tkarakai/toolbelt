@@ -22,7 +22,7 @@ import { KeyHint } from "@/components/key-hint";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { QuitDialog, askQuit } from "./QuitDialog";
-import { PopoverUpdateRow, useUpdateState } from "./Updates";
+import { PopoverUpdateRow, UpdateIndicator, useAnyUpdateAvailable, useUpdateState } from "./Updates";
 
 const native = (window as { __electrobunWebviewId?: number }).__electrobunWebviewId !== undefined && location.hash === "#popover";
 const panelStyle = "flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-xl border bg-popover/95 text-popover-foreground shadow-xl backdrop-blur-xl";
@@ -32,6 +32,7 @@ export default function Popover() {
     const drag = usePluginDrag(plugins.map(p => p.manifest.id));
     const development = useUpdateState()?.channel === "dev";
     const [settings] = useSettings();
+    const updatesAvailable = useAnyUpdateAvailable();
     const [selected, setSelected] = usePersisted<string | null>("toolbelt.popoverPlugin", null);
     const [updatePanelOpen, setUpdatePanelOpen] = useState(false);
     const [controlFocused, setControlFocused] = useState(false);
@@ -338,7 +339,7 @@ export default function Popover() {
 						))}
 					</div>
 					<div className="flex shrink-0 flex-wrap items-center gap-1 border-t px-2 py-1.5">
-						<Button data-footer-control variant="ghost" size="sm" title="Settings" aria-label="Settings" onClick={() => rpc.send.showWindow({ plugin: "toolbelt" })}><Settings /><KeyHint keys="⌘," /></Button>
+						<Button data-footer-control variant="ghost" size="sm" className="relative" title="Settings" aria-label="Settings" onClick={() => rpc.send.showWindow({ plugin: "toolbelt" })}><span className="relative inline-flex size-4 shrink-0"><Settings className="size-4"/>{updatesAvailable && <UpdateIndicator className="absolute -right-1 -top-1"/>}</span><KeyHint keys="⌘," /></Button>
                         <Button data-footer-control variant="ghost" size="sm" className="ml-auto text-muted-foreground" onClick={askQuit}>
 							<Power />
 							Quit

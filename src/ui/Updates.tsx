@@ -1,3 +1,5 @@
+import { RepositoryLink } from "./components/repository-link";
+import { buildInfo } from "./build-info";
 // Updates, in the UI: the card on ToolBelt's page (version, channel, last check, what's new),
 // the dialog that walks through an update (download → verify → install → restart), the red dot
 // for the sidebar and the popover's "Update available" row. The work happens in the main
@@ -7,9 +9,7 @@ import {
   AlertTriangle,
   ArrowRight,
   ArrowUpRight,
-  BadgeCheck,
   Check,
-  Clock,
   Download,
   Loader2,
   RotateCw,
@@ -17,15 +17,14 @@ import {
 import type { UpdateState } from "../shared/rpc";
 import { openUrl, rpc, updateListeners } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { Markdown, When } from "@/renderer/Render";
+import { Markdown } from "@/renderer/Render";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { SettingsGroup } from "./components/settings-layout";
+import { pillClass } from "./renderer/colors";
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "./components/ui/tooltip";
+import appIcon from "../../icon.iconset/icon_128x128.png";
+import devAppIcon from "../../dev-icon.iconset/icon_128x128.png";
+import { GitBranch } from "lucide-react";
 import { KeyHint } from "@/components/key-hint";
 import {
   Dialog,
@@ -42,6 +41,29 @@ import { Progress } from "@/components/ui/progress";
 let current: UpdateState | null = null;
 const local = new Set<() => void>();
 let asked = false;
+let simulated: UpdateState | null = null;
+function simulate(kind: string) {
+  if (current?.channel !== "dev") return;
+  if (kind === "off") simulated = null;
+  else {
+    const release = {version:"99.0.0",notes:"## Preview release\n\nSample improvements for reviewing the update experience.",page:"https://github.com/tkarakai/toolbelt/releases",dmg:"",size:48*1048576,sha256:null,published:Date.now()};
+    simulated = {...current, enabled:true, available:release, latest:release, checking:false, lastError:null,
+      phase: kind === "downloading" ? {kind,received:24*1048576,total:48*1048576,speed:2*1048576} : kind === "failed" ? {kind,message:"Simulated update failure. Your app has not been changed."} : {kind:kind as "idle"|"verifying"|"installing"|"relaunching"}};
+  }
+  local.forEach(l => l());
+}
+function updateAction(action: "installUpdate"|"cancelUpdate"|"dismissUpdate"|"checkForUpdates") {
+  if (simulated) { simulate(action === "installUpdate" ? "downloading" : "idle"); return; }
+  void rpc.request[action]({});
+}
+function DevUpdatePreview() {
+  if (current?.channel !== "dev") return null;
+  return <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">Development preview (no installation)
+    <select aria-label="Simulated app update state" className="rounded border bg-background p-1 text-foreground" value={simulated?.phase.kind ?? "off"} onChange={e => simulate(e.target.value)}>
+      {[["off","Off"],["idle","Available / confirmation"],["downloading","Downloading"],["verifying","Verifying"],["installing","Installing"],["relaunching","Restarting"],["failed","Failed"]].map(([value,label]) => <option key={value} value={value}>{label}</option>)}
+    </select>
+  </label>;
+}
 updateListeners.add((s) => {
   current = s;
   local.forEach((l) => l());
@@ -62,7 +84,7 @@ export function useUpdateState(): UpdateState | null {
     }
     return () => void local.delete(l);
   }, []);
-  return current;
+  return simulated ?? current;
 }
 
 /** The newer version, if there is one. */
@@ -76,16 +98,16 @@ const date = (ms: number) =>
     day: "numeric",
   });
 
-/** The red dot that marks an available update. */
-export function UpdateDot({ className }: { className?: string }) {
+/** Shared exclamation badge for update navigation. */
+export function UpdateIndicator({ className }: { className?: string }) {
   return (
     <span
       aria-label="Update available"
       className={cn(
-        "inline-block size-2 shrink-0 rounded-full bg-foreground ring-2 ring-sidebar",
+        "inline-flex size-3 shrink-0 items-center justify-center rounded-full bg-foreground text-background text-[9px] font-bold leading-none ring-2 ring-sidebar",
         className,
       )}
-    />
+    >!</span>
   );
 }
 
@@ -100,155 +122,25 @@ export function UpdatesCard() {
   if (!s) return null;
   const r = s.available;
   return (
-    <Card id="updates">
-      <CardHeader>
-        <CardTitle>Updates</CardTitle>
-        <CardDescription>
-          {s.channel === "tester"
-            ? "The standalone tester uses its own profile and does not update your installed ToolBelt."
-            : s.enabled
-              ? "ToolBelt looks for new releases on GitHub a few times a day and updates itself when you say so."
-              : "This is a dev build: it doesn't update itself — it runs from your checkout (bun run dev)."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40">
-            <StatusIcon s={s} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              {title(s)}
-            </div>
-            <div className="text-sm text-muted-foreground">
-              <Detail s={s} />
-            </div>
-          </div>
-          {s.enabled && !r && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={s.checking || s.phase.kind !== "idle"}
-              onClick={() => void rpc.request.checkForUpdates({})}
-            >
-              <RotateCw className={cn(s.checking && "animate-spin")} />
-              Check now
-            </Button>
-          )}
+    <div id="updates"><SettingsGroup title="App" description="ToolBelt · Copyright NetSense LLC." actions={<TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild><span className="inline-flex"><Button variant="outline" size="sm" className="h-6 text-xs" disabled={!s.enabled || s.checking || s.phase.kind !== "idle"} onClick={() => updateAction("checkForUpdates")}><RotateCw className={cn(s.checking && "animate-spin")}/>{s.checking ? "Checking…" : "Check for updates"}</Button></span></TooltipTrigger><TooltipContent>Last checked: {s.lastChecked ? new Date(s.lastChecked).toLocaleString() : "Not yet checked"}</TooltipContent></Tooltip></TooltipProvider>}>
+      <article aria-label="ToolBelt" className="min-w-0 space-y-4 p-5">
+        <div className="flex flex-wrap items-start gap-3">
+          <img src={s.channel === "dev" ? devAppIcon : appIcon} alt="ToolBelt app icon" className="size-10 shrink-0 object-contain"/>
+          <div className="min-w-0 flex-1"><h3 className="text-sm font-semibold">ToolBelt</h3><RepositoryLink repo="tkarakai/toolbelt"/></div>
         </div>
-        {r && (
-          <div className="animate-in rounded-lg border fade-in-0 duration-200">
-            <div className="flex items-center gap-3 border-b px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">
-                  What's new in {r.version}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {r.published
-                    ? `Released ${date(r.published)}`
-                    : "Released recently"}{" "}
-                  · {mb(r.size)}
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground"
-                onClick={() => openUrl(r.page)}
-              >
-                <ArrowUpRight />
-                On GitHub
-              </Button>
-              <Button
-                size="sm"
-                disabled={s.phase.kind !== "idle"}
-                onClick={() => openDialog()}
-              >
-                <Download />
-                Update to {r.version}…
-              </Button>
-            </div>
-            <div className="max-h-72 overflow-auto px-4 py-3">
-              {r.notes ? (
-                <Markdown text={r.notes} />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No release notes.
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-        <UpdateDialog s={s} />
-      </CardContent>
-    </Card>
-  );
-}
-
-function StatusIcon({ s }: { s: UpdateState }) {
-  if (s.checking)
-    return <Loader2 className="size-4 animate-spin text-muted-foreground" />;
-  if (s.available) return <UpdateDot className="size-2.5 ring-0" />;
-  if (s.lastError) return <AlertTriangle className="size-4 text-amber-500" />;
-  if (s.lastChecked)
-    return (
-      <BadgeCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
-    );
-  return <Clock className="size-4 text-muted-foreground" />;
-}
-
-function title(s: UpdateState): string {
-  if (!s.enabled) return `ToolBelt ${s.version}`;
-  if (s.checking) return "Checking GitHub for a new version…";
-  if (s.available) return `ToolBelt ${s.available.version} is available`;
-  if (s.lastError) return "Couldn't check for updates";
-  if (s.lastChecked) return "ToolBelt is up to date";
-  return "Not checked yet";
-}
-
-function Detail({ s }: { s: UpdateState }) {
-  const parts: ReactNode[] = [];
-  if (!s.enabled) {
-    parts.push(
-      `${s.channel} channel`,
-      s.channel === "tester"
-        ? "standalone tester"
-        : "updates come from the checkout",
-    );
-  } else {
-    parts.push(s.available ? `You have ${s.version}` : `Version ${s.version}`);
-    if (s.lastError)
-      parts.push(
-        <span className="text-foreground">
-          {s.lastError.replace(/[. ]+$/, "")}
-        </span>,
-      );
-    else if (s.latest && !s.available)
-      parts.push(
-        `${s.latest.version} is the newest release${s.latest.published ? `, from ${date(s.latest.published)}` : ""}`,
-      );
-    if (s.lastChecked)
-      parts.push(
-        <>
-          checked <When at={s.lastChecked} />
-        </>,
-      );
-    if (!s.available && s.nextCheck && s.nextCheck > Date.now())
-      parts.push(
-        <>
-          next {s.lastError ? "try" : "check"} <When at={s.nextCheck} />
-        </>,
-      );
-  }
-  return (
-    <>
-      {parts.map((p, i) => (
-        <span key={i}>
-          {i > 0 && " · "}
-          {p}
-        </span>
-      ))}
-    </>
+        <div className="grid gap-4 rounded-lg bg-muted/30 p-3 sm:grid-cols-2">
+          <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Installed release</div><p className="text-sm">Version <span className="font-mono font-medium">{s.version} ({buildInfo.commit})</span></p><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs capitalize",pillClass("muted"))}>{s.channel}</span></div>
+          <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Update channel</div><div className="flex items-center gap-1.5 text-sm"><GitBranch className="size-3.5 text-muted-foreground"/>{s.channel === "stable" ? "Stable" : s.channel === "dev" ? "Development" : s.channel}</div><p className="text-xs leading-relaxed text-muted-foreground">{s.enabled ? "Use stable releases for future checks." : "Automatic updates are unavailable in this build."}</p></div>
+        </div>
+        {s.lastError && <p role="alert" className="break-words text-sm text-destructive">{s.lastError}</p>}
+        {r && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
+          <div className="min-w-0 flex-1 space-y-2"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">Available update</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass("info"))}>Stable</span></div><p className="text-sm">Version <span className="font-mono font-medium">{r.version}</span></p><p className="text-xs text-muted-foreground">{r.published ? `Released ${date(r.published)} · ` : ""}{mb(r.size)}</p></div>
+          <Button size="sm" disabled={s.phase.kind !== "idle"} onClick={() => openDialog()}><Download/>Review and Update</Button>
+        </div>}
+        <DevUpdatePreview/>
+        <UpdateDialog s={s}/>
+      </article>
+    </SettingsGroup></div>
   );
 }
 
@@ -277,7 +169,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
   const close = () => {
     if (busy) return;
     setConfirming(false);
-    if (kind === "failed") void rpc.request.dismissUpdate({});
+    if (kind === "failed") updateAction("dismissUpdate");
   };
   const step = STEPS.indexOf(kind as (typeof STEPS)[number]);
 
@@ -289,7 +181,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
         onEscapeKeyDown={(e) => {
           if (!busy) return;
           e.preventDefault();
-          if (kind === "downloading") void rpc.request.cancelUpdate({}); // the Cancel button's esc
+          if (kind === "downloading") updateAction("cancelUpdate"); // the Cancel button's esc
         }}
         onInteractOutside={(e) => busy && e.preventDefault()}
       >
@@ -309,7 +201,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
             </DialogTitle>
             <DialogDescription asChild>
               <div className="flex items-center gap-2">
-                <Pill>v{s.version}</Pill>
+                <Pill>Version {s.version} ({buildInfo.commit})</Pill>
                 <ArrowRight className="size-3.5" />
                 <Pill current>v{r?.version ?? "?"}</Pill>
               </div>
@@ -391,6 +283,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
           )}
         </div>
 
+        {simulated && <DevUpdatePreview/>}
         <DialogFooter className="m-0 items-center rounded-b-xl">
           {r && (
             <Button
@@ -411,7 +304,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
               </Button>
               <Button
                 autoFocus
-                onClick={() => void rpc.request.installUpdate({})}
+                onClick={() => updateAction("installUpdate")}
               >
                 Update &amp; Restart
                 <KeyHint keys="↵" />
@@ -421,7 +314,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
           {kind === "downloading" && (
             <Button
               variant="outline"
-              onClick={() => void rpc.request.cancelUpdate({})}
+              onClick={() => updateAction("cancelUpdate")}
             >
               Cancel
               <KeyHint keys="esc" />
@@ -440,7 +333,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
               </Button>
               <Button
                 autoFocus
-                onClick={() => void rpc.request.installUpdate({})}
+                onClick={() => updateAction("installUpdate")}
               >
                 Try Again
                 <KeyHint keys="↵" />
@@ -584,6 +477,10 @@ function useUpdateManager() {
     return () => { live = false; unsubscribe?.(); };
   }, []);
   return manager;
+}
+
+export function usePluginUpdateAvailable() {
+  return useUpdateManager().plugins.some(p => !p.removed && !!p.availableVersion);
 }
 
 export function useAnyUpdateAvailable() {

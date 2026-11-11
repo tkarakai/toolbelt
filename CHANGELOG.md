@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- Open plugin and app repository links from Settings in the default browser.
+
+- Keep app update release notes in the review dialog instead of repeating them on About.
+
+- Share header tab geometry between Settings and plugins so label-to-shortcut spacing matches.
+
+- Match the sidebar Settings shortcut background to shared keyboard hints.
+
+- Use the app artwork without a redundant Running status, capitalize Install New Plugin, and retain recent check activities across restarts without replaying old error toasts.
+
+- Position update badges at the top right of icons and tab labels, and match the About app release card to installed plugin cards.
+
+- Remember the Settings tab, guide update navigation with consistent exclamation badges, and preview app update stages in development without installation.
+- Show release-review errors as toasts, distinguish explicitly requested plugin tags, and resize dialogs from the dragged edge.
+
+- Show recent timestamped plugin activity and update-check error toasts, clarify installed release metadata and Reload controls, and allow moving release review dialogs.
+
+- Separate installed plugin releases, future update preferences and discovered update channels; preserve update preferences when installing another release.
+- Add inline channel selectors, delayed check-time tooltips and resizable release reviews with explicit Install/Update actions.
+
+- Keep Settings section geometry stable, lock tab strips to horizontal scrolling, and add a short Privacy Policy.
+- Redesign Installed Plugins cards with icons, status pills, independent versions, reload controls and grouped action menus. Check all plugins from the section header; review available updates separately.
+
+- Activate new and existing main windows on navigation, preserve header drag areas beside tabs, and blend tab overflow controls into the strip.
+- Use shared grouped sections for Keyboard and Plugins, with project repository links alongside published license files.
+
+- Refine Settings with illustrated color schemes, icon tabs and Command-letter shortcuts; close direct Settings navigation onto the first available plugin.
+- Compact license notices, link published license files, and highlight live search matches with the shared search color.
+
+- Organize Settings into Appearance, Plugins, Keyboard and About tabs, consolidate tool management, and route update navigation to About.
+- Improve shared hover contrast, keyboard pane navigation, overflow tab scrolling and nested searchable license notices. Escape from the popover restores the preceding application.
+- Add dependency acknowledgments, release commit labels and NetSense LLC copyright notices.
+
 - Preserve a newer Latest when recovering an older stable app or plugin release; serialize publication across release tags.
 
 - Retry an untagged release using its original merged PR or exact source commit, even after main advances; refuse conflicting tags and missing or expired frozen candidates.

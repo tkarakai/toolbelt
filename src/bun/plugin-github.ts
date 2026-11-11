@@ -137,7 +137,9 @@ export async function resolveGithub(
   return {
     ...candidate,
     release: release.tag_name,
+    requestedRelease: options.release?.trim() || undefined,
     asset: String(asset.id),
+    commit: descriptor.commit,
     channel: release.prerelease ? "prerelease" : "stable",
   };
 }

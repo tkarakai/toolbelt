@@ -299,6 +299,8 @@ including on collapsed groups. A hidden or unknown column hides the summary in t
 the group inspector retains it. Omit `column` to keep a trailing, full-width summary.
 Column-bound summaries require ToolBelt 0.2.2 or newer.
 
+Settings shows the installed release separately from the preference used for future update checks. Allowing prereleases includes stable releases too; each available update reports the channel of the release actually discovered. Existing update preferences survive installation. Release review remains required before plugin or migration execution.
+
 For host/API changes, prepare plugin code early, then pin the published SDK URL and lockfile
 before the plugin PR’s final CI. Keep the minimum host range explicit; SDK/app/plugin version
 numbers do not need to match. Coordinate publication using the

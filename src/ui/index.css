@@ -349,3 +349,10 @@ mark.hit {
   border-color: color-mix(in srgb, var(--ring) 65%, var(--border));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--ring) 18%, transparent), 0 10px 24px #0002;
 }
+
+/* Tab strips retain trackpad, touch and wheel scrolling without scrollbar chrome. */
+.tab-viewport { scrollbar-width: none; overscroll-behavior-y: none; touch-action: pan-x pinch-zoom; }
+.tab-viewport::-webkit-scrollbar { display: none; }
+
+/* Keep Settings geometry independent of each pane’s content height. */
+.settings-scroll { overflow-x: hidden; overflow-y: scroll; scrollbar-gutter: stable; }

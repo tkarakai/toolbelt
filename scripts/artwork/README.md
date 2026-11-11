@@ -1,8 +1,8 @@
 # Running artwork
 
-`AppArt.swift` is copied unchanged from [Running](https://github.com/tkarakai/running),
+`AppArt.swift` is adapted from [Running](https://github.com/tkarakai/running),
 commit `c9d55727a7b38b4738b31608b8480c1eccebf8d0` (v0.8.0),
-`mac/Sources/Running/UI/Common/AppArt.swift`. Both projects have the same author.
+`mac/Sources/Running/UI/Common/AppArt.swift`. Both projects have the same author. ToolBelt places the update badge at the top right.
 
 `main.swift` exports its midnight-blue official and amber dev iconsets and its menu bar
 glyph, including the update badge, to Toolbelt's existing asset paths. Regenerate with

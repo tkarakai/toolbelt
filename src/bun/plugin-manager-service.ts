@@ -39,10 +39,12 @@ export class PluginManagerService {
   private listeners = new Set<
     (state: ReturnType<PluginManagerService["read"]>) => void
   >();
+  private runtimeFailures = new Map<string, {message: string; at: number}>();
   private timer?: ReturnType<typeof setInterval>;
   constructor(
     readonly packages: PackageManager,
     readonly host: PluginHost,
+    private resolveRelease: typeof resolveGithub = resolveGithub,
   ) {
     packages.listeners.add((id, phase, detail) => {
       const previous = this.states.get(id);
@@ -50,8 +52,8 @@ export class PluginManagerService {
         phase,
         error: phase === "failed" ? detail : undefined,
         logs: [
-          ...(previous?.logs ?? []),
-          `${phase}${detail ? ": " + detail : ""}`,
+          ...(previous?.logs ?? this.packages.registry().plugins[id]?.checkActivities ?? []),
+          `${new Date().toLocaleString()} · ${phase}${detail ? ": " + detail : ""}`,
         ].slice(-40),
       });
       this.emit();
@@ -85,6 +87,8 @@ export class PluginManagerService {
         .filter((p) => !p.removed)
         .map((p) => {
           const runtime = this.host.list().find((x) => x.manifest.id === p.id);
+          if (runtime?.error && this.runtimeFailures.get(p.id)?.message !== runtime.error) this.runtimeFailures.set(p.id, {message: runtime.error, at: Date.now()});
+          if (!runtime?.error) this.runtimeFailures.delete(p.id);
           return {
             ...p,
             ...this.states.get(p.id),
@@ -100,10 +104,10 @@ export class PluginManagerService {
                       : "starting")),
             error: this.states.get(p.id)?.error ?? runtime?.error,
             logs: [
-              ...(this.states.get(p.id)?.logs ?? []),
+              ...(this.states.get(p.id)?.logs ?? p.checkActivities ?? []),
               ...(runtime?.error
                 ? [
-                    `Runtime failure ${p.id} (${p.repo}): ${runtime.error.slice(0, 16000)}`,
+                    `${new Date(this.runtimeFailures.get(p.id)!.at).toLocaleString()} · Runtime failure ${p.id} (${p.repo}): ${runtime.error.slice(0, 16000)}`,
                   ]
                 : []),
             ].slice(-40),
@@ -181,7 +185,7 @@ export class PluginManagerService {
     });
     this.emit();
     try {
-      const candidate = await resolveGithub(this.packages, request.repo ?? "", {
+      const candidate = await this.resolveRelease(this.packages, request.repo ?? "", {
         release: request.release,
         prerelease: request.prerelease,
         signal: controller.signal,
@@ -226,22 +230,23 @@ export class PluginManagerService {
     this.checking = true;
     try {
       let error: string | undefined;
-      const updates = new Map<string, string | undefined>();
+      const updates = new Map<string, {version: string; channel?: "stable" | "prerelease"; commit?: string} | undefined>();
       for (const p of Object.values(this.packages.registry().plugins).filter(
         (p) => !p.removed,
       )) {
         try {
-          const candidate = await resolveGithub(this.packages, p.repo, {
+          const candidate = await this.resolveRelease(this.packages, p.repo, {
             prerelease: p.channel === "prerelease",
           });
           if (Bun.semver.order(candidate.manifest.version, p.version) > 0) {
             this.states.set(p.id, {
               phase: p.enabled ? "ready" : "disabled",
-              logs: [`Update available: ${candidate.manifest.version}`],
+              logs: [...(this.states.get(p.id)?.logs ?? p.checkActivities ?? []), `${new Date().toLocaleString()} · Update available: ${candidate.manifest.version}`].slice(-40),
             });
             this.available.set(p.id, candidate.manifest.version);
-            updates.set(p.id, candidate.manifest.version);
+            updates.set(p.id, {version: candidate.manifest.version, channel: candidate.channel, commit: candidate.commit});
           } else {
+            this.states.set(p.id, {phase: p.enabled ? "ready" : "disabled", logs: [...(this.states.get(p.id)?.logs ?? p.checkActivities ?? []), `${new Date().toLocaleString()} · Update check succeeded: already up to date`].slice(-40)});
             this.available.delete(p.id);
             updates.set(p.id, undefined);
           }
@@ -253,19 +258,25 @@ export class PluginManagerService {
           this.states.set(p.id, {
             phase: p.enabled ? "ready" : "disabled",
             logs: [
-              ...(previous?.logs ?? []),
-              `Update check failed: ${detail}`,
+              ...(previous?.logs ?? p.checkActivities ?? []),
+              `${new Date().toLocaleString()} · Update check failed: ${detail}`,
             ].slice(-40),
           });
         }
       }
       const registry = this.packages.registry();
-      for (const [id, version] of updates) {
+      for (const [id, release] of updates) {
+        const version = release?.version;
         const plugin = registry.plugins[id];
         if (plugin) {
           plugin.availableSince = version ? (plugin.availableVersion === version ? plugin.availableSince ?? Date.now() : Date.now()) : undefined;
           plugin.availableVersion = version;
+          plugin.availableChannel = release?.channel;
+          plugin.availableCommit = release?.commit;
         }
+      }
+      for (const plugin of Object.values(registry.plugins)) {
+        if (!plugin.removed) plugin.checkActivities = this.states.get(plugin.id)?.logs.slice(-3).map(line => line.slice(0,20000)) ?? plugin.checkActivities;
       }
       registry.updateSchedule = {
         lastChecked: Date.now(),
@@ -300,6 +311,7 @@ export class PluginManagerService {
               "Resolve release before execution approval (approval expired)",
             );
           await this.packages.install(record.candidate, true);
+          this.available.delete(record.candidate.manifest.id);
           this.candidates.delete(request.token!);
           break;
         }
@@ -331,6 +343,9 @@ export class PluginManagerService {
           if (!p) throw new Error("Plugin missing");
           p.channel = request.channel!;
           delete p.availableVersion;
+          delete p.availableChannel;
+          delete p.availableCommit;
+          delete p.availableSince;
           this.available.delete(p.id);
           atomicJSON(
             join(this.packages.root, "plugins/registry.json"),
