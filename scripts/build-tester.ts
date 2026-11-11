@@ -29,6 +29,7 @@ try {
     "assets",
     "dev-icon.iconset",
     "package.json",
+    "seed.config.json",
     "bun.lock",
     "tsconfig.json",
   ])

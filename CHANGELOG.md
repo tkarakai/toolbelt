@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Non-interactive release PR preparation and verified CI publication through the shared SDK release tooling. App updates recognize release candidates and select the exact app DMG.
+
 - Install, enable, disable, update and remove independent prebuilt GitHub plugin packages without restarting Toolbelt.
 - Review publisher identity, compatibility and exact package bytes before execution; show lifecycle diagnostics, notify-only updates, channel preferences and safe cancellation.
 - Keep plugin data on removal by default, offer explicit deletion and confirmed CLI-cleanup navigation, and recover compatible code or matching managed-data snapshots.

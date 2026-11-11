@@ -348,6 +348,7 @@ export class PackageManager {
     private hooks: RuntimeHooks,
     private hostVersion = "0.1.0",
     private fault?: (point: string) => void,
+    private environment?: Record<string, string | undefined>,
   ) {}
   registry() {
     return readRegistry(this.root);
@@ -657,7 +658,7 @@ export class PackageManager {
         cwd: candidate.packageRoot,
         detached: true,
         env: {
-          ...runtimeEnv(candidate, targetDir),
+          ...runtimeEnv(candidate, targetDir, this.environment),
           TOOLBELT_CONFIG_DIR: this.root,
         },
         stdin: "pipe",
@@ -989,6 +990,7 @@ export async function boundedText(
 export function runtimeEnv(
   candidate: Pick<Candidate, "manifest" | "packageRoot">,
   data: string,
+  base: Record<string, string | undefined> = process.env,
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const key of [
@@ -1003,7 +1005,7 @@ export function runtimeEnv(
     "TOOLBELT_CONFIG_DIR",
     "TOOLBELT_PS_HOME",
   ])
-    if (process.env[key]) env[key] = process.env[key]!;
+    if (base[key]) env[key] = base[key]!;
   return {
     ...env,
     TOOLBELT_PLUGIN: candidate.manifest.id,

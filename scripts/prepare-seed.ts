@@ -4,10 +4,7 @@ import { parsePackageManifest } from "../src/shared/package";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-const url =
-  "https://github.com/tkarakai/toolbelt-sdk-demo/releases/download/architecture2-c89e2e9/toolbelt-sdk-demo-0.0.1-darwin-arm64.tar.gz";
-const sha256 =
-  "e6d9e8694c8713f6737b30e8f1550776ad695c6321a429c1e0bf0f5a008e30d0";
+const {url,sha256} = JSON.parse(readFileSync("seed.config.json","utf8"));
 mkdirSync("build-seed", { recursive: true });
 let bytes: Uint8Array = new Uint8Array();
 if (await Bun.file("build-seed/demo.tar.gz").exists())

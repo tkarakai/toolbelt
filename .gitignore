@@ -13,3 +13,5 @@ build-plugins/
 build-seed/
 
 artifacts-tester/
+
+release-candidate/

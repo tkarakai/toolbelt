@@ -14,8 +14,7 @@ references, not implementation diaries, plans or reasoning transcripts.
 - One agent per checkout. Inspect `git status` first; if unexpected changes belong to
   another session, stop and ask before modifying them.
 - Never commit directly to `main`. Use a feature/fix branch and a PR, pass CI, then follow
-  the user's merge decision. Do not enable auto-merge, publish releases or replace an
-  installed app/data without authorization. The user owns merges for the current PRs.
+  the user's merge decision. Do not enable auto-merge or replace installed app/data without authorization. Merging a validated release PR authorizes its CI publication. The user owns merges for the current PRs.
 - Add user-visible behavior to `CHANGELOG.md` under Unreleased. Do not bump versions in
   feature PRs; version changes belong to release PRs.
 - Use Bun: `bun install --frozen-lockfile`, `bun <file>`, `bun test`, `bun run <script>`,
@@ -73,8 +72,7 @@ official app identity: launch via `bun scripts/run-evaluation.ts` to use an isol
 Global shortcuts use Carbon through `hotkey.ts`; avoid Electrobun GlobalShortcut's silent
 Accessibility dependency. Release and updater rehearsal details are in maintenance.md.
 
-Release commands must match the runbook and current scripts. The host publication command
-creates tags/releases and advances Latest; a passing build/CI does not authorize it. Preserve
+Release commands must match the runbook and current scripts. Merging a validated release PR authorizes CI publication; ordinary feature merges and passing CI do not. Preserve
 immutable published bytes, verify draft assets where publishing manually, and use the documented
 retry boundary rather than rerunning a tagged release. Do not assume plugin repos have a
 `release` script or that app publication updates their releases/SDK pins.

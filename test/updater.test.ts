@@ -98,8 +98,11 @@ describe("parsing", () => {
 test("isNewer", () => {
   expect(isNewer("0.2.0", "0.1.9")).toBe(true);
   expect(isNewer("0.10.0", "0.9.0")).toBe(true);
-  expect(isNewer("1.0", "1.0.0")).toBe(false);
-  expect(isNewer("1.0.1", "1.0")).toBe(true);
+  expect(isNewer("1.0.0", "1.0.0")).toBe(false);
+  expect(isNewer("1.0.1", "1.0.0")).toBe(true);
+  expect(isNewer("1.2.3", "1.2.3-rc.1")).toBe(true);
+  expect(isNewer("1.2.3-rc.2", "1.2.3-rc.1")).toBe(true);
+  expect(isNewer("1.2.3-rc.10", "1.2.3-rc.2")).toBe(true);
   expect(isNewer("1.2.3-dev", "1.2.3")).toBe(false);
   expect(isNewer("1.2.3", "1.2.4")).toBe(false);
   expect(isNewer("0.0.0", "0.0.0")).toBe(false);

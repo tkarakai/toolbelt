@@ -112,7 +112,7 @@ export function parseRelease(json: unknown): Release {
     throw new UpdateError("GitHub's answer isn't a release");
   const version = r.tag_name.startsWith("v") ? r.tag_name.slice(1) : r.tag_name;
   const dmg = r.assets.find(
-    (a) => typeof a?.name === "string" && a.name.endsWith("-arm64.dmg"),
+    (a) => typeof a?.name === "string" && a.name === `Toolbelt-${version}-arm64.dmg`,
   );
   if (!dmg || typeof dmg.browser_download_url !== "string")
     throw new UpdateError("The release has no disk image");
@@ -133,18 +133,9 @@ export function parseRelease(json: unknown): Release {
   };
 }
 
-/** Semver-ish: numeric parts compared in order; "1.2.3-dev" counts as 1.2.3. */
+/** SemVer precedence includes prerelease identifiers. */
 export function isNewer(a: string, b: string): boolean {
-  const parts = (v: string) =>
-    (v.split("-")[0] ?? "").split(".").map((n) => Number.parseInt(n, 10) || 0);
-  const x = parts(a),
-    y = parts(b);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const l = x[i] ?? 0,
-      r = y[i] ?? 0;
-    if (l !== r) return l > r;
-  }
-  return false;
+  return Bun.semver.order(a, b) > 0;
 }
 
 /** Whether a check is due: never attempted, or the last attempt is at least `age` old. */

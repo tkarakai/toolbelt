@@ -38,6 +38,11 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Electrobun devkit (pinned bootstrap, checksum-verified Hutch)
         run: bunx electrobun prepare
+      - name: Validate release request
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin main
+          bun src/release/cli.ts validate-request
       - name: Typecheck
         run: bun run typecheck
       - name: Tests

@@ -2,7 +2,7 @@ import { isAbsolute } from "node:path";
 import { parseManifest, type Manifest } from "./protocol";
 
 export const PACKAGE_FORMAT = 1;
-export const SDK_VERSION = "0.2.0-dev.4";
+export const SDK_VERSION = "0.2.0-dev.5";
 export const CAPABILITIES = [
   "ui.core",
   "ui.action-key",

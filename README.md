@@ -46,6 +46,4 @@ home. Stop only development processes you started; app development and builds sh
 The app, SDK and standalone tester are released from this repository. Plugin archives,
 helpers and terminal distributions are released by their owning plugin repositories.
 
-`bun run release` publishes the real stable GitHub app release using the local Git/`gh`
-account. It is not a local build alias. Read the release runbook and obtain authorization
-before running it; CI does not publish releases.
+Release commands prepare version PRs; merging a validated release PR authorizes CI publication. See [the release reference](docs/releases.md).

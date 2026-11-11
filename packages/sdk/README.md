@@ -2,7 +2,7 @@
 
 Bun SDK for Toolbelt's declarative plugin protocol. Install a pinned SDK release archive in
 your plugin repository; no Toolbelt source checkout is required. The current SDK version is
-`0.2.0-dev.4`, package format 1 and protocol 1. SDK build version is diagnostic; host/Bun
+`0.2.0-dev.5`, package format 1 and protocol 1. SDK build version is diagnostic; host/Bun
 ranges and negotiated capabilities determine compatibility.
 
 ```ts
@@ -47,8 +47,19 @@ See the host repository's [plugin authoring guide](https://github.com/tkarakai/t
 and [Plugin Tester guide](https://github.com/tkarakai/toolbelt/blob/main/docs/plugin-tester.md),
 and the [SDK Explorer](https://github.com/tkarakai/toolbelt-sdk-demo) for complete examples.
 
-SDK packaging is local-only. Dedicated `sdk-v<version>` releases and app-bundled SDK assets
-have distinct URLs; neither updates plugin dependencies automatically. The
-[release runbook](https://github.com/tkarakai/toolbelt/blob/main/docs/releases.md#dedicated-sdk-release)
-describes versioning, draft byte verification, publication without changing the app feed,
-and failure recovery. No npm publication is performed.
+SDK packaging creates a local archive. Canonical SDK assets are published under sdk-v<version> and are separate from app releases. Updating the SDK never changes plugin dependency pins automatically. There is no npm publication.
+
+## Development release tools
+
+`@toolbelt/sdk/release` and the `toolbelt-release` executable provide release preparation,
+shared packaging/verification and CI publication. They are separate from the runtime entry
+point: import them only in repository build/release scripts, never plugin runtime code.
+A typed `release.config.ts` supplies repository/product identity, version/changelog adapters
+and specialized builds. The engine supplies archive/descriptor/checksum creation and uses
+the same bounded archive and protocol/lifecycle implementation as the host.
+
+Prepare with `bun run release:plugin --version X.Y.Z --channel stable|prerelease`; append
+`--check` for a temporary build without GitHub writes. Merging the validated release PR
+authorizes CI publication. Retry with `bun run release:plugin:retry --tag vX.Y.Z` to reuse
+frozen files. The [release reference](https://github.com/tkarakai/toolbelt/blob/main/docs/releases.md)
+covers thin workflow installation, required permissions, targets and immutable-byte recovery.

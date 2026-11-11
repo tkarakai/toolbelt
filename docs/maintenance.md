@@ -84,8 +84,8 @@ must work without a Toolbelt checkout. Publish immutable SDK assets and pin them
 repos. Run plugin contract tests and SDK Explorer coverage when changing public behavior.
 
 The seed is an independently built archive from `toolbelt-sdk-demo`. To update it, publish
-and verify the demo package in its own repo, then update the exact release URL/SHA-256 in
-`scripts/prepare-seed.ts`. `bun run plugins` verifies/materializes it into ignored `build-seed/`.
+and verify the demo package in its own repo, then use `bun run seed:update --tag <tag>` to open a PR updating the exact URL/SHA-256 in
+`seed.config.json`. `bun run plugins` verifies/materializes it into ignored `build-seed/`.
 Never replace that step with source compilation. Verify fresh profile installation and that
 removed/disabled/installed selections persist across subsequent app starts and seed versions.
 
@@ -106,8 +106,7 @@ recovery failures and preserve the affected user's data.
 
 [releases.md](releases.md) is the authoritative app, SDK and tester runbook. It identifies
 which commands publish, exact prerequisites/artifacts, tag/draft/verification/publication
-steps, SDK/plugin dependency ordering and failure recovery. `bun run release` actually
-publishes a stable GitHub app release from this machine; local build/package commands do not.
+steps, SDK/plugin dependency ordering and failure recovery. Release commands prepare version PRs; merging a validated release PR authorizes CI publication. Local build/package commands do not publish.
 Read that runbook before invoking any publication command.
 
 ## Updater rehearsal
