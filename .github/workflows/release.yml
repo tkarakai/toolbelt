@@ -8,6 +8,10 @@ on:
         description: Already authorized release tag to retry
         required: true
         type: string
+      source:
+        description: Exact authorized merge SHA (required before tag creation)
+        required: false
+        type: string
 permissions: {}
 concurrency:
   group: release-${{ github.event.inputs.tag || github.sha }}

@@ -73,20 +73,61 @@ by the updater. App DMGs are ad-hoc signed and verified, not Apple-notarized.
 ## Retry
 
 ```sh
+bun run release:app:retry --tag v0.2.0 --pr 24
+bun run release:sdk:retry --tag sdk-v0.3.0 --source <full-40-character-merge-SHA>
+# Once an annotated tag exists, the tag alone identifies the original source:
 bun run release:app:retry --tag v0.2.0
-bun run release:sdk:retry --tag sdk-v0.3.0
 ```
+
+Before tagging, specify either the owning repository’s merged release PR number (`--pr`)
+or its exact merge commit (`--source`), never both. Tag-only retries resolve the existing
+annotated tag. Retry never guesses from current main. The source must still be an authorized
+merged same-repository release request to main and match the expected product/version/channel/tag.
+A conflicting immutable tag refuses recovery. The CLI passes the resolved source to CI,
+which independently repeats authorization and recovery checks before using it.
 
 Retry dispatches CI for an already merged release request. It cannot change product, source,
 version, channel or frozen bytes. A failed build can run again before a candidate is saved.
 After a candidate is saved, retries reuse the original CI artifact. A draft/public release with
 missing retained candidate files stops for exact-byte recovery; it never substitutes a rebuild.
+A tag created before a failed draft upload also requires the original candidate. Expired
+authoritative candidate artifacts refuse rebuilding even when no tag was created.
 If publication succeeded but its response was lost, retry verifies and reports the existing
 immutable release. Inspect the failed workflow stage before retrying. Do not delete tags, clobber
 assets or rerun an old manual publisher. If exact recovery is unavailable, prepare a new version.
 
 Local build/package commands create files only. Bare `bun run release` does not publish.
 Never replace the installed daily app or operate real software/processes/dotfiles to test a release.
+
+## Coordinating app, SDK and plugin changes
+
+- Prepare related implementation and Explorer coverage together. Publish the compatible SDK
+  first; put its final public URL and regenerated lockfile into the plugin’s merge-ready
+  implementation PR. Do not commit temporary/local SDK dependencies or expect a future URL
+  to install before publication. This avoids a second CI pass solely to replace the pin.
+- Overlap app release-only CI/publication with plugin implementation and version-PR validation.
+  Publish the required app before merging the dependent plugin release PR; retain the plugin’s
+  explicit minimum host range. The current single-product request file means separate app/SDK
+  request merges are serialized, with the later branch rebased and revalidated as necessary.
+- Combined app+SDK **release-only** PRs are acceptable policy if both products have explicit
+  version/channel authorization and complete CI. Implementation changes stay in earlier PRs.
+  Current tooling accepts one product per request: keep separate version PRs until multi-product
+  requests are implemented. Publication must remain independently recoverable per product;
+  partial success never authorizes replacing immutable assets or rolling back another release.
+- New app releases do not automatically require plugin SDK repins. Adopt an SDK when its API,
+  runtime fix or release tooling is needed; change the exact URL and lockfile together. SDK,
+  app and plugin versions are independent. Explorer source coverage accompanies API changes,
+  but its package publication and an app seed update need not block the production plugin.
+
+## Adopting source-pinned retries in plugin repositories
+
+Publish the SDK containing the retry change before consumers update their exact SDK URL and
+lockfile. In the same consumer change, add optional string input `source` to the owning
+`.github/workflows/release.yml` dispatch interface (the existing `tag` remains required).
+The CLI resolves `--pr` locally and dispatches `{tag, source}`; the workflow’s plan step
+must use that updated SDK too. Updating the SDK pin or workflow alone is insufficient.
+A pin update adopts development tooling; installed plugin bytes change only through a
+new, approved plugin release. Do not publish another app merely to roll out SDK-only tooling.
 
 ## Products and distribution
 

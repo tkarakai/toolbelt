@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Release retries accept `--pr` or `--source`, pass the original authorization to CI and refuse recovery that would rebuild tagged, uploaded or expired candidates. Untagged retries require an explicit selector.
+
 - Release product adapters may provide complete product-specific `validate()` checks; existing adapters retain full typecheck/test validation by default.
 
 ## 0.3.1 — 2026-11-11

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Retry an untagged release using its original merged PR or exact source commit, even after main advances; refuse conflicting tags and missing or expired frozen candidates.
+
 - Validate SDK release-only PRs and SDK candidates without building native app disk images; retain complete SDK checks and full app CI for implementation changes.
 
 - Start popover and first quick-view entrance animations on visible renderer frames so reopening the native window reliably animates.

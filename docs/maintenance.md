@@ -106,6 +106,10 @@ historical packages/snapshots intact during collection. Never manually delete tr
 backup or registry entries to unblock an upgrade. Use an isolated profile to reproduce
 recovery failures and preserve the affected user's data.
 
+For changes spanning the host and plugins, follow the brief sequencing and pinning guidance
+in [releases.md](releases.md#coordinating-app-sdk-and-plugin-changes). Release-only PRs
+remain separate from implementation PRs, with complete checks for the products released.
+
 ## Releases
 
 [releases.md](releases.md) is the authoritative app, SDK and tester runbook. It identifies

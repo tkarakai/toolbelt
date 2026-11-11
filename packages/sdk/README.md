@@ -63,6 +63,9 @@ the same bounded archive and protocol/lifecycle implementation as the host.
 
 Prepare with `bun run release:plugin --version X.Y.Z --channel stable|prerelease`; append
 `--check` for a temporary build without GitHub writes. Merging the validated release PR
-authorizes CI publication. Retry with `bun run release:plugin:retry --tag vX.Y.Z` to reuse
-frozen files. The [release reference](https://github.com/tkarakai/toolbelt/blob/main/docs/releases.md)
+authorizes CI publication. Before tagging, retry with
+`bun run release:plugin:retry --tag vX.Y.Z --pr <merged-release-PR>` or `--source <full-merge-SHA>`.
+Once an annotated tag exists, `--tag vX.Y.Z` alone resolves it. Retry reuses frozen files
+and never guesses from current main. Consumers adopting this command must update both
+the public SDK pin/lockfile and their workflow’s optional string `source` dispatch input. The [release reference](https://github.com/tkarakai/toolbelt/blob/main/docs/releases.md)
 covers thin workflow installation, required permissions, targets and immutable-byte recovery.
