@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Match the sidebar Settings shortcut background to shared keyboard hints.
+
 - Use the app artwork without a redundant Running status, capitalize Install New Plugin, and retain recent check activities across restarts without replaying old error toasts.
 
 - Position update badges at the top right of icons and tab labels, and match the About app release card to installed plugin cards.

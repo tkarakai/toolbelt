@@ -231,7 +231,7 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 						{/* ToolBelt's settings: just the cog and its shortcut. */}
 						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Settings" title="Settings" aria-label="ToolBelt settings" onClick={() => go(TOOLBELT)} className={cn("relative w-full", ACTIVE)}>
 							<span className="relative inline-flex size-4 shrink-0"><Settings className="size-4"/>{update && <UpdateIndicator className="absolute -right-1 -top-1" />}</span>
-							<Kbd className="group-data-[collapsible=icon]:hidden in-data-[active=true]:bg-selected-foreground/15 in-data-[active=true]:text-selected-foreground">⌘,</Kbd>
+							<KeyHint keys="⌘," className="group-data-[collapsible=icon]:hidden" />
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
