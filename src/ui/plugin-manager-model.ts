@@ -107,3 +107,10 @@ export function registerPluginManagerAdapter(adapter: PluginManagerAdapter) {
 export function getPluginManagerAdapter() {
   return registered;
 }
+
+/** Runtime activity may follow a check; only a subsequent check changes its outcome. */
+export function updateCheckFailed(plugin: Pick<ManagedPlugin, "logs" | "checkActivities">): boolean {
+  const outcome = [...(plugin.logs ?? plugin.checkActivities ?? [])].reverse()
+    .find(line => /· Update (?:check (?:failed|succeeded):|available:)/.test(line));
+  return outcome?.includes("· Update check failed:") ?? false;
+}

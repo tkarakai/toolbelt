@@ -1,3 +1,4 @@
+import { ManualUpdate } from "./components/manual-update";
 import { RepositoryLink } from "./components/repository-link";
 import { toast } from "sonner";
 import { Activity, TriangleAlert, CircleCheck, CircleX } from "lucide-react";
@@ -23,6 +24,7 @@ import {
   DialogFooter,
 } from "./components/ui/dialog";
 import {
+  updateCheckFailed,
   canInstall,
   canRecover,
   getPluginManagerAdapter,
@@ -93,8 +95,7 @@ export function PluginManager({
     if (!loaded) return;
     const key = state.schedule?.error ? `${state.schedule.lastChecked}:${state.schedule.error}` : undefined;
     if (initializedCheck.current && key && key !== notifiedCheck.current) {
-      const hasActivity = state.plugins.some(p => p.logs?.length);
-      toast.error("There were errors checking plugin updates.", {description: hasActivity ? "Open plugin activity for details." : state.schedule?.error});
+      toast.error("Couldn’t check some plugin updates.", {description: "You can check releases in your browser from each plugin’s card."});
     }
     initializedCheck.current = true;
     notifiedCheck.current = key;
@@ -192,7 +193,7 @@ export function PluginManager({
     <div className="min-w-0 space-y-8">
         <SettingsGroup title="Installed Plugins" description="Each plugin is its own program. ToolBelt starts it and draws its screens. ToolBelt has no control over plugins." actions={<TooltipProvider delayDuration={200} skipDelayDuration={0}><Tooltip><TooltipTrigger asChild><span className="inline-flex" tabIndex={busy || !adapter.checkUpdates ? 0 : undefined}><Button variant="outline" size="sm" className="h-6 text-xs" disabled={busy || !adapter.checkUpdates} onClick={() => void run(async () => {
             setCheckingAll(true);
-            try { await adapter.checkUpdates!(); } catch (e) { toast.error("Could not check plugin updates.", {description: String(e)}); } finally { if (mounted.current) setCheckingAll(false); }
+            try { await adapter.checkUpdates!(); } catch (e) { toast.error("Couldn’t check plugin updates.", {description: "You can check releases in your browser from each plugin’s card."}); } finally { if (mounted.current) setCheckingAll(false); }
           })}>{checkingAll ? <Loader2 className="animate-spin"/> : <RotateCw/>}{checkingAll ? "Checking…" : "Check for updates"}</Button></span></TooltipTrigger><TooltipContent side="top" sideOffset={8}>Last checked: {date(state.schedule?.lastChecked)}</TooltipContent></Tooltip></TooltipProvider>}>
           {!loaded ? (
             <p role="status" className="p-5 text-sm text-muted-foreground">
@@ -274,9 +275,10 @@ export function PluginManager({
                     max={p.operation.total}
                   />
                 )}
+                <ManualUpdate name={p.manifest.name} version={p.version} repo={p.repo} prerelease={p.channel === "prerelease"} busy={busy || isActivePhase(p.phase)} review={tag => review(p.repo, tag, p.channel === "prerelease")} failed={updateCheckFailed(p)}/>
                 {p.availableVersion && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
                   <div className="min-w-0 flex-1 space-y-2">
-                    <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">Available update</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.availableChannel === "prerelease" ? "warning" : p.availableChannel === "stable" ? "info" : "muted"))}>{p.availableChannel === "prerelease" ? "Prerelease" : p.availableChannel === "stable" ? "Stable" : "Channel not recorded"}</span></div>
+                    <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{updateCheckFailed(p) ? "Previously found update" : "Available update"}</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.availableChannel === "prerelease" ? "warning" : p.availableChannel === "stable" ? "info" : "muted"))}>{p.availableChannel === "prerelease" ? "Prerelease" : p.availableChannel === "stable" ? "Stable" : "Channel not recorded"}</span></div>
                     <p className="text-sm">Version <span className="font-mono font-medium">{p.availableVersion}{p.availableCommit ? ` (${p.availableCommit.slice(0,7)})` : ""}</span></p>
                   </div>
                   <Button size="sm" disabled={busy || isActivePhase(p.phase)} onClick={() => review(p.repo, undefined, p.channel === "prerelease")}><Download/>Review and Update</Button>
