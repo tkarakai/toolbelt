@@ -136,7 +136,6 @@ export function UpdatesCard() {
           <div className="min-w-0 flex-1 space-y-2"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">Available update</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass("info"))}>Stable</span></div><p className="text-sm">Version <span className="font-mono font-medium">{r.version}</span></p><p className="text-xs text-muted-foreground">{r.published ? `Released ${date(r.published)} · ` : ""}{mb(r.size)}</p></div>
           <Button size="sm" disabled={s.phase.kind !== "idle"} onClick={() => openDialog()}><Download/>Review and Update</Button>
         </div>}
-        {r && <details><summary className="cursor-pointer text-sm">Release notes</summary><div className="mt-3 max-h-72 overflow-auto text-sm">{r.notes ? <Markdown text={r.notes}/> : <p>No release notes.</p>}<Button variant="link" size="sm" onClick={() => openUrl(r.page)}><ArrowUpRight/>Release on GitHub</Button></div></details>}
         <DevUpdatePreview/>
         <UpdateDialog s={s}/>
       </article>

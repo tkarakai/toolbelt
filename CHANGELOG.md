@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep app update release notes in the review dialog instead of repeating them on About.
+
 - Share header tab geometry between Settings and plugins so label-to-shortcut spacing matches.
 
 - Match the sidebar Settings shortcut background to shared keyboard hints.
