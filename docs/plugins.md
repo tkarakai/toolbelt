@@ -298,3 +298,5 @@ summary in that column with the same alignment and horizontal padding as row val
 including on collapsed groups. A hidden or unknown column hides the summary in the table;
 the group inspector retains it. Omit `column` to keep a trailing, full-width summary.
 Column-bound summaries require ToolBelt 0.2.2 or newer.
+
+Settings shows the installed release separately from the preference used for future update checks. Allowing prereleases includes stable releases too; each available update reports the channel of the release actually discovered. Existing update preferences survive installation. Release review remains required before plugin or migration execution.

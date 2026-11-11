@@ -60,3 +60,32 @@ test("failed checks retain installed releases and report errors without executin
     expect(f.registry.plugins.second!.availableVersion).toBe("1.5.0");
   } finally {rmSync(f.root,{recursive:true,force:true});}
 });
+
+test("availability records the detected release channel rather than the future update preference",async () => {
+  const f=fixture();
+  try {
+    const registry=readRegistry(f.root);
+    registry.plugins.first!.channel="prerelease";
+    registry.plugins.first!.installedChannel="stable";
+    atomicJSON(join(f.root,"plugins/registry.json"),registry);
+    const service=new PluginManagerService(f.packages,f.host,async (manager,repo,options) => {
+      if (repo==="test/first") expect(options?.prerelease).toBe(true);
+      const candidate=await f.resolve(manager,repo);
+      return {...candidate,channel:repo==="test/first" ? "stable" : "prerelease",commit:"c".repeat(40)};
+    });
+    const result=await service.handle({operation:"checkUpdates"});
+    const first=result.state!.plugins.find(p=>p.id==="first")!;
+    expect(first.installedChannel).toBe("stable");
+    expect(first.channel).toBe("prerelease");
+    expect(first.availableChannel).toBe("stable");
+    expect(first.availableCommit).toBe("c".repeat(40));
+    expect(result.state!.plugins.find(p=>p.id==="second")!.availableChannel).toBe("prerelease");
+    await service.handle({operation:"setChannel",id:"first",channel:"stable"});
+    const changed=service.read().plugins.find(p=>p.id==="first")!;
+    expect(changed.installedChannel).toBe("stable");
+    expect(changed.availableVersion).toBeUndefined();
+    expect(changed.availableChannel).toBeUndefined();
+    expect(changed.availableCommit).toBeUndefined();
+    expect(f.executions()).toBe(0);
+  } finally {rmSync(f.root,{recursive:true,force:true});}
+});

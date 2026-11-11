@@ -34,11 +34,15 @@ export type Installed = {
   packageRoot: string;
   enabled: boolean;
   manifest: PackageManifest;
+  /** Preference for future checks; independent of the installed release. */
   channel: "stable" | "prerelease";
+  installedChannel?: "stable" | "prerelease";
   release?: string;
   asset?: string;
   removed?: boolean;
   availableVersion?: string;
+  availableChannel?: "stable" | "prerelease";
+  availableCommit?: string;
   availableSince?: number;
   dataInitialized?: boolean;
   deleteDataPending?: boolean;
@@ -136,6 +140,10 @@ function validateRegistry(value: any, root: string): Registry {
         resolve(root, "plugins/packages", id, `${p.version}-${p.hash}`)
     )
       throw new Error("Invalid installed plugin identity/path");
+    for (const channel of [p.installedChannel, p.availableChannel]) {
+      if (channel !== undefined && !["stable", "prerelease"].includes(channel)) throw new Error("Invalid release channel");
+    }
+    if (p.availableCommit !== undefined && !/^[a-f0-9]{40}$/.test(p.availableCommit)) throw new Error("Invalid available release commit");
     if (
       p.dataSchema !== undefined &&
       (!Number.isSafeInteger(p.dataSchema) || p.dataSchema < 0)
@@ -160,6 +168,7 @@ function validateRegistry(value: any, root: string): Registry {
         previous.id !== id ||
         metadata.id !== id ||
         previous.version !== metadata.version ||
+        (previous.installedChannel !== undefined && !["stable", "prerelease"].includes(previous.installedChannel)) ||
         previous.repo.toLowerCase() !== p.repo.toLowerCase() ||
         !/^[a-f0-9]{64}$/.test(previous.hash) ||
         resolve(previous.packageRoot) !==
@@ -508,7 +517,8 @@ export class PackageManager {
           ).includes(old.dataSchema ?? old.manifest.data.schema)
             ? (old.dataSchema ?? old.manifest.data.schema)
             : candidate.manifest.data.schema,
-        channel: candidate.channel ?? old?.channel ?? "stable",
+        channel: old?.channel ?? candidate.channel ?? "stable",
+        installedChannel: candidate.channel,
         release: candidate.release,
         asset: candidate.asset,
       };
@@ -756,7 +766,7 @@ export class PackageManager {
         current.repo,
       );
     return this.install(
-      { ...choice.installed, repo: current.repo },
+      { ...choice.installed, repo: current.repo, channel: choice.installed.installedChannel },
       true,
       compatible ? undefined : choice.snapshot,
     );

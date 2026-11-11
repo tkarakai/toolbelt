@@ -729,3 +729,42 @@ test("recovery of interrupted reinstall after delete-data does not require an ol
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("installing a stable release preserves a prerelease update preference and records release identity", async () => {
+  const a = await archive(), b = await archive(manifest("2.0.0"));
+  const {root,manager}=setup();
+  try {
+    const first=await manager.stage(a.bytes,a.hash,"test/fixture");
+    await manager.install({...first,channel:"stable"},true);
+    const registry=manager.registry();
+    registry.plugins.fixture!.channel="prerelease";
+    writeFileSync(join(root,"plugins/registry.json"),JSON.stringify(registry));
+    const second=await manager.stage(b.bytes,b.hash,"test/fixture");
+    await manager.install({...second,channel:"stable"},true);
+    const installed=manager.registry().plugins.fixture!;
+    expect(installed.version).toBe("2.0.0");
+    expect(installed.installedChannel).toBe("stable");
+    expect(installed.channel).toBe("prerelease");
+    expect(installed.history?.[0]?.installed.installedChannel).toBe("stable");
+  } finally {
+    rmSync(root,{recursive:true,force:true});
+    rmSync(a.source,{recursive:true,force:true});
+    rmSync(b.source,{recursive:true,force:true});
+  }
+});
+
+test("malformed persisted release identity is rejected before package use",async () => {
+  const a=await archive(),{root,manager}=setup();
+  try {
+    await manager.install({...await manager.stage(a.bytes,a.hash,"test/fixture"),channel:"stable"},true);
+    const valid=manager.registry();
+    for (const field of ["installedChannel","availableChannel","availableCommit"]) {
+      const corrupt=structuredClone(valid);
+      (corrupt.plugins.fixture as unknown as Record<string,unknown>)[field]="unrecognized";
+      writeFileSync(join(root,"plugins/registry.json"),JSON.stringify(corrupt));
+      expect(() => manager.registry()).toThrow();
+    }
+    writeFileSync(join(root,"plugins/registry.json"),JSON.stringify(valid));
+    expect(manager.registry().plugins.fixture!.installedChannel).toBe("stable");
+  } finally {rmSync(root,{recursive:true,force:true});rmSync(a.source,{recursive:true,force:true});}
+});

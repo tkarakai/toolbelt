@@ -227,7 +227,7 @@ export class PluginManagerService {
     this.checking = true;
     try {
       let error: string | undefined;
-      const updates = new Map<string, string | undefined>();
+      const updates = new Map<string, {version: string; channel?: "stable" | "prerelease"; commit?: string} | undefined>();
       for (const p of Object.values(this.packages.registry().plugins).filter(
         (p) => !p.removed,
       )) {
@@ -241,7 +241,7 @@ export class PluginManagerService {
               logs: [`Update available: ${candidate.manifest.version}`],
             });
             this.available.set(p.id, candidate.manifest.version);
-            updates.set(p.id, candidate.manifest.version);
+            updates.set(p.id, {version: candidate.manifest.version, channel: candidate.channel, commit: candidate.commit});
           } else {
             this.available.delete(p.id);
             updates.set(p.id, undefined);
@@ -261,11 +261,14 @@ export class PluginManagerService {
         }
       }
       const registry = this.packages.registry();
-      for (const [id, version] of updates) {
+      for (const [id, release] of updates) {
+        const version = release?.version;
         const plugin = registry.plugins[id];
         if (plugin) {
           plugin.availableSince = version ? (plugin.availableVersion === version ? plugin.availableSince ?? Date.now() : Date.now()) : undefined;
           plugin.availableVersion = version;
+          plugin.availableChannel = release?.channel;
+          plugin.availableCommit = release?.commit;
         }
       }
       registry.updateSchedule = {
@@ -301,6 +304,7 @@ export class PluginManagerService {
               "Resolve release before execution approval (approval expired)",
             );
           await this.packages.install(record.candidate, true);
+          this.available.delete(record.candidate.manifest.id);
           this.candidates.delete(request.token!);
           break;
         }
@@ -332,6 +336,9 @@ export class PluginManagerService {
           if (!p) throw new Error("Plugin missing");
           p.channel = request.channel!;
           delete p.availableVersion;
+          delete p.availableChannel;
+          delete p.availableCommit;
+          delete p.availableSince;
           this.available.delete(p.id);
           atomicJSON(
             join(this.packages.root, "plugins/registry.json"),

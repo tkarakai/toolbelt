@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Separate installed plugin releases, future update preferences and discovered update channels; preserve update preferences when installing another release.
+- Add inline channel selectors, delayed check-time tooltips and resizable release reviews with explicit Install/Update actions.
+
 - Keep Settings section geometry stable, lock tab strips to horizontal scrolling, and add a short Privacy Policy.
 - Redesign Installed Plugins cards with icons, status pills, independent versions, reload controls and grouped action menus. Check all plugins from the section header; review available updates separately.
 
