@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.3.1 — 2026-11-11
 - Add optional `GroupLabel.summary.column` for aggregates aligned with table columns (Toolbelt 0.2.2+).
 
 ## 0.3.0 — 2026-11-11
