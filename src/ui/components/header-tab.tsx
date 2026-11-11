@@ -11,7 +11,7 @@ export function HeaderTab({label, icon, shortcut, indicator, className, ...props
     indicator?: ReactNode;
 }) {
     return <TabsTrigger {...props} className={cn("flex-none gap-0 px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground! data-[state=active]:hover:text-selected-foreground!", className)}>
-        <span className="inline-flex items-center gap-1.5">{icon}<span className="relative">{label}{indicator && <span className="absolute -right-1 -top-1 inline-flex">{indicator}</span>}</span></span>
+        <span className="inline-flex items-center gap-1.5">{icon}<span className="relative">{label}{indicator && <span className="absolute -right-[7px] -top-1 inline-flex">{indicator}</span>}</span></span>
         <KeyHint className="ml-1.5 shrink-0" keys={shortcut}/>
     </TabsTrigger>;
 }
