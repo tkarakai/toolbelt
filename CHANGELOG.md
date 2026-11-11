@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Validate SDK release-only PRs and SDK candidates without building native app disk images; retain complete SDK checks and full app CI for implementation changes.
+
 - Start popover and first quick-view entrance animations on visible renderer frames so reopening the native window reliably animates.
 
 - Add About ToolBelt to the macOS app menu, using the standard version and app information panel.

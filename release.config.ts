@@ -27,6 +27,9 @@ export default {
       },
     },
     sdk: {
+      validate: async () => {
+        await run(["bun", "run", "sdk:check"]);
+      },
       changelog: "packages/sdk/CHANGELOG.md",
       version: () => jsonVersion()!,
       async setVersion(v) {

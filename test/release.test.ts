@@ -361,3 +361,24 @@ test("ordinary merges cannot publish", async () => {
     f.server.stop(true);
   }
 });
+
+test("candidate builds run complete adapter validation or the existing default checks", async () => {
+  for (const custom of [true, false]) {
+    const root = temp();
+    const git = (...args: string[]) => run(["git", ...args], root);
+    await git("init");await git("remote","add","origin","https://github.com/example/sdk.git");
+    save(join(root,"package.json"),{type:"module",scripts:{typecheck:`bun -e "await Bun.write('typecheck-ran', 'yes')"`}});
+    writeFileSync(join(root,"default.test.ts"),`import {test} from 'bun:test';test('default validation',async()=>{await Bun.write('tests-ran','yes');});`);
+    writeFileSync(join(root,"release.config.ts"),`export default {repo:'example/sdk',hostVersion:'0.1.0',products:{sdk:{changelog:'CHANGELOG.md',version:()=> '1.0.0',setVersion:async()=>{},${custom?"validate:async()=>{await Bun.write('custom-ran','yes');},":""}build:async()=>{await Bun.write('sdk.tgz','fixture');return ['sdk.tgz'];}}}};`);
+    save(join(root,".toolbelt-release.json"),{format:1,repo:"example/sdk",product:"sdk",version:"1.0.0",channel:"stable"});
+    writeFileSync(join(root,"CHANGELOG.md"),"## 1.0.0 — 2026-11-11\n- Fixture release.\n");
+    await run([process.execPath,"install"],root);
+    await git("add",".");await git("-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-m","fixture");
+    await run([process.execPath,join(import.meta.dir,"../src/release/cli.ts"),"ci-build"],root,{...process.env,GITHUB_ACTIONS:"true"});
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(join(root,"custom-ran"))).toBe(custom);
+    expect(existsSync(join(root,"typecheck-ran"))).toBe(!custom);
+    expect(existsSync(join(root,"tests-ran"))).toBe(!custom);
+    expect(verifyFrozen(join(root,"release-candidate"),{repo:"example/sdk",hostVersion:"0.1.0",products:{sdk:{changelog:"CHANGELOG.md",version:()=>"1.0.0",setVersion:async()=>{},build:async()=>[]}}}).version).toBe("1.0.0");
+  }
+},30000);

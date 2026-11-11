@@ -70,6 +70,10 @@ errors and tester diagnostics before restarting. Never edit active package files
 verification rejects bytes that differ from the approved archive. Use a new plugin version
 or a fresh isolated development profile instead of weakening this check.
 
+SDK release-only CI and candidate builds use `bun run sdk:check` for the SDK runtime and
+its bundled release-tool dependencies. Changes outside the exact SDK release metadata
+allowlist keep full app CI. See [releases.md](releases.md#product-specific-validation).
+
 ## Maintaining SDK, renderer and demo
 
 `src/shared/protocol.ts` defines public nodes/events. `src/shared/package.ts` defines package

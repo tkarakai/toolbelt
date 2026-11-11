@@ -23,7 +23,8 @@
     "release:app:retry": "bun src/release/cli.ts app:retry",
     "release:sdk": "bun src/release/cli.ts sdk",
     "release:sdk:retry": "bun src/release/cli.ts sdk:retry",
-    "seed:update": "bun scripts/update-seed.ts"
+    "seed:update": "bun scripts/update-seed.ts",
+    "sdk:check": "bun scripts/check-sdk.ts"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",

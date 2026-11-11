@@ -87,8 +87,11 @@ async function build(config: ReleaseConfig, r: Request) {
   if (r.product === "plugin" && json("package.json").version !== r.version)
     throw Error("Plugin package/manifest versions differ");
   await run(["bun", "install", "--frozen-lockfile"]);
-  await run(["bun", "run", "typecheck"]);
-  await run(["bun", "test"]);
+  if (product.validate) await product.validate();
+  else {
+    await run(["bun", "run", "typecheck"]);
+    await run(["bun", "test"]);
+  }
   return product.build();
 }
 async function prepare(

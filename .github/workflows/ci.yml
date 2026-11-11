@@ -37,18 +37,28 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Electrobun devkit (pinned bootstrap, checksum-verified Hutch)
-        run: bunx electrobun prepare
       - name: Validate release request
         if: github.event_name == 'pull_request'
         run: |
           git fetch origin main
           bun src/release/cli.ts validate-request
+      - name: Select validation scope
+        id: scope
+        run: bun scripts/ci-scope.ts
+      - name: SDK validation
+        if: steps.scope.outputs.sdk == 'true'
+        run: bun run sdk:check
+      - name: Electrobun devkit (pinned bootstrap, checksum-verified Hutch)
+        if: steps.scope.outputs.sdk != 'true'
+        run: bunx electrobun prepare
       - name: Typecheck
+        if: steps.scope.outputs.sdk != 'true'
         run: bun run typecheck
       - name: Tests
+        if: steps.scope.outputs.sdk != 'true'
         run: bun test
       - name: Build the app (dmg + update bundle)
+        if: steps.scope.outputs.sdk != 'true'
         run: |
           bun run build
           ls -la artifacts
@@ -61,12 +71,13 @@ jobs:
           # Ad-hoc signed. (Electrobun's self-extracting launcher fails `codesign --verify --strict`:
           # "code has no resources but signature indicates they must be present".)
           codesign -dv build.noindex/stable-macos-arm64/Toolbelt.app 2>&1 | grep -q 'Signature=adhoc'
-      - name: Verify host and SDK artifacts
-        run: |
-          bun run dmg
-          bun run sdk:package
+      - name: Verify host disk image
+        if: steps.scope.outputs.sdk != 'true'
+        run: bun run dmg
+      - name: Build SDK artifact
+        run: bun run sdk:package
       - name: Diagnose disk image failures
-        if: failure()
+        if: failure() && steps.scope.outputs.sdk != 'true'
         run: |
           sw_vers
           hdiutil info

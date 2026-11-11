@@ -32,6 +32,24 @@ temporary source snapshot. It reads GitHub state but does not modify tracked fil
 GitHub. Native builds require macOS Apple silicon and Xcode command-line tools. Do not stop another
 session's app to obtain a build lock; the check command builds in its own staging directory.
 
+## Product-specific validation
+
+Release-only PRs remain mandatory. A Toolbelt SDK release-only diff must change exactly
+`.toolbelt-release.json`, `packages/sdk/CHANGELOG.md` and the `SDK_VERSION` constant in
+`src/shared/package.ts`. Its CI runs `bun run sdk:check` and `bun run sdk:package`, plus
+the normal secret/workflow checks and required CI gate. SDK checks include standalone
+typechecking, runtime/fake-host and protocol tests, package/integrity/recovery checks used
+by the bundled release CLI, and installation/execution of the SDK archive. It does not
+bootstrap Electrobun or build the app, seed, tester or disk images.
+
+Other diffs, missing scope evidence and manual CI runs use full app and SDK validation.
+Shared runtime, schema, renderer, dependency or workflow changes never qualify as an
+SDK release-only diff. The final merged SDK candidate uses the same SDK validation
+through its product adapter. Other products keep the default full typecheck/test checks.
+Adapters can supply `validate()` to define complete product-specific checks; omitting
+it preserves existing behavior. Separate version PRs, merge authorization and frozen
+publication verification remain required.
+
 ## Build and publish
 
 The Release workflow installs frozen dependencies and builds the exact authorized merged source.
