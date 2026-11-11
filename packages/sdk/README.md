@@ -55,11 +55,17 @@ SDK packaging creates a local archive. Canonical SDK assets are published under 
 shared packaging/verification and CI publication. They are separate from the runtime entry
 point: import them only in repository build/release scripts, never plugin runtime code.
 A typed `release.config.ts` supplies repository/product identity, version/changelog adapters
-and specialized builds. The engine supplies archive/descriptor/checksum creation and uses
+and specialized builds. A product may provide an optional `validate()` callback with its
+complete product-specific checks; without it, the engine runs the repository typecheck
+and full test suite before building. The callback is used by both `--check` and CI
+candidate builds. The engine supplies archive/descriptor/checksum creation and uses
 the same bounded archive and protocol/lifecycle implementation as the host.
 
 Prepare with `bun run release:plugin --version X.Y.Z --channel stable|prerelease`; append
 `--check` for a temporary build without GitHub writes. Merging the validated release PR
-authorizes CI publication. Retry with `bun run release:plugin:retry --tag vX.Y.Z` to reuse
-frozen files. The [release reference](https://github.com/tkarakai/toolbelt/blob/main/docs/releases.md)
+authorizes CI publication. Before tagging, retry with
+`bun run release:plugin:retry --tag vX.Y.Z --pr <merged-release-PR>` or `--source <full-merge-SHA>`.
+Once an annotated tag exists, `--tag vX.Y.Z` alone resolves it. Retry reuses frozen files
+and never guesses from current main. Consumers adopting this command must update both
+the public SDK pin/lockfile and their workflow’s optional string `source` dispatch input. The [release reference](https://github.com/tkarakai/toolbelt/blob/main/docs/releases.md)
 covers thin workflow installation, required permissions, targets and immutable-byte recovery.

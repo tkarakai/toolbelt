@@ -298,3 +298,10 @@ summary in that column with the same alignment and horizontal padding as row val
 including on collapsed groups. A hidden or unknown column hides the summary in the table;
 the group inspector retains it. Omit `column` to keep a trailing, full-width summary.
 Column-bound summaries require ToolBelt 0.2.2 or newer.
+
+For host/API changes, prepare plugin code early, then pin the published SDK URL and lockfile
+before the plugin PR’s final CI. Keep the minimum host range explicit; SDK/app/plugin version
+numbers do not need to match. Coordinate publication using the
+[release sequencing guidance](releases.md#coordinating-app-sdk-and-plugin-changes).
+New SDK release tools require deliberate consumer pins and compatible workflow inputs;
+they do not update installed plugins automatically.

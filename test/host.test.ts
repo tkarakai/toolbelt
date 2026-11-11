@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PluginHost, discover, pluginDirs } from "../src/bun/host";
 import type { Node } from "../src/shared/protocol";
-import type { PluginInfo } from "../src/shared/rpc";
+import type { PluginInfo } from "../src/shared/plugin-state";
 
 const fixtures = join(import.meta.dir, "fixtures");
 const data = mkdtempSync(join(tmpdir(), "toolbelt-host-"));

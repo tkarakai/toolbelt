@@ -9,6 +9,7 @@ import {
   type ReleaseConfig,
   type ReleaseRecord,
   type Request,
+  type Product,
 } from "./core";
 
 export class GitHub {
@@ -122,6 +123,61 @@ export async function authorizedSource(
   );
 }
 
+export type RetrySelector = { tag: string; product?: Product; pr?: string; source?: string };
+
+async function taggedSource(gh: GitHub, tag: string): Promise<string | undefined> {
+  const ref = await gh.request(`git/ref/tags/${encodeURIComponent(tag)}`);
+  if (!ref) return undefined;
+  if (ref.object?.type !== "tag") throw Error("Release tag must be annotated");
+  const annotated = await gh.request(`git/tags/${ref.object.sha}`);
+  if (annotated?.object?.type !== "commit" || !/^[0-9a-f]{40}$/.test(annotated.object.sha))
+    throw Error("Release tag must identify an exact commit");
+  return annotated.object.sha;
+}
+
+/** Resolve an original authorization, never a movable main fallback. Read-only. */
+export async function resolveRetrySource(gh: GitHub, config: ReleaseConfig, selector: RetrySelector) {
+  const { tag, product, pr, source: explicit } = selector;
+  if (typeof tag !== "string" || !/^(sdk-)?v[0-9A-Za-z.-]+$/.test(tag)) throw Error("Invalid retry tag");
+  if (pr !== undefined && (typeof pr !== "string" || !/^[1-9][0-9]*$/.test(pr) || !Number.isSafeInteger(Number(pr)))) throw Error("Expected a positive release PR number");
+  if (explicit !== undefined && (typeof explicit !== "string" || !/^[0-9a-f]{40}$/.test(explicit))) throw Error("Expected an exact merge commit SHA");
+  if (pr !== undefined && explicit !== undefined) throw Error("Choose --pr or --source, not both");
+  let source = explicit;
+  if (pr !== undefined) {
+    const pull = await gh.request(`pulls/${pr}`);
+    if (!pull?.merged_at || pull.base?.ref !== "main" || pull.base?.repo?.full_name !== config.repo || pull.head?.repo?.full_name !== config.repo || !/^[0-9a-f]{40}$/.test(pull.merge_commit_sha))
+      throw Error("Retry PR must be a merged same-repository release PR to main");
+    source = pull.merge_commit_sha;
+  }
+  const tagged = await taggedSource(gh, tag);
+  if (source && tagged && source !== tagged) throw Error("Retry source conflicts with immutable release tag");
+  source ??= tagged;
+  if (!source) throw Error("Release has no tag yet; specify --pr <merged-release-PR> or --source <exact-merge-SHA>");
+  const request = await authorizedSource(gh, source, config);
+  if (!request || tagOf(request) !== tag || (product !== undefined && request.product !== product)) throw Error("No matching merged release authorization");
+  return { source, request };
+}
+
+/** Candidate recovery guards are applied both before dispatch and again in CI. */
+export async function planRelease(gh: GitHub, source: string, request: Request) {
+  const tag = tagOf(request);
+  const tagged = await taggedSource(gh, tag);
+  if (tagged && tagged !== source) throw Error("Retry source conflicts with immutable release tag");
+  const candidate = await existingCandidate(gh, tag, source);
+  const release = await gh.release(tag);
+  if (!candidate && (release || tagged)) throw Error("Frozen CI artifacts unavailable; recover original bytes before retrying; never rebuild a tagged or uploaded candidate");
+  return { candidate, release };
+}
+
+export async function dispatchRetry(gh: GitHub, config: ReleaseConfig, selector: RetrySelector) {
+  const resolved = await resolveRetrySource(gh, config, selector);
+  const plan = await planRelease(gh, resolved.source, resolved.request);
+  await gh.request("actions/workflows/release.yml/dispatches", "POST", {
+    ref: "main", inputs: { tag: selector.tag, source: resolved.source },
+  });
+  return { ...resolved, ...plan };
+}
+
 /** Every write is preceded by remote inspection, so a lost response can be retried safely. */
 export async function publish(
   gh: GitHub,
@@ -223,13 +279,29 @@ export async function publish(
     if (hash(bytes) !== f.sha256 || bytes.length !== f.size)
       throw Error(`Remote verification failed: ${f.name}`);
   }
-  const latest = record.channel === "stable" && record.product !== "sdk";
+  const stableFeed = record.channel === "stable" && record.product !== "sdk";
   const wasDraft = release.draft;
+  const currentLatest = async () => {
+    const current = await gh.request("releases/latest");
+    if (!current) return undefined;
+    if (current.draft || current.prerelease || typeof current.tag_name !== "string" || !/^v[0-9]+\.[0-9]+\.[0-9]+$/.test(current.tag_name))
+      throw Error("Latest must identify a stable version before publication");
+    const version = current.tag_name.slice(1);
+    validateRequest({ ...record, version, channel: "stable" }, config);
+    return version;
+  };
+  let promote = false;
+  let minimumLatest: string | undefined;
+  if (wasDraft && stableFeed) {
+    const previous = await currentLatest();
+    promote = previous === undefined || Bun.semver.order(record.version, previous) > 0;
+    minimumLatest = previous !== undefined && Bun.semver.order(previous, record.version) > 0 ? previous : record.version;
+  }
   if (wasDraft)
     await gh.request(`releases/${release.id}`, "PATCH", {
       draft: false,
       prerelease: record.channel === "prerelease",
-      make_latest: latest ? "true" : "false",
+      make_latest: promote ? "true" : "false",
     });
   release = await gh.request(`releases/${releaseId}`);
   if (
@@ -238,12 +310,11 @@ export async function publish(
     release.prerelease !== (record.channel === "prerelease")
   )
     throw Error("Publication could not be confirmed; retry the same tag");
-  if (
-    wasDraft &&
-    latest &&
-    (await gh.request("releases/latest"))?.tag_name !== tag
-  )
-    throw Error("Latest does not point to the published release");
+  if (minimumLatest !== undefined) {
+    const after = await currentLatest();
+    if (after === undefined || Bun.semver.order(after, minimumLatest) < 0)
+      throw Error("Latest moved backwards during publication; inspect the feed before retrying");
+  }
   console.log(release.html_url);
   return release.html_url as string;
 }
@@ -252,22 +323,27 @@ export async function existingCandidate(
   tag: string,
   source: string,
 ) {
-  const artifacts = await gh.request(
-    `actions/artifacts?name=${encodeURIComponent("release-" + tag)}&per_page=100`,
-  );
-  for (const artifact of artifacts?.artifacts ?? []) {
-    if (artifact.expired) continue;
-    const workflow = await gh.request(
-      "actions/runs/" + artifact.workflow_run.id,
+  let expired = false;
+  for (let page = 1; ; page++) {
+    const response = await gh.request(
+      `actions/artifacts?name=${encodeURIComponent("release-" + tag)}&per_page=100&page=${page}`,
     );
-    if (
-      workflow?.path === ".github/workflows/release.yml" &&
-      workflow.head_branch === "main" &&
-      ["push", "workflow_dispatch"].includes(workflow.event) &&
-      (workflow.event !== "push" || workflow.head_sha === source)
-    )
-      return artifact;
+    if (!Array.isArray(response?.artifacts)) throw Error("Frozen CI candidate inventory is unavailable");
+    for (const artifact of response.artifacts) {
+      const workflow = await gh.request("actions/runs/" + artifact.workflow_run.id);
+      if (
+        workflow?.path === ".github/workflows/release.yml" &&
+        workflow.head_branch === "main" &&
+        ["push", "workflow_dispatch"].includes(workflow.event) &&
+        (workflow.event !== "push" || workflow.head_sha === source)
+      ) {
+        if (artifact.expired) expired = true;
+        else return artifact;
+      }
+    }
+    if (response.artifacts.length < 100) break;
   }
+  if (expired) throw Error("Frozen CI candidate expired; recover original bytes or prepare a new version");
   return undefined;
 }
 export function recordIdentity(r: ReleaseRecord) {

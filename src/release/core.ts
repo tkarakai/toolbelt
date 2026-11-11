@@ -41,6 +41,8 @@ export type ReleaseConfig = {
         changelog: string;
         version(): string;
         setVersion(version: string): Promise<void>;
+        /** Product-specific complete validation; otherwise typecheck and all tests run. */
+        validate?(): Promise<void>;
         build(): Promise<string[]>;
       }
     >

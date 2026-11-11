@@ -25,11 +25,11 @@ import {
   type ReleaseConfig,
   type Request,
 } from "./core";
-import { authorizedSource, existingCandidate, github, publish } from "./github";
+import { authorizedSource, dispatchRetry, planRelease, resolveRetrySource, github, publish } from "./github";
 
 const help = `Toolbelt releases (non-interactive)
 Prepare: bun run release:<app|sdk|plugin> --version X.Y.Z --channel stable|prerelease [--check]
-Retry:   bun run release:<app|sdk|plugin>:retry --tag <existing-tag>
+Retry:   bun run release:<app|sdk|plugin>:retry --tag <tag> [--pr <merged-release-PR> | --source <exact-merge-SHA>]
 Preparation writes a release branch/version/changelog PR. --check builds in temporary staging.
 Merging the validated release PR authorizes CI publication. Retry resumes that authorization.
 Local build commands do not publish. No bare release command is supported.`;
@@ -38,7 +38,7 @@ function args(input: string[]) {
   for (let i = 0; i < input.length; i++) {
     const key = input[i]!;
     if (
-      !["--version", "--channel", "--tag", "--check"].includes(key) ||
+      !["--version", "--channel", "--tag", "--check", "--pr", "--source"].includes(key) ||
       flags[key] !== undefined
     )
       throw Error(help);
@@ -87,8 +87,11 @@ async function build(config: ReleaseConfig, r: Request) {
   if (r.product === "plugin" && json("package.json").version !== r.version)
     throw Error("Plugin package/manifest versions differ");
   await run(["bun", "install", "--frozen-lockfile"]);
-  await run(["bun", "run", "typecheck"]);
-  await run(["bun", "test"]);
+  if (product.validate) await product.validate();
+  else {
+    await run(["bun", "run", "typecheck"]);
+    await run(["bun", "test"]);
+  }
   return product.build();
 }
 async function prepare(
@@ -96,7 +99,7 @@ async function prepare(
   product: Product,
   flags: Record<string, string | boolean>,
 ) {
-  if (!flags["--version"] || !flags["--channel"] || flags["--tag"])
+  if (!flags["--version"] || !flags["--channel"] || Object.keys(flags).some(key => !["--version", "--channel", "--check"].includes(key)))
     throw Error(help);
   const r = validateRequest(
     {
@@ -275,26 +278,16 @@ export async function main(argv = process.argv.slice(2)) {
       product = command.split(":")[0];
     if (
       !flags["--tag"] ||
-      Object.keys(flags).length !== 1 ||
+      Object.keys(flags).some(key => !["--tag", "--pr", "--source"].includes(key)) ||
       !["app", "sdk", "plugin"].includes(product!)
     )
       throw Error(help);
     const gh = await github(config.repo),
       tag = String(flags["--tag"]);
-    const release = await gh.release(tag),
-      ref = await gh.request(`git/ref/tags/${tag}`);
-    let source =
-      ref?.object.type === "tag"
-        ? (await gh.request(`git/tags/${ref.object.sha}`))?.object.sha
-        : ref?.object.sha;
-    // Before tagging, the committed merged request still identifies the authorized release.
-    if (!source) source = (await gh.request("commits/main"))?.sha;
-    const r = await authorizedSource(gh, source, config);
-    if (!r || tagOf(r) !== tag || r.product !== product)
-      throw Error("No matching merged release authorization");
-    await gh.request("actions/workflows/release.yml/dispatches", "POST", {
-      ref: "main",
-      inputs: { tag },
+    const { release } = await dispatchRetry(gh, config, {
+      tag, product: product as Product,
+      ...(flags["--pr"] !== undefined ? { pr: String(flags["--pr"]) } : {}),
+      ...(flags["--source"] !== undefined ? { source: String(flags["--source"]) } : {}),
     });
     console.log(
       `CI retry requested for ${tag}${release && !release.draft ? " (will verify the immutable published release)" : ""}`,
@@ -331,29 +324,21 @@ export async function main(argv = process.argv.slice(2)) {
     let source = process.env.GITHUB_SHA!;
     const event = json(process.env.GITHUB_EVENT_PATH!);
     const retryTag = event.inputs?.tag;
+    if (event.inputs?.source && !retryTag) throw Error("Retry source requires an expected tag");
+    let r: Request | null;
     if (retryTag) {
-      if (!/^(sdk-)?v[0-9A-Za-z.-]+$/.test(retryTag))
-        throw Error("Invalid retry tag");
-      const ref = await gh.request(`git/ref/tags/${retryTag}`);
-      if (ref)
-        source =
-          ref.object.type === "tag"
-            ? (await gh.request(`git/tags/${ref.object.sha}`)).object.sha
-            : ref.object.sha;
-    }
-    const r = await authorizedSource(gh, source, config);
+      const resolved = await resolveRetrySource(gh, config, {
+        tag: retryTag,
+        ...(event.inputs?.source ? { source: event.inputs.source } : {}),
+      });
+      source = resolved.source;
+      r = resolved.request;
+    } else r = await authorizedSource(gh, source, config);
     if (!r) {
       await output({ release: "false" });
       return;
     }
-    if (retryTag && retryTag !== tagOf(r))
-      throw Error("Retry tag does not match merged source");
-    const candidate = await existingCandidate(gh, tagOf(r), source);
-    const remote = await gh.release(tagOf(r));
-    if (!candidate && remote)
-      throw Error(
-        "Frozen CI artifacts unavailable; recover original bytes before retrying; never rebuild an uploaded candidate",
-      );
+    const { candidate } = await planRelease(gh, source, r);
     await output({
       release: "true",
       source,
