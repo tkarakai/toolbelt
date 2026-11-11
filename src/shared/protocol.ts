@@ -23,7 +23,7 @@
 // Each plugin gets a folder of its own for data: the `TOOLBELT_DATA_DIR` environment variable
 // (`~/Library/Application Support/Toolbelt/data/<id>/`).
 
-export const PROTOCOL_VERSION = 0;
+export const PROTOCOL_VERSION = 1;
 
 /** `toolbelt.json`, next to the plugin's entry file. */
 export type Manifest = {
@@ -43,6 +43,8 @@ export type Manifest = {
 	quickView?: boolean;
 	repo?: string;
 	updateFeed?: string;
+	/** Action ids that need the host registered frontmost before handing focus to another app. */
+	handoffActions?: string[];
 	/** The plugin's command line, reachable as `tb <command>`. */
 	cli?: { command: string };
 };
@@ -333,12 +335,17 @@ export type Node =
 	| { type: "markdown"; text: string };
 
 export type HostMessage =
-	| { type: "hello"; protocol: number; plugin: { id: string }; host: { name: string; version: string } }
+	| { type: "prepare"; requestId: string; reason: string }
+	| { type: "shutdown" }
+	| { type: "hello"; protocol: number; capabilities?: string[]; plugin: { id: string }; host: { name: string; version: string } }
 	| { type: "open"; surface: string }
 	| { type: "close"; surface: string }
 	| { type: "event"; surface: string; name: string; payload?: unknown };
 
 export type PluginMessage =
+	| { type: "hello"; protocol: number; sdk: string; capabilities: string[] }
+	| { type: "ready" }
+	| { type: "prepared"; requestId: string; ready: boolean; reason?: string }
 	| { type: "render"; surface: string; tree: Node }
 	| { type: "badge"; value: number | string | null }
 	| { type: "toast"; text: string; tone?: "default" | "success" | "error"; /** a button on the toast; clicking sends this event, surface "toast" */ action?: { id: string; label: string; payload?: unknown } }
@@ -368,6 +375,7 @@ export function parseManifest(json: unknown): Manifest {
 	};
 	need(m && typeof m === "object", "not an object");
 	need(typeof m.id === "string" && /^[a-z0-9][a-z0-9-]*$/.test(m.id), "`id` must be lowercase letters, digits and dashes");
+	need(!["toolbelt","constructor"].includes(m.id!),"`id` is reserved by the host");
 	need(typeof m.name === "string" && m.name.trim(), "`name` is required");
 	need(typeof m.entry === "string" && m.entry, "`entry` is required");
 	need(m.protocol === PROTOCOL_VERSION, `\`protocol\` must be ${PROTOCOL_VERSION} (got ${m.protocol})`);

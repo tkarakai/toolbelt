@@ -1,2 +1,2 @@
-{ "id": "crash", "name": "Crash", "icon": "bug", "version": "1.0.0", "protocol": 0, "entry": "index.ts",
+{ "id": "crash", "name": "Crash", "icon": "bug", "version": "1.0.0", "protocol": 1, "entry": "index.ts",
   "screens": [{ "id": "main", "title": "Main" }] }

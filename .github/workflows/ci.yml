@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/architecture2]
   pull_request:
-    branches: [main]
+    branches: [main, feat/architecture2]
   workflow_dispatch:
 
 permissions: {}
@@ -30,6 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
@@ -38,6 +39,11 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Electrobun devkit (pinned bootstrap, checksum-verified Hutch)
         run: bunx electrobun prepare
+      - name: Validate release request
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin main
+          bun src/release/cli.ts validate-request
       - name: Typecheck
         run: bun run typecheck
       - name: Tests
@@ -48,17 +54,17 @@ jobs:
           ls -la artifacts
           # The update bundle has the UI, the built-in plugins and the Bun runtime.
           tar -tf artifacts/stable-macos-arm64-Toolbelt.app.tar.zst > "$RUNNER_TEMP/bundle.txt"
-          for f in app/views/ui/index.html app/plugins/processes/toolbelt.json app/plugins/upkeep/toolbelt.json app/plugins/upkeep/index.js MacOS/bun; do
+          for f in app/views/ui/index.html app/seed/demo.tar.gz app/seed/seed.json MacOS/bun; do
             grep -q "Contents/.*$f$" "$RUNNER_TEMP/bundle.txt" || { echo "::error::missing $f in the update bundle"; exit 1; }
           done
           grep -q '"identifier":"io.github.tkarakai.toolbelt"' artifacts/stable-macos-arm64-update.json
           # Ad-hoc signed. (Electrobun's self-extracting launcher fails `codesign --verify --strict`:
           # "code has no resources but signature indicates they must be present".)
           codesign -dv build.noindex/stable-macos-arm64/Toolbelt.app 2>&1 | grep -q 'Signature=adhoc'
-      - name: Verify release downloads (desktop DMG and both terminal archives)
+      - name: Verify host and SDK artifacts
         run: |
           bun run dmg
-          bun scripts/make-terminal-archives.ts
+          bun run sdk:package
       - name: Diagnose disk image failures
         if: failure()
         run: |
@@ -112,6 +118,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: Install actionlint (checksum verified)
         env:

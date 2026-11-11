@@ -1,7 +1,8 @@
+import { PluginManager } from "./PluginManager";
 // The main window: the app sidebar (resizable, collapses to an icon rail) and the selected
 // plugin's pane with its tabs. Route: #/<plugin>/<screen>, or #/toolbelt for Toolbelt's own page.
 //
-// Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · ⌘P / ⌘K / ⌘S Processes tabs · ⌃⇥ / ⌃⇧⇥ next and
+// Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · manifest-declared tab shortcuts · ⌃⇥ / ⌃⇧⇥ next and
 // previous tab · ⌘B sidebar · ⌘W closes the window (app menu).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, Monitor, Moon, PanelLeft, RotateCw, Settings, Sun, X } from "lucide-react";
@@ -15,7 +16,8 @@ import { QuitDialog } from "./QuitDialog";
 import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { WindowZoom, ZoomKeys } from "@/lib/zoom";
 import { UpdateDot, UpdatesCard, useUpdateAvailable, useUpdateState } from "./Updates";
-import { EmptyState, Render, Dot } from "@/renderer/Render";
+import { EmptyState, Dot } from "@/renderer/Render";
+import { SafeRender as Render } from "@/renderer/SafeRender";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
@@ -142,7 +144,7 @@ export default function App() {
 				) : current && screen ? (
 					<PluginPane key={current.manifest.id} info={current} screen={screen} go={go} />
 				) : plugins.length ? null : (
-					<Loading />
+					<div className="p-8"><h1 className="text-lg font-medium">Welcome to Toolbelt</h1><p className="my-3 text-muted-foreground">Install a plugin to get started.</p><Button onClick={()=>go(TOOLBELT)}>Manage plugins</Button></div>
 				)}
 			</SidebarInset>
 		</SidebarProvider>
@@ -266,17 +268,17 @@ function PaneHeader({ manifest, children }: { manifest: Pick<Manifest, "name" | 
 	const { state } = useSidebar();
 	const collapsed = state === "collapsed";
 	return (
-		<header onDoubleClick={zoomOnDoubleClick} className="electrobun-webkit-app-region-drag flex h-12 shrink-0 items-center gap-3 border-b pr-6" style={{ paddingLeft: collapsed ? TRAFFIC_LIGHTS_END - RAIL : 24 }}>
+		<header onDoubleClick={zoomOnDoubleClick} className="electrobun-webkit-app-region-drag flex h-12 min-w-0 shrink-0 items-center gap-3 overflow-hidden border-b pr-6" style={{ paddingLeft: collapsed ? TRAFFIC_LIGHTS_END - RAIL : 24 }}>
 			{collapsed && (
 				<div className="-ml-1">
 					<CollapseButton />
 				</div>
 			)}
-			<div className="flex items-center gap-2.5">
+			<div className="flex min-w-0 max-w-[40%] shrink-0 items-center gap-2.5">
 				<div className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
 					<Icon name={manifest.icon} className="size-4" />
 				</div>
-				<h1 className="text-sm font-semibold">{manifest.name}</h1>
+				<h1 className="truncate text-sm font-semibold">{manifest.name}</h1>
 			</div>
 			{children}
 		</header>
@@ -291,7 +293,7 @@ function PluginPane({ info, screen, go }: { info: PluginInfo; screen: string; go
 			<PaneHeader manifest={m}>
                 {development && <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">DEV</Badge>}
 				{m.screens.length > 1 && (
-					<Tabs value={screen} onValueChange={(s) => go(m.id, s)} className="electrobun-webkit-app-region-no-drag">
+					<Tabs value={screen} onValueChange={(s) => go(m.id, s)} className="electrobun-webkit-app-region-no-drag min-w-0 flex-1 overflow-x-auto">
 						<TabsList>
 							{m.screens.map((s, i) => (
 								<TabsTrigger key={s.id} value={s.id} className="flex-none gap-0 px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground! data-[state=active]:hover:text-selected-foreground!" title={`${s.title}  ${s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`}`}>
@@ -374,7 +376,8 @@ function ToolbeltPage({ plugins, onClose }: { plugins: PluginInfo[]; onClose: ()
 			</PaneHeader>
 			<div className="min-h-0 flex-1 overflow-auto">
 				<div className="mx-auto max-w-4xl space-y-6 px-6 py-6">
-					<UpdatesCard />
+					<PluginManager />
+                    <UpdatesCard />
 					<AppearanceSetting />
 					<Card>
 						<CardHeader>
@@ -421,13 +424,13 @@ function ToolbeltPage({ plugins, onClose }: { plugins: PluginInfo[]; onClose: ()
 						</CardHeader>
 						<CardContent className="grid grid-cols-[1fr_auto] items-center gap-y-3 text-sm">
 							<Shortcut label="Switch tool (hold ⌘ to see the numbers)" keys={["⌘1 … ⌘9"]} />
-							<Shortcut label="Processes / Kept / Settings" keys={["⌘P", "⌘K", "⌘S"]} />
+							<Shortcut label="Plugin tabs (declared by the plugin)" keys={["⌘letter", "⌥⌘1 …"]} />
 							<Shortcut label="Next / previous tab" keys={["⌃⇥", "⌃⇧⇥"]} />
 							<Shortcut label="Collapse or expand the sidebar" keys={["⌘B"]} />
 							<Shortcut label="Filter" keys={["⌘F", "/"]} />
 							<Shortcut label="Move through rows · expand / collapse" keys={["↑", "↓", "→", "←"]} />
 							<Shortcut label="Row: main action · all actions · deselect" keys={["↵", ".", "esc"]} />
-							<Shortcut label="Row actions have letters (Processes: J jump, P peek, B browser) — shown on hover and in the details" keys={["J", "P", "B", "…"]} />
+							<Shortcut label="Row action letters — shown on hover and in details" keys={["letter"]} />
 							<Shortcut label="“Which one?” menus: pick by number" keys={["1 … 9"]} />
 							<Shortcut label="Toolbelt settings (this page)" keys={["⌘,"]} />
 							<Shortcut label="Menu bar popover: open a tool in this window (its letter is on the row)" keys={["P", "S", "…"]} />
