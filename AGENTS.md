@@ -72,7 +72,9 @@ official app identity: launch via `bun scripts/run-evaluation.ts` to use an isol
 Global shortcuts use Carbon through `hotkey.ts`; avoid Electrobun GlobalShortcut's silent
 Accessibility dependency. Release and updater rehearsal details are in maintenance.md.
 
-Release commands must match the runbook and current scripts. Merging a validated release PR authorizes CI publication; ordinary feature merges and passing CI do not. Preserve
-immutable published bytes, verify draft assets where publishing manually, and use the documented
-retry boundary rather than rerunning a tagged release. Do not assume plugin repos have a
-`release` script or that app publication updates their releases/SDK pins.
+Release commands must match [docs/releases.md](docs/releases.md). Preparation opens a version
+PR; merging its validated product/version/channel request authorizes CI publication. Ordinary
+feature merges and passing CI do not publish. Preserve immutable tags/assets, frozen candidates,
+draft byte verification and explicit retry boundaries. SDK releases and prereleases never advance
+the app feed. Plugin repositories consume the release CLI through their pinned SDK; SDK/app
+publication does not update plugin dependency pins or publish plugin releases automatically.

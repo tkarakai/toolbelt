@@ -156,8 +156,22 @@ profiles, diagnostics, restart/reset, viewport controls and native menu-bar mode
 package and runtime contracts. It does not depend on an installed Toolbelt or plugin sources.
 
 App updates are a separate signed-DMG flow in `updater.ts`, with installed-plugin compatibility
-preflight and busy-plugin preparation. The app release contains its DMG, SDK archive and tester
-DMG/tarball. Plugin packages and terminal distributions have independent releases. Build and
+preflight and busy-plugin preparation. The app release contains its DMG and tester DMG/tarball. The SDK has a canonical, independently versioned sdk-v release. Plugin packages and terminal distributions have independent releases. Build and
 release procedures are in [releases.md](releases.md); maintenance is in
 [maintenance.md](maintenance.md), and author contracts are in
 [plugins.md](plugins.md).
+
+## Release tooling
+
+The development-only SDK release entry point and executable are built from `src/release/`.
+They reuse the host archive, package, protocol and lifecycle implementation. Runtime SDK
+imports and plugin bundles do not load release tooling. Repository-owned `release.config.ts`
+adapters supply version/changelog changes and specialized builders; shared code creates
+archives, descriptors, hashes, release requests and frozen candidates.
+
+Preparation opens a version PR. CI validates its request; merging authorizes publication from
+the actual merged source. Read-only build/native jobs produce and test a candidate, retained
+with its source/hash record. A separate publisher verifies uploaded draft bytes before making
+the release public. Retries reuse the same candidate, and published assets/tags are immutable.
+SDK releases and prereleases leave the app Latest feed unchanged. See [releases.md](releases.md)
+for commands, permissions and recovery.
