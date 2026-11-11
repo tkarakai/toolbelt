@@ -1,3 +1,4 @@
+import { ManualUpdate } from "./components/manual-update";
 import { RepositoryLink } from "./components/repository-link";
 import { buildInfo } from "./build-info";
 // Updates, in the UI: the card on ToolBelt's page (version, channel, last check, what's new),
@@ -42,25 +43,28 @@ let current: UpdateState | null = null;
 const local = new Set<() => void>();
 let asked = false;
 let simulated: UpdateState | null = null;
+let simulatedKind = "off";
 function simulate(kind: string) {
   if (current?.channel !== "dev") return;
+  simulatedKind = kind;
   if (kind === "off") simulated = null;
   else {
     const release = {version:"99.0.0",notes:"## Preview release\n\nSample improvements for reviewing the update experience.",page:"https://github.com/tkarakai/toolbelt/releases",dmg:"",size:48*1048576,sha256:null,published:Date.now()};
-    simulated = {...current, enabled:true, available:release, latest:release, checking:false, lastError:null,
-      phase: kind === "downloading" ? {kind,received:24*1048576,total:48*1048576,speed:2*1048576} : kind === "failed" ? {kind,message:"Simulated update failure. Your app has not been changed."} : {kind:kind as "idle"|"verifying"|"installing"|"relaunching"}};
+    const checkFailed = kind === "check-failed" || kind === "check-failed-cached";
+    simulated = {...current, enabled:true, available:kind === "check-failed" || kind === "up-to-date" ? null : release, latest:kind === "check-failed" || kind === "up-to-date" ? null : release, checking:false, lastError:checkFailed ? "GitHub answered 403" : null,
+      phase: kind === "downloading" ? {kind,received:24*1048576,total:48*1048576,speed:2*1048576} : kind === "failed" ? {kind,message:"Simulated update failure. Your app has not been changed."} : {kind:checkFailed || kind === "up-to-date" ? "idle" : kind as "idle"|"verifying"|"installing"|"relaunching"}};
   }
   local.forEach(l => l());
 }
 function updateAction(action: "installUpdate"|"cancelUpdate"|"dismissUpdate"|"checkForUpdates") {
-  if (simulated) { simulate(action === "installUpdate" ? "downloading" : "idle"); return; }
+  if (simulated) { simulate(action === "checkForUpdates" ? simulatedKind : action === "installUpdate" ? "downloading" : "idle"); return; }
   void rpc.request[action]({});
 }
 function DevUpdatePreview() {
   if (current?.channel !== "dev") return null;
   return <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">Development preview (no installation)
-    <select aria-label="Simulated app update state" className="rounded border bg-background p-1 text-foreground" value={simulated?.phase.kind ?? "off"} onChange={e => simulate(e.target.value)}>
-      {[["off","Off"],["idle","Available / confirmation"],["downloading","Downloading"],["verifying","Verifying"],["installing","Installing"],["relaunching","Restarting"],["failed","Failed"]].map(([value,label]) => <option key={value} value={value}>{label}</option>)}
+    <select aria-label="Simulated app update state" className="rounded border bg-background p-1 text-foreground" value={simulated ? simulatedKind : "off"} onChange={e => simulate(e.target.value)}>
+      {[["off","Off"],["up-to-date","No update / manual link"],["check-failed","Check failed / manual guide"],["check-failed-cached","Check failed / cached update"],["idle","Available / confirmation"],["downloading","Downloading"],["verifying","Verifying"],["installing","Installing"],["relaunching","Restarting"],["failed","Installation failed"]].map(([value,label]) => <option key={value} value={value}>{label}</option>)}
     </select>
   </label>;
 }
@@ -132,9 +136,9 @@ export function UpdatesCard() {
           <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Installed release</div><p className="text-sm">Version <span className="font-mono font-medium">{s.version} ({buildInfo.commit})</span></p><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs capitalize",pillClass("muted"))}>{s.channel}</span></div>
           <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Update channel</div><div className="flex items-center gap-1.5 text-sm"><GitBranch className="size-3.5 text-muted-foreground"/>{s.channel === "stable" ? "Stable" : s.channel === "dev" ? "Development" : s.channel}</div><p className="text-xs leading-relaxed text-muted-foreground">{s.enabled ? "Use stable releases for future checks." : "Automatic updates are unavailable in this build."}</p></div>
         </div>
-        {s.lastError && <p role="alert" className="break-words text-sm text-destructive">{s.lastError}</p>}
+        <ManualUpdate name="ToolBelt" version={s.version} repo="tkarakai/toolbelt" failed={!!s.lastError}/>
         {r && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
-          <div className="min-w-0 flex-1 space-y-2"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">Available update</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass("info"))}>Stable</span></div><p className="text-sm">Version <span className="font-mono font-medium">{r.version}</span></p><p className="text-xs text-muted-foreground">{r.published ? `Released ${date(r.published)} · ` : ""}{mb(r.size)}</p></div>
+          <div className="min-w-0 flex-1 space-y-2"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{s.lastError ? "Previously found update" : "Available update"}</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass("info"))}>Stable</span></div><p className="text-sm">Version <span className="font-mono font-medium">{r.version}</span></p><p className="text-xs text-muted-foreground">{r.published ? `Released ${date(r.published)} · ` : ""}{mb(r.size)}</p></div>
           <Button size="sm" disabled={s.phase.kind !== "idle"} onClick={() => openDialog()}><Download/>Review and Update</Button>
         </div>}
         <DevUpdatePreview/>

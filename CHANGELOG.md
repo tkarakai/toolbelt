@@ -2,7 +2,14 @@
 
 ## Unreleased
 
+- Copy app and plugin manual update instructions, including their release link, for saving elsewhere.
+
+- Preview failed update checks, cached availability and the always-available manual guide in the development update simulator.
+
+- Offer calm recovery cards for failed app and plugin update checks, with always-available browser release guides and explicit plugin-tag review through the verified installer.
+
 ## 0.3.0 — 2026-11-11
+
 - Include app artwork in standalone Plugin Tester build staging so shared update screens bundle successfully.
 
 - Open plugin and app repository links from Settings in the default browser.

@@ -58,3 +58,14 @@ test("all mutating lifecycle phases block conflicting actions", () => {
   for (const phase of ["ready", "failed", "quarantined", "disabled"] as const)
     expect(isActivePhase(phase)).toBe(false);
 });
+
+test("manual update recovery follows each plugin's latest check, not runtime activity", async () => {
+  const { updateCheckFailed } = await import("../src/ui/plugin-manager-model");
+  const failure = "today · Update check failed: GitHub answered 403";
+  expect(updateCheckFailed({ checkActivities: [failure] })).toBe(true);
+  expect(updateCheckFailed({ logs: [failure, "today · ready"] })).toBe(true);
+  expect(updateCheckFailed({ logs: [failure, "today · Update check succeeded: already up to date"] })).toBe(false);
+  expect(updateCheckFailed({ logs: [failure, "today · Update available: 2.0.0"] })).toBe(false);
+  expect(updateCheckFailed({ logs: ["today · Runtime failure: crash"] })).toBe(false);
+  expect(updateCheckFailed({})).toBe(false);
+});
