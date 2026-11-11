@@ -279,13 +279,29 @@ export async function publish(
     if (hash(bytes) !== f.sha256 || bytes.length !== f.size)
       throw Error(`Remote verification failed: ${f.name}`);
   }
-  const latest = record.channel === "stable" && record.product !== "sdk";
+  const stableFeed = record.channel === "stable" && record.product !== "sdk";
   const wasDraft = release.draft;
+  const currentLatest = async () => {
+    const current = await gh.request("releases/latest");
+    if (!current) return undefined;
+    if (current.draft || current.prerelease || typeof current.tag_name !== "string" || !/^v[0-9]+\.[0-9]+\.[0-9]+$/.test(current.tag_name))
+      throw Error("Latest must identify a stable version before publication");
+    const version = current.tag_name.slice(1);
+    validateRequest({ ...record, version, channel: "stable" }, config);
+    return version;
+  };
+  let promote = false;
+  let minimumLatest: string | undefined;
+  if (wasDraft && stableFeed) {
+    const previous = await currentLatest();
+    promote = previous === undefined || Bun.semver.order(record.version, previous) > 0;
+    minimumLatest = previous !== undefined && Bun.semver.order(previous, record.version) > 0 ? previous : record.version;
+  }
   if (wasDraft)
     await gh.request(`releases/${release.id}`, "PATCH", {
       draft: false,
       prerelease: record.channel === "prerelease",
-      make_latest: latest ? "true" : "false",
+      make_latest: promote ? "true" : "false",
     });
   release = await gh.request(`releases/${releaseId}`);
   if (
@@ -294,12 +310,11 @@ export async function publish(
     release.prerelease !== (record.channel === "prerelease")
   )
     throw Error("Publication could not be confirmed; retry the same tag");
-  if (
-    wasDraft &&
-    latest &&
-    (await gh.request("releases/latest"))?.tag_name !== tag
-  )
-    throw Error("Latest does not point to the published release");
+  if (minimumLatest !== undefined) {
+    const after = await currentLatest();
+    if (after === undefined || Bun.semver.order(after, minimumLatest) < 0)
+      throw Error("Latest moved backwards during publication; inspect the feed before retrying");
+  }
   console.log(release.html_url);
   return release.html_url as string;
 }

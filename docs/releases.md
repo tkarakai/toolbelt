@@ -65,8 +65,8 @@ read permissions. The publisher creates an annotated tag and draft, uploads exac
 downloads and compares every file and checks inventory before publishing. The release record is
 also a release asset. Existing differing tags or bytes are conflicts, never overwritten.
 
-Stable app releases advance ToolBelt Latest. SDK releases and all prereleases use Latest=false.
-Stable plugin releases advance Latest only in their own repository. Published assets and tags are
+Stable app releases advance ToolBelt Latest only when newer than the current stable version. SDK releases and all prereleases use Latest=false.
+Stable plugin releases advance Latest only in their own repository and never to an older version. Published assets and tags are
 immutable. Corrections require a new version. App notes retain the `## Downloads` boundary used
 by the updater. App DMGs are ad-hoc signed and verified, not Apple-notarized.
 
@@ -96,10 +96,15 @@ If publication succeeded but its response was lost, retry verifies and reports t
 immutable release. Inspect the failed workflow stage before retrying. Do not delete tags, clobber
 assets or rerun an old manual publisher. If exact recovery is unavailable, prepare a new version.
 
-Retry retains the current feed policy: completing a stable app/plugin draft marks that
-release Latest, even if it is older than a release published since its original failure.
-An already-public retry only verifies the immutable release. Consider feed position before
-recovering a historical unpublished stable release; source pinning does not change this policy.
+Recovering an older stable app/plugin draft publishes it without replacing a newer Latest.
+Publication jobs serialize per repository so cooperating CI releases cannot race the Latest
+check/update. Direct publishers must not run outside that serialization. An already-public
+retry only verifies the immutable release. Historical recovery runs the publisher captured
+from the exact trusted workflow commit against the original source checkout and frozen
+candidate; it never rewrites their source, tooling record or bytes. Use the updated dispatch
+workflow: rerunning a historical workflow definition may execute its older publisher.
+A canceled pending publication can be retried from
+its original authorization and frozen candidate; never rebuild or overwrite its saved bytes.
 
 Local build/package commands create files only. Bare `bun run release` does not publish.
 Never replace the installed daily app or operate real software/processes/dotfiles to test a release.
@@ -128,7 +133,12 @@ Never replace the installed daily app or operate real software/processes/dotfile
 
 Publish the SDK containing the retry change before consumers update their exact SDK URL and
 lockfile. In the same consumer change, add optional string input `source` to the owning
-`.github/workflows/release.yml` dispatch interface (the existing `tag` remains required).
+`.github/workflows/release.yml` dispatch interface (the existing `tag` remains required). Also serialize the `publish` job
+across release tags with repository-scoped concurrency and `cancel-in-progress: false`.
+Capture the publisher CLI from the SDK installed at the trusted workflow commit before
+checking out the original release source, then run that captured CLI for `ci-publish`
+against the original source/config and downloaded frozen candidate. Do not execute the
+old source’s publisher or change the candidate to adopt the new tooling.
 The CLI resolves `--pr` locally and dispatches `{tag, source}`; the workflow’s plan step
 must use that updated SDK too. Updating the SDK pin or workflow alone is insufficient.
 A pin update adopts development tooling; installed plugin bytes change only through a
