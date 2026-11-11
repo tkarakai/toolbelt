@@ -38,6 +38,7 @@ export type Installed = {
   asset?: string;
   removed?: boolean;
   availableVersion?: string;
+  availableSince?: number;
   dataInitialized?: boolean;
   deleteDataPending?: boolean;
   dataSchema?: number;
@@ -178,7 +179,7 @@ function validateRegistry(value: any, root: string): Registry {
 }
 export function checkCompatibility(m: PackageManifest, hostVersion = "0.1.0") {
   if (!Bun.semver.satisfies(hostVersion, m.requires.host))
-    throw new Error("Plugin requires another Toolbelt host version");
+    throw new Error("Plugin requires another ToolBelt host version");
   if (!Bun.semver.satisfies(Bun.version, m.requires.bun))
     throw new Error("Plugin requires another Bun version");
   if (
@@ -361,7 +362,7 @@ export class PackageManager {
     if (this.hostUpgrading)
       return Promise.reject(
         new Error(
-          "Toolbelt is preparing to update; plugin changes are temporarily deferred",
+          "ToolBelt is preparing to update; plugin changes are temporarily deferred",
         ),
       );
     const previous = this.operations.get(id) ?? Promise.resolve();

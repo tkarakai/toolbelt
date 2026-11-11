@@ -1,4 +1,4 @@
-// "Quit Toolbelt?" — asked before quitting from ⌘Q or a Quit button. ↵ quits (the Quit button
+// "Quit ToolBelt?" — asked before quitting from ⌘Q or a Quit button. ↵ quits (the Quit button
 // has focus), esc or Cancel stays, ⇥ moves between them; ⌘Q again while it's open quits too.
 import { useCallback, useState } from "react";
 import { Power } from "lucide-react";
@@ -28,7 +28,7 @@ export function QuitDialog() {
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogContent className="sm:max-w-sm" showCloseButton={false}>
 				<DialogHeader>
-					<DialogTitle>Quit Toolbelt?</DialogTitle>
+					<DialogTitle>Quit ToolBelt?</DialogTitle>
 					<DialogDescription>The menu bar icon and every tool stop. Processes you started in your terminals keep running.</DialogDescription>
 				</DialogHeader>
 				<DialogFooter>

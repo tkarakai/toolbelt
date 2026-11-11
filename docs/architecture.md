@@ -1,6 +1,6 @@
 # Architecture
 
-Toolbelt is a macOS application built with Electrobun: a Bun main process and WKWebView
+ToolBelt is a macOS application built with Electrobun: a Bun main process and WKWebView
 surfaces rendering React and shadcn/ui. It hosts independent, prebuilt plugin packages.
 Each enabled plugin runs in its own Bun process; plugins send declarative UI trees over
 JSON-lines and do not inject browser JavaScript, HTML or React components.
@@ -51,7 +51,7 @@ Checksums establish byte identity, not publisher trust.
 
 ## Profiles and storage
 
-The official profile is `~/Library/Application Support/Toolbelt`. Toolbelt Dev has its own
+The official profile is `~/Library/Application Support/ToolBelt`. ToolBelt Dev has its own
 identity and profile. `TOOLBELT_CONFIG_DIR` selects an explicit app profile. Renderer preferences
 are namespaced by profile as well as surface. The tester uses its own named profiles.
 
@@ -114,7 +114,9 @@ and item; the opposite arrow or Escape returns to the main list. Inputs, dialogs
 retain their own keys. Active selections use the full selection fill; inactive selections
 use an AA-checked intermediate fill, with a gentle border around the active pane. Keyboard
 navigation ignores hover changes caused by layout movement under a stationary pointer.
-The first quick view waits 200 ms after opening. Its window geometry is reserved before
+Popover entrance animations hold their initial pose until two renderer animation frames
+after showing, avoiding hidden WKWebView animation-clock advancement. The first quick view
+waits 200 ms from that visible-frame start. Its window geometry is reserved before
 first paint so revealing it does not move or remount the list. New quick views slide out
 from the selected row; old views slide back using inert, noninteractive snapshots for 150 ms
 while their live surface subscriptions close immediately. Reduced motion skips the slides.
@@ -186,7 +188,7 @@ seed selections survive app upgrades, and a seed does not replace an installed v
 
 The standalone tester embeds Bun and the production host/renderer. Its local-archive approval,
 profiles, diagnostics, restart/reset, viewport controls and native menu-bar mode use the same
-package and runtime contracts. It does not depend on an installed Toolbelt or plugin sources.
+package and runtime contracts. It does not depend on an installed ToolBelt or plugin sources.
 
 App updates are a separate signed-DMG flow in `updater.ts`, with installed-plugin compatibility
 preflight and busy-plugin preparation. The app release contains its DMG and tester DMG/tarball. The SDK has a canonical, independently versioned sdk-v release. Plugin packages and terminal distributions have independent releases. Build and
@@ -208,3 +210,20 @@ with its source/hash record. A separate publisher verifies uploaded draft bytes 
 the release public. Retries reuse the same candidate, and published assets/tags are immutable.
 SDK releases and prereleases leave the app Latest feed unchanged. See [releases.md](releases.md)
 for commands, permissions and recovery.
+
+## Update navigation
+
+The popover header keeps the app shortcut beside the ToolBelt name. A neutral Updates
+button summarizes available app and plugin releases after 200 ms of pointer hover.
+Plugin availability dates record the first successful discovery of the current candidate;
+app dates are release publication dates. Keyboard focus clears the plugin row highlight
+and does not open the summary. Click or Enter opens `#/toolbelt/updates`, scrolling Settings
+to the app Updates card; plugin update controls are immediately above it. Settings controls
+in both surfaces expose a Settings tooltip. Menu bar update badges use neutral contrast.
+
+ToolBelt is the displayed marketing name; `toolbelt` remains the project/CLI name. Existing
+profile directories, bundle paths and release asset names retain their compatibility spelling.
+
+Signed distribution and evaluation bundles set both `CFBundleName` and `CFBundleDisplayName`
+to ToolBelt (ToolBelt Plugin Tester for the tester). The application menu includes the native
+About panel, using the bundle icon and version metadata.

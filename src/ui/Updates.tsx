@@ -1,8 +1,8 @@
-// Updates, in the UI: the card on Toolbelt's page (version, channel, last check, what's new),
+// Updates, in the UI: the card on ToolBelt's page (version, channel, last check, what's new),
 // the dialog that walks through an update (download → verify → install → restart), the red dot
 // for the sidebar and the popover's "Update available" row. The work happens in the main
 // process (src/bun/updater.ts); this shows its state, pushed as `updateState`.
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -35,6 +35,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { getPluginManagerAdapter } from "./plugin-manager-model";
 import { Progress } from "@/components/ui/progress";
 
 // One copy of the state for every component in this view.
@@ -81,29 +82,32 @@ export function UpdateDot({ className }: { className?: string }) {
     <span
       aria-label="Update available"
       className={cn(
-        "inline-block size-2 shrink-0 rounded-full bg-red-500 ring-2 ring-sidebar",
+        "inline-block size-2 shrink-0 rounded-full bg-foreground ring-2 ring-sidebar",
         className,
       )}
     />
   );
 }
 
-// ── the card on Toolbelt's page ──────────────────────────────────────────
+// ── the card on ToolBelt's page ──────────────────────────────────────────
 let openDialog: () => void = () => {};
 
 export function UpdatesCard() {
   const s = useUpdateState();
+  useEffect(() => {
+    if (s && location.hash === "#/toolbelt/updates") document.getElementById("updates")?.scrollIntoView({ block: "start" });
+  }, [!!s]);
   if (!s) return null;
   const r = s.available;
   return (
-    <Card>
+    <Card id="updates">
       <CardHeader>
         <CardTitle>Updates</CardTitle>
         <CardDescription>
           {s.channel === "tester"
-            ? "The standalone tester uses its own profile and does not update your installed Toolbelt."
+            ? "The standalone tester uses its own profile and does not update your installed ToolBelt."
             : s.enabled
-              ? "Toolbelt looks for new releases on GitHub a few times a day and updates itself when you say so."
+              ? "ToolBelt looks for new releases on GitHub a few times a day and updates itself when you say so."
               : "This is a dev build: it doesn't update itself — it runs from your checkout (bun run dev)."}
         </CardDescription>
       </CardHeader>
@@ -194,11 +198,11 @@ function StatusIcon({ s }: { s: UpdateState }) {
 }
 
 function title(s: UpdateState): string {
-  if (!s.enabled) return `Toolbelt ${s.version}`;
+  if (!s.enabled) return `ToolBelt ${s.version}`;
   if (s.checking) return "Checking GitHub for a new version…";
-  if (s.available) return `Toolbelt ${s.available.version} is available`;
+  if (s.available) return `ToolBelt ${s.available.version} is available`;
   if (s.lastError) return "Couldn't check for updates";
-  if (s.lastChecked) return "Toolbelt is up to date";
+  if (s.lastChecked) return "ToolBelt is up to date";
   return "Not checked yet";
 }
 
@@ -296,12 +300,12 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
           <div className="min-w-0 space-y-1.5">
             <DialogTitle className="text-base">
               {kind === "idle"
-                ? "A new version of Toolbelt"
+                ? "A new version of ToolBelt"
                 : kind === "failed"
                   ? "The update didn't finish"
                   : kind === "relaunching"
                     ? "Restarting…"
-                    : "Updating Toolbelt"}
+                    : "Updating ToolBelt"}
             </DialogTitle>
             <DialogDescription asChild>
               <div className="flex items-center gap-2">
@@ -329,7 +333,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
                 <RotateCw className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
                 <div className="text-sm">
                   <div className="font-medium">
-                    Toolbelt will quit and reopen
+                    ToolBelt will quit and reopen
                   </div>
                   <div className="text-muted-foreground">
                     Its tools restart with it; processes you started in your
@@ -372,7 +376,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
                 index={3}
                 current={step}
                 title="Restart"
-                detail={`Toolbelt reopens with v${r?.version ?? ""}`}
+                detail={`ToolBelt reopens with v${r?.version ?? ""}`}
               />
             </ol>
           )}
@@ -539,19 +543,51 @@ function Step({
   );
 }
 
-// ── the popover's row ────────────────────────────────────────────────────
-/** "Update available — 0.2.0": opens the window on Toolbelt's page. */
-export function PopoverUpdateRow() {
-  const r = useUpdateAvailable();
-  if (!r) return null;
-  return (
-    <button
-      onClick={() => rpc.send.showWindow({ plugin: "toolbelt" })}
-      className="mx-2 mb-1 flex animate-in items-center gap-2.5 rounded-lg bg-red-500/10 px-3 py-2 text-left text-sm outline-none fade-in-0 duration-200 hover:bg-red-500/15"
-    >
-      <UpdateDot className="ring-0" />
-      <span className="flex-1 font-medium">Update available — {r.version}</span>
-      <span className="text-xs text-muted-foreground">Update…</span>
-    </button>
-  );
+// Header summary is intentionally pointer-only; keyboard activation opens Settings.
+export function PopoverUpdateRow({ onPanelChange }: { onPanelChange?: (open: boolean) => void }) {
+  const app = useUpdateAvailable();
+  const manager = useUpdateManager();
+  const [open, setOpen] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => { onPanelChange?.(open); }, [open, onPanelChange]);
+  const plugins = manager.plugins.filter(p => !p.removed && p.availableVersion);
+  useEffect(() => { if (!app && !plugins.length) setOpen(false); }, [!!app, plugins.length]);
+  if (!app && !plugins.length) return null;
+  const show = () => rpc.send.showWindow({ plugin: "toolbelt", screen: "updates" });
+  return <div className="relative ml-auto shrink-0" onPointerEnter={() => { clearTimeout(timer.current); timer.current = setTimeout(() => setOpen(true), 200); }}
+    onPointerLeave={() => { clearTimeout(timer.current); setOpen(false); }}>
+    <Button data-update-notice variant="ghost" size="sm" className="h-7 gap-1.5 px-2 text-xs text-muted-foreground" onClick={show}
+      onFocus={() => { clearTimeout(timer.current); setOpen(false); }} onKeyDown={() => { clearTimeout(timer.current); setOpen(false); }} aria-label="Updates available — open Settings">
+      <Download className="size-3.5" /> Updates
+    </Button>
+    {open && <div role="region" aria-label="Available updates" className="absolute right-0 top-full z-50 w-72 max-w-[calc(100vw-2rem)] pt-2">
+      <div className="rounded-lg border bg-popover p-3 text-popover-foreground shadow-lg animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+        <div className="mb-2 text-sm font-semibold">Available updates</div>
+        <div className="max-h-36 overflow-auto divide-y">
+          {app && <div className="py-2 text-xs"><div className="font-medium">ToolBelt <span className="float-right">{app.version}</span></div><div className="mt-1 text-muted-foreground">{app.published ? `Released ${date(app.published)}` : "Release date unavailable"}</div></div>}
+          {plugins.map(p => <div key={p.id} className="py-2 text-xs"><div className="flex justify-between gap-2"><span className="min-w-0 break-words font-medium">{p.manifest.name}</span><span>{p.version} → {p.availableVersion}</span></div><div className="mt-1 text-muted-foreground">{p.availableSince ? `Available since ${date(p.availableSince)}` : "Available now"}</div></div>)}
+        </div>
+        <Button size="sm" variant="outline" className="mt-3 w-full" onClick={show}>Review updates <ArrowRight /></Button>
+      </div>
+    </div>}
+  </div>;
+}
+
+function useUpdateManager() {
+  const [manager, setManager] = useState<import("./plugin-manager-model").ManagerState>({ plugins: [] });
+  useEffect(() => {
+    const adapter = getPluginManagerAdapter();
+    let live = true;
+    void adapter?.read().then(state => { if (live) setManager(state); });
+    const unsubscribe = adapter?.subscribe?.(setManager);
+    return () => { live = false; unsubscribe?.(); };
+  }, []);
+  return manager;
+}
+
+export function useAnyUpdateAvailable() {
+  const app = useUpdateAvailable();
+  const manager = useUpdateManager();
+  return !!app || manager.plugins.some(p => !p.removed && !!p.availableVersion);
 }

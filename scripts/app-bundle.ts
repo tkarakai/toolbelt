@@ -44,6 +44,10 @@ export async function extractSignedApp(
     .quiet()
     .nothrow();
   await $`/usr/libexec/PlistBuddy -c ${`Add :CFBundleShortVersionString string ${options.version}`} ${plist}`;
+  const displayName = options.identifier === "io.github.tkarakai.toolbelt.tester" ? "ToolBelt Plugin Tester" : "ToolBelt";
+  for (const key of ["CFBundleName", "CFBundleDisplayName"]) {
+    await $`/usr/bin/plutil -replace ${key} -string ${displayName} ${plist}`;
+  }
   if (options.name && options.name !== options.archiveName) {
     const target = join(directory, options.name);
     rmSync(target, { recursive: true, force: true });

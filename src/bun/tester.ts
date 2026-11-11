@@ -37,7 +37,7 @@ const broadcast = (name: string, payload: unknown) =>
   views.forEach((view) => view.send[name](payload));
 ApplicationMenu.setApplicationMenu([
   {
-    label: "Toolbelt Plugin Tester",
+    label: "ToolBelt Plugin Tester",
     submenu: [
       {
         label: "Settings…",
@@ -130,7 +130,7 @@ export async function testerControl(
     case "nativePopover": {
       if (!native) {
         native = createNativePopover({
-          title: "Toolbelt Plugin Tester",
+          title: "ToolBelt Plugin Tester",
           url: "views://ui/index.html" + profileQuery + "#popover",
           image: "views://assets/tray-icon-dev@2x.png",
           template: false,
@@ -285,7 +285,7 @@ runtime.host.subscribe({
 });
 await runtime.start();
 const win = new BrowserWindow({
-  title: "Toolbelt Plugin Tester",
+  title: "ToolBelt Plugin Tester",
   url: "views://ui/index.html" + profileQuery,
   frame: { x: 120, y: 120, width: 1280, height: 900 },
   rpc: makeRPC(),

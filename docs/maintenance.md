@@ -17,7 +17,7 @@ bun test
 bun run views
 ```
 
-`bun run dev` starts Toolbelt Dev with its own identity, profile, amber icon and shortcut
+`bun run dev` starts ToolBelt Dev with its own identity, profile, amber icon and shortcut
 ⌃⌥⇧⌘T. The official shortcut defaults to ⌃⌥⇧T. `TOOLBELT_CONFIG_DIR` overrides the profile.
 `bun run preview` builds the seed/UI and serves the real host/manager at localhost:5174;
 `PORT` selects another port. It uses an independent preview profile. `/#popover` chooses
@@ -80,7 +80,7 @@ an incompatible transport contract. The SDK diagnostic version is `SDK_VERSION`.
 
 Build its distributable with `bun run sdk:package`. The archive includes TypeScript sources,
 package exports, runtime validators, author package validation and fake-host utilities, and
-must work without a Toolbelt checkout. Publish immutable SDK assets and pin them in plugin
+must work without a ToolBelt checkout. Publish immutable SDK assets and pin them in plugin
 repos. Run plugin contract tests and SDK Explorer coverage when changing public behavior.
 
 The seed is an independently built archive from `toolbelt-sdk-demo`. To update it, publish

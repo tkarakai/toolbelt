@@ -5,7 +5,7 @@ import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  // Toolbelt sets the `dark` class itself (lib/theme.ts); follow it rather than next-themes.
+  // ToolBelt sets the `dark` class itself (lib/theme.ts); follow it rather than next-themes.
   const [theme, setTheme] = useState(() => (document.documentElement.classList.contains("dark") ? "dark" : "light"))
   useEffect(() => {
     const root = document.documentElement

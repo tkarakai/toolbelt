@@ -4,7 +4,7 @@ import { SelectionHandoffContext, SelectionRequestContext } from "./lib/selectio
 import { usePluginDrag } from "./lib/use-plugin-drag";
 import { PluginManager } from "./PluginManager";
 // The main window: the app sidebar (resizable, collapses to an icon rail) and the selected
-// plugin's pane with its tabs. Route: #/<plugin>/<screen>, or #/toolbelt for Toolbelt's own page.
+// plugin's pane with its tabs. Route: #/<plugin>/<screen>, or #/toolbelt for ToolBelt's own page.
 //
 // Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · manifest-declared tab shortcuts · ⌃⇥ / ⌃⇧⇥ next and
 // previous tab · ⌘B sidebar · ⌘W closes the window (app menu).
@@ -19,7 +19,7 @@ import { THEMES, tokens } from "./themes";
 import { QuitDialog } from "./QuitDialog";
 import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { WindowZoom, ZoomKeys } from "@/lib/zoom";
-import { UpdateDot, UpdatesCard, useUpdateAvailable, useUpdateState } from "./Updates";
+import { UpdateDot, UpdatesCard, useAnyUpdateAvailable, useUpdateState } from "./Updates";
 import { EmptyState, Dot } from "@/renderer/Render";
 import { SafeRender as Render } from "@/renderer/SafeRender";
 import { Badge } from "@/components/ui/badge";
@@ -80,7 +80,7 @@ export default function App() {
 	const [lastScreens, setLastScreens] = usePersisted<Record<string, string>>("toolbelt.screens", {});
 	const lastScreen = useRef<Record<string, string>>(lastScreens);
 	const [lastPlugin, setLastPlugin] = usePersisted<string | null>("toolbelt.plugin", null);
-	// Where Toolbelt's own page goes back to (esc, its close button).
+	// Where ToolBelt's own page goes back to (esc, its close button).
 	const before = useRef<string>("");
     const [handoff, setHandoff] = useState<{ plugin: string; selection: NavigationSelection; token: number } | null>(null);
 
@@ -101,6 +101,7 @@ export default function App() {
     useNavigate(useCallback((plugin: string, screen?: string, selection?: NavigationSelection) => {
         if (selection) writeSharedSelection(plugin, selection);
         go(plugin, screen);
+        if (plugin === TOOLBELT && screen === "updates") requestAnimationFrame(() => document.getElementById("updates")?.scrollIntoView({ block: "start" }));
         setHandoff(selection ? { plugin, selection, token: ++navigationToken.current } : null);
     }, [go]));
 
@@ -151,11 +152,11 @@ export default function App() {
 			<AppSidebar plugins={plugins} current={route.plugin === TOOLBELT ? TOOLBELT : pluginId} go={go} onResize={setWidth} />
 			<SidebarInset className="min-w-0" onPointerDownCapture={() => setHandoff(null)} onKeyDownCapture={() => setHandoff(null)}>
 				{route.plugin === TOOLBELT ? (
-					<ToolbeltPage plugins={plugins} onClose={back} />
+					<ToolbeltPage plugins={plugins} onClose={back} section={route.screen} />
 				) : current && screen ? (
 					<PluginPane key={current.manifest.id} info={current} screen={screen} go={go} handoff={handoff?.plugin === current.manifest.id ? handoff : null} onHandoffApplied={() => setHandoff(null)} />
 				) : plugins.length ? null : (
-					<div className="p-8"><h1 className="text-lg font-medium">Welcome to Toolbelt</h1><p className="my-3 text-muted-foreground">Install a plugin to get started.</p><Button onClick={()=>go(TOOLBELT)}>Manage plugins</Button></div>
+					<div className="p-8"><h1 className="text-lg font-medium">Welcome to ToolBelt</h1><p className="my-3 text-muted-foreground">Install a plugin to get started.</p><Button onClick={()=>go(TOOLBELT)}>Manage plugins</Button></div>
 				)}
 			</SidebarInset>
 		</SidebarProvider>
@@ -177,7 +178,7 @@ function FakeTrafficLights() {
 function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[]; current?: string; go: (p: string, s?: string) => void; onResize: (w: number) => void }) {
 	const { state, setOpen } = useSidebar();
 	const hints = useHeldModifiers({ meta: true });
-	const update = useUpdateAvailable();
+	const update = useAnyUpdateAvailable();
 	const drag = usePluginDrag(plugins.map(p => p.manifest.id));
 	return (
 		<Sidebar collapsible="icon" className="group-data-[side=left]:border-r-0">
@@ -218,8 +219,8 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 			<SidebarFooter>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						{/* Toolbelt's settings: just the cog and its shortcut. */}
-						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Settings  ⌘," aria-label="Toolbelt settings" onClick={() => go(TOOLBELT)} className={cn("relative w-fit", ACTIVE)}>
+						{/* ToolBelt's settings: just the cog and its shortcut. */}
+						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Settings" title="Settings" aria-label="ToolBelt settings" onClick={() => go(TOOLBELT)} className={cn("relative w-fit", ACTIVE)}>
 							<Settings />
 							<Kbd className="group-data-[collapsible=icon]:hidden in-data-[active=true]:bg-selected-foreground/15 in-data-[active=true]:text-selected-foreground">⌘,</Kbd>
 							{update && <UpdateDot className="absolute top-1 left-5" />}
@@ -349,7 +350,7 @@ function Screen({ plugin, surface, handoff, onHandoffApplied }: { plugin: string
 function Crashed({ info }: { info: PluginInfo }) {
 	return (
 		<div className="mx-auto max-w-xl px-6 py-12">
-			<EmptyState icon="bug" title={`${info.manifest.name} stopped working`} description="It crashed a few times in a row, so Toolbelt stopped restarting it." />
+			<EmptyState icon="bug" title={`${info.manifest.name} stopped working`} description="It crashed a few times in a row, so ToolBelt stopped restarting it." />
 			{info.error && <pre className="mt-2 max-h-60 overflow-auto rounded-lg border bg-muted/40 p-3 font-mono text-xs whitespace-pre-wrap">{info.error}</pre>}
 			<div className="mt-4 flex justify-center">
 				<Button onClick={() => void rpc.request.restartPlugin({ plugin: info.manifest.id })}>
@@ -372,8 +373,11 @@ function Loading() {
 	);
 }
 
-// ── Toolbelt's own page ──────────────────────────────────────────────────
-function ToolbeltPage({ plugins, onClose }: { plugins: PluginInfo[]; onClose: () => void }) {
+// ── ToolBelt's own page ──────────────────────────────────────────────────
+function ToolbeltPage({ plugins, onClose, section }: { plugins: PluginInfo[]; onClose: () => void; section?: string }) {
+    useEffect(() => {
+        if (section === "updates") document.getElementById("updates")?.scrollIntoView({ block: "start" });
+    }, [section]);
 	// Esc goes back to where you were — unless something on the page wants it (a dialog, a field).
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
@@ -408,7 +412,7 @@ function ToolbeltPage({ plugins, onClose }: { plugins: PluginInfo[]; onClose: ()
 					<Card>
 						<CardHeader>
 							<CardTitle>Installed tools</CardTitle>
-							<CardDescription>Each tool is its own program; Toolbelt starts it and draws its screens.</CardDescription>
+							<CardDescription>Each tool is its own program; ToolBelt starts it and draws its screens.</CardDescription>
 						</CardHeader>
 						<CardContent className="divide-y">
 							{plugins.map((p, i) => (
@@ -449,10 +453,10 @@ function ToolbeltPage({ plugins, onClose }: { plugins: PluginInfo[]; onClose: ()
 							<Shortcut label="Row: main action · all actions · deselect" keys={["↵", ".", "esc"]} />
 							<Shortcut label="Row action letters — shown on hover and in details" keys={["letter"]} />
 							<Shortcut label="“Which one?” menus: pick by number" keys={["1 … 9"]} />
-							<Shortcut label="Toolbelt settings (this page)" keys={["⌘,"]} />
+							<Shortcut label="ToolBelt settings (this page)" keys={["⌘,"]} />
 							<Shortcut label="Menu bar popover: open a tool in this window (its letter is on the row)" keys={["P", "S", "…"]} />
 							<Shortcut label="Dialogs: main action · cancel" keys={["↵", "esc"]} />
-							<Shortcut label="Close the window · quit Toolbelt" keys={["⌘W", "⌘Q"]} />
+							<Shortcut label="Close the window · quit ToolBelt" keys={["⌘W", "⌘Q"]} />
 						</CardContent>
 					</Card>
 				</div>

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Start popover and first quick-view entrance animations on visible renderer frames so reopening the native window reliably animates.
+
+- Add About ToolBelt to the macOS app menu, using the standard version and app information panel.
+- Standardize the displayed app name as ToolBelt and add a native menu bar tooltip.
+- Use neutral update indicators and a compact popover header summary with delayed hover details for app and plugin updates; activation opens Settings at Updates.
+- Keep the app shortcut beside its name and add Settings with its shortcut to the popover footer.
+
 ## 0.2.2 — 2026-11-11
 - Align column-bound group totals with their table values, including when groups are collapsed or columns resize.
 

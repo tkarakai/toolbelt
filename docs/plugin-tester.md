@@ -1,9 +1,9 @@
 # Plugin Tester
 
-Toolbelt Plugin Tester is a standalone macOS app that embeds Bun, the production host,
+ToolBelt Plugin Tester is a standalone macOS app that embeds Bun, the production host,
 package manager, renderer and settings. It opens prebuilt plugin archives without an
-installed Toolbelt or plugin source checkout. Its identity is
-`io.github.tkarakai.toolbelt.tester`; profiles are separate from Toolbelt and Toolbelt Dev.
+installed ToolBelt or plugin source checkout. Its identity is
+`io.github.tkarakai.toolbelt.tester`; profiles are separate from ToolBelt and ToolBelt Dev.
 
 ## Build and launch
 
@@ -18,7 +18,7 @@ outputs under `artifacts-tester/`. Open the generated tester DMG and launch its 
 persistent profiles live at:
 
 ```text
-~/Library/Application Support/Toolbelt Plugin Tester/profiles/<name>/
+~/Library/Application Support/ToolBelt Plugin Tester/profiles/<name>/
 ```
 
 `TOOLBELT_TESTER_PROFILE` selects a name (letters, digits, underscores and dashes); the default

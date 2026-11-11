@@ -40,6 +40,9 @@ export async function makeDmg(root = join(import.meta.dir, "..")): Promise<strin
 		await $`/usr/libexec/PlistBuddy -c ${`Delete :CFBundleShortVersionString`} ${plist}`.quiet().nothrow();
 		await $`/usr/libexec/PlistBuddy -c ${`Add :CFBundleShortVersionString string ${version}`} ${plist}`;
 		console.log("Disk image: signing and verifying the app");
+        for (const key of ["CFBundleName", "CFBundleDisplayName"]) {
+            await $`/usr/bin/plutil -replace ${key} -string ToolBelt ${plist}`;
+        }
 		await $`/usr/bin/codesign --force --sign - ${app}`;
 		await $`/usr/bin/codesign --verify --strict ${app}`;
 		symlinkSync("/Applications", join(vol, "Applications"));

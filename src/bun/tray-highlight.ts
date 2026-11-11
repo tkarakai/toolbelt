@@ -76,6 +76,10 @@ function init() {
 		const highlight = sel("setHighlighted:");
 		const perform = sel("performSelectorOnMainThread:withObject:waitUntilDone:");
 		const b = button;
+        const text = Buffer.from("ToolBelt\0");
+        const makeString = CFunction({ ptr: send, args: [FFIType.ptr, FFIType.ptr, FFIType.ptr], returns: FFIType.ptr });
+        const tooltip = makeString(cls("NSString"), sel("stringWithUTF8String:"), ptr(text));
+        msgPerform(b, perform, sel("setToolTip:"), tooltip, true);
 		const msgBool = CFunction({ ptr: send, args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool });
 		const isHighlighted = sel("isHighlighted");
 		const msgText = CFunction({ ptr: send, args: [FFIType.ptr, FFIType.ptr], returns: FFIType.cstring });

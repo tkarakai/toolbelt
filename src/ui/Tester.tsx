@@ -42,7 +42,7 @@ export default function Tester({ control }: { control: TesterControl }) {
         <style>{`*,*::before,*::after {animation-duration:0s!important;transition-duration:0s!important;scroll-behavior:auto!important}`}</style>
       )}
       <header className="p-3 border-b space-y-2">
-        <strong>Toolbelt Plugin Tester · isolated profile</strong>
+        <strong>ToolBelt Plugin Tester · isolated profile</strong>
         {watching && (
           <b className="text-destructive ml-4">
             DEV WATCH · automatic execution approved

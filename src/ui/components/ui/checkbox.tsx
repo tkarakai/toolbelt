@@ -20,7 +20,7 @@ function Checkbox({
         data-slot="checkbox-indicator"
         className="grid place-content-center text-current transition-none [&>svg]:size-3.5"
       >
-        {/* Toolbelt: a dash for "some selected" */}
+        {/* ToolBelt: a dash for "some selected" */}
         <CheckIcon className="group-data-[state=indeterminate]/checkbox:hidden" />
         <MinusIcon className="hidden group-data-[state=indeterminate]/checkbox:block" />
       </CheckboxPrimitive.Indicator>
