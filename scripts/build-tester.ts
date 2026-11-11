@@ -27,6 +27,7 @@ try {
     "src",
     "scripts",
     "assets",
+    "icon.iconset",
     "dev-icon.iconset",
     "package.json",
     "seed.config.json",

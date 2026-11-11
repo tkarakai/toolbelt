@@ -3,6 +3,8 @@
 ## Unreleased
 
 ## 0.3.0 — 2026-11-11
+- Include app artwork in standalone Plugin Tester build staging so shared update screens bundle successfully.
+
 - Open plugin and app repository links from Settings in the default browser.
 
 - Keep app update release notes in the review dialog instead of repeating them on About.
