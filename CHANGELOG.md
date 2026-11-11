@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Share header tab geometry between Settings and plugins so label-to-shortcut spacing matches.
+
 - Match the sidebar Settings shortcut background to shared keyboard hints.
 
 - Use the app artwork without a redundant Running status, capitalize Install New Plugin, and retain recent check activities across restarts without replaying old error toasts.

@@ -27,7 +27,8 @@ import { Button } from "@/components/ui/button";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { KeyHint } from "@/components/key-hint";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HeaderTab } from "./components/header-tab";
+import { Tabs, TabsList } from "@/components/ui/tabs";
 import { SettingsGroup, SettingsRow } from "./components/settings-layout";
 import {
 	Sidebar,
@@ -317,10 +318,7 @@ function PluginPane({ info, screen, go, handoff, onHandoffApplied }: { info: Plu
 					<Tabs value={screen} onValueChange={(s) => go(m.id, s)} className="electrobun-webkit-app-region-no-drag min-w-0 shrink overflow-hidden">
 						<TabsList>
 							{m.screens.map((s, i) => (
-								<TabsTrigger key={s.id} value={s.id} className="flex-none gap-0 px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground! data-[state=active]:hover:text-selected-foreground!" title={`${s.title}  ${s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`}`}>
-									<span className="inline-flex items-center gap-1.5">{s.icon && <Icon name={s.icon} />}{s.title}</span>
-                                    <KeyHint className="ml-1.5 shrink-0" keys={s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`} />
-								</TabsTrigger>
+								<HeaderTab key={s.id} value={s.id} label={s.title} icon={s.icon && <Icon name={s.icon}/>} shortcut={s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`} title={`${s.title}  ${s.shortcut ? `⌘${s.shortcut.toUpperCase()}` : `⌥⌘${i + 1}`}`}/>
 							))}
 						</TabsList>
 					</Tabs>
@@ -434,7 +432,7 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
 		<div className="flex h-svh min-h-0 flex-col animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
 			<PaneHeader manifest={{ name: "Settings", icon: "settings" }}>
                 <Tabs value={tab} onValueChange={next => { setTab(next); location.hash = `#/toolbelt/${next}`; }} className="electrobun-webkit-app-region-no-drag min-w-0 shrink overflow-hidden">
-                    <TabsList aria-label="Settings tabs">{SETTINGS_TABS.map(t => <TabsTrigger key={t.id} value={t.id} title={`${t.label} · ⌘${t.shortcut.toUpperCase()}`} className="flex-none px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground!"><Icon name={t.icon} /><span className="relative pr-1">{t.label}{((t.id === "plugins" && pluginUpdates) || (t.id === "about" && appUpdate)) && <UpdateIndicator className="absolute -right-2 -top-1 ring-0"/>}</span><KeyHint className="ml-1.5 shrink-0" keys={`⌘${t.shortcut.toUpperCase()}`} /></TabsTrigger>)}</TabsList>
+                    <TabsList aria-label="Settings tabs">{SETTINGS_TABS.map(t => <HeaderTab key={t.id} value={t.id} label={t.label} icon={<Icon name={t.icon}/>} shortcut={`⌘${t.shortcut.toUpperCase()}`} title={`${t.label} · ⌘${t.shortcut.toUpperCase()}`} indicator={((t.id === "plugins" && pluginUpdates) || (t.id === "about" && appUpdate)) ? <UpdateIndicator className="ring-0"/> : undefined}/>)}</TabsList>
                 </Tabs>
                 <div data-window-drag-handle aria-hidden="true" className="electrobun-webkit-app-region-drag min-w-8 flex-1 self-stretch" />
 				<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag ml-auto -mr-2 text-muted-foreground" onClick={onClose} aria-label="Close settings" title="Close  esc">
