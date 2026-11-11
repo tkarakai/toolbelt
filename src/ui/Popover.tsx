@@ -339,7 +339,7 @@ export default function Popover() {
 						))}
 					</div>
 					<div className="flex shrink-0 flex-wrap items-center gap-1 border-t px-2 py-1.5">
-						<Button data-footer-control variant="ghost" size="sm" className="relative" title="Settings" aria-label="Settings" onClick={() => rpc.send.showWindow({ plugin: "toolbelt" })}><Settings />{updatesAvailable && <UpdateIndicator className="absolute right-1 top-1"/>}<KeyHint keys="⌘," /></Button>
+						<Button data-footer-control variant="ghost" size="sm" className="relative" title="Settings" aria-label="Settings" onClick={() => rpc.send.showWindow({ plugin: "toolbelt" })}><span className="relative inline-flex size-4 shrink-0"><Settings className="size-4"/>{updatesAvailable && <UpdateIndicator className="absolute -right-1 -top-1"/>}</span><KeyHint keys="⌘," /></Button>
                         <Button data-footer-control variant="ghost" size="sm" className="ml-auto text-muted-foreground" onClick={askQuit}>
 							<Power />
 							Quit

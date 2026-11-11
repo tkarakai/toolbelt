@@ -1,6 +1,6 @@
 import AppKit
 
-// Keep Running's artwork intact; this entry point only exports the assets Toolbelt uses.
+// Export ToolBelt's adapted Running artwork to the app asset paths.
 @MainActor
 func render() throws {
     try AppArt.renderIconset(to: URL(fileURLWithPath: "icon.iconset"), dev: false)

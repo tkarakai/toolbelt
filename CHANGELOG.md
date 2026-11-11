@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Position update badges at the top right of icons and tab labels, and match the About app release card to installed plugin cards.
+
 - Remember the Settings tab, guide update navigation with consistent exclamation badges, and preview app update stages in development without installation.
 - Show release-review errors as toasts, distinguish explicitly requested plugin tags, and resize dialogs from the dragged edge.
 

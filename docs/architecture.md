@@ -221,7 +221,7 @@ button summarizes available app and plugin releases after 200 ms of pointer hove
 Plugin availability dates record the first successful discovery of the current candidate;
 app dates are release publication dates. Keyboard focus clears the plugin row highlight
 and does not open the summary. Click or Enter opens `#/toolbelt/updates`, selecting About in Settings and revealing its Updates section. Individual plugin release controls live in Installed Tools.
-Settings remembers its last tab. App and plugin update locations share an exclamation badge with the Settings navigation controls.
+Settings remembers its last tab. App and plugin update locations share a top-right exclamation badge with the Settings navigation controls and menu bar glyph. About uses the installed-plugin card layout for app identity, installed release, channel and available update review.
 Settings uses the shared header tabs for Appearance, Plugins, Keyboard and About. About contains app updates and a nested, searchable Legal notice pane.
 Settings tabs use ⌘A (Appearance), ⌘P (Plugins), ⌘K (Keyboard) and ⌘I (About), with icons and visible key hints. Text fields retain editing shortcuts.
 Settings and plugin headers support ⌥⌘number and ⌃Tab navigation; F6 transfers focus between tabs and content.

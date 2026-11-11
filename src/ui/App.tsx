@@ -1,4 +1,3 @@
-import { buildInfo } from "./build-info";
 import { SharedSelectionProvider, writeSharedSelection } from "./lib/shared-selection";
 import { findSelectionTarget, settingsReturnHash, type NavigationSelection } from "../shared/navigation";
 import { SelectionHandoffContext, SelectionRequestContext } from "./lib/selection-handoff";
@@ -231,9 +230,8 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 					<SidebarMenuItem>
 						{/* ToolBelt's settings: just the cog and its shortcut. */}
 						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Settings" title="Settings" aria-label="ToolBelt settings" onClick={() => go(TOOLBELT)} className={cn("relative w-full", ACTIVE)}>
-							<Settings />
+							<span className="relative inline-flex size-4 shrink-0"><Settings className="size-4"/>{update && <UpdateIndicator className="absolute -right-1 -top-1" />}</span>
 							<Kbd className="group-data-[collapsible=icon]:hidden in-data-[active=true]:bg-selected-foreground/15 in-data-[active=true]:text-selected-foreground">⌘,</Kbd>
-							{update && <UpdateIndicator className="absolute top-1 left-5" />}
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
@@ -436,7 +434,7 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
 		<div className="flex h-svh min-h-0 flex-col animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
 			<PaneHeader manifest={{ name: "Settings", icon: "settings" }}>
                 <Tabs value={tab} onValueChange={next => { setTab(next); location.hash = `#/toolbelt/${next}`; }} className="electrobun-webkit-app-region-no-drag min-w-0 shrink overflow-hidden">
-                    <TabsList aria-label="Settings tabs">{SETTINGS_TABS.map(t => <TabsTrigger key={t.id} value={t.id} title={`${t.label} · ⌘${t.shortcut.toUpperCase()}`} className="flex-none px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground!"><Icon name={t.icon} /><span>{t.label}</span>{((t.id === "plugins" && pluginUpdates) || (t.id === "about" && appUpdate)) && <UpdateIndicator className="ring-0"/>}<KeyHint className="ml-1.5 shrink-0" keys={`⌘${t.shortcut.toUpperCase()}`} /></TabsTrigger>)}</TabsList>
+                    <TabsList aria-label="Settings tabs">{SETTINGS_TABS.map(t => <TabsTrigger key={t.id} value={t.id} title={`${t.label} · ⌘${t.shortcut.toUpperCase()}`} className="flex-none px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground!"><Icon name={t.icon} /><span className="relative pr-1">{t.label}{((t.id === "plugins" && pluginUpdates) || (t.id === "about" && appUpdate)) && <UpdateIndicator className="absolute -right-2 -top-1 ring-0"/>}</span><KeyHint className="ml-1.5 shrink-0" keys={`⌘${t.shortcut.toUpperCase()}`} /></TabsTrigger>)}</TabsList>
                 </Tabs>
                 <div data-window-drag-handle aria-hidden="true" className="electrobun-webkit-app-region-drag min-w-8 flex-1 self-stretch" />
 				<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag ml-auto -mr-2 text-muted-foreground" onClick={onClose} aria-label="Close settings" title="Close  esc">
@@ -599,7 +597,7 @@ function AboutSettings() {
    <div className="flex flex-wrap items-center gap-3"><h2 className="mr-auto text-base font-semibold">Third-party notices</h2><span className="text-sm text-muted-foreground">{notices.length} notices</span><input autoFocus aria-label="Search licenses" placeholder="Search licenses" value={query} onChange={e => setQuery(e.target.value)} className="min-w-0 rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" /></div>
    <div className="overflow-hidden rounded-xl border bg-card py-1">{notices.map(d => <details key={`${d.name}@${d.version}`} className="group"><summary className="flex cursor-pointer list-none flex-wrap items-center gap-3 px-5 py-2 text-sm hover:bg-accent focus-visible:outline-ring"><ChevronRight className="size-4 shrink-0 transition-transform duration-200 group-open:rotate-90 motion-reduce:transition-none"/><span className="min-w-0 break-words font-medium"><LicenseHit text={d.name} query={query}/></span><span className="font-mono text-muted-foreground">{d.version}</span><span className="ml-auto text-xs text-muted-foreground"><LicenseHit text={d.license} query={query}/></span>{d.licenseUrl && <button type="button" aria-label={`Open license for ${d.name}`} title="Open license in browser" className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-ring" onClick={e => { e.preventDefault(); e.stopPropagation(); void rpc.request.openUrl({url:d.licenseUrl!}); }}><ExternalLink className="size-3.5"/></button>}</summary><div className="px-5 pb-5 sm:pl-12"><pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted-foreground"><LicenseHit text={d.text} query={query}/></pre>{d.licenseUrl && <button className="mt-3 inline-flex items-center gap-1 text-sm hover:underline" onClick={() => rpc.request.openUrl({url:d.licenseUrl!})}>View license<ExternalLink className="size-3"/></button>}{d.url && <button className="ml-4 mt-3 inline-flex items-center gap-1 text-sm hover:underline" onClick={() => rpc.request.openUrl({url:d.url!})}>Project repository<ExternalLink className="size-3"/></button>}</div></details>)}{!notices.length && <p className="p-5 text-sm text-muted-foreground">No matching notices.</p>}</div>
  </section>;
- return <div className="space-y-8"><SettingsGroup title="App"><SettingsRow title={`Version ${buildInfo.version} (${buildInfo.commit})`} description="Copyright NetSense LLC."/></SettingsGroup><UpdatesCard /><SettingsGroup title="Legal"><SettingsRow title="Privacy Policy" description="ToolBelt is an installed app and collects no information."/><SettingsRow title="Open source licenses" description="Notices and license terms for dependencies used by ToolBelt."><Button ref={opener} variant="outline" onClick={() => setLegal(true)}>View licenses<ChevronRight /></Button></SettingsRow></SettingsGroup></div>;
+ return <div className="space-y-8"><UpdatesCard /><SettingsGroup title="Legal"><SettingsRow title="Privacy Policy" description="ToolBelt is an installed app and collects no information."/><SettingsRow title="Open source licenses" description="Notices and license terms for dependencies used by ToolBelt."><Button ref={opener} variant="outline" onClick={() => setLegal(true)}>View licenses<ChevronRight /></Button></SettingsRow></SettingsGroup></div>;
 }
 
 function LicenseHit({text, query}: {text: string; query: string}) {

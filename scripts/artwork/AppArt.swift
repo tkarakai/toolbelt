@@ -7,7 +7,7 @@ enum AppArt {
     // ── menu bar ──────────────────────────────────────────────────────────
     /// Three process rows, the first one live: a dot and a bar. A template image, so it follows
     /// the menu bar's appearance (and tint).
-    /// `alert` adds a neutral badge with "!" in the bottom-right corner, cut out of the glyph (an
+    /// `alert` adds a neutral badge with "!" in the top-right corner, cut out of the glyph (an
     /// update is available). `tint` colours the glyph (the dev app's amber); without either it's
     /// a template image, so it follows the menu bar's appearance exactly.
     static func menuBarImage(alert: Bool = false, tint: NSColor? = nil) -> NSImage {
@@ -25,7 +25,7 @@ enum AppArt {
             }
             if alert {
                 let d: CGFloat = 10
-                let badge = NSRect(x: width - d - 0.25, y: 16 - d - 0.25, width: d, height: d)
+                let badge = NSRect(x: width - d - 0.25, y: 0.25, width: d, height: d)
                 ctx.setBlendMode(.clear) // a gap around the badge
                 NSBezierPath(ovalIn: badge.insetBy(dx: -1.5, dy: -1.5)).fill()
                 ctx.setBlendMode(.normal)
