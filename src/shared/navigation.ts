@@ -35,3 +35,11 @@ export function findSelectionTarget(tree: Node, selection: NavigationSelection):
   visit(tree);
   return matches.find(match => match.collection === selection.collection) ?? matches[0] ?? null;
 }
+
+/** Settings may be the first route opened from the tray, with no prior plugin pane. */
+export function settingsReturnHash(previous: string, remembered: string | null, pluginIds: string[]): string {
+    const previousPlugin = previous.split("/")[1];
+    if (previousPlugin && previousPlugin !== "toolbelt" && pluginIds.includes(previousPlugin)) return previous;
+    const fallback = remembered && pluginIds.includes(remembered) ? remembered : pluginIds[0];
+    return fallback ? `#/${fallback}` : "#/";
+}

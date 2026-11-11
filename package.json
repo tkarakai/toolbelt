@@ -10,7 +10,7 @@
     "dev": "TOOLBELT_VARIANT=dev bun run dev:app",
     "build": "TOOLBELT_VARIANT=official bun run build:app",
     "devkit": "electrobun prepare",
-    "typecheck": "bunx electrobun prepare && tsc --noEmit -p .",
+    "typecheck": "bun scripts/settings-build-info.ts && bunx electrobun prepare && tsc --noEmit -p .",
     "test": "bun test",
     "icons": "bun scripts/make-icons.ts",
     "preview": "bun run plugins && vite build && bun scripts/preview.ts",

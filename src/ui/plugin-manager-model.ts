@@ -74,6 +74,7 @@ export interface PluginManagerAdapter {
   remove(id: string, deleteData: boolean): Promise<void>;
   cancel?(operationId: string): Promise<void>;
   discard?(token: string): Promise<void>;
+  restart?(id: string): Promise<void>;
   checkUpdates?(): Promise<void>;
   setChannel?(id: string, channel: "stable" | "prerelease"): Promise<void>;
   cleanup?(id: string): Promise<void>;

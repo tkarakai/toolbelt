@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Keep Settings section geometry stable, lock tab strips to horizontal scrolling, and add a short Privacy Policy.
+- Redesign Installed Plugins cards with icons, status pills, independent versions, reload controls and grouped action menus. Check all plugins from the section header; review available updates separately.
+
+- Activate new and existing main windows on navigation, preserve header drag areas beside tabs, and blend tab overflow controls into the strip.
+- Use shared grouped sections for Keyboard and Plugins, with project repository links alongside published license files.
+
+- Refine Settings with illustrated color schemes, icon tabs and Command-letter shortcuts; close direct Settings navigation onto the first available plugin.
+- Compact license notices, link published license files, and highlight live search matches with the shared search color.
+
+- Organize Settings into Appearance, Plugins, Keyboard and About tabs, consolidate tool management, and route update navigation to About.
+- Improve shared hover contrast, keyboard pane navigation, overflow tab scrolling and nested searchable license notices. Escape from the popover restores the preceding application.
+- Add dependency acknowledgments, release commit labels and NetSense LLC copyright notices.
+
 - Start popover and first quick-view entrance animations on visible renderer frames so reopening the native window reliably animates.
 
 - Add About ToolBelt to the macOS app menu, using the standard version and app information panel.

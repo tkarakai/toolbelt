@@ -28,6 +28,7 @@ import {
 export type Installed = {
   id: string;
   repo: string;
+  commit?: string;
   version: string;
   hash: string;
   packageRoot: string;
@@ -74,6 +75,7 @@ export type Candidate = {
   hash: string;
   packageRoot: string;
   repo: string;
+  commit?: string;
   release?: string;
   asset?: string;
   channel?: "stable" | "prerelease";
@@ -490,6 +492,7 @@ export class PackageManager {
       const next: Installed = {
         id,
         repo: candidate.repo,
+        commit: candidate.commit,
         version: candidate.manifest.version,
         hash: candidate.hash,
         packageRoot: candidate.packageRoot,

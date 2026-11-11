@@ -138,6 +138,7 @@ export async function resolveGithub(
     ...candidate,
     release: release.tag_name,
     asset: String(asset.id),
+    commit: descriptor.commit,
     channel: release.prerelease ? "prerelease" : "stable",
   };
 }

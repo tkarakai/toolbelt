@@ -43,3 +43,14 @@ describe.each(THEMES.flatMap(theme => [theme.light, theme.dark]))("inactive sele
         }
     });
 });
+
+// Hover must remain visible even where the sidebar and muted surfaces share a palette.
+describe.each(THEMES.flatMap(t => [t.light, t.dark]))("shared hover semantics", palette => {
+    test("uses one readable hover fill across surfaces", () => {
+        const values = tokens(palette);
+        expect(values.accent).toBe(values["sidebar-accent"]);
+        expect(contrast(values.accent, palette.sidebar)).toBeGreaterThan(1.1);
+        expect(contrast(values.foreground, values.accent)).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(values["muted-foreground"], values.accent)).toBeGreaterThanOrEqual(4.5);
+    });
+});

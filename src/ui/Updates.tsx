@@ -1,3 +1,4 @@
+import { buildInfo } from "./build-info";
 // Updates, in the UI: the card on ToolBelt's page (version, channel, last check, what's new),
 // the dialog that walks through an update (download → verify → install → restart), the red dot
 // for the sidebar and the popover's "Update available" row. The work happens in the main
@@ -24,7 +25,6 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { KeyHint } from "@/components/key-hint";
 import {
@@ -100,15 +100,14 @@ export function UpdatesCard() {
   if (!s) return null;
   const r = s.available;
   return (
-    <Card id="updates">
+    <section id="updates" className="space-y-3"><h2 className="px-1 text-base font-semibold">Updates</h2><Card>
       <CardHeader>
-        <CardTitle>Updates</CardTitle>
         <CardDescription>
           {s.channel === "tester"
             ? "The standalone tester uses its own profile and does not update your installed ToolBelt."
             : s.enabled
-              ? "ToolBelt looks for new releases on GitHub a few times a day and updates itself when you say so."
-              : "This is a dev build: it doesn't update itself — it runs from your checkout (bun run dev)."}
+              ? "Check for new ToolBelt releases. Installation requires your approval."
+              : "Automatic updates are unavailable in development builds."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -181,7 +180,7 @@ export function UpdatesCard() {
         )}
         <UpdateDialog s={s} />
       </CardContent>
-    </Card>
+    </Card></section>
   );
 }
 
@@ -198,7 +197,7 @@ function StatusIcon({ s }: { s: UpdateState }) {
 }
 
 function title(s: UpdateState): string {
-  if (!s.enabled) return `ToolBelt ${s.version}`;
+  if (!s.enabled) return `Version ${s.version} (${buildInfo.commit})`;
   if (s.checking) return "Checking GitHub for a new version…";
   if (s.available) return `ToolBelt ${s.available.version} is available`;
   if (s.lastError) return "Couldn't check for updates";
@@ -216,7 +215,7 @@ function Detail({ s }: { s: UpdateState }) {
         : "updates come from the checkout",
     );
   } else {
-    parts.push(s.available ? `You have ${s.version}` : `Version ${s.version}`);
+    parts.push(`Version ${s.version} (${buildInfo.commit})`);
     if (s.lastError)
       parts.push(
         <span className="text-foreground">
@@ -309,7 +308,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
             </DialogTitle>
             <DialogDescription asChild>
               <div className="flex items-center gap-2">
-                <Pill>v{s.version}</Pill>
+                <Pill>Version {s.version} ({buildInfo.commit})</Pill>
                 <ArrowRight className="size-3.5" />
                 <Pill current>v{r?.version ?? "?"}</Pill>
               </div>

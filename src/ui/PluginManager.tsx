@@ -1,14 +1,13 @@
+import { MoreHorizontal, Power, RotateCw, Trash2, Download, Loader2 } from "lucide-react";
+import { Icon } from "./lib/icon";
+import { cn } from "./lib/utils";
+import { pillClass } from "./renderer/colors";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuCheckboxItem } from "./components/ui/dropdown-menu";
 import { useEffect, useRef, useState } from "react";
 import { rpc } from "./lib/store";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "./components/ui/card";
+import { SettingsGroup } from "./components/settings-layout";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +32,11 @@ const date = (at?: number) =>
   at ? new Date(at).toLocaleString() : "Not yet checked";
 /** Compatibility fallback uses only endpoints present in shared/rpc.ts. */
 const legacy: PluginManagerAdapter = {
+  async restart(id) { await rpc.request.restartPlugin({plugin: id}); },
+  async checkUpdates() {
+    const response = await rpc.request.pluginManager({operation: "checkUpdates"});
+    if (response.error) throw new Error(response.error);
+  },
   async read() {
     const r = await rpc.request.pluginManager({ operation: "list" });
     if (r.error) throw Error(r.error);
@@ -80,6 +84,8 @@ export function PluginManager({
   const [repo, setRepo] = useState(""),
     [release, setRelease] = useState(""),
     [prerelease, setPrerelease] = useState(false);
+  const [checkingAll, setCheckingAll] = useState(false);
+  const [restartingId, setRestartingId] = useState<string>();
   const [candidate, setCandidate] = useState<Candidate>();
   const [remove, setRemove] = useState<ManagedPlugin>(),
     [deleteData, setDeleteData] = useState(false);
@@ -164,130 +170,18 @@ export function PluginManager({
     });
   };
   return (
-    <Card className="min-w-0">
-      <CardHeader>
-        <CardTitle>Plugins</CardTitle>
-        <CardDescription>
-          Add tools from publishers you trust. Updates are installed only when
-          you approve them.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6 min-w-0">
-        <section
-          aria-label="Plugin updates"
-          className="rounded-lg border bg-muted/30 p-4 space-y-2"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-sm font-medium">Update checks · notify only</h3>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy || !adapter.checkUpdates}
-              onClick={() => void run(() => adapter.checkUpdates!())}
-            >
-              Check now
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {state.schedule
-              ? `Checks every ${state.schedule.intervalHours} hours. Last: ${date(state.schedule.lastChecked)}. Next: ${date(state.schedule.nextCheck)}.`
-              : "Automatic checks are not available in this build. Use Check update on a plugin to review a release."}
-          </p>
-          {state.schedule?.error && (
-            <p role="alert" className="text-sm text-destructive">
-              {state.schedule.error}
-            </p>
-          )}
-        </section>
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            review(repo, release);
-          }}
-        >
-          <h3 className="text-sm font-medium">Add a plugin</h3>
-          <p className="text-xs text-muted-foreground">
-            Public GitHub repositories only. Private repository sign-in is not
-            supported.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1 text-sm">
-              Repository
-              <Input
-                value={repo}
-                placeholder="owner/repository or GitHub URL"
-                onChange={(e) => setRepo(e.target.value)}
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              Release tag (optional)
-              <Input
-                value={release}
-                placeholder="Latest release"
-                onChange={(e) => setRelease(e.target.value)}
-              />
-            </label>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={prerelease}
-                onChange={(e) => setPrerelease(e.target.checked)}
-              />
-              Include prereleases for this search
-            </label>
-            <Button disabled={busy || !repo.trim()}>Review release</Button>
-          </div>
-        </form>
-        {busy && (
-          <p role="status" className="text-sm text-muted-foreground">
-            Waiting for ToolBelt…
-          </p>
-        )}
-        {error && (
-          <p
-            role="alert"
-            className="break-words rounded-lg border border-destructive/40 p-3 text-sm text-destructive"
-          >
-            {error}
-          </p>
-        )}
-        {state.operations?.map((op) => (
-          <div
-            key={op.id}
-            role="status"
-            className="rounded-lg border p-3 text-sm"
-          >
-            <p className="capitalize">{op.phase}</p>
-            <p>{op.detail}</p>
-            {op.cancellable && adapter.cancel && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  void adapter.cancel!(op.id).catch((e) => setError(String(e)));
-                }}
-              >
-                Cancel download
-              </Button>
-            )}
-          </div>
-        ))}
-        <section aria-label="Installed plugins" className="space-y-3">
-          <h3 className="text-sm font-medium">
-            Installed plugins{" "}
-            <span className="text-muted-foreground">
-              {state.plugins.filter((p) => !p.removed).length}
-            </span>
-          </h3>
+    <div className="min-w-0 space-y-8">
+        <SettingsGroup title="Installed Plugins" description="Each plugin is its own program. ToolBelt starts it and draws its screens. ToolBelt has no control over plugins." actions={<Button variant="outline" size="sm" className="h-6 text-xs" disabled={busy || !adapter.checkUpdates} onClick={() => void run(async () => {
+            setCheckingAll(true);
+            try { await adapter.checkUpdates!(); } finally { if (mounted.current) setCheckingAll(false); }
+          })}>{checkingAll ? <Loader2 className="animate-spin"/> : <RotateCw/>}{checkingAll ? "Checking…" : "Check for updates"}</Button>}>
           {!loaded ? (
-            <p role="status" className="text-sm text-muted-foreground">
+            <p role="status" className="p-5 text-sm text-muted-foreground">
               Loading plugins…
             </p>
           ) : (
             !state.plugins.some((p) => !p.removed) && (
-              <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+              <p className="p-5 text-sm text-muted-foreground">
                 No plugins installed. Add a repository above to get started.
               </p>
             )
@@ -298,32 +192,37 @@ export function PluginManager({
               <article
                 key={p.id}
                 aria-label={p.manifest.name}
-                className="min-w-0 rounded-lg border p-4 space-y-3 transition-colors animate-in fade-in-0 duration-200"
+                className="min-w-0 p-5 space-y-4 transition-colors animate-in fade-in-0 duration-200"
               >
-                <div className="flex flex-wrap justify-between gap-2">
-                  <div className="min-w-0">
-                    <h4 className="text-sm font-medium">
-                      {p.manifest.name}{" "}
-                      <span className="text-muted-foreground">{p.version}</span>
-                    </h4>
-                    <p className="text-xs text-muted-foreground break-all">
-                      {p.repo} · {p.id}
-                    </p>
+                <div className="flex flex-wrap items-start gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-muted/40"><Icon name={p.manifest.icon} className="size-5"/></div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="break-words text-sm font-semibold">{p.manifest.name}</h3>
+                    <p className="mt-1 break-all text-xs text-muted-foreground">{p.repo}</p>
                   </div>
-                  <span
-                    role="status"
-                    className="self-start rounded-full bg-muted px-2 py-1 text-xs capitalize"
-                  >
-                    {p.phase ??
-                      (p.enabled ? "Installed · enabled" : "Disabled")}
-                  </span>
+                  <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                    <span role="status" className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs capitalize", pillClass(!p.enabled ? "muted" : p.phase === "ready" ? "success" : p.phase === "failed" || p.phase === "quarantined" ? "danger" : "warning"))}>
+                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true"/>{!p.enabled ? "Disabled" : p.phase === "ready" ? "Running" : p.phase ?? "Installed"}
+                    </span>
+                    <Button variant="ghost" size="icon-sm" aria-label={`Reload ${p.manifest.name}`} title="Reload plugin" disabled={busy || !p.enabled || !adapter.restart || isActivePhase(p.phase)} onClick={() => void run(async () => {
+                      setRestartingId(p.id);
+                      try { await adapter.restart!(p.id); } finally { if (mounted.current) setRestartingId(undefined); }
+                    })}><RotateCw className={cn(restartingId === p.id && "animate-spin")}/></Button>
+                    <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label={`Actions for ${p.manifest.name}`} title="Plugin actions" disabled={busy || isActivePhase(p.phase)}><MoreHorizontal/></Button></DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56">
+                        <DropdownMenuGroup><DropdownMenuLabel>Plugin</DropdownMenuLabel><DropdownMenuItem onSelect={() => void run(() => adapter.enable(p.id, !p.enabled))}><Power/>{p.enabled ? "Disable" : "Enable"}</DropdownMenuItem></DropdownMenuGroup>
+                        <DropdownMenuSeparator/>
+                        <DropdownMenuGroup><DropdownMenuLabel>Updates</DropdownMenuLabel><DropdownMenuCheckboxItem checked={p.channel === "prerelease"} disabled={!adapter.setChannel} onCheckedChange={include => void run(() => adapter.setChannel!(p.id, include ? "prerelease" : "stable"))}>Include prereleases</DropdownMenuCheckboxItem></DropdownMenuGroup>
+                        <DropdownMenuSeparator/>
+                        <DropdownMenuGroup><DropdownMenuLabel>Removal</DropdownMenuLabel><DropdownMenuItem variant="destructive" onSelect={() => {setDeleteData(false); setRemove(p);}}><Trash2/>Remove plugin…</DropdownMenuItem></DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
-                {p.availableVersion && (
-                  <p className="text-sm">
-                    Version {p.availableVersion} is available. Review it before
-                    updating.
-                  </p>
-                )}
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t pt-3">
+                  <p className="text-xs text-muted-foreground">Version <span className="ml-1 font-mono font-medium text-foreground">{p.version}{p.commit ? ` (${p.commit.slice(0, 7)})` : ""}</span></p>
+                  <span className="text-xs text-muted-foreground">{p.channel === "prerelease" ? "Prerelease channel" : "Stable channel"}</span>
+                </div>
                 {p.detail && (
                   <p className="text-sm text-muted-foreground">{p.detail}</p>
                 )}
@@ -343,69 +242,11 @@ export function PluginManager({
                     {p.error}
                   </p>
                 )}
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy || isActivePhase(p.phase)}
-                    onClick={() =>
-                      void run(() => adapter.enable(p.id, !p.enabled))
-                    }
-                  >
-                    {p.enabled ? "Disable" : "Enable"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy || isActivePhase(p.phase)}
-                    onClick={() =>
-                      review(p.repo, undefined, p.channel === "prerelease")
-                    }
-                  >
-                    Check update
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy || isActivePhase(p.phase)}
-                    onClick={() => {
-                      setDeleteData(false);
-                      setRemove(p);
-                    }}
-                  >
-                    Remove…
-                  </Button>
-                  {p.operation?.cancellable && adapter.cancel && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        void adapter.cancel!(p.operation!.id).catch((e) =>
-                          setError(String(e)),
-                        )
-                      }
-                    >
-                      Cancel download
-                    </Button>
-                  )}
-                </div>
-                <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={p.channel === "prerelease"}
-                    disabled={
-                      busy || !adapter.setChannel || isActivePhase(p.phase)
-                    }
-                    onChange={(e) => {
-                      const channel = e.target.checked
-                        ? "prerelease"
-                        : "stable";
-                      void run(() => adapter.setChannel!(p.id, channel));
-                    }}
-                  />
-                  Include prereleases in future checks
-                  {!adapter.setChannel && " (unavailable in this build)"}
-                </label>
+                {p.availableVersion && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 px-3 py-2.5">
+                  <div className="min-w-0 flex-1"><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-medium",pillClass("info"))}>Update available</span><p className="mt-1 text-xs text-muted-foreground">Version <span className="font-mono text-foreground">{p.availableVersion}</span> is ready to review.</p></div>
+                  <Button size="sm" disabled={busy || isActivePhase(p.phase)} onClick={() => review(p.repo, undefined, p.channel === "prerelease")}><Download/>Update</Button>
+                </div>}
+                {p.operation?.cancellable && adapter.cancel && <div className="flex justify-end"><Button size="sm" variant="outline" onClick={() => void adapter.cancel!(p.operation!.id).catch(e => setError(String(e)))}>Cancel download</Button></div>}
                 {(p.logs?.length ?? 0) > 0 && (
                   <details>
                     <summary className="cursor-pointer text-sm">
@@ -458,7 +299,83 @@ export function PluginManager({
                 )}
               </article>
             ))}
-        </section>
+          {state.schedule && <div className="px-5 py-3 text-xs text-muted-foreground"><p role="status">Last checked: {date(state.schedule.lastChecked)}</p>{state.schedule.error && <p role="alert" className="mt-1 break-words text-destructive">{state.schedule.error}</p>}</div>}
+        </SettingsGroup>
+        <SettingsGroup title="Add a plugin"><form
+          className="space-y-4 p-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            review(repo, release);
+          }}
+        >
+          <p className="text-xs text-muted-foreground">
+            Public GitHub repositories only. Private repository sign-in is not
+            supported.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1 text-sm">
+              Repository
+              <Input
+                value={repo}
+                placeholder="owner/repository or GitHub URL"
+                onChange={(e) => setRepo(e.target.value)}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              Release tag (optional)
+              <Input
+                value={release}
+                placeholder="Latest release"
+                onChange={(e) => setRelease(e.target.value)}
+              />
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={prerelease}
+                onChange={(e) => setPrerelease(e.target.checked)}
+              />
+              Include prereleases for this search
+            </label>
+            <Button disabled={busy || !repo.trim()}>Review release</Button>
+          </div>
+        </form></SettingsGroup>
+        {busy && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Waiting for ToolBelt…
+          </p>
+        )}
+        {error && (
+          <p
+            role="alert"
+            className="break-words rounded-lg border border-destructive/40 p-3 text-sm text-destructive"
+          >
+            {error}
+          </p>
+        )}
+        {state.operations?.map((op) => (
+          <div
+            key={op.id}
+            role="status"
+            className="rounded-lg border p-3 text-sm"
+          >
+            <p className="capitalize">{op.phase}</p>
+            <p>{op.detail}</p>
+            {op.cancellable && adapter.cancel && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  void adapter.cancel!(op.id).catch((e) => setError(String(e)));
+                }}
+              >
+                Cancel download
+              </Button>
+            )}
+          </div>
+        ))}
+
         <Dialog
           open={!!candidate}
           onOpenChange={(open) => !open && !busy && dismissCandidate()}
@@ -639,7 +556,6 @@ export function PluginManager({
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </CardContent>
-    </Card>
+    </div>
   );
 }

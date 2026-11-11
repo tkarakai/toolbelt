@@ -15,3 +15,7 @@ build-seed/
 artifacts-tester/
 
 release-candidate/
+
+src/ui/build-info.ts
+
+src/ui/acknowledgments.ts

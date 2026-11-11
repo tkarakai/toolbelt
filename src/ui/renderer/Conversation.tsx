@@ -83,7 +83,7 @@ function ToolCalls({ items }: { items: Message[] }) {
 		<div className="ml-9 max-w-[85%] self-start">
 			<button
 				onClick={() => setOpen((o) => !o)}
-				className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground"
+				className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground"
 			>
 				<ChevronRight className={cn("size-3.5 transition-transform duration-200", open && "rotate-90")} />
 				<Wrench className="size-3.5" />

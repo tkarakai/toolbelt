@@ -42,7 +42,7 @@ import {
   type UpdateState,
 } from "./updater";
 import type { ToolbeltRPC } from "../shared/rpc";
-import { prepareAppHandoff } from "./activation";
+import { captureFrontApplication, focusWindowContent, prepareAppHandoff } from "./activation";
 import { appVariant } from "../shared/variant";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -124,6 +124,12 @@ function makeRPC() {
       requests: {
         initialNavigation: () => {
           if (rpc !== winRPC) return null;
+          if (pendingWindowFocus && win) {
+            pendingWindowFocus = false;
+            prepareAppHandoff();
+            win.activate();
+            focusWindowContent(win.ptr);
+          }
           const navigation = pendingWindowNavigation;
           pendingWindowNavigation = null;
           return navigation;
@@ -225,10 +231,9 @@ function makeRPC() {
       messages: {
         selectionChanged: payload => views.forEach(view => view.send.selectionChanged(payload)),
         showWindow: ({ plugin, screen, selection }) => {
-          hidePopover(true);
           showWindow(plugin, screen, selection);
         },
-        hidePopover: () => hidePopover(),
+        hidePopover: () => hidePopover(false, true),
         closeWindow: () => win?.close(),
         // Double-clicking the title area: zoom like a native title bar.
         zoomWindow: () => {
@@ -270,11 +275,15 @@ let win: BrowserWindow | null = null;
 let winRPC: ViewRPC | null = null;
 
 let pendingWindowNavigation: WindowNavigation | null = null;
+let pendingWindowFocus = false;
 function showWindow(plugin?: string, screen?: string, selection?: NavigationSelection) {
+  hidePopover(true);
+  prepareAppHandoff();
   if (win) {
     win.unminimize();
     win.show();
     win.activate();
+    focusWindowContent(win.ptr);
     if (plugin) winRPC?.send.navigate({ plugin, screen, selection });
     return;
   }
@@ -283,6 +292,7 @@ function showWindow(plugin?: string, screen?: string, selection?: NavigationSele
   winRPC = makeRPC();
   pendingWindowNavigation = plugin ? { plugin, screen, selection } : null;
   const hash = plugin ? `#/${plugin}${screen ? `/${screen}` : ""}` : "";
+  pendingWindowFocus = true;
   win = new BrowserWindow({
     title: variant.name,
     url: viewUrl(hash),
@@ -291,11 +301,13 @@ function showWindow(plugin?: string, screen?: string, selection?: NavigationSele
     trafficLightOffset: { x: 6, y: 6 },
     rpc: winRPC,
   });
+  win.activate();
   win.on("close", () => {
     if (winRPC) releaseView(winRPC);
     win = null;
     winRPC = null;
     pendingWindowNavigation = null;
+    pendingWindowFocus = false;
     Utils.setDockIconVisible(false);
   });
 }
@@ -320,7 +332,9 @@ const POPOVER_CLOSE_MS = 160;
 let hideTimer: ReturnType<typeof setTimeout> | undefined;
 let hiddenAt = 0;
 
+let restorePopoverApplication: (() => void) | undefined;
 function showPopover() {
+  if (!popover.isVisible()) restorePopoverApplication = captureFrontApplication();
   clearTimeout(hideTimer);
   hideTimer = undefined;
   layoutNativePopover(tray, popover, listHeight, popoverDetails, popoverAnchorTop);
@@ -332,15 +346,23 @@ function showPopover() {
 }
 
 /** Plays the closing animation, then hides the window. `now`: skip the animation. */
-function hidePopover(now = false) {
+function hidePopover(now = false, restore = false) {
   setTrayHighlighted(false);
+  if (now) {
+    clearTimeout(hideTimer);
+    hideTimer = undefined;
+    restorePopoverApplication = undefined;
+    if (popover.isVisible()) { hiddenAt = Date.now(); popover.hide(); }
+    return;
+  }
   if (!popover.isVisible() || hideTimer) return;
   hiddenAt = Date.now();
-  if (now) return popover.hide();
   popRPC.send.popoverHiding({});
   hideTimer = setTimeout(() => {
     hideTimer = undefined;
     popover.hide();
+    if (restore) restorePopoverApplication?.();
+    restorePopoverApplication = undefined;
   }, POPOVER_CLOSE_MS);
 }
 
@@ -530,7 +552,7 @@ Electrobun.events.on("application-menu-clicked", (e: any) => {
   if (action === "quit") requestQuit();
   if (action === "settings") showWindow("toolbelt");
   if (action === "check-updates") {
-    showWindow("toolbelt");
+    showWindow("toolbelt", "updates");
     void updater.check();
   }
   if (action === "toggle-sidebar")

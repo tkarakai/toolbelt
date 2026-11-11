@@ -43,6 +43,7 @@ export class PluginManagerService {
   constructor(
     readonly packages: PackageManager,
     readonly host: PluginHost,
+    private resolveRelease: typeof resolveGithub = resolveGithub,
   ) {
     packages.listeners.add((id, phase, detail) => {
       const previous = this.states.get(id);
@@ -181,7 +182,7 @@ export class PluginManagerService {
     });
     this.emit();
     try {
-      const candidate = await resolveGithub(this.packages, request.repo ?? "", {
+      const candidate = await this.resolveRelease(this.packages, request.repo ?? "", {
         release: request.release,
         prerelease: request.prerelease,
         signal: controller.signal,
@@ -231,7 +232,7 @@ export class PluginManagerService {
         (p) => !p.removed,
       )) {
         try {
-          const candidate = await resolveGithub(this.packages, p.repo, {
+          const candidate = await this.resolveRelease(this.packages, p.repo, {
             prerelease: p.channel === "prerelease",
           });
           if (Bun.semver.order(candidate.manifest.version, p.version) > 0) {

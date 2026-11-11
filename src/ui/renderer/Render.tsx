@@ -803,7 +803,7 @@ const TableRow = memo(
 				onDoubleClick={() => hasChildren && onToggle(row.id)}
 				className={cn(
 					"group/row cursor-default transition-[background-color] duration-200 [&>td]:border-b [&>td]:border-border/50",
-                    selected ? "bg-selected text-selected-foreground" : "hover:bg-muted/50",
+                    selected ? "bg-selected text-selected-foreground" : "hover:bg-accent",
 					depth > 0 && !selected && "bg-muted/20",
 					muted && !selected && "text-muted-foreground",
 					fresh && "animate-in fade-in-0 slide-in-from-top-1 duration-200",
@@ -1149,7 +1149,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 												<button
 													onClick={() => sortBy(c)}
 													title={`Sort by ${c.title.toLowerCase()}`}
-													className={cn("group/sort -mx-1.5 inline-flex items-center gap-1 rounded px-1.5 py-1 transition-colors duration-200 hover:bg-muted hover:text-foreground", sorted && "text-foreground", c.align === "right" && "flex-row-reverse")}
+													className={cn("group/sort -mx-1.5 inline-flex items-center gap-1 rounded px-1.5 py-1 transition-colors duration-200 hover:bg-accent hover:text-foreground", sorted && "text-foreground", c.align === "right" && "flex-row-reverse")}
 												>
 													{c.title}
 													<Arrow className={cn("size-3 transition-[opacity,transform] duration-200", sorted ? "opacity-100" : "opacity-0 group-hover/sort:opacity-40")} />
@@ -1212,7 +1212,7 @@ function GroupHeader({ item, columns, bulk, selected, onSelect, onToggle }: { it
 	const { group: g, level, count, muted, collapsed } = item;
 	const top = level === 0;
 	const { index, labelSpan: colSpan } = groupSummaryLayout(columns, g.summary?.column, bulk);
-	const background = selected ? "bg-selected text-selected-foreground" : top ? "bg-muted/60 group-hover/row:bg-muted" : "bg-background group-hover/row:bg-muted/50";
+	const background = selected ? "bg-selected text-selected-foreground" : top ? "bg-muted/60 group-hover/row:bg-accent" : "bg-background group-hover/row:bg-accent";
 	const summary = g.summary && <Tooltip><TooltipTrigger asChild><span tabIndex={0} aria-label={`${g.summary.label}: ${g.summary.value}`} className="inline-block shrink-0 rounded font-mono text-xs text-muted-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring">{g.summary.value}</span></TooltipTrigger><TooltipContent className="max-w-xs"><div className="font-medium">{g.summary.label}</div>{g.summary.description && <p className="mt-1 leading-relaxed">{g.summary.description}</p>}</TooltipContent></Tooltip>;
 	return (
 		<tr data-row-id={item.id} data-group-level={level} data-selected={selected} onClick={(e) => (onSelect(), refocusTable(e.currentTarget))} onDoubleClick={onToggle} className="group/row cursor-default">

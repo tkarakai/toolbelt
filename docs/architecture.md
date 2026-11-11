@@ -217,8 +217,20 @@ The popover header keeps the app shortcut beside the ToolBelt name. A neutral Up
 button summarizes available app and plugin releases after 200 ms of pointer hover.
 Plugin availability dates record the first successful discovery of the current candidate;
 app dates are release publication dates. Keyboard focus clears the plugin row highlight
-and does not open the summary. Click or Enter opens `#/toolbelt/updates`, scrolling Settings
-to the app Updates card; plugin update controls are immediately above it. Settings controls
+and does not open the summary. Click or Enter opens `#/toolbelt/updates`, selecting About in Settings and revealing its Updates section. Individual plugin release controls live in Installed Tools.
+Settings uses the shared header tabs for Appearance, Plugins, Keyboard and About. About contains app updates and a nested, searchable Legal notice pane.
+Settings tabs use ⌘A (Appearance), ⌘P (Plugins), ⌘K (Keyboard) and ⌘I (About), with icons and visible key hints. Text fields retain editing shortcuts.
+Settings and plugin headers support ⌥⌘number and ⌃Tab navigation; F6 transfers focus between tabs and content.
+Shared tab strips hide scrollbar chrome, reveal the active tab, and expose edge arrows when overflow exists. The strip clips controls to its shared outline; adjacent free header space remains a native window drag target.
+Main-window navigation cancels pending popover dismissal and explicitly activates both the application and its target window, including first creation. Keyboard focus is assigned to the actual WKWebView in that window at navigation and initial renderer readiness; Electrobun BrowserView wrapper pointers are never passed as native responder views.
+Settings sections share grouped-card and heading components across tabs, with stable scrollbar space and matching content widths. Horizontal tab strips suppress vertical overflow and overscroll.
+Plugins starts with Installed Plugins and a single check-all control, followed by Add a plugin. Cards separate identity, runtime status, version/channel metadata and available releases; enable/disable and destructive removal live in a grouped action menu. Checking only records availability, while Update opens the existing release approval flow. Reload uses the host’s prepare-aware restart path.
+Legal includes the app Privacy Policy and nested dependency notices. License notices include publisher repository links alongside exact published license files.
+Escape dismissal of the popover restores the application captured before activation; blur dismissal does not change focus.
+Closing Settings restores a valid prior plugin route, otherwise a remembered installed plugin or the first installed plugin.
+Appearance separates illustrated Color scheme choices from Theme palettes. Legal notices filter live and highlight matches with the shared warm amber search style; links open the package license file in the default browser.
+About includes build version/source commit and dependency license acknowledgments generated from installed packages at UI build time.
+Plugin source commits are retained from verified release descriptors for new installations and updates; older records may omit them. Settings controls
 in both surfaces expose a Settings tooltip. Menu bar update badges use neutral contrast.
 
 ToolBelt is the displayed marketing name; `toolbelt` remains the project/CLI name. Existing

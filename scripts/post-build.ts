@@ -1,6 +1,7 @@
 // Keep generated bundles out of app launchers and give dev builds their explicit identity.
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import pkg from "../package.json";
 import config from "../electrobun.config";
 
 const build = join(process.cwd(), config.build.buildFolder);
@@ -22,6 +23,12 @@ if (process.platform === "darwin" && existsSync(build)) {
         const directory = join(build, channel.name);
         for (const app of readdirSync(directory, { withFileTypes: true })) {
             if (!app.isDirectory() || !app.name.endsWith(".app")) continue;
+            const plist = join(directory, app.name, "Contents/Info.plist");
+            const commit = process.env.TOOLBELT_SOURCE_COMMIT || Bun.spawnSync(["git", "rev-parse", "--short=7", "HEAD"]).stdout.toString().trim();
+            for (const [key, value] of [["NSHumanReadableCopyright", "Copyright NetSense LLC."], ["CFBundleVersion", commit], ["CFBundleShortVersionString", pkg.version]]) {
+                const metadata = Bun.spawnSync(["/usr/bin/plutil", "-replace", key!, "-string", value!, plist]);
+                if (metadata.exitCode !== 0) throw new Error(`Couldn't set ${key} in ${app.name}`);
+            }
             const result = Bun.spawnSync([lsregister, "-u", join(directory, app.name)]);
             const output = result.stdout.toString() + result.stderr.toString();
             // Launch Services returns -10814 when Spotlight already excludes the bundle.
