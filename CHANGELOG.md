@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.2.2 — 2026-11-11
 - Align column-bound group totals with their table values, including when groups are collapsed or columns resize.
 
 ## 0.2.1 — 2026-11-11
