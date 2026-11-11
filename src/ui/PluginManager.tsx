@@ -1,3 +1,5 @@
+import { toast } from "sonner";
+import { Activity, TriangleAlert, CircleCheck, CircleX } from "lucide-react";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "./components/ui/tooltip";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./components/ui/select";
 import { ResizableDialogContent } from "./components/ui/resizable-dialog-content";
@@ -81,6 +83,12 @@ export function PluginManager({
   adapter?: PluginManagerAdapter;
 }) {
   const [state, setState] = useState<ManagerState>({ plugins: [] });
+  const notifiedCheck = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const key = state.schedule?.error ? `${state.schedule.lastChecked}:${state.schedule.error}` : undefined;
+    if (key && key !== notifiedCheck.current) toast.error("There were errors checking plugin updates. Open plugin activity for details.");
+    notifiedCheck.current = key;
+  }, [state.schedule?.error, state.schedule?.lastChecked]);
   const [loaded, setLoaded] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -177,7 +185,7 @@ export function PluginManager({
     <div className="min-w-0 space-y-8">
         <SettingsGroup title="Installed Plugins" description="Each plugin is its own program. ToolBelt starts it and draws its screens. ToolBelt has no control over plugins." actions={<TooltipProvider delayDuration={200} skipDelayDuration={0}><Tooltip><TooltipTrigger asChild><span className="inline-flex" tabIndex={busy || !adapter.checkUpdates ? 0 : undefined}><Button variant="outline" size="sm" className="h-6 text-xs" disabled={busy || !adapter.checkUpdates} onClick={() => void run(async () => {
             setCheckingAll(true);
-            try { await adapter.checkUpdates!(); } finally { if (mounted.current) setCheckingAll(false); }
+            try { await adapter.checkUpdates!(); } catch { toast.error("There were errors checking plugin updates. Open plugin activity for details."); } finally { if (mounted.current) setCheckingAll(false); }
           })}>{checkingAll ? <Loader2 className="animate-spin"/> : <RotateCw/>}{checkingAll ? "Checking…" : "Check for updates"}</Button></span></TooltipTrigger><TooltipContent side="top" sideOffset={8}>Last checked: {date(state.schedule?.lastChecked)}</TooltipContent></Tooltip></TooltipProvider>}>
           {!loaded ? (
             <p role="status" className="p-5 text-sm text-muted-foreground">
@@ -186,7 +194,7 @@ export function PluginManager({
           ) : (
             !state.plugins.some((p) => !p.removed) && (
               <p className="p-5 text-sm text-muted-foreground">
-                No plugins installed. Add a repository above to get started.
+                No plugins installed. Install a repository below to get started.
               </p>
             )
           )}
@@ -208,10 +216,22 @@ export function PluginManager({
                     <span role="status" className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs capitalize", pillClass(!p.enabled ? "muted" : p.phase === "ready" ? "success" : p.phase === "failed" || p.phase === "quarantined" ? "danger" : "warning"))}>
                       <span className="size-1.5 rounded-full bg-current" aria-hidden="true"/>{!p.enabled ? "Disabled" : p.phase === "ready" ? "Running" : p.phase ?? "Installed"}
                     </span>
-                    <Button variant="ghost" size="icon-sm" aria-label={`Reload ${p.manifest.name}`} title="Reload plugin" disabled={busy || !p.enabled || !adapter.restart || isActivePhase(p.phase)} onClick={() => void run(async () => {
+                    <Button variant="ghost" size="sm" aria-label={`Reload ${p.manifest.name}`} title="Reload plugin" disabled={busy || !p.enabled || !adapter.restart || isActivePhase(p.phase)} onClick={() => void run(async () => {
                       setRestartingId(p.id);
                       try { await adapter.restart!(p.id); } finally { if (mounted.current) setRestartingId(undefined); }
-                    })}><RotateCw className={cn(restartingId === p.id && "animate-spin")}/></Button>
+                    })}>{restartingId === p.id && <Loader2 className="animate-spin"/>}Reload</Button>
+                    <details className="group relative">
+                      <summary aria-label={`Activity for ${p.manifest.name}`} title="Plugin activity" className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md hover:bg-accent [&::-webkit-details-marker]:hidden">
+                        {/· (?:failed|quarantined|Update check failed|Runtime failure)\b/i.test(p.logs?.at(-1) ?? "") ? <TriangleAlert className="size-4 text-amber-500"/> : <Activity className="size-4"/>}
+                      </summary>
+                      <div className="absolute right-0 top-10 z-30 w-80 max-w-[calc(100vw-4rem)] space-y-2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-md">
+                        <p className="text-xs font-medium">Recent activity</p>
+                        {p.logs?.length ? p.logs.slice(-3).reverse().map((line, index) => <div key={index} className="flex items-start gap-2 text-xs">
+                          {/· (?:failed|quarantined|Update check failed|Runtime failure)\b/i.test(line) ? <CircleX className="mt-0.5 size-3.5 shrink-0 text-destructive"/> : <CircleCheck className="mt-0.5 size-3.5 shrink-0 text-green-600"/>}
+                          <span className="min-w-0 whitespace-pre-wrap break-words">{line}</span>
+                        </div>) : <p className="text-xs text-muted-foreground">No activity recorded yet.</p>}
+                      </div>
+                    </details>
                     <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label={`Actions for ${p.manifest.name}`} title="Plugin actions" disabled={busy || isActivePhase(p.phase)}><MoreHorizontal/></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-56">
                         <DropdownMenuItem onSelect={() => void run(() => adapter.enable(p.id, !p.enabled))}><Power/>{p.enabled ? "Disable" : "Enable"}</DropdownMenuItem>
@@ -225,12 +245,12 @@ export function PluginManager({
                   <div className="space-y-2">
                     <div className="text-xs font-medium text-muted-foreground">Installed release</div>
                     <p className="text-sm">Version <span className="font-mono font-medium">{p.version}{p.commit ? ` (${p.commit.slice(0, 7)})` : ""}</span></p>
-                    {p.installedChannel && <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.installedChannel === "prerelease" ? "warning" : "muted"))}>{p.installedChannel === "prerelease" ? "Prerelease" : "Stable"}</span>}
+                    <div className="flex flex-wrap items-center gap-2">{p.installedChannel && <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.installedChannel === "prerelease" ? "warning" : "muted"))}>{p.installedChannel === "prerelease" ? "Prerelease" : "Stable"}</span>}{p.release && <span className="break-all font-mono text-xs text-muted-foreground">{p.release}</span>}</div>
                   </div>
                   <div className="space-y-1">
                     <label htmlFor={`channel-${p.id}`} className="text-xs font-medium text-muted-foreground">Update channel</label>
                     <Select value={p.channel} disabled={busy || !adapter.setChannel || isActivePhase(p.phase)} onValueChange={channel => void run(() => adapter.setChannel!(p.id, channel as "stable" | "prerelease"))}>
-                      <SelectTrigger id={`channel-${p.id}`} aria-label={`Update channel for ${p.manifest.name}`} size="sm" className="-ml-2 min-w-40 justify-start border-transparent px-2 text-sm shadow-none hover:bg-accent data-[state=open]:bg-accent dark:bg-transparent dark:data-[state=open]:bg-accent"><GitBranch className="size-3.5 text-muted-foreground"/><SelectValue className="mr-auto"/></SelectTrigger>
+                      <SelectTrigger id={`channel-${p.id}`} aria-label={`Update channel for ${p.manifest.name}`} size="sm" className="-ml-2 min-w-0 w-fit justify-start border-transparent px-2 text-sm shadow-none hover:bg-accent data-[state=open]:bg-accent dark:bg-transparent dark:data-[state=open]:bg-accent"><GitBranch className="size-3.5 text-muted-foreground"/><SelectValue/></SelectTrigger>
                       <SelectContent position="popper" align="start" className="p-1"><SelectItem value="stable">Stable</SelectItem><SelectItem value="prerelease">Prerelease</SelectItem></SelectContent>
                     </Select>
                     <p className="text-xs leading-relaxed text-muted-foreground">{p.channel === "prerelease" ? "Include stable and prerelease releases in future checks." : "Use stable releases for future checks."}</p>
@@ -247,14 +267,6 @@ export function PluginManager({
                     max={p.operation.total}
                   />
                 )}
-                {p.error && (
-                  <p
-                    role="alert"
-                    className="text-sm text-destructive break-words"
-                  >
-                    {p.error}
-                  </p>
-                )}
                 {p.availableVersion && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">Available update</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.availableChannel === "prerelease" ? "warning" : p.availableChannel === "stable" ? "info" : "muted"))}>{p.availableChannel === "prerelease" ? "Prerelease" : p.availableChannel === "stable" ? "Stable" : "Channel not recorded"}</span></div>
@@ -263,16 +275,6 @@ export function PluginManager({
                   <Button size="sm" disabled={busy || isActivePhase(p.phase)} onClick={() => review(p.repo, undefined, p.channel === "prerelease")}><Download/>Review and Update</Button>
                 </div>}
                 {p.operation?.cancellable && adapter.cancel && <div className="flex justify-end"><Button size="sm" variant="outline" onClick={() => void adapter.cancel!(p.operation!.id).catch(e => setError(String(e)))}>Cancel download</Button></div>}
-                {(p.logs?.length ?? 0) > 0 && (
-                  <details>
-                    <summary className="cursor-pointer text-sm">
-                      Activity and error details
-                    </summary>
-                    <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">
-                      {p.logs!.slice(-200).join("\n")}
-                    </pre>
-                  </details>
-                )}
                 {!!p.recovery?.length && (
                   <details>
                     <summary className="cursor-pointer text-sm">
@@ -315,9 +317,9 @@ export function PluginManager({
                 )}
               </article>
             ))}
-          {state.schedule?.error && <p role="alert" className="px-5 py-3 text-sm text-destructive">{state.schedule.error}</p>}
+
         </SettingsGroup>
-        <SettingsGroup title="Add a plugin"><form
+        <SettingsGroup title="Install new plugin"><form
           className="space-y-4 p-5"
           onSubmit={(e) => {
             e.preventDefault();

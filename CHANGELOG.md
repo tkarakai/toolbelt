@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Show recent timestamped plugin activity and update-check error toasts, clarify installed release metadata and Reload controls, and allow moving release review dialogs.
+
 - Separate installed plugin releases, future update preferences and discovered update channels; preserve update preferences when installing another release.
 - Add inline channel selectors, delayed check-time tooltips and resizable release reviews with explicit Install/Update actions.
 

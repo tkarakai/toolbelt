@@ -39,6 +39,7 @@ export class PluginManagerService {
   private listeners = new Set<
     (state: ReturnType<PluginManagerService["read"]>) => void
   >();
+  private runtimeFailures = new Map<string, {message: string; at: number}>();
   private timer?: ReturnType<typeof setInterval>;
   constructor(
     readonly packages: PackageManager,
@@ -52,7 +53,7 @@ export class PluginManagerService {
         error: phase === "failed" ? detail : undefined,
         logs: [
           ...(previous?.logs ?? []),
-          `${phase}${detail ? ": " + detail : ""}`,
+          `${new Date().toLocaleString()} · ${phase}${detail ? ": " + detail : ""}`,
         ].slice(-40),
       });
       this.emit();
@@ -86,6 +87,8 @@ export class PluginManagerService {
         .filter((p) => !p.removed)
         .map((p) => {
           const runtime = this.host.list().find((x) => x.manifest.id === p.id);
+          if (runtime?.error && this.runtimeFailures.get(p.id)?.message !== runtime.error) this.runtimeFailures.set(p.id, {message: runtime.error, at: Date.now()});
+          if (!runtime?.error) this.runtimeFailures.delete(p.id);
           return {
             ...p,
             ...this.states.get(p.id),
@@ -104,7 +107,7 @@ export class PluginManagerService {
               ...(this.states.get(p.id)?.logs ?? []),
               ...(runtime?.error
                 ? [
-                    `Runtime failure ${p.id} (${p.repo}): ${runtime.error.slice(0, 16000)}`,
+                    `${new Date(this.runtimeFailures.get(p.id)!.at).toLocaleString()} · Runtime failure ${p.id} (${p.repo}): ${runtime.error.slice(0, 16000)}`,
                   ]
                 : []),
             ].slice(-40),
@@ -238,11 +241,12 @@ export class PluginManagerService {
           if (Bun.semver.order(candidate.manifest.version, p.version) > 0) {
             this.states.set(p.id, {
               phase: p.enabled ? "ready" : "disabled",
-              logs: [`Update available: ${candidate.manifest.version}`],
+              logs: [...(this.states.get(p.id)?.logs ?? []), `${new Date().toLocaleString()} · Update available: ${candidate.manifest.version}`].slice(-40),
             });
             this.available.set(p.id, candidate.manifest.version);
             updates.set(p.id, {version: candidate.manifest.version, channel: candidate.channel, commit: candidate.commit});
           } else {
+            this.states.set(p.id, {phase: p.enabled ? "ready" : "disabled", logs: [...(this.states.get(p.id)?.logs ?? []), `${new Date().toLocaleString()} · Update check succeeded: already up to date`].slice(-40)});
             this.available.delete(p.id);
             updates.set(p.id, undefined);
           }
@@ -255,7 +259,7 @@ export class PluginManagerService {
             phase: p.enabled ? "ready" : "disabled",
             logs: [
               ...(previous?.logs ?? []),
-              `Update check failed: ${detail}`,
+              `${new Date().toLocaleString()} · Update check failed: ${detail}`,
             ].slice(-40),
           });
         }
