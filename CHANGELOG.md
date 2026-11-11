@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Remember the Settings tab, guide update navigation with consistent exclamation badges, and preview app update stages in development without installation.
+- Show release-review errors as toasts, distinguish explicitly requested plugin tags, and resize dialogs from the dragged edge.
+
 - Show recent timestamped plugin activity and update-check error toasts, clarify installed release metadata and Reload controls, and allow moving release review dialogs.
 
 - Separate installed plugin releases, future update preferences and discovered update channels; preserve update preferences when installing another release.

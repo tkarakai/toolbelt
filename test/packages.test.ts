@@ -735,7 +735,7 @@ test("installing a stable release preserves a prerelease update preference and r
   const {root,manager}=setup();
   try {
     const first=await manager.stage(a.bytes,a.hash,"test/fixture");
-    await manager.install({...first,channel:"stable"},true);
+    await manager.install({...first,channel:"stable",release:"v1.0.0",requestedRelease:"v1.0.0"},true);
     const registry=manager.registry();
     registry.plugins.fixture!.channel="prerelease";
     writeFileSync(join(root,"plugins/registry.json"),JSON.stringify(registry));
@@ -745,6 +745,8 @@ test("installing a stable release preserves a prerelease update preference and r
     expect(installed.version).toBe("2.0.0");
     expect(installed.installedChannel).toBe("stable");
     expect(installed.channel).toBe("prerelease");
+    expect(installed.requestedRelease).toBeUndefined();
+    expect(installed.history?.[0]?.installed.requestedRelease).toBe("v1.0.0");
     expect(installed.history?.[0]?.installed.installedChannel).toBe("stable");
   } finally {
     rmSync(root,{recursive:true,force:true});

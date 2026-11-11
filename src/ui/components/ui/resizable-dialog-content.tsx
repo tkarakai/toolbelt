@@ -9,13 +9,13 @@ const fit = ({w,h}: Size): Size => ({
     h: Math.max(Math.min(280, innerHeight - 32), Math.min(innerHeight - 32, h)),
 });
 
-/** Centered, viewport-bounded dialog with edge/corner grips and keyboard resizing. */
+/** Movable, viewport-bounded dialog with edge/corner grips and keyboard resizing. */
 export function ResizableDialogContent({children, className, style, ...props}: ComponentProps<typeof DialogContent>) {
     const box = useRef<HTMLDivElement>(null);
     const [size, setSize] = useState(() => fit({w:640,h:640}));
     const [offset, setOffset] = useState({x:0,y:0});
     const moving = useRef<{x:number;y:number;left:number;top:number} | null>(null);
-    const drag = useRef<{x:number;y:number;w:number;h:number;dx:number;dy:number} | null>(null);
+    const drag = useRef<{x:number;y:number;w:number;h:number;dx:number;dy:number;left:number;top:number} | null>(null);
     useEffect(() => {
         const resize = () => {setSize(current => fit(current)); setOffset({x:0,y:0});};
         window.addEventListener("resize",resize);
@@ -26,15 +26,20 @@ export function ResizableDialogContent({children, className, style, ...props}: C
         event.preventDefault();
         event.stopPropagation();
         const rect = box.current.getBoundingClientRect();
-        drag.current = {x:event.clientX,y:event.clientY,w:rect.width,h:rect.height,dx,dy};
+        drag.current = {x:event.clientX,y:event.clientY,w:rect.width,h:rect.height,dx,dy,left:rect.left,top:rect.top};
         event.currentTarget.setPointerCapture(event.pointerId);
     };
     const move = (event:PointerEvent<HTMLElement>) => {
         const start = drag.current;
         if (!start) return;
-        // Both sides move because the dialog remains centered.
-        setOffset({x:0,y:0});
-        setSize(fit({w:start.w + 2*start.dx*(event.clientX-start.x),h:start.h + 2*start.dy*(event.clientY-start.y)}));
+        const right = start.left + start.w, bottom = start.top + start.h;
+        const minW = Math.min(384, innerWidth-32), minH = Math.min(280, innerHeight-32);
+        const left = start.dx < 0 ? Math.max(16, Math.min(right-minW, start.left+event.clientX-start.x)) : start.left;
+        const top = start.dy < 0 ? Math.max(16, Math.min(bottom-minH, start.top+event.clientY-start.y)) : start.top;
+        const nextRight = start.dx > 0 ? Math.min(innerWidth-16, Math.max(left+minW, right+event.clientX-start.x)) : right;
+        const nextBottom = start.dy > 0 ? Math.min(innerHeight-16, Math.max(top+minH, bottom+event.clientY-start.y)) : bottom;
+        setSize({w:nextRight-left,h:nextBottom-top});
+        setOffset({x:(left+nextRight-innerWidth)/2,y:(top+nextBottom-innerHeight)/2});
     };
     const end = () => {drag.current=null;};
     const events = {onPointerMove:move,onPointerUp:end,onPointerCancel:end,onLostPointerCapture:end};
@@ -68,7 +73,9 @@ export function ResizableDialogContent({children, className, style, ...props}: C
             if (!delta) return;
             event.preventDefault();
             event.stopPropagation();
-            setSize(current => fit({w:current.w+delta[0]!,h:current.h+delta[1]!}));
+            const next = fit({w:Math.min(size.w+delta[0]!, (innerWidth+size.w)/2-offset.x-16),h:Math.min(size.h+delta[1]!, (innerHeight+size.h)/2-offset.y-16)});
+            setSize(next);
+            setOffset(current => ({x:current.x+(next.w-size.w)/2,y:current.y+(next.h-size.h)/2}));
         }}><MoveDiagonal2 className="size-3"/></button>
     </DialogContent>;
 }

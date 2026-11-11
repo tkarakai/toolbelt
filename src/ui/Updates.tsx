@@ -42,6 +42,29 @@ import { Progress } from "@/components/ui/progress";
 let current: UpdateState | null = null;
 const local = new Set<() => void>();
 let asked = false;
+let simulated: UpdateState | null = null;
+function simulate(kind: string) {
+  if (current?.channel !== "dev") return;
+  if (kind === "off") simulated = null;
+  else {
+    const release = {version:"99.0.0",notes:"## Preview release\n\nSample improvements for reviewing the update experience.",page:"https://github.com/tkarakai/toolbelt/releases",dmg:"",size:48*1048576,sha256:null,published:Date.now()};
+    simulated = {...current, enabled:true, available:release, latest:release, checking:false, lastError:null,
+      phase: kind === "downloading" ? {kind,received:24*1048576,total:48*1048576,speed:2*1048576} : kind === "failed" ? {kind,message:"Simulated update failure. Your app has not been changed."} : {kind:kind as "idle"|"verifying"|"installing"|"relaunching"}};
+  }
+  local.forEach(l => l());
+}
+function updateAction(action: "installUpdate"|"cancelUpdate"|"dismissUpdate"|"checkForUpdates") {
+  if (simulated) { simulate(action === "installUpdate" ? "downloading" : "idle"); return; }
+  void rpc.request[action]({});
+}
+function DevUpdatePreview() {
+  if (current?.channel !== "dev") return null;
+  return <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">Development preview (no installation)
+    <select aria-label="Simulated app update state" className="rounded border bg-background p-1 text-foreground" value={simulated?.phase.kind ?? "off"} onChange={e => simulate(e.target.value)}>
+      {[["off","Off"],["idle","Available / confirmation"],["downloading","Downloading"],["verifying","Verifying"],["installing","Installing"],["relaunching","Restarting"],["failed","Failed"]].map(([value,label]) => <option key={value} value={value}>{label}</option>)}
+    </select>
+  </label>;
+}
 updateListeners.add((s) => {
   current = s;
   local.forEach((l) => l());
@@ -62,7 +85,7 @@ export function useUpdateState(): UpdateState | null {
     }
     return () => void local.delete(l);
   }, []);
-  return current;
+  return simulated ?? current;
 }
 
 /** The newer version, if there is one. */
@@ -76,16 +99,16 @@ const date = (ms: number) =>
     day: "numeric",
   });
 
-/** The red dot that marks an available update. */
-export function UpdateDot({ className }: { className?: string }) {
+/** Shared exclamation badge for update navigation. */
+export function UpdateIndicator({ className }: { className?: string }) {
   return (
     <span
       aria-label="Update available"
       className={cn(
-        "inline-block size-2 shrink-0 rounded-full bg-foreground ring-2 ring-sidebar",
+        "inline-flex size-3 shrink-0 items-center justify-center rounded-full bg-foreground text-background text-[9px] font-bold leading-none ring-2 ring-sidebar",
         className,
       )}
-    />
+    >!</span>
   );
 }
 
@@ -111,6 +134,7 @@ export function UpdatesCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <DevUpdatePreview/>
         <div className="flex items-center gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40">
             <StatusIcon s={s} />
@@ -128,7 +152,7 @@ export function UpdatesCard() {
               variant="outline"
               size="sm"
               disabled={s.checking || s.phase.kind !== "idle"}
-              onClick={() => void rpc.request.checkForUpdates({})}
+              onClick={() => updateAction("checkForUpdates")}
             >
               <RotateCw className={cn(s.checking && "animate-spin")} />
               Check now
@@ -187,7 +211,7 @@ export function UpdatesCard() {
 function StatusIcon({ s }: { s: UpdateState }) {
   if (s.checking)
     return <Loader2 className="size-4 animate-spin text-muted-foreground" />;
-  if (s.available) return <UpdateDot className="size-2.5 ring-0" />;
+  if (s.available) return <UpdateIndicator className="ring-0" />;
   if (s.lastError) return <AlertTriangle className="size-4 text-amber-500" />;
   if (s.lastChecked)
     return (
@@ -276,7 +300,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
   const close = () => {
     if (busy) return;
     setConfirming(false);
-    if (kind === "failed") void rpc.request.dismissUpdate({});
+    if (kind === "failed") updateAction("dismissUpdate");
   };
   const step = STEPS.indexOf(kind as (typeof STEPS)[number]);
 
@@ -288,7 +312,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
         onEscapeKeyDown={(e) => {
           if (!busy) return;
           e.preventDefault();
-          if (kind === "downloading") void rpc.request.cancelUpdate({}); // the Cancel button's esc
+          if (kind === "downloading") updateAction("cancelUpdate"); // the Cancel button's esc
         }}
         onInteractOutside={(e) => busy && e.preventDefault()}
       >
@@ -390,6 +414,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
           )}
         </div>
 
+        {simulated && <DevUpdatePreview/>}
         <DialogFooter className="m-0 items-center rounded-b-xl">
           {r && (
             <Button
@@ -410,7 +435,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
               </Button>
               <Button
                 autoFocus
-                onClick={() => void rpc.request.installUpdate({})}
+                onClick={() => updateAction("installUpdate")}
               >
                 Update &amp; Restart
                 <KeyHint keys="↵" />
@@ -420,7 +445,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
           {kind === "downloading" && (
             <Button
               variant="outline"
-              onClick={() => void rpc.request.cancelUpdate({})}
+              onClick={() => updateAction("cancelUpdate")}
             >
               Cancel
               <KeyHint keys="esc" />
@@ -439,7 +464,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
               </Button>
               <Button
                 autoFocus
-                onClick={() => void rpc.request.installUpdate({})}
+                onClick={() => updateAction("installUpdate")}
               >
                 Try Again
                 <KeyHint keys="↵" />
@@ -583,6 +608,10 @@ function useUpdateManager() {
     return () => { live = false; unsubscribe?.(); };
   }, []);
   return manager;
+}
+
+export function usePluginUpdateAvailable() {
+  return useUpdateManager().plugins.some(p => !p.removed && !!p.availableVersion);
 }
 
 export function useAnyUpdateAvailable() {

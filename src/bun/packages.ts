@@ -38,6 +38,7 @@ export type Installed = {
   channel: "stable" | "prerelease";
   installedChannel?: "stable" | "prerelease";
   release?: string;
+  requestedRelease?: string;
   asset?: string;
   removed?: boolean;
   availableVersion?: string;
@@ -81,6 +82,7 @@ export type Candidate = {
   repo: string;
   commit?: string;
   release?: string;
+  requestedRelease?: string;
   asset?: string;
   channel?: "stable" | "prerelease";
 };
@@ -143,6 +145,7 @@ function validateRegistry(value: any, root: string): Registry {
     for (const channel of [p.installedChannel, p.availableChannel]) {
       if (channel !== undefined && !["stable", "prerelease"].includes(channel)) throw new Error("Invalid release channel");
     }
+    if (p.requestedRelease !== undefined && (typeof p.requestedRelease !== "string" || !p.requestedRelease.trim() || p.requestedRelease.length > 1024)) throw new Error("Invalid requested release tag");
     if (p.availableCommit !== undefined && !/^[a-f0-9]{40}$/.test(p.availableCommit)) throw new Error("Invalid available release commit");
     if (
       p.dataSchema !== undefined &&
@@ -520,6 +523,7 @@ export class PackageManager {
         channel: old?.channel ?? candidate.channel ?? "stable",
         installedChannel: candidate.channel,
         release: candidate.release,
+        requestedRelease: candidate.requestedRelease,
         asset: candidate.asset,
       };
       const previous = join(txDir, "previous");

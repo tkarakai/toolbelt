@@ -20,7 +20,7 @@ import { THEMES, tokens } from "./themes";
 import { QuitDialog } from "./QuitDialog";
 import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { WindowZoom, ZoomKeys } from "@/lib/zoom";
-import { UpdateDot, UpdatesCard, useAnyUpdateAvailable, useUpdateState } from "./Updates";
+import { UpdateIndicator, UpdatesCard, useAnyUpdateAvailable, usePluginUpdateAvailable, useUpdateAvailable, useUpdateState } from "./Updates";
 import { EmptyState, Dot } from "@/renderer/Render";
 import { SafeRender as Render } from "@/renderer/SafeRender";
 import { Badge } from "@/components/ui/badge";
@@ -233,7 +233,7 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Settings" title="Settings" aria-label="ToolBelt settings" onClick={() => go(TOOLBELT)} className={cn("relative w-full", ACTIVE)}>
 							<Settings />
 							<Kbd className="group-data-[collapsible=icon]:hidden in-data-[active=true]:bg-selected-foreground/15 in-data-[active=true]:text-selected-foreground">⌘,</Kbd>
-							{update && <UpdateDot className="absolute top-1 left-5" />}
+							{update && <UpdateIndicator className="absolute top-1 left-5" />}
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
@@ -392,10 +392,15 @@ const SETTINGS_TABS = [
     {id: "about", label: "About", shortcut: "i", icon: "info"},
 ];
 function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: () => void; section?: string }) {
-    const initialTab = section === "updates" ? "about" : section === "tools" ? "plugins" : section || "appearance";
+    const pluginUpdates = usePluginUpdateAvailable();
+    const appUpdate = useUpdateAvailable();
+    const [remembered, remember] = usePersisted<string>("toolbelt.settings-tab", "appearance");
+    const fallback = SETTINGS_TABS.some(t => t.id === remembered) ? remembered : "appearance";
+    const initialTab = section === "updates" ? "about" : section === "tools" ? "plugins" : section || fallback;
     const [tab, setTab] = useState(initialTab);
-    useEffect(() => { setTab(section === "updates" ? "about" : section === "tools" ? "plugins" : section || "appearance"); }, [section]);
+    useEffect(() => { if (!section) return; setTab(section === "updates" ? "about" : section === "tools" ? "plugins" : section || fallback); }, [section]);
 
+    useEffect(() => { remember(tab); }, [tab]);
     useEffect(() => {
         const tabs = ["appearance", "plugins", "keyboard", "about"];
         const onKey = (e: KeyboardEvent) => {
@@ -431,7 +436,7 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
 		<div className="flex h-svh min-h-0 flex-col animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
 			<PaneHeader manifest={{ name: "Settings", icon: "settings" }}>
                 <Tabs value={tab} onValueChange={next => { setTab(next); location.hash = `#/toolbelt/${next}`; }} className="electrobun-webkit-app-region-no-drag min-w-0 shrink overflow-hidden">
-                    <TabsList aria-label="Settings tabs">{SETTINGS_TABS.map(t => <TabsTrigger key={t.id} value={t.id} title={`${t.label} · ⌘${t.shortcut.toUpperCase()}`} className="flex-none px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground!"><Icon name={t.icon} /><span>{t.label}</span><KeyHint className="ml-1.5 shrink-0" keys={`⌘${t.shortcut.toUpperCase()}`} /></TabsTrigger>)}</TabsList>
+                    <TabsList aria-label="Settings tabs">{SETTINGS_TABS.map(t => <TabsTrigger key={t.id} value={t.id} title={`${t.label} · ⌘${t.shortcut.toUpperCase()}`} className="flex-none px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground!"><Icon name={t.icon} /><span>{t.label}</span>{((t.id === "plugins" && pluginUpdates) || (t.id === "about" && appUpdate)) && <UpdateIndicator className="ring-0"/>}<KeyHint className="ml-1.5 shrink-0" keys={`⌘${t.shortcut.toUpperCase()}`} /></TabsTrigger>)}</TabsList>
                 </Tabs>
                 <div data-window-drag-handle aria-hidden="true" className="electrobun-webkit-app-region-drag min-w-8 flex-1 self-stretch" />
 				<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag ml-auto -mr-2 text-muted-foreground" onClick={onClose} aria-label="Close settings" title="Close  esc">

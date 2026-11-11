@@ -156,7 +156,7 @@ export function PluginManager({
         setLoaded(true);
       }
     } catch (e) {
-      if (mounted.current) setError(String(e));
+      if (mounted.current) toast.error(String(e));
     } finally {
       locked.current = false;
       if (mounted.current) setBusy(false);
@@ -166,7 +166,7 @@ export function PluginManager({
     if (candidate && adapter.discard)
       void adapter
         .discard(candidate.token)
-        .catch((error) => setError(String(error)));
+        .catch((error) => toast.error(String(error)));
     setCandidate(undefined);
   };
   const review = (source: string, tag?: string, pre = prerelease) => {
@@ -245,7 +245,7 @@ export function PluginManager({
                   <div className="space-y-2">
                     <div className="text-xs font-medium text-muted-foreground">Installed release</div>
                     <p className="text-sm">Version <span className="font-mono font-medium">{p.version}{p.commit ? ` (${p.commit.slice(0, 7)})` : ""}</span></p>
-                    <div className="flex flex-wrap items-center gap-2">{p.installedChannel && <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.installedChannel === "prerelease" ? "warning" : "muted"))}>{p.installedChannel === "prerelease" ? "Prerelease" : "Stable"}</span>}{p.release && <span className="break-all font-mono text-xs text-muted-foreground">{p.release}</span>}</div>
+                    <div className="flex flex-wrap items-center gap-2"><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.installedChannel === "prerelease" ? "warning" : "muted"))}>{p.installedChannel === "prerelease" ? "Prerelease" : p.installedChannel === "stable" ? "Stable" : "Unknown channel"}</span>{p.requestedRelease && <span className="break-all font-mono text-xs text-muted-foreground">{p.requestedRelease}</span>}</div>
                   </div>
                   <div className="space-y-1">
                     <label htmlFor={`channel-${p.id}`} className="text-xs font-medium text-muted-foreground">Update channel</label>
