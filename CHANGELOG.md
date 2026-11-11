@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Open plugin and app repository links from Settings in the default browser.
+
 - Keep app update release notes in the review dialog instead of repeating them on About.
 
 - Share header tab geometry between Settings and plugins so label-to-shortcut spacing matches.

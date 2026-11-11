@@ -1,3 +1,4 @@
+import { RepositoryLink } from "./components/repository-link";
 import { buildInfo } from "./build-info";
 // Updates, in the UI: the card on ToolBelt's page (version, channel, last check, what's new),
 // the dialog that walks through an update (download → verify → install → restart), the red dot
@@ -125,7 +126,7 @@ export function UpdatesCard() {
       <article aria-label="ToolBelt" className="min-w-0 space-y-4 p-5">
         <div className="flex flex-wrap items-start gap-3">
           <img src={s.channel === "dev" ? devAppIcon : appIcon} alt="ToolBelt app icon" className="size-10 shrink-0 object-contain"/>
-          <div className="min-w-0 flex-1"><h3 className="text-sm font-semibold">ToolBelt</h3><p className="mt-1 break-all text-xs text-muted-foreground">tkarakai/toolbelt</p></div>
+          <div className="min-w-0 flex-1"><h3 className="text-sm font-semibold">ToolBelt</h3><RepositoryLink repo="tkarakai/toolbelt"/></div>
         </div>
         <div className="grid gap-4 rounded-lg bg-muted/30 p-3 sm:grid-cols-2">
           <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Installed release</div><p className="text-sm">Version <span className="font-mono font-medium">{s.version} ({buildInfo.commit})</span></p><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs capitalize",pillClass("muted"))}>{s.channel}</span></div>

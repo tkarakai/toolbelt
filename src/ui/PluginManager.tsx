@@ -1,3 +1,4 @@
+import { RepositoryLink } from "./components/repository-link";
 import { toast } from "sonner";
 import { Activity, TriangleAlert, CircleCheck, CircleX } from "lucide-react";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "./components/ui/tooltip";
@@ -216,7 +217,7 @@ export function PluginManager({
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-muted/40"><Icon name={p.manifest.icon} className="size-5"/></div>
                   <div className="min-w-0 flex-1">
                     <h3 className="break-words text-sm font-semibold">{p.manifest.name}</h3>
-                    <p className="mt-1 break-all text-xs text-muted-foreground">{p.repo}</p>
+                    <RepositoryLink repo={p.repo}/>
                   </div>
                   <div className="ml-auto flex flex-wrap items-center gap-1.5">
                     <span role="status" className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs capitalize", pillClass(!p.enabled ? "muted" : p.phase === "ready" ? "success" : p.phase === "failed" || p.phase === "quarantined" ? "danger" : "warning"))}>
