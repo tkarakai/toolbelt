@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-11
 - Non-interactive release PR preparation and verified CI publication through the shared SDK release tooling. App updates recognize release candidates and select the exact app DMG.
 
 - Install, enable, disable, update and remove independent prebuilt GitHub plugin packages without restarting Toolbelt.
