@@ -48,6 +48,9 @@ jobs:
       - name: SDK validation
         if: steps.scope.outputs.sdk == 'true'
         run: bun run sdk:check
+      - name: Standalone SDK typecheck
+        if: steps.scope.outputs.sdk != 'true'
+        run: bun run sdk:typecheck
       - name: Electrobun devkit (pinned bootstrap, checksum-verified Hutch)
         if: steps.scope.outputs.sdk != 'true'
         run: bunx electrobun prepare

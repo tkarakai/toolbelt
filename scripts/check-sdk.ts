@@ -3,7 +3,7 @@ const tests = (await Bun.file("tsconfig.sdk.json").json()).include.filter(
   (path: string) => path.endsWith(".test.ts"),
 ) as string[];
 for (const command of [
-  [process.execPath, "x", "--no-install", "tsc", "--noEmit", "-p", "tsconfig.sdk.json"],
+  [process.execPath, "run", "sdk:typecheck"],
   [process.execPath, "test", ...tests.map(path => `./${path}`)],
 ]) {
   const child = Bun.spawn(command, {stdin:"ignore",stdout:"inherit",stderr:"inherit"});

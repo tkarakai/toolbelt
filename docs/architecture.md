@@ -178,6 +178,9 @@ versions and block managed-data/version changes; expired candidate and stale hel
 are collected. CLI-name collisions are rejected. Cleanup navigation opens the plugin's own
 screen and confirmation; the host never bypasses it by sending a destructive action.
 
+Generic plugin runtime status types live in `src/shared/plugin-state.ts` independently
+of native RPC types. This keeps the SDK release verifier typecheckable without a native devkit.
+
 ## SDK, tester and app delivery
 
 The SDK is a versioned archive from this repository and can be consumed without a host

@@ -1,19 +1,12 @@
 // What the web views (main window, menu bar popover) and the Bun main process say to each other.
 import type { RPCSchema } from "electrobun/view";
-import type { Manifest, Node } from "./protocol";
+import type { Node } from "./protocol";
 import type { UpdateState } from "../bun/updater";
 
 export type { Phase as UpdatePhase, Release, UpdateState } from "../bun/updater";
 
-export type PluginState = "starting" | "running" | "crashed" | "stopped";
-
-export type PluginInfo = {
-	manifest: Manifest;
-	state: PluginState;
-	badge: number | string | null;
-	/** Last lines of the plugin's stderr when it crashed. */
-	error?: string;
-};
+import type { PluginInfo } from "./plugin-state";
+export type { PluginInfo, PluginState } from "./plugin-state";
 
 export type Surface = { plugin: string; surface: string };
 
