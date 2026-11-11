@@ -18,6 +18,12 @@
 - Improve shared hover contrast, keyboard pane navigation, overflow tab scrolling and nested searchable license notices. Escape from the popover restores the preceding application.
 - Add dependency acknowledgments, release commit labels and NetSense LLC copyright notices.
 
+- Preserve a newer Latest when recovering an older stable app or plugin release; serialize publication across release tags.
+
+- Retry an untagged release using its original merged PR or exact source commit, even after main advances; refuse conflicting tags and missing or expired frozen candidates.
+
+- Validate SDK release-only PRs and SDK candidates without building native app disk images; retain complete SDK checks and full app CI for implementation changes.
+
 - Start popover and first quick-view entrance animations on visible renderer frames so reopening the native window reliably animates.
 
 - Add About ToolBelt to the macOS app menu, using the standard version and app information panel.

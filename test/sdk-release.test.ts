@@ -34,6 +34,8 @@ test("installed SDK archive supplies runtime, typed release API and executable w
     expect(help).toContain(
       "Merging the validated release PR authorizes CI publication",
     );
+    expect(help).toContain("--pr <merged-release-PR>");
+    expect(help).toContain("--source <exact-merge-SHA>");
     writeFileSync(
       join(root, "plugin.ts"),
       `import {definePlugin} from '@toolbelt/sdk';definePlugin({render:{'screen:main':()=>({type:'text',text:'fixture'})}});`,

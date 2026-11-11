@@ -27,7 +27,7 @@ import {
   readRegistry,
   checkCompatibility,
 } from "./packages";
-import type { PluginInfo, PluginState } from "../shared/rpc";
+import type { PluginInfo, PluginState } from "../shared/plugin-state";
 
 export type Discovered = { manifest: Manifest; dir: string };
 

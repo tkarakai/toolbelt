@@ -1,6 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import {
   mkdirSync,
+  cpSync,
+  chmodSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -95,6 +97,7 @@ function fixture(releaseRequest: Request = request) {
   const tag = tagOf(releaseRequest);
   const transitions: string[] = [];
   let authorized = true;
+  let latest: any = null;
   const root = temp();
   writeFileSync(join(root, "plugin.tgz"), "fixture");
   const candidate = join(root, "candidate");
@@ -161,7 +164,7 @@ function fixture(releaseRequest: Request = request) {
         return response({ object: { type: "commit", sha: source } });
       if (p === "releases/1" && req.method === "GET") return response(release);
       if (p === "releases/latest")
-        return release ? response(release) : new Response("", { status: 404 });
+        return latest ? response(latest) : new Response("", { status: 404 });
       if (p === "releases" && req.method === "GET")
         return response(release ? [release] : []);
       if (p === "releases" && req.method === "POST") {
@@ -195,8 +198,10 @@ function fixture(releaseRequest: Request = request) {
         );
       if (p === "releases/1" && req.method === "PATCH") {
         writes++;
-        transitions.push((await req.json()).make_latest);
+        const patch = await req.json();
+        transitions.push(patch.make_latest);
         release.draft = false;
+        if (patch.make_latest === "true") latest = { ...release };
         return fail("publish") || response(release);
       }
       return new Response(p, { status: 404 });
@@ -204,6 +209,8 @@ function fixture(releaseRequest: Request = request) {
   });
   return {
     transitions,
+    setLatest: (version: string) => { latest = { tag_name: version, draft: false, prerelease: false }; },
+    get latest() { return latest; },
     forbid: () => {
       authorized = false;
     },
@@ -361,3 +368,94 @@ test("ordinary merges cannot publish", async () => {
     f.server.stop(true);
   }
 });
+
+test("candidate builds run complete adapter validation or the existing default checks", async () => {
+  for (const custom of [true, false]) {
+    const root = temp();
+    const git = (...args: string[]) => run(["git", ...args], root);
+    await git("init");await git("remote","add","origin","https://github.com/example/sdk.git");
+    save(join(root,"package.json"),{type:"module",scripts:{typecheck:`bun -e "await Bun.write('typecheck-ran', 'yes')"`}});
+    writeFileSync(join(root,"default.test.ts"),`import {test} from 'bun:test';test('default validation',async()=>{await Bun.write('tests-ran','yes');});`);
+    writeFileSync(join(root,"release.config.ts"),`export default {repo:'example/sdk',hostVersion:'0.1.0',products:{sdk:{changelog:'CHANGELOG.md',version:()=> '1.0.0',setVersion:async()=>{},${custom?"validate:async()=>{await Bun.write('custom-ran','yes');},":""}build:async()=>{await Bun.write('sdk.tgz','fixture');return ['sdk.tgz'];}}}};`);
+    save(join(root,".toolbelt-release.json"),{format:1,repo:"example/sdk",product:"sdk",version:"1.0.0",channel:"stable"});
+    writeFileSync(join(root,"CHANGELOG.md"),"## 1.0.0 — 2026-11-11\n- Fixture release.\n");
+    await run([process.execPath,"install"],root);
+    await git("add",".");await git("-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-m","fixture");
+    await run([process.execPath,join(import.meta.dir,"../src/release/cli.ts"),"ci-build"],root,{...process.env,GITHUB_ACTIONS:"true"});
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(join(root,"custom-ran"))).toBe(custom);
+    expect(existsSync(join(root,"typecheck-ran"))).toBe(!custom);
+    expect(existsSync(join(root,"tests-ran"))).toBe(!custom);
+    expect(verifyFrozen(join(root,"release-candidate"),{repo:"example/sdk",hostVersion:"0.1.0",products:{sdk:{changelog:"CHANGELOG.md",version:()=>"1.0.0",setVersion:async()=>{},build:async()=>[]}}}).version).toBe("1.0.0");
+  }
+},30000);
+
+for (const product of ["app", "plugin"] as const) {
+  test(`${product} recovery publishes an older draft without replacing newer Latest`, async () => {
+    const f = fixture({ ...request, product });
+    const c = { ...config, products: { [product]: config.products.plugin } };
+    try {
+      f.setLatest("v1.1.0");
+      // Resume a real partial publication: the draft and uploaded bytes already exist.
+      f.setFailure("upload");
+      await expect(publish(f.gh, f.candidate, c)).rejects.toThrow();
+      await publish(f.gh, f.candidate, c);
+      expect(f.release.draft).toBe(false);
+      expect(f.latest.tag_name).toBe("v1.1.0");
+      expect(f.transitions).toEqual(["false"]);
+      const writes = f.writes;
+      await publish(f.gh, f.candidate, c);
+      expect(f.writes).toBe(writes);
+      expect(f.latest.tag_name).toBe("v1.1.0");
+    } finally { f.server.stop(true); }
+  });
+  test(`${product} newer stable publication advances Latest by semantic version`, async () => {
+    const f = fixture({ ...request, product, version: "1.10.0" });
+    const c = { ...config, products: { [product]: config.products.plugin } };
+    try {
+      f.setLatest("v1.9.0");
+      await publish(f.gh, f.candidate, c);
+      expect(f.transitions).toEqual(["true"]);
+      expect(f.latest.tag_name).toBe("v1.10.0");
+    } finally { f.server.stop(true); }
+  });
+}
+test("an unrecognized Latest fails closed before making a stable draft public", async () => {
+  const f = fixture();
+  try {
+    f.setLatest("unrecognized-version");
+    await expect(publish(f.gh, f.candidate, config)).rejects.toThrow("Latest");
+    expect(f.release.draft).toBe(true);
+    expect(f.transitions).toEqual([]);
+  } finally { f.server.stop(true); }
+});
+
+test("captured current publisher preserves Latest while verifying a historical checkout and frozen bytes", async () => {
+  const control = temp();
+  const built = await Bun.build({entrypoints:[join(import.meta.dir,"../src/release/cli.ts")],target:"bun",packages:"bundle"});
+  expect(built.success).toBe(true);
+  const publisher=join(control,"publisher.js");await Bun.write(publisher,built.outputs[0]!);
+  for (const product of ["app","plugin"] as const) {
+    const f=fixture({...request,product});
+    const original=temp();
+    try {
+      f.setLatest("v1.1.0");
+      cpSync(f.candidate,join(original,"release-candidate"),{recursive:true});
+      mkdirSync(join(original,"src/release"),{recursive:true});
+      writeFileSync(join(original,"src/release/cli.ts"),"throw Error('Historical publisher must not run');");
+      writeFileSync(join(original,"release.config.ts"),`await Bun.write('historical-config-loaded','yes');export default {repo:'example/plugin',hostVersion:'0.1.0',products:{${product}:{changelog:'CHANGELOG.md',version:()=> '1.0.1',setVersion:async()=>{},build:async()=>[]}}};`);
+      const bin=join(original,"bin");mkdirSync(bin);
+      const git=join(bin,"git");
+      writeFileSync(git,`#!/bin/sh\ncase "$*" in\n'remote get-url origin') echo https://github.com/example/plugin.git ;;\n'rev-parse HEAD') echo ${source} ;;\n*) exit 1 ;;\nesac\n`);chmodSync(git,0o755);
+      const preload=join(original,"fake-api.ts");
+      writeFileSync(preload,`const baseFetch=globalThis.fetch;const api=${JSON.stringify(f.server.url.origin)};globalThis.fetch=(input,init)=>{const url=new URL(String(input));if(url.origin==='https://api.github.com')return baseFetch(api+url.pathname+url.search,init);if(url.origin===api)return baseFetch(input,init);throw Error('Unexpected network request');};`);
+      const child=Bun.spawn([process.execPath,"--preload",preload,publisher,"ci-publish"],{cwd:original,env:{...process.env,PATH:bin+":"+process.env.PATH,GH_TOKEN:"fake",GITHUB_ACTIONS:"true",GITHUB_REPOSITORY:config.repo},stdin:"ignore",stdout:"pipe",stderr:"pipe"});
+      const [code,stderr]=await Promise.all([child.exited,new Response(child.stderr).text(),new Response(child.stdout).text()]);
+      expect(stderr).toBe("");expect(code).toBe(0);
+      expect(readFileSync(join(original,"historical-config-loaded"),"utf8")).toBe("yes");
+      expect(f.release.draft).toBe(false);expect(f.latest.tag_name).toBe("v1.1.0");expect(f.transitions).toEqual(["false"]);
+      expect(JSON.parse(readFileSync(join(original,"release-candidate/release-record.json"),"utf8"))).toEqual(f.record);
+      expect(hash(f.bytes.get("plugin.tgz")!)).toBe(f.record.files[0]!.sha256);
+    } finally {f.server.stop(true);}
+  }
+},30000);

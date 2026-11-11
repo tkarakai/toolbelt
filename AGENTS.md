@@ -17,6 +17,9 @@ references, not implementation diaries, plans or reasoning transcripts.
   the user's merge decision. Do not enable auto-merge or replace installed app/data without authorization. Merging a validated release PR authorizes its CI publication. The user owns merges for the current PRs.
 - Add user-visible behavior to `CHANGELOG.md` under Unreleased. Do not bump versions in
   feature PRs; version changes belong to release PRs.
+- Coordinate host/SDK/plugin work using the sequencing guidance in `docs/releases.md`.
+  A combined host+SDK release-only PR is acceptable when supported by explicit per-product
+  requests and complete CI; never combine feature implementation with version publication.
 - Use Bun: `bun install --frozen-lockfile`, `bun <file>`, `bun test`, `bun run <script>`,
   `bunx <package>`. Do not use npm/yarn/pnpm, node or other test runners.
 - Workflow actions must use full commit SHAs and minimal permissions. Allowed publishers

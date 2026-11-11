@@ -32,6 +32,24 @@ temporary source snapshot. It reads GitHub state but does not modify tracked fil
 GitHub. Native builds require macOS Apple silicon and Xcode command-line tools. Do not stop another
 session's app to obtain a build lock; the check command builds in its own staging directory.
 
+## Product-specific validation
+
+Release-only PRs remain mandatory. A Toolbelt SDK release-only diff must change exactly
+`.toolbelt-release.json`, `packages/sdk/CHANGELOG.md` and the `SDK_VERSION` constant in
+`src/shared/package.ts`. Its CI runs `bun run sdk:check` and `bun run sdk:package`, plus
+the normal secret/workflow checks and required CI gate. SDK checks include standalone
+typechecking, runtime/fake-host and protocol tests, package/integrity/recovery checks used
+by the bundled release CLI, and installation/execution of the SDK archive. It does not
+bootstrap Electrobun or build the app, seed, tester or disk images.
+
+Other diffs, missing scope evidence and manual CI runs use full app and SDK validation.
+Shared runtime, schema, renderer, dependency or workflow changes never qualify as an
+SDK release-only diff. The final merged SDK candidate uses the same SDK validation
+through its product adapter. Other products keep the default full typecheck/test checks.
+Adapters can supply `validate()` to define complete product-specific checks; omitting
+it preserves existing behavior. Separate version PRs, merge authorization and frozen
+publication verification remain required.
+
 ## Build and publish
 
 The Release workflow installs frozen dependencies and builds the exact authorized merged source.
@@ -47,28 +65,84 @@ read permissions. The publisher creates an annotated tag and draft, uploads exac
 downloads and compares every file and checks inventory before publishing. The release record is
 also a release asset. Existing differing tags or bytes are conflicts, never overwritten.
 
-Stable app releases advance ToolBelt Latest. SDK releases and all prereleases use Latest=false.
-Stable plugin releases advance Latest only in their own repository. Published assets and tags are
+Stable app releases advance ToolBelt Latest only when newer than the current stable version. SDK releases and all prereleases use Latest=false.
+Stable plugin releases advance Latest only in their own repository and never to an older version. Published assets and tags are
 immutable. Corrections require a new version. App notes retain the `## Downloads` boundary used
 by the updater. App DMGs are ad-hoc signed and verified, not Apple-notarized.
 
 ## Retry
 
 ```sh
-bun run release:app:retry --tag v0.2.0
-bun run release:sdk:retry --tag sdk-v0.3.0
+bun run release:app:retry --tag v0.2.2 --pr 24
+bun run release:sdk:retry --tag sdk-v0.3.0 --source <full-40-character-merge-SHA>
+# Once an annotated tag exists, the tag alone identifies the original source:
+bun run release:app:retry --tag v0.2.2
 ```
+
+Before tagging, specify either the owning repository’s merged release PR number (`--pr`)
+or its exact merge commit (`--source`), never both. Tag-only retries resolve the existing
+annotated tag. Retry never guesses from current main. The source must still be an authorized
+merged same-repository release request to main and match the expected product/version/channel/tag.
+A conflicting immutable tag refuses recovery. The CLI passes the resolved source to CI,
+which independently repeats authorization and recovery checks before using it.
 
 Retry dispatches CI for an already merged release request. It cannot change product, source,
 version, channel or frozen bytes. A failed build can run again before a candidate is saved.
 After a candidate is saved, retries reuse the original CI artifact. A draft/public release with
 missing retained candidate files stops for exact-byte recovery; it never substitutes a rebuild.
+A tag created before a failed draft upload also requires the original candidate. Expired
+authoritative candidate artifacts refuse rebuilding even when no tag was created.
 If publication succeeded but its response was lost, retry verifies and reports the existing
 immutable release. Inspect the failed workflow stage before retrying. Do not delete tags, clobber
 assets or rerun an old manual publisher. If exact recovery is unavailable, prepare a new version.
 
+Recovering an older stable app/plugin draft publishes it without replacing a newer Latest.
+Publication jobs serialize per repository so cooperating CI releases cannot race the Latest
+check/update. Direct publishers must not run outside that serialization. An already-public
+retry only verifies the immutable release. Historical recovery runs the publisher captured
+from the exact trusted workflow commit against the original source checkout and frozen
+candidate; it never rewrites their source, tooling record or bytes. Use the updated dispatch
+workflow: rerunning a historical workflow definition may execute its older publisher.
+A canceled pending publication can be retried from
+its original authorization and frozen candidate; never rebuild or overwrite its saved bytes.
+
 Local build/package commands create files only. Bare `bun run release` does not publish.
 Never replace the installed daily app or operate real software/processes/dotfiles to test a release.
+
+## Coordinating app, SDK and plugin changes
+
+- Prepare related implementation and Explorer coverage together. Publish the compatible SDK
+  first; put its final public URL and regenerated lockfile into the plugin’s merge-ready
+  implementation PR. Do not commit temporary/local SDK dependencies or expect a future URL
+  to install before publication. This avoids a second CI pass solely to replace the pin.
+- Overlap app release-only CI/publication with plugin implementation and version-PR validation.
+  Publish the required app before merging the dependent plugin release PR; retain the plugin’s
+  explicit minimum host range. The current single-product request file means separate app/SDK
+  request merges are serialized, with the later branch rebased and revalidated as necessary.
+- Combined app+SDK **release-only** PRs are acceptable policy if both products have explicit
+  version/channel authorization and complete CI. Implementation changes stay in earlier PRs.
+  Current tooling accepts one product per request: keep separate version PRs until multi-product
+  requests are implemented. Publication must remain independently recoverable per product;
+  partial success never authorizes replacing immutable assets or rolling back another release.
+- New app releases do not automatically require plugin SDK repins. Adopt an SDK when its API,
+  runtime fix or release tooling is needed; change the exact URL and lockfile together. SDK,
+  app and plugin versions are independent. Explorer source coverage accompanies API changes,
+  but its package publication and an app seed update need not block the production plugin.
+
+## Adopting source-pinned retries in plugin repositories
+
+Publish the SDK containing the retry change before consumers update their exact SDK URL and
+lockfile. In the same consumer change, add optional string input `source` to the owning
+`.github/workflows/release.yml` dispatch interface (the existing `tag` remains required). Also serialize the `publish` job
+across release tags with repository-scoped concurrency and `cancel-in-progress: false`.
+Capture the publisher CLI from the SDK installed at the trusted workflow commit before
+checking out the original release source, then run that captured CLI for `ci-publish`
+against the original source/config and downloaded frozen candidate. Do not execute the
+old source’s publisher or change the candidate to adopt the new tooling.
+The CLI resolves `--pr` locally and dispatches `{tag, source}`; the workflow’s plan step
+must use that updated SDK too. Updating the SDK pin or workflow alone is insufficient.
+A pin update adopts development tooling; installed plugin bytes change only through a
+new, approved plugin release. Do not publish another app merely to roll out SDK-only tooling.
 
 ## Products and distribution
 

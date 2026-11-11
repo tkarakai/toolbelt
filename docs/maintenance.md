@@ -70,6 +70,10 @@ errors and tester diagnostics before restarting. Never edit active package files
 verification rejects bytes that differ from the approved archive. Use a new plugin version
 or a fresh isolated development profile instead of weakening this check.
 
+SDK release-only CI and candidate builds use `bun run sdk:check` for the SDK runtime and
+its bundled release-tool dependencies. Changes outside the exact SDK release metadata
+allowlist keep full app CI. See [releases.md](releases.md#product-specific-validation).
+
 ## Maintaining SDK, renderer and demo
 
 `src/shared/protocol.ts` defines public nodes/events. `src/shared/package.ts` defines package
@@ -101,6 +105,10 @@ Keep pending approvals leased until install/discard/expiry. Keep live helper lea
 historical packages/snapshots intact during collection. Never manually delete transaction,
 backup or registry entries to unblock an upgrade. Use an isolated profile to reproduce
 recovery failures and preserve the affected user's data.
+
+For changes spanning the host and plugins, follow the brief sequencing and pinning guidance
+in [releases.md](releases.md#coordinating-app-sdk-and-plugin-changes). Release-only PRs
+remain separate from implementation PRs, with complete checks for the products released.
 
 ## Releases
 
