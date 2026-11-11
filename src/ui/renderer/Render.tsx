@@ -19,7 +19,7 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl } from "@/lib/store";
 import { isTyping, SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { TerminalView } from "./Terminal";
-import { detailSections, fitColumns, groupActions } from "./pure";
+import { detailSections, fitColumns, groupActions, groupSummaryLayout } from "./pure";
 import { ConversationView } from "./Conversation";
 import { parseMarkdown, safeHref, type Block, type Inline } from "./markdown";
 import { Badge } from "@/components/ui/badge";
@@ -776,7 +776,7 @@ function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setCho
  *  headers it sits under (for indentation). */
 type Visible = { row: Row; depth: number; parent?: string; indent: number; group?: string };
 
-type GroupLevel = { summary?: { label: string; value: string; description?: string }; key: string; label: string; strong?: string; sub?: string; tag?: string; muted?: boolean; icon?: string };
+type GroupLevel = { summary?: { label: string; value: string; description?: string; column?: string }; key: string; label: string; strong?: string; sub?: string; tag?: string; muted?: boolean; icon?: string };
 const groupPath = (g: Row["group"]): GroupLevel[] =>
 	g === undefined ? [] : (typeof g === "string" ? [g] : g).map((l: GroupLabel) => (typeof l === "string" ? { key: l, label: l } : { key: l.id ?? l.label, label: l.label, strong: l.strong, sub: l.sub, tag: l.tag, muted: l.muted, icon: l.icon, summary: l.summary }));
 
@@ -1166,7 +1166,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						<tbody>
 							{items.map((it) =>
 								it.kind === "header" ? (
-									<GroupHeader key={it.id} item={it} colSpan={columns.length + 1 + (bulk.length ? 1 : 0)} selected={it.id === selected} onSelect={() => select(it.id)} onToggle={() => toggleGroup(it.key)} />
+									<GroupHeader key={it.id} item={it} columns={columns} bulk={bulk.length > 0} selected={it.id === selected} onSelect={() => select(it.id)} onToggle={() => toggleGroup(it.key)} />
 								) : (
 									<TableRow
 										key={it.v.row.id}
@@ -1208,19 +1208,22 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 
 /** A group header: a section (level 0: where jobs run) or a group inside it (a folder). It can be
  *  selected (and moved through with the keyboard) and collapsed. */
-function GroupHeader({ item, colSpan, selected, onSelect, onToggle }: { item: Extract<Item, { kind: "header" }>; colSpan: number; selected: boolean; onSelect: () => void; onToggle: () => void }) {
+function GroupHeader({ item, columns, bulk, selected, onSelect, onToggle }: { item: Extract<Item, { kind: "header" }>; columns: Column[]; bulk: boolean; selected: boolean; onSelect: () => void; onToggle: () => void }) {
 	const { group: g, level, count, muted, collapsed } = item;
 	const top = level === 0;
+	const { index, labelSpan: colSpan } = groupSummaryLayout(columns, g.summary?.column, bulk);
+	const background = selected ? "bg-selected text-selected-foreground" : top ? "bg-muted/60 group-hover/row:bg-muted" : "bg-background group-hover/row:bg-muted/50";
+	const summary = g.summary && <Tooltip><TooltipTrigger asChild><span tabIndex={0} aria-label={`${g.summary.label}: ${g.summary.value}`} className="inline-block shrink-0 rounded font-mono text-xs text-muted-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring">{g.summary.value}</span></TooltipTrigger><TooltipContent className="max-w-xs"><div className="font-medium">{g.summary.label}</div>{g.summary.description && <p className="mt-1 leading-relaxed">{g.summary.description}</p>}</TooltipContent></Tooltip>;
 	return (
 		<tr data-row-id={item.id} data-group-level={level} data-selected={selected} onClick={(e) => (onSelect(), refocusTable(e.currentTarget))} onDoubleClick={onToggle} className="group/row cursor-default">
 			<td
 				colSpan={colSpan}
 				className={cn(
 					"border-b transition-colors duration-200",
-                    selected ? "bg-selected text-selected-foreground" : top ? "bg-muted/60 hover:bg-muted" : "bg-background hover:bg-muted/50",
+                    background,
 					top ? "py-2" : "py-1",
 				)}
-				style={{ paddingLeft: 12 + level * 16, paddingRight: 24 }}
+				style={{ paddingLeft: 12 + level * 16, paddingRight: index === 0 ? 12 : 24 }}
 			>
 				{/* w-0 + min-w-full: the header never makes the table wider than the window; long
 				    labels truncate instead. */}
@@ -1252,11 +1255,11 @@ function GroupHeader({ item, colSpan, selected, onSelect, onToggle }: { item: Ex
 						</Badge>
 					)}
 					<span className="shrink-0 text-xs text-muted-foreground tabular-nums">{count}</span>
-                    {g.summary && <Tooltip><TooltipTrigger asChild>
-                        <span tabIndex={0} aria-label={`${g.summary.label}: ${g.summary.value}`} className="ml-auto shrink-0 rounded px-1 font-mono text-xs text-muted-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring">{g.summary.value}</span>
-                    </TooltipTrigger><TooltipContent className="max-w-xs"><div><div className="font-medium">{g.summary.label}</div>{g.summary.description && <p className="mt-1 leading-relaxed">{g.summary.description}</p>}</div></TooltipContent></Tooltip>}
+                    {(g.summary?.column === undefined || index === 0) && <span className="ml-auto">{summary}</span>}
 				</div>
 			</td>
+			{index >= 0 && columns.slice(Math.max(1, index)).map((c, offset) => <td key={c.key} className={cn("border-b px-3 whitespace-nowrap transition-colors duration-200", background, c.align === "right" && "text-right", muted && !selected && "text-muted-foreground")} >{index > 0 && offset === 0 && summary}</td>)}
+			{index >= 0 && <td className={cn("border-b transition-colors duration-200", background)} />}
 		</tr>
 	);
 }

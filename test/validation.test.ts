@@ -67,3 +67,9 @@ test("protocol metadata, unknown nodes, deep trees and non-finite values reject"
   expect(() => validateTree(table(Infinity))).toThrow();
 });
 test('inherited object names and out-of-range dates cannot bypass runtime validation',()=>{expect(()=>validateTree({type:'constructor'})).toThrow();expect(()=>validateMessage({type:'constructor'})).toThrow();expect(()=>validateTree({type:'stats',items:[{label:'date',value:'bad',at:1e100}]})).toThrow()});
+
+test("group summary column keys are optional strings", () => {
+ const tree = (column: unknown) => ({...table("fine"),rows:[{id:"a",cells:{x:"fine"},group:[{label:"Group",summary:{label:"Total",value:"42",column}}]}]});
+ for (const column of [undefined,"x","missing"]) expect(()=>validateTree(JSON.parse(JSON.stringify(tree(column))))).not.toThrow();
+ for (const column of [12,{},null]) expect(()=>validateTree(tree(column))).toThrow();
+});

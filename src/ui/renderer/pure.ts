@@ -86,3 +86,9 @@ export function nextZoom(current: number, cmd: ZoomCommand, steps = ZOOM_STEPS):
 	return steps[Math.max(0, at - 1)];
 }
 
+
+/** Shared table tracks for a group's label and optional column-bound summary. */
+export function groupSummaryLayout(columns: Column[], column: string | undefined, bulk: boolean) {
+ const index = column === undefined ? -1 : columns.findIndex(c => c.key === column);
+ return { index, labelSpan: (index < 0 ? columns.length + 1 : Math.max(1, index)) + Number(bulk) };
+}

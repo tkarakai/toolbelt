@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add optional `GroupLabel.summary.column` for aggregates aligned with table columns (Toolbelt 0.2.2+).
+
 ## 0.3.0 — 2026-11-11
 
 - Promote the development SDK to a stable release, including public plugin types, lifecycle and package/path APIs, runtime validators and fake-host utilities.
