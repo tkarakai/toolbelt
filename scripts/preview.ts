@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import pkg from "../package.json";
 import { localControlRequest } from "../src/bun/loopback";
 // Toolbelt's UI in a plain browser, with the real plugins: serves dist/ (run `bun run views`
 // first) and bridges the web view RPC over a WebSocket. For designing and screenshotting the
@@ -27,7 +28,7 @@ const host = new PluginHost({
   dirs: [],
   registryRoot: configDir(homedir()),
   bun: process.execPath,
-  host: { name: "Toolbelt preview", version: "0.1.0" },
+  host: { name: "Toolbelt preview", version: pkg.version },
   data: join(configDir(homedir()), "data"),
 });
 const packages = new PackageManager(configDir(homedir()), {

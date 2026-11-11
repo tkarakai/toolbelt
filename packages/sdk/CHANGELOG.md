@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add optional page `controls` (segmented nodes), accessible segmented labels and per-option tooltips.
+
 - Publishing older stable candidates preserves the newer Latest; owning workflows must serialize publication across release tags.
 
 - Release retries accept `--pr` or `--source`, pass the original authorization to CI and refuse recovery that would rebuild tagged, uploaded or expired candidates. Untagged retries require an explicit selector.

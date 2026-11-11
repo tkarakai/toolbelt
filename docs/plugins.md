@@ -307,3 +307,14 @@ numbers do not need to match. Coordinate publication using the
 [release sequencing guidance](releases.md#coordinating-app-sdk-and-plugin-changes).
 New SDK release tools require deliberate consumer pins and compatible workflow inputs;
 they do not update installed plugins automatically.
+
+### Segmented toolbar controls
+
+Pages may provide `controls`, an array of segmented nodes, beside the search box. Each
+control has `id`, `value`, optional accessible `label`, and `options` with `value`, `label`,
+optional `icon` and optional `tooltip`. Tooltips appear on hover and keyboard focus.
+Selection sends `field` with `{form: id, field: id, value}`; the plugin persists meaningful
+preferences and returns the selected value. Controls wrap on narrow surfaces.
+This additive contract requires a host/SDK containing segmented toolbar support; older
+hosts ignore `controls`. Consumers must wait for the public SDK release and declare a
+compatible host range before publishing a package using it.

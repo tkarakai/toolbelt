@@ -173,15 +173,20 @@ function ActionButtons({ actions, onRun, size = "sm", enter }: { actions: Action
 
 /** A segmented control (one of a few); its changes arrive as `field` events. */
 function Segmented({ node, emit }: { node: Extract<Node, { type: "segmented" }>; emit: Emit }) {
+	const [value, setValue] = useState(node.value);
+	useEffect(() => setValue(node.value), [node.value]);
 	return (
-		<Tabs value={node.value} onValueChange={(v) => emit("field", { form: node.id, field: node.id, value: v })}>
-			<TabsList>
-				{node.options.map((o) => (
-					<TabsTrigger key={o.value} value={o.value} className="gap-1.5 px-3">
-						{o.icon && <Icon name={o.icon} />}
-						{o.label}
-					</TabsTrigger>
-				))}
+		<Tabs value={value} onValueChange={(v) => { setValue(v); emit("field", { form: node.id, field: node.id, value: v }); }}>
+			<TabsList aria-label={node.label ?? node.id}>
+				{node.options.map((o) => {
+					const trigger = <TabsTrigger value={o.value} className="gap-1.5 px-3 aria-selected:bg-selected aria-selected:text-selected-foreground dark:aria-selected:bg-selected dark:aria-selected:text-selected-foreground">
+						{o.icon && <Icon name={o.icon} />}{o.label}
+					</TabsTrigger>;
+					return o.tooltip ? <Tooltip key={o.value} delayDuration={200}>
+						<TooltipTrigger asChild><span className="inline-flex">{trigger}</span></TooltipTrigger>
+						<TooltipContent className="max-w-xs">{o.tooltip}</TooltipContent>
+					</Tooltip> : <span key={o.value} className="contents">{trigger}</span>;
+				})}
 			</TabsList>
 		</Tabs>
 	);
@@ -287,7 +292,7 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 	const words = (node.highlight ?? []).filter((w) => w.trim().length > 0);
 	const highlight = useMemo(() => (words.length ? new RegExp(`(${words.map(escape).sort((a, b) => b.length - a.length).join("|")})`, "ig") : null), [words.join("\n")]);
 	const { run, dialog: confirm } = useConfirm(emit);
-	const hasToolbar = node.search || node.actions?.length || node.summary;
+	const hasToolbar = node.search || node.controls?.length || node.actions?.length || node.summary;
 	// Pages without a table read better as a centered column.
 	const narrow = !node.children.some((c) => c.type === "table");
 	return (
@@ -324,6 +329,7 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 							</InputGroupAddon>
 						</InputGroup>
 					)}
+					{node.controls?.map((control) => <Segmented key={control.id} node={control} emit={emit} />)}
 					{node.filters?.map((f) => (
 						<FilterMenu key={f.id} filter={f} emit={emit} />
 					))}
