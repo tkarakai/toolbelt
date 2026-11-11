@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.2.1 — 2026-11-11
 - Keep the selected plugin’s quick view beside the popover list, aligned to its row with a
   slight overlap on the side with room. Hover, Up/Down and plugin hotkeys select; click or
   Enter opens the main window. Plugins without quick views keep the compact list. Remove
