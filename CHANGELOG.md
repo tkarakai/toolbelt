@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.3.0 — 2026-11-11
 - Open plugin and app repository links from Settings in the default browser.
 
 - Keep app update release notes in the review dialog instead of repeating them on About.
