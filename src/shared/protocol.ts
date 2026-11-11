@@ -172,7 +172,7 @@ export type GroupLabel =
 			/** a small badge ("app", "no terminal") */
 			tag?: string;
 			/** Informational aggregate, displayed independently of sorting and collapsed state. */
-            summary?: { label: string; value: string; description?: string };
+            summary?: { label: string; value: string; description?: string; /** Table column key; hidden with that column. Omit for a trailing summary. */ column?: string };
 			/** dimmed (app sections) */
 			muted?: boolean;
 			icon?: string;

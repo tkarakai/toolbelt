@@ -96,7 +96,8 @@ terminal sessions must not belong to a plugin-owned process group.
 
 `Render.tsx` maps nodes into shared components. `SafeRender`/`Boundary` contain component
 failures. Typing, selection, scroll, column sizes and zoom stay in the renderer for immediate
-feedback; plugins receive meaningful events. `renderer/pure.ts` contains testable layout
+feedback; plugins receive meaningful events. Group summaries can bind to a table column key and share its cells, alignment and visibility.
+`renderer/pure.ts` contains testable layout
 rules. Themes use separate selection tokens and enforce AA contrast. Motion is 200 ms easing
 out, with shorter exits and global reduced-motion support; continuously changing values do
 not animate. Native popover positioning and lifecycle are shared by app and tester.

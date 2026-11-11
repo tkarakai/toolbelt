@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Action, Column } from "../src/shared/protocol";
-import { continuation, detailSections, fitColumns, groupActions, looksLikeScreen, nextZoom, visibleWidth } from "../src/ui/renderer/pure";
+import { groupSummaryLayout, continuation, detailSections, fitColumns, groupActions, looksLikeScreen, nextZoom, visibleWidth } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -86,3 +86,12 @@ test("nextZoom steps through the levels and resets", () => {
 	expect(nextZoom(1.75, "zoomReset")).toBe(1);
 });
 
+
+test("group summaries share column tracks through visibility and bulk selection changes", () => {
+ expect(groupSummaryLayout(cols, "mem", false)).toEqual({index:3,labelSpan:3});
+ expect(groupSummaryLayout(cols, "mem", true)).toEqual({index:3,labelSpan:4});
+ expect(groupSummaryLayout(cols.filter(c=>c.key!=="cpu"), "mem", false)).toEqual({index:2,labelSpan:2});
+ for (const key of ["mem", "unknown"]) expect(groupSummaryLayout(cols.filter(c=>c.key!=="mem"),key,false)).toEqual({index:-1,labelSpan:5});
+ expect(groupSummaryLayout(cols,undefined,false)).toEqual({index:-1,labelSpan:6});
+ expect(groupSummaryLayout(cols,"name",true)).toEqual({index:0,labelSpan:2});
+});

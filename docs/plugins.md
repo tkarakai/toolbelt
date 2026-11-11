@@ -290,3 +290,11 @@ Disabling retains code/data; removing retains data unless explicit deletion is s
 For locally rebuilt same-version packages, use a fresh tester profile rather than disabling
 integrity checks. Updating plugin implementation requires no Toolbelt source changes; only
 a newly required public capability needs corresponding host/SDK/renderer support.
+
+### Group summary columns
+
+`GroupLabel.summary.column` optionally names a table column key. The host renders the
+summary in that column with the same alignment and horizontal padding as row values,
+including on collapsed groups. A hidden or unknown column hides the summary in the table;
+the group inspector retains it. Omit `column` to keep a trailing, full-width summary.
+Column-bound summaries require Toolbelt 0.2.2 or newer.

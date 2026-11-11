@@ -81,3 +81,14 @@ test('host capabilities are negotiated independently of SDK version', async () =
  h.send({type:'hello',protocol:1,capabilities:['ui.core'],plugin:{id:'test'},host:{name:'old host',version:'0.1.0'}});await tick();
  expect(capabilities).toEqual(['ui.core']);
 });
+
+test("SDK preserves column-bound group summaries through the fake host", async () => {
+ const h = harness();
+ const tree = {type:"table" as const,id:"totals",columns:[{key:"name",title:"Name"},{key:"value",title:"Value"}],rows:[{id:"a",cells:{name:"A",value:42},group:[{label:"Group",summary:{label:"Total",value:"42",column:"value"}}]}]};
+ definePlugin({render:{"screen:a":()=>tree}},{write:h.write,input:h.input});
+ await tick();
+ h.send({type:"hello",protocol:1,plugin:{id:"t"},host:{name:"test",version:"0.2.2"}});
+ h.send({type:"open",surface:"screen:a"});
+ await tick();
+ expect(h.out.at(-1)).toEqual({type:"render",surface:"screen:a",tree});
+});

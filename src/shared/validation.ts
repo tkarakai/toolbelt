@@ -176,7 +176,7 @@ const group = union(
     sub: optional(text),
     tag: optional(text),
     summary: optional(
-      object({ label: text, value: text, description: optional(text) }),
+      object({ label: text, value: text, description: optional(text), column: optional(text) }),
     ),
     muted: optional(bool),
     icon: optional(text),
