@@ -74,6 +74,7 @@ export const themeById = (id: string) => THEMES.find((t) => t.id === id) ?? THEM
 export function tokens(p: Palette): Record<string, string> {
 	return {
         ...selectionTokens(p),
+        ...inactiveSelectionTokens(p),
 		background: p.bg,
 		foreground: p.fg,
 		card: p.surface,
@@ -160,8 +161,11 @@ export function selectionTokens(p: Palette): Record<string,string> {
             const background = mix(foreground, p.selected, .10);
             if(contrast(foreground,p.selected)>=4.5 && contrast(foreground,background)>=4.5) break;
         }
+        let pill = mix(foreground, p.selected, .10);
+        for (let tint = 9; contrast(foreground, pill) < 4.5 && tint >= 0; tint--)
+            pill = mix(foreground, p.selected, tint / 100);
         out[`selected-${name}`] = foreground;
-        out[`selected-${name}-pill`] = mix(foreground,p.selected,.10);
+        out[`selected-${name}-pill`] = pill;
     }
     // Neutral pills need both colors adapted too: a normal muted background can be
     // the opposite polarity of the selected row (for example dark idle on light selection).
@@ -178,4 +182,18 @@ export function selectionTokens(p: Palette): Record<string,string> {
     out["selected-muted"] = neutralMuted;
     out["selected-muted-pill"] = neutralBackground;
     return out;
+}
+
+
+/** Remembered selections use an intermediate fill with a legible foreground,
+ * independently of the active selection's polarity. Semantic colors retain AA contrast. */
+export function inactiveSelectionTokens(p: Palette): Record<string, string> {
+    const background = mix(p.selected, p.subtle, .5);
+    const foreground = [p.fg, p.selectedFg, "#000000", "#ffffff"].sort((a, b) => contrast(b, background) - contrast(a, background))[0]!;
+    const colors = selectionTokens({ ...p, selected: background, selectedFg: foreground });
+    return {
+        "inactive-selected": background,
+        "inactive-selected-foreground": foreground,
+        ...Object.fromEntries(Object.entries(colors).map(([key, value]) => [`inactive-${key}`, value])),
+    };
 }

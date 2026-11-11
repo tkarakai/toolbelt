@@ -10,6 +10,26 @@ Use [SDK Explorer](https://github.com/tkarakai/toolbelt-sdk-demo) for UI/capabil
 [Upkeep](https://github.com/tkarakai/toolbelt-upkeep) for background work and safe upgrade
 preparation. Each repository documents its own architecture and maintenance commands.
 
+## Quick-view navigation
+
+The popover previews a selected plugin's declared quick view beside the plugin list. Plugin
+hotkeys select without opening a window. Side arrows move keyboard focus between panes;
+one selected item per plugin is shared with the main window using stable item IDs. The
+active item has a stronger fill, while inactive selections have an intermediate fill.
+Quick-view action shortcuts operate only in the focused collection. Inputs and dialogs keep
+their standard keyboard behavior.
+
+Enter on either pane opens the plugin's main screen with the shared item selected.
+Fresh quick views have no selected item until one is chosen. A main-window selection
+preselects the matching quick-view item, and changes or clears in either surface update the
+other. If a surface does not contain that item, it shows no selection without clearing the
+shared ID. Use stable item IDs across quick and main surfaces to support this handoff; list
+and table collection IDs may differ. The host matches IDs, opens ancestor rows/groups and
+scrolls to the item. If the item is absent, it preserves the main screen's existing selection
+and waits for a matching render. Buttons and action shortcuts continue to dispatch their
+normal actions. Only selection identity is shared between renderer surfaces; plugin code and other UI
+preferences remain separate.
+
 ## Create a plugin
 
 Create a Bun TypeScript repository and pin a public SDK archive as a dependency. The

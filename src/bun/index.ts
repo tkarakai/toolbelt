@@ -1,7 +1,8 @@
+import type { NavigationSelection, WindowNavigation } from "../shared/navigation";
 import { localControlRequest } from "./loopback";
 import { materializeSeed } from "./seed";
 import { EDIT_MENU } from "./edit-menu";
-import { createNativePopover, positionPopover } from "./native-popover";
+import { createNativePopover, layoutNativePopover } from "./native-popover";
 // Toolbelt's main process: the menu bar icon and its popover, the main window, the global
 // shortcut, and the plugin host that feeds both web views.
 import Electrobun, {
@@ -45,11 +46,10 @@ import { prepareAppHandoff } from "./activation";
 import { appVariant } from "../shared/variant";
 import pkg from "../../package.json" with { type: "json" };
 
-/** The popover's width, and its tallest (quick views use all of it; the tool list asks for less). */
-const POPOVER = { width: 380, height: 520 };
-/** The height the tool list last asked for (`popoverSize`), used the next time it shows. */
-let listHeight = POPOVER.height;
-let popoverHeight = POPOVER.height;
+/** Last requested list geometry, reused when the native popover is shown again. */
+let listHeight = 520;
+let popoverDetails = false;
+let popoverAnchorTop = 0;
 const channel = await Updater.localInfo.channel();
 const variant = appVariant(channel === "dev");
 if (channel === "dev" && !process.env.TOOLBELT_CONFIG_DIR)
@@ -119,6 +119,19 @@ function makeRPC() {
     maxRequestTime: 300_000,
     handlers: {
       requests: {
+        initialNavigation: () => {
+          if (rpc !== winRPC) return null;
+          const navigation = pendingWindowNavigation;
+          pendingWindowNavigation = null;
+          return navigation;
+        },
+        popoverLayout: ({ height, details, anchorTop, reserveHeight }) => {
+          listHeight = Number.isFinite(height) ? Math.max(120, Math.min(520, height)) : 520;
+          popoverDetails = details === true;
+          popoverAnchorTop = Number.isFinite(anchorTop) ? Math.max(0, Math.min(520, anchorTop)) : 0;
+          return layoutNativePopover(tray, popover, listHeight, popoverDetails, popoverAnchorTop,
+            Number.isFinite(reserveHeight) ? Math.max(0, reserveHeight!) : 0);
+        },
         pluginManager: (request) => manager.handle(request),
         pluginAsset: ({ reference }) => pluginAsset(packages, reference),
         plugins: () => host.list(),
@@ -207,23 +220,12 @@ function makeRPC() {
         dismissUpdate: () => (updater.dismiss(), true),
       },
       messages: {
-        showWindow: ({ plugin, screen }) => {
+        selectionChanged: payload => views.forEach(view => view.send.selectionChanged(payload)),
+        showWindow: ({ plugin, screen, selection }) => {
           hidePopover(true);
-          showWindow(plugin, screen);
+          showWindow(plugin, screen, selection);
         },
         hidePopover: () => hidePopover(),
-        popoverSize: ({ height }) => {
-          const h =
-            height === null
-              ? POPOVER.height
-              : Math.round(Math.max(120, Math.min(POPOVER.height, height)));
-          if (height !== null) listHeight = h;
-          if (h === popoverHeight) return;
-          popoverHeight = h;
-          // Keep the top edge where it is (it hangs from the menu bar).
-          const f = popover.getFrame();
-          popover.setFrame(f.x, f.y, POPOVER.width, h);
-        },
         closeWindow: () => win?.close(),
         // Double-clicking the title area: zoom like a native title bar.
         zoomWindow: () => {
@@ -264,17 +266,19 @@ host.subscribe({
 let win: BrowserWindow | null = null;
 let winRPC: ViewRPC | null = null;
 
-function showWindow(plugin?: string, screen?: string) {
+let pendingWindowNavigation: WindowNavigation | null = null;
+function showWindow(plugin?: string, screen?: string, selection?: NavigationSelection) {
   if (win) {
     win.unminimize();
     win.show();
     win.activate();
-    if (plugin) winRPC?.send.navigate({ plugin, screen });
+    if (plugin) winRPC?.send.navigate({ plugin, screen, selection });
     return;
   }
   Utils.setDockIconVisible(true);
   updater.checkIfDue(SOON); // opening the window checks if it's been an hour
   winRPC = makeRPC();
+  pendingWindowNavigation = plugin ? { plugin, screen, selection } : null;
   const hash = plugin ? `#/${plugin}${screen ? `/${screen}` : ""}` : "";
   win = new BrowserWindow({
     title: variant.name,
@@ -288,6 +292,7 @@ function showWindow(plugin?: string, screen?: string) {
     if (winRPC) releaseView(winRPC);
     win = null;
     winRPC = null;
+    pendingWindowNavigation = null;
     Utils.setDockIconVisible(false);
   });
 }
@@ -315,10 +320,7 @@ let hiddenAt = 0;
 function showPopover() {
   clearTimeout(hideTimer);
   hideTimer = undefined;
-  const { x, y } = positionPopover(tray, POPOVER.width);
-  // It opens on the tool list, so at the list's height.
-  popoverHeight = listHeight;
-  popover.setFrame(x, y, POPOVER.width, popoverHeight);
+  layoutNativePopover(tray, popover, listHeight, popoverDetails, popoverAnchorTop);
   popover.show();
   popover.activate();
   setTrayHighlighted(true);

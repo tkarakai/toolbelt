@@ -101,6 +101,38 @@ rules. Themes use separate selection tokens and enforce AA contrast. Motion is 2
 out, with shorter exits and global reduced-motion support; continuously changing values do
 not animate. Native popover positioning and lifecycle are shared by app and tester.
 
+Plugin navigation order is a profile-scoped renderer preference shared between the sidebar and
+popover through local storage events. Dragging previews placement locally and saves on drop;
+new plugins append to the saved order, which also determines numbered navigation shortcuts.
+The popover keeps the selected plugin's quick view open in a neighboring panel. Plugins
+without a quick view show only the compact list. Native placement chooses the side with room
+and fits both panels within the work area, with a slight overlap and the quick view aligned
+to the selected plugin row (clamped above the work-area bottom). Hover, Up/Down, and plugin letter/number
+hotkeys select. The arrow toward the quick view transfers focus to its remembered collection
+and item; the opposite arrow or Escape returns to the main list. Inputs, dialogs and menus
+retain their own keys. Active selections use the full selection fill; inactive selections
+use an AA-checked intermediate fill, with a gentle border around the active pane. Keyboard
+navigation ignores hover changes caused by layout movement under a stationary pointer.
+The first quick view waits 200 ms after opening. Its window geometry is reserved before
+first paint so revealing it does not move or remount the list. New quick views slide out
+from the selected row; old views slide back using inert, noninteractive snapshots for 150 ms
+while their live surface subscriptions close immediately. Reduced motion skips the slides.
+Click/Enter on the plugin list opens the main window with the plugin's shared selection.
+Enter on a quick-view collection carries its selected item ID to the main screen, where matching list/table items are selected and
+scrolled into view, opening ancestor rows/groups where needed. Handoff is delivered to both
+existing and newly created windows; it applies once after a matching tree arrives. Manual
+navigation or input cancels a pending handoff. It does not dispatch a plugin action or infer
+item identity from labels. Quick-view subscriptions close when the selected plugin changes. One profile-scoped selected item per plugin is
+shared between the main and quick surfaces through local-storage events and a host message
+relay (hidden native WebKit views also refresh on focus/show). Collections map
+that stable ID into their own tree; an unavailable item has no visible selection there but
+does not clear the other surface's selection. Explicit clears propagate to both surfaces.
+Fresh plugins begin unselected; legacy main-window selections can seed the shared model.
+Keyboard pane/collection focus remains independent of item selection. Command+Enter has
+no popover binding or hint.
+UI preferences use independent local-storage entries (with legacy aggregate reads), so main
+and popover saves cannot overwrite each other's unrelated selections.
+
 Plugin images use namespaced `asset:<id>@<version>/<name>` references resolved only through
 the manifest's asset map. The host bounds image bytes, checks supported image content and
 rejects unsafe SVG content. Lucide names and Finder `app:`/`file:` icons are also supported.

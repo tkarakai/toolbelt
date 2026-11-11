@@ -14,7 +14,7 @@ import { TesterRuntime, testerProfile } from "./tester-runtime";
 import { DEFAULTS, loadSettings, saveSettings } from "./settings";
 import { pluginAsset } from "./plugin-assets";
 import { FileIcons } from "./file-icon";
-import { createNativePopover, positionPopover } from "./native-popover";
+import { createNativePopover, layoutNativePopover } from "./native-popover";
 import { setTrayHighlighted } from "./tray-highlight";
 import pkg from "../../package.json";
 const root = testerProfile(process.env.TOOLBELT_TESTER_PROFILE);
@@ -155,8 +155,7 @@ function showNative() {
   if (!native) return;
   clearTimeout(hideTimer);
   nativeShownAt = Date.now();
-  const { x, y } = positionPopover(native.tray);
-  native.popover.setFrame(x, y, 380, 520);
+  layoutNativePopover(native.tray, native.popover, 520, true);
   native.popover.show();
   native.popover.activate();
   setTrayHighlighted(true);
@@ -173,6 +172,11 @@ function makeRPC() {
     maxRequestTime: 300000,
     handlers: {
       requests: {
+        initialNavigation: () => null,
+        popoverLayout: ({ height, details, anchorTop, reserveHeight }: any) => {
+          if (!native) throw new Error("Native popover is not open");
+          return layoutNativePopover(native.tray, native.popover, Number.isFinite(height) ? height : 520, details === true, Number.isFinite(anchorTop) ? Math.max(0, Math.min(520, anchorTop)) : 0, Number.isFinite(reserveHeight) ? Math.max(0, reserveHeight) : 0);
+        },
         tester: ({ operation, ...params }: any) =>
           testerControl(operation, params),
         plugins: () => runtime.host.list(),
@@ -248,6 +252,7 @@ function makeRPC() {
         dismissUpdate: () => true,
       },
       messages: {
+        selectionChanged: (payload: any) => broadcast("selectionChanged", payload),
         showWindow: (p: any) => {
           hideNative();
           win.show();
@@ -255,17 +260,6 @@ function makeRPC() {
           broadcast("navigate", p);
         },
         hidePopover: hideNative,
-        popoverSize: (p: any) => {
-          if (native) {
-            const f = native.popover.getFrame();
-            native.popover.setFrame(
-              f.x,
-              f.y,
-              380,
-              p.height === null ? 520 : Math.max(120, Math.min(520, p.height)),
-            );
-          }
-        },
         closeWindow: () => win.close(),
         zoomWindow: () => {
           if (win.isMaximized()) win.unmaximize();

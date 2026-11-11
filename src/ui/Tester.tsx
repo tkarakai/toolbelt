@@ -158,7 +158,7 @@ export default function Tester({ control }: { control: TesterControl }) {
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div
           style={{
-            width: popover ? 380 : width,
+            width: popover ? 768 : width,
             maxWidth: "100%",
             margin: "0 auto",
           }}

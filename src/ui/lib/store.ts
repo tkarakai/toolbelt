@@ -1,3 +1,5 @@
+import type { NavigationSelection } from "../../shared/navigation";
+import { useOrderedPlugins } from "./plugin-order";
 // The web side of Toolbelt: one RPC connection to the main process, and a tiny store of what
 // it sent (plugins, UI trees) that React reads with useSyncExternalStore.
 import { Electroview } from "electrobun/view";
@@ -28,12 +30,13 @@ export function committed(plugin: string, surface: string) {
   if (perf.length > 300) perf.shift();
 }
 
-type NavListener = (plugin: string, screen?: string) => void;
+type NavListener = (plugin: string, screen?: string, selection?: NavigationSelection) => void;
 const navListeners = new Set<NavListener>();
 const shownListeners = new Set<() => void>();
 const hidingListeners = new Set<() => void>();
 const settingsListeners = new Set<() => void>();
 const commandListeners = new Set<(name: string) => void>();
+export const selectionListeners = new Set<(payload: { plugin: string; selection: NavigationSelection | null }) => void>();
 /** Pushed update states (src/ui/Updates.tsx subscribes). */
 export const updateListeners = new Set<(s: UpdateState) => void>();
 
@@ -64,6 +67,7 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
     );
     set({ plugins, trees });
   },
+  selectionChanged: payload => selectionListeners.forEach(listener => listener(payload)),
   pluginManagerState: (state) =>
     pluginManagerListeners.forEach((listener) => listener(state)),
   tree: ({ plugin, surface, tree }) => {
@@ -92,8 +96,8 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
         : {}),
     });
   },
-  navigate: ({ plugin, screen }) =>
-    navListeners.forEach((l) => l(plugin, screen)),
+  navigate: ({ plugin, screen, selection }) =>
+    navListeners.forEach((l) => l(plugin, screen, selection)),
   popoverShown: () => shownListeners.forEach((l) => l()),
   popoverHiding: () => hidingListeners.forEach((l) => l()),
   settingsChanged: () => settingsListeners.forEach((l) => l()),
@@ -186,7 +190,7 @@ export function usePlugins(): PluginInfo[] {
     loaded = true;
     void rpc.request.plugins({}).then((plugins) => set({ plugins }));
   }, []);
-  return useSyncExternalStore(subscribe, () => state.plugins);
+  return useOrderedPlugins(useSyncExternalStore(subscribe, () => state.plugins));
 }
 
 /** Watch a surface while mounted; returns its latest UI tree (or null until the first one). */
@@ -225,6 +229,8 @@ export const sendEvent = (
 export function useNavigate(fn: NavListener) {
   useEffect(() => {
     navListeners.add(fn);
+    // Asking after subscription covers first creation as well as an already-open window.
+    void rpc.request.initialNavigation({}).then(navigation => { if (navigation) handlers.navigate(navigation); });
     return () => void navListeners.delete(fn);
   }, [fn]);
 }

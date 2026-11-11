@@ -1,3 +1,6 @@
+import { useCollectionSelection, LocalSelectionProvider } from "@/lib/shared-selection";
+import { SelectionHandoffContext, SelectionRequestContext } from "@/lib/selection-handoff";
+import { ownsCollectionKeyboard, focusPopoverCollection, canHoverNavigate } from "@/lib/pane-navigation";
 import { EnvironmentEditor } from "./EnvironmentEditor";
 // Turns a plugin's UI tree into shadcn/ui components. Every node type in shared/protocol.ts
 // has one renderer here; plugins never ship their own components.
@@ -248,10 +251,17 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 	// The filter text is remembered per surface; send it whenever the page opens, so the plugin
 	// and the box always agree (after a plugin restart, or a reload that forgot the text).
 	const [query, setQuery] = useUIState("search", "");
+    const selectionRequest = useContext(SelectionRequestContext);
+    const lastRequest = useRef<number | null>(null);
+    useEffect(() => {
+        if (!selectionRequest || lastRequest.current === selectionRequest.token) return;
+        lastRequest.current = selectionRequest.token;
+        if (node.search && query) { setQuery(""); emit("search", { query: "" }); }
+    }, [selectionRequest, node.search, query, setQuery, emit]);
 	const input = useRef<HTMLInputElement>(null);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 	useEffect(() => {
-		if (node.search) emit("search", { query });
+		if (node.search) emit("search", { query: selectionRequest ? "" : query });
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 	const onQuery = (q: string) => {
@@ -262,6 +272,8 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 	useEffect(() => {
 		if (!node.search) return;
 		const onKey = (e: KeyboardEvent) => {
+            const pane = input.current?.closest<HTMLElement>("[data-keyboard-pane]");
+            if (pane && pane.dataset.keyboardActive !== "true") return;
 			if ((e.metaKey && e.key === "f") || (e.key === "/" && !isTyping(e))) {
 				e.preventDefault();
 				input.current?.focus();
@@ -451,9 +463,13 @@ function DialogBody({ d, emit, close, className, style, header, children }: { d:
 				{d.description && <DialogDescription>{d.description}</DialogDescription>}
 			</DialogHeader>
 			<div className={cn("flex min-h-0 flex-1 flex-col gap-4 px-6 py-4", fills ? "[&>*:not(.flex-1)]:shrink-0" : "overflow-auto [&>*]:shrink-0")}>
-				{d.children.map((c, i) => (
-					<Render key={i} node={c} emit={emit} />
-				))}
+                <LocalSelectionProvider>
+                    <SelectionHandoffContext.Provider value={null}>
+                        <SelectionRequestContext.Provider value={null}>
+                            {d.children.map((c, i) => <Render key={i} node={c} emit={emit} />)}
+                        </SelectionRequestContext.Provider>
+                    </SelectionHandoffContext.Provider>
+                </LocalSelectionProvider>
 			</div>
 			<DialogFooter className="mx-0 mb-0 flex-wrap gap-y-2 px-6 py-4">
 				<Button variant="outline" onClick={close}>
@@ -830,7 +846,7 @@ const TableRow = memo(
 
 function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emit: Emit }) {
 	const surface = useContext(SurfaceContext);
-	const [selected, setSelected] = useUIState<string | null>(`${node.id}:selected`, null);
+	const [selected, setSelected, sharedTarget] = useCollectionSelection(`${node.id}:selected`, `table:${node.id}`);
 	// Expanded rows: the person's choices, on top of what the plugin opens (`row.open`).
 	const [overrides, setOverrides] = useUIState<Record<string, boolean>>(`${node.id}:expanded`, {});
 	// Collapsed group headers (by group key path).
@@ -978,7 +994,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+			if (!ownsCollectionKeyboard(wrap.current) || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
 			const i = items.findIndex((it) => it.id === selected);
 			const cur = items[i];
 			switch (e.key) {
@@ -1045,6 +1061,30 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		return () => window.removeEventListener("keydown", onKey);
 	}, [items, selected, expanded, toggle, toggleGroup, select, actionsFor, trigger, setSelected, bulk, check]);
 
+    useLayoutEffect(() => {
+        if (!sharedTarget) return;
+        if (sharedTarget.ancestors.some(id => !openIds.has(id)))
+            setOverrides(previous => ({ ...previous, ...Object.fromEntries(sharedTarget.ancestors.map(id => [id, true])) }));
+        if (sharedTarget.groups.some(key => collapsedGroups[key]))
+            setCollapsedGroups(previous => ({ ...previous, ...Object.fromEntries(sharedTarget.groups.map(key => [key, false])) }));
+        requestAnimationFrame(() => rowElement(wrap.current, sharedTarget.item)?.scrollIntoView({ block: "nearest" }));
+    }, [sharedTarget, openIds, collapsedGroups, setOverrides, setCollapsedGroups]);
+
+    const handoff = useContext(SelectionHandoffContext);
+    const appliedHandoff = useRef<number | null>(null);
+    useLayoutEffect(() => {
+        if (!handoff || handoff.collection !== `table:${node.id}` || appliedHandoff.current === handoff.token) return;
+        appliedHandoff.current = handoff.token;
+        setOverrides(previous => ({ ...previous, ...Object.fromEntries(handoff.ancestors.map(id => [id, true])) }));
+        setCollapsedGroups(previous => ({ ...previous, ...Object.fromEntries(handoff.groups.map(key => [key, false])) }));
+        setSelected(handoff.item);
+        requestAnimationFrame(() => {
+            wrap.current?.focus({ preventScroll: true });
+            rowElement(wrap.current, handoff.item)?.scrollIntoView({ block: "nearest" });
+            handoff.onApplied();
+        });
+    }, [handoff, node.id, setOverrides, setCollapsedGroups, setSelected]);
+
 	// The table takes the keyboard when it appears, unless something else already has it.
 	useEffect(() => {
 		if (document.activeElement === document.body) wrap.current?.focus({ preventScroll: true });
@@ -1077,6 +1117,12 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 					ref={wrap}
 					tabIndex={0}
 					data-table-focus
+                    data-navigation-collection={`table:${node.id}`}
+                    onFocusCapture={() => {
+                        if (!wrap.current?.closest("[data-keyboard-pane]")) return;
+                        const id = current?.id;
+                        if (id) select(id);
+                    }}
 					onScroll={(e) => uiState.set(surface, `${node.id}:scroll`, e.currentTarget.scrollTop)}
 					className="min-h-0 min-w-0 flex-1 scroll-pt-9 overflow-auto outline-none"
 				>
@@ -1505,32 +1551,58 @@ function DetailRow({ d, run }: { d: DetailItem; run: (a: Action) => void }) {
 /** ↑/↓ move through the items, ↵ runs the item's first action. `keyboard` turns it on. */
 function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "list" }>; emit: Emit; keyboard?: boolean }) {
 	const { run, dialog } = useConfirm(emit);
-	const [active, setActive] = useUIState<string | null>(`${node.id}:active`, null);
+    const self = useRef<HTMLDivElement>(null);
+	const [active, setActive, sharedTarget] = useCollectionSelection(`${node.id}:active`, `list:${node.id}`);
 	useEffect(() => {
 		if (!keyboard) return;
 		const onKey = (e: KeyboardEvent) => {
-			if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+			if (!ownsCollectionKeyboard(self.current) || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+            if ((e.target as HTMLElement).closest("button, a, [role=switch]")) return;
 			const i = node.items.findIndex((it) => it.id === active);
 			if (e.key === "ArrowDown" || e.key === "ArrowUp") {
 				e.preventDefault();
-				const next = node.items[i < 0 ? 0 : Math.max(0, Math.min(node.items.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
+				const next = node.items[i < 0 ? (e.key === "ArrowDown" ? 0 : node.items.length - 1) : Math.max(0, Math.min(node.items.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
 				if (next) {
 					setActive(next.id);
-					requestAnimationFrame(() => document.querySelector(`[data-item-id="${CSS.escape(next.id)}"]`)?.scrollIntoView({ block: "nearest" }));
+					requestAnimationFrame(() => self.current?.querySelector(`[data-item-id="${CSS.escape(next.id)}"]`)?.scrollIntoView({ block: "nearest" }));
 				}
-			} else if (e.key === "Enter" && i >= 0) {
-				const a = node.items[i].actions?.[0];
-				if (a) (e.preventDefault(), run(a, node.items[i].id));
-			}
+            } else if (i >= 0) {
+                const item = node.items[i]!;
+                const action = e.key === "Enter" ? item.actions?.find(a => !a.disabled) : item.actions?.find(a => !a.disabled && a.key?.toLowerCase() === e.key.toLowerCase());
+                if (action) { e.preventDefault(); run(action, item.id); }
+            }
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
 	}, [keyboard, node.items, active, setActive, run]);
+    useLayoutEffect(() => {
+        if (sharedTarget) requestAnimationFrame(() => self.current?.querySelector(`[data-item-id="${CSS.escape(sharedTarget.item)}"]`)?.scrollIntoView({ block: "nearest" }));
+    }, [sharedTarget]);
+    const restoreSelection = () => {
+        const item = node.items.find(it => it.id === active);
+        if (!item) return;
+        requestAnimationFrame(() => self.current?.querySelector(`[data-item-id="${CSS.escape(item.id)}"]`)?.scrollIntoView({ block: "nearest" }));
+    };
+    const handoff = useContext(SelectionHandoffContext);
+    const appliedHandoff = useRef<number | null>(null);
+    useLayoutEffect(() => {
+        if (!handoff || handoff.collection !== `list:${node.id}` || appliedHandoff.current === handoff.token) return;
+        appliedHandoff.current = handoff.token;
+        setActive(handoff.item);
+        requestAnimationFrame(() => {
+            self.current?.focus({ preventScroll: true });
+            self.current?.querySelector(`[data-item-id="${CSS.escape(handoff.item)}"]`)?.scrollIntoView({ block: "nearest" });
+            handoff.onApplied();
+        });
+    }, [handoff, node.id, setActive]);
 	if (!node.items.length) return node.empty ? <EmptyState {...node.empty} /> : null;
 	return (
-		<div className="flex flex-col">
+		<div ref={self} tabIndex={keyboard ? 0 : undefined} data-navigation-collection={keyboard ? `list:${node.id}` : undefined}
+            onFocusCapture={restoreSelection} className="flex flex-col outline-none">
 			{node.items.map((it) => (
-				<div key={it.id} data-item-id={it.id} data-active={it.id === active} onMouseEnter={() => setActive(it.id)} className="group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground">
+				<div key={it.id} data-item-id={it.id} data-active={it.id === active} onMouseEnter={() => { if (canHoverNavigate(self.current)) { focusPopoverCollection(self.current); setActive(it.id); } }}
+                    onMouseMove={() => { if (canHoverNavigate(self.current) && (active !== it.id || !self.current?.contains(document.activeElement))) { focusPopoverCollection(self.current); setActive(it.id); } }}
+                    onPointerDown={() => { focusPopoverCollection(self.current); setActive(it.id); }} className="group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground">
 					{it.dot && <Dot dot={it.dot} />}
                     {it.icon && <Icon name={it.icon} className="size-4 shrink-0" />}
 					<div className="min-w-0 flex-1">

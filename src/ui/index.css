@@ -282,3 +282,70 @@ mark.hit {
 [data-selected="true"] .tb-pill-muted { color: var(--selected-muted) !important; background: var(--selected-muted-pill) !important; }
 [data-selected="true"] [data-path-context] { color: var(--selected-muted); opacity: 1; }
 [data-selected="true"] button[data-state="open"] { color: var(--selected-default) !important; background: var(--selected-default-pill) !important; }
+
+/* A remembered selection stays visible without competing with the active selection.
+   Collections outside keyboard focus also use this treatment within an active pane. */
+[data-keyboard-pane][data-keyboard-active="false"],
+[data-keyboard-pane] [data-navigation-collection]:not(:focus-within) {
+  --selected: var(--inactive-selected);
+  --selected-foreground: var(--inactive-selected-foreground);
+  --selected-red: var(--inactive-selected-red);
+  --selected-red-pill: var(--inactive-selected-red-pill);
+  --selected-orange: var(--inactive-selected-orange);
+  --selected-orange-pill: var(--inactive-selected-orange-pill);
+  --selected-amber: var(--inactive-selected-amber);
+  --selected-amber-pill: var(--inactive-selected-amber-pill);
+  --selected-yellow: var(--inactive-selected-yellow);
+  --selected-yellow-pill: var(--inactive-selected-yellow-pill);
+  --selected-lime: var(--inactive-selected-lime);
+  --selected-lime-pill: var(--inactive-selected-lime-pill);
+  --selected-green: var(--inactive-selected-green);
+  --selected-green-pill: var(--inactive-selected-green-pill);
+  --selected-emerald: var(--inactive-selected-emerald);
+  --selected-emerald-pill: var(--inactive-selected-emerald-pill);
+  --selected-teal: var(--inactive-selected-teal);
+  --selected-teal-pill: var(--inactive-selected-teal-pill);
+  --selected-cyan: var(--inactive-selected-cyan);
+  --selected-cyan-pill: var(--inactive-selected-cyan-pill);
+  --selected-sky: var(--inactive-selected-sky);
+  --selected-sky-pill: var(--inactive-selected-sky-pill);
+  --selected-blue: var(--inactive-selected-blue);
+  --selected-blue-pill: var(--inactive-selected-blue-pill);
+  --selected-indigo: var(--inactive-selected-indigo);
+  --selected-indigo-pill: var(--inactive-selected-indigo-pill);
+  --selected-violet: var(--inactive-selected-violet);
+  --selected-violet-pill: var(--inactive-selected-violet-pill);
+  --selected-purple: var(--inactive-selected-purple);
+  --selected-purple-pill: var(--inactive-selected-purple-pill);
+  --selected-fuchsia: var(--inactive-selected-fuchsia);
+  --selected-fuchsia-pill: var(--inactive-selected-fuchsia-pill);
+  --selected-pink: var(--inactive-selected-pink);
+  --selected-pink-pill: var(--inactive-selected-pink-pill);
+  --selected-rose: var(--inactive-selected-rose);
+  --selected-rose-pill: var(--inactive-selected-rose-pill);
+  --selected-slate: var(--inactive-selected-slate);
+  --selected-slate-pill: var(--inactive-selected-slate-pill);
+  --selected-stone: var(--inactive-selected-stone);
+  --selected-stone-pill: var(--inactive-selected-stone-pill);
+  --selected-success: var(--inactive-selected-success);
+  --selected-success-pill: var(--inactive-selected-success-pill);
+  --selected-warning: var(--inactive-selected-warning);
+  --selected-warning-pill: var(--inactive-selected-warning-pill);
+  --selected-danger: var(--inactive-selected-danger);
+  --selected-danger-pill: var(--inactive-selected-danger-pill);
+  --selected-info: var(--inactive-selected-info);
+  --selected-info-pill: var(--inactive-selected-info-pill);
+  --selected-default: var(--inactive-selected-default);
+  --selected-default-pill: var(--inactive-selected-default-pill);
+  --selected-muted: var(--inactive-selected-muted);
+  --selected-muted-pill: var(--inactive-selected-muted-pill);
+}
+
+/* The pane border reinforces keyboard ownership without another outline inside the item. */
+[data-keyboard-pane] {
+  transition: border-color 200ms ease-out, box-shadow 200ms ease-out;
+}
+[data-keyboard-pane][data-keyboard-active="true"] {
+  border-color: color-mix(in srgb, var(--ring) 65%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ring) 18%, transparent), 0 10px 24px #0002;
+}
