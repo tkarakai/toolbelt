@@ -89,3 +89,22 @@ test("availability records the detected release channel rather than the future u
     expect(f.executions()).toBe(0);
   } finally {rmSync(f.root,{recursive:true,force:true});}
 });
+
+
+test("failed check activities survive service restart and are followed by successful checks", async () => {
+  const f = fixture();
+  try {
+    const failed = new PluginManagerService(f.packages, f.host, async () => {throw Error("Offline for test");});
+    await failed.checkUpdates();
+    const restored = new PluginManagerService(f.packages, f.host, f.resolve);
+    expect(restored.read().plugins.find(p => p.id === "first")?.logs.at(-1)).toContain("Update check failed: first");
+    expect(restored.read().schedule.error).toContain("Offline for test");
+    await restored.checkUpdates();
+    expect(restored.read().schedule.error).toBeUndefined();
+    const logs = restored.read().plugins.find(p => p.id === "first")!.logs;
+    expect(logs.at(-1)).toContain("Update available");
+    expect(logs.some(line => line.includes("Offline for test"))).toBe(true);
+    const restarted = new PluginManagerService(f.packages, f.host, f.resolve);
+    expect(restarted.read().plugins.find(p => p.id === "first")!.logs).toEqual(logs.slice(-3));
+  } finally {rmSync(f.root,{recursive:true,force:true});}
+});

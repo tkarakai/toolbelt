@@ -52,7 +52,7 @@ export class PluginManagerService {
         phase,
         error: phase === "failed" ? detail : undefined,
         logs: [
-          ...(previous?.logs ?? []),
+          ...(previous?.logs ?? this.packages.registry().plugins[id]?.checkActivities ?? []),
           `${new Date().toLocaleString()} · ${phase}${detail ? ": " + detail : ""}`,
         ].slice(-40),
       });
@@ -104,7 +104,7 @@ export class PluginManagerService {
                       : "starting")),
             error: this.states.get(p.id)?.error ?? runtime?.error,
             logs: [
-              ...(this.states.get(p.id)?.logs ?? []),
+              ...(this.states.get(p.id)?.logs ?? p.checkActivities ?? []),
               ...(runtime?.error
                 ? [
                     `${new Date(this.runtimeFailures.get(p.id)!.at).toLocaleString()} · Runtime failure ${p.id} (${p.repo}): ${runtime.error.slice(0, 16000)}`,
@@ -241,12 +241,12 @@ export class PluginManagerService {
           if (Bun.semver.order(candidate.manifest.version, p.version) > 0) {
             this.states.set(p.id, {
               phase: p.enabled ? "ready" : "disabled",
-              logs: [...(this.states.get(p.id)?.logs ?? []), `${new Date().toLocaleString()} · Update available: ${candidate.manifest.version}`].slice(-40),
+              logs: [...(this.states.get(p.id)?.logs ?? p.checkActivities ?? []), `${new Date().toLocaleString()} · Update available: ${candidate.manifest.version}`].slice(-40),
             });
             this.available.set(p.id, candidate.manifest.version);
             updates.set(p.id, {version: candidate.manifest.version, channel: candidate.channel, commit: candidate.commit});
           } else {
-            this.states.set(p.id, {phase: p.enabled ? "ready" : "disabled", logs: [...(this.states.get(p.id)?.logs ?? []), `${new Date().toLocaleString()} · Update check succeeded: already up to date`].slice(-40)});
+            this.states.set(p.id, {phase: p.enabled ? "ready" : "disabled", logs: [...(this.states.get(p.id)?.logs ?? p.checkActivities ?? []), `${new Date().toLocaleString()} · Update check succeeded: already up to date`].slice(-40)});
             this.available.delete(p.id);
             updates.set(p.id, undefined);
           }
@@ -258,7 +258,7 @@ export class PluginManagerService {
           this.states.set(p.id, {
             phase: p.enabled ? "ready" : "disabled",
             logs: [
-              ...(previous?.logs ?? []),
+              ...(previous?.logs ?? p.checkActivities ?? []),
               `${new Date().toLocaleString()} · Update check failed: ${detail}`,
             ].slice(-40),
           });
@@ -274,6 +274,9 @@ export class PluginManagerService {
           plugin.availableChannel = release?.channel;
           plugin.availableCommit = release?.commit;
         }
+      }
+      for (const plugin of Object.values(registry.plugins)) {
+        if (!plugin.removed) plugin.checkActivities = this.states.get(plugin.id)?.logs.slice(-3).map(line => line.slice(0,20000)) ?? plugin.checkActivities;
       }
       registry.updateSchedule = {
         lastChecked: Date.now(),

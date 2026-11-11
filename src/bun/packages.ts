@@ -36,6 +36,7 @@ export type Installed = {
   manifest: PackageManifest;
   /** Preference for future checks; independent of the installed release. */
   channel: "stable" | "prerelease";
+  checkActivities?: string[];
   installedChannel?: "stable" | "prerelease";
   release?: string;
   requestedRelease?: string;
@@ -142,6 +143,7 @@ function validateRegistry(value: any, root: string): Registry {
         resolve(root, "plugins/packages", id, `${p.version}-${p.hash}`)
     )
       throw new Error("Invalid installed plugin identity/path");
+    if (p.checkActivities !== undefined && (!Array.isArray(p.checkActivities) || p.checkActivities.length > 3 || p.checkActivities.some(line => typeof line !== "string" || line.length > 20000))) throw new Error("Invalid plugin check activities");
     for (const channel of [p.installedChannel, p.availableChannel]) {
       if (channel !== undefined && !["stable", "prerelease"].includes(channel)) throw new Error("Invalid release channel");
     }

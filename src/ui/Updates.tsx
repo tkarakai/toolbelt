@@ -21,7 +21,9 @@ import { Button } from "@/components/ui/button";
 import { SettingsGroup } from "./components/settings-layout";
 import { pillClass } from "./renderer/colors";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "./components/ui/tooltip";
-import { Settings, GitBranch } from "lucide-react";
+import appIcon from "../../icon.iconset/icon_128x128.png";
+import devAppIcon from "../../dev-icon.iconset/icon_128x128.png";
+import { GitBranch } from "lucide-react";
 import { KeyHint } from "@/components/key-hint";
 import {
   Dialog,
@@ -122,9 +124,8 @@ export function UpdatesCard() {
     <div id="updates"><SettingsGroup title="App" description="ToolBelt · Copyright NetSense LLC." actions={<TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild><span className="inline-flex"><Button variant="outline" size="sm" className="h-6 text-xs" disabled={!s.enabled || s.checking || s.phase.kind !== "idle"} onClick={() => updateAction("checkForUpdates")}><RotateCw className={cn(s.checking && "animate-spin")}/>{s.checking ? "Checking…" : "Check for updates"}</Button></span></TooltipTrigger><TooltipContent>Last checked: {s.lastChecked ? new Date(s.lastChecked).toLocaleString() : "Not yet checked"}</TooltipContent></Tooltip></TooltipProvider>}>
       <article aria-label="ToolBelt" className="min-w-0 space-y-4 p-5">
         <div className="flex flex-wrap items-start gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-muted/40"><Settings className="size-5"/></div>
+          <img src={s.channel === "dev" ? devAppIcon : appIcon} alt="ToolBelt app icon" className="size-10 shrink-0 object-contain"/>
           <div className="min-w-0 flex-1"><h3 className="text-sm font-semibold">ToolBelt</h3><p className="mt-1 break-all text-xs text-muted-foreground">tkarakai/toolbelt</p></div>
-          <span role="status" className={cn("inline-flex rounded-full px-2 py-1 text-xs",pillClass(s.lastError ? "danger" : "success"))}>{s.lastError ? "Check failed" : "Running"}</span>
         </div>
         <div className="grid gap-4 rounded-lg bg-muted/30 p-3 sm:grid-cols-2">
           <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Installed release</div><p className="text-sm">Version <span className="font-mono font-medium">{s.version} ({buildInfo.commit})</span></p><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs capitalize",pillClass("muted"))}>{s.channel}</span></div>

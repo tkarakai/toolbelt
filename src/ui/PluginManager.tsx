@@ -83,15 +83,21 @@ export function PluginManager({
   adapter?: PluginManagerAdapter;
 }) {
   const [state, setState] = useState<ManagerState>({ plugins: [] });
-  const notifiedCheck = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    const key = state.schedule?.error ? `${state.schedule.lastChecked}:${state.schedule.error}` : undefined;
-    if (key && key !== notifiedCheck.current) toast.error("There were errors checking plugin updates. Open plugin activity for details.");
-    notifiedCheck.current = key;
-  }, [state.schedule?.error, state.schedule?.lastChecked]);
   const [loaded, setLoaded] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const notifiedCheck = useRef<string | undefined>(undefined);
+  const initializedCheck = useRef(false);
+  useEffect(() => {
+    if (!loaded) return;
+    const key = state.schedule?.error ? `${state.schedule.lastChecked}:${state.schedule.error}` : undefined;
+    if (initializedCheck.current && key && key !== notifiedCheck.current) {
+      const hasActivity = state.plugins.some(p => p.logs?.length);
+      toast.error("There were errors checking plugin updates.", {description: hasActivity ? "Open plugin activity for details." : state.schedule?.error});
+    }
+    initializedCheck.current = true;
+    notifiedCheck.current = key;
+  }, [loaded, state.schedule?.error, state.schedule?.lastChecked]);
   const [repo, setRepo] = useState(""),
     [release, setRelease] = useState(""),
     [prerelease, setPrerelease] = useState(false);
@@ -185,7 +191,7 @@ export function PluginManager({
     <div className="min-w-0 space-y-8">
         <SettingsGroup title="Installed Plugins" description="Each plugin is its own program. ToolBelt starts it and draws its screens. ToolBelt has no control over plugins." actions={<TooltipProvider delayDuration={200} skipDelayDuration={0}><Tooltip><TooltipTrigger asChild><span className="inline-flex" tabIndex={busy || !adapter.checkUpdates ? 0 : undefined}><Button variant="outline" size="sm" className="h-6 text-xs" disabled={busy || !adapter.checkUpdates} onClick={() => void run(async () => {
             setCheckingAll(true);
-            try { await adapter.checkUpdates!(); } catch { toast.error("There were errors checking plugin updates. Open plugin activity for details."); } finally { if (mounted.current) setCheckingAll(false); }
+            try { await adapter.checkUpdates!(); } catch (e) { toast.error("Could not check plugin updates.", {description: String(e)}); } finally { if (mounted.current) setCheckingAll(false); }
           })}>{checkingAll ? <Loader2 className="animate-spin"/> : <RotateCw/>}{checkingAll ? "Checking…" : "Check for updates"}</Button></span></TooltipTrigger><TooltipContent side="top" sideOffset={8}>Last checked: {date(state.schedule?.lastChecked)}</TooltipContent></Tooltip></TooltipProvider>}>
           {!loaded ? (
             <p role="status" className="p-5 text-sm text-muted-foreground">
@@ -319,7 +325,7 @@ export function PluginManager({
             ))}
 
         </SettingsGroup>
-        <SettingsGroup title="Install new plugin"><form
+        <SettingsGroup title="Install New Plugin"><form
           className="space-y-4 p-5"
           onSubmit={(e) => {
             e.preventDefault();
