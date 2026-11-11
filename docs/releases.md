@@ -73,10 +73,10 @@ by the updater. App DMGs are ad-hoc signed and verified, not Apple-notarized.
 ## Retry
 
 ```sh
-bun run release:app:retry --tag v0.2.0 --pr 24
+bun run release:app:retry --tag v0.2.2 --pr 24
 bun run release:sdk:retry --tag sdk-v0.3.0 --source <full-40-character-merge-SHA>
 # Once an annotated tag exists, the tag alone identifies the original source:
-bun run release:app:retry --tag v0.2.0
+bun run release:app:retry --tag v0.2.2
 ```
 
 Before tagging, specify either the owning repository’s merged release PR number (`--pr`)
@@ -95,6 +95,11 @@ authoritative candidate artifacts refuse rebuilding even when no tag was created
 If publication succeeded but its response was lost, retry verifies and reports the existing
 immutable release. Inspect the failed workflow stage before retrying. Do not delete tags, clobber
 assets or rerun an old manual publisher. If exact recovery is unavailable, prepare a new version.
+
+Retry retains the current feed policy: completing a stable app/plugin draft marks that
+release Latest, even if it is older than a release published since its original failure.
+An already-public retry only verifies the immutable release. Consider feed position before
+recovering a historical unpublished stable release; source pinning does not change this policy.
 
 Local build/package commands create files only. Bare `bun run release` does not publish.
 Never replace the installed daily app or operate real software/processes/dotfiles to test a release.
