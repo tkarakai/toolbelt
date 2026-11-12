@@ -1,4 +1,5 @@
 .hutch/
+.lavish/
 node_modules/
 build/
 build.noindex/
