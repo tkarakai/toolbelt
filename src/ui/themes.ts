@@ -188,7 +188,7 @@ export function selectionTokens(p: Palette): Record<string,string> {
 /** Remembered selections use an intermediate fill with a legible foreground,
  * independently of the active selection's polarity. Semantic colors retain AA contrast. */
 export function inactiveSelectionTokens(p: Palette): Record<string, string> {
-    const background = mix(p.selected, p.subtle, .5);
+    const background = hoverColor(p);
     const foreground = [p.fg, p.selectedFg, "#000000", "#ffffff"].sort((a, b) => contrast(b, background) - contrast(a, background))[0]!;
     const colors = selectionTokens({ ...p, selected: background, selectedFg: foreground });
     return {

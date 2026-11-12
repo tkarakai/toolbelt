@@ -1,3 +1,4 @@
+import { Download as DialogDownload, Trash2 as DialogTrash, History as DialogHistory } from "lucide-react";
 import { ManualUpdate } from "./components/manual-update";
 import { RepositoryLink } from "./components/repository-link";
 import { toast } from "sonner";
@@ -191,7 +192,7 @@ export function PluginManager({
   const updating = !!candidate && state.plugins.some(plugin => !plugin.removed && plugin.id === candidate.id);
   return (
     <div className="min-w-0 space-y-8">
-        <SettingsGroup title="Installed Plugins" description="Each plugin is its own program. ToolBelt starts it and draws its screens. ToolBelt has no control over plugins." actions={<TooltipProvider delayDuration={200} skipDelayDuration={0}><Tooltip><TooltipTrigger asChild><span className="inline-flex" tabIndex={busy || !adapter.checkUpdates ? 0 : undefined}><Button variant="outline" size="sm" className="h-6 text-xs" disabled={busy || !adapter.checkUpdates} onClick={() => void run(async () => {
+        <SettingsGroup separated title="Installed Plugins" description="Each plugin is its own program. ToolBelt starts it and draws its screens. ToolBelt has no control over plugins." actions={<TooltipProvider delayDuration={200} skipDelayDuration={0}><Tooltip><TooltipTrigger asChild><span className="inline-flex" tabIndex={busy || !adapter.checkUpdates ? 0 : undefined}><Button variant="outline" size="sm" className="h-6 text-xs" disabled={busy || !adapter.checkUpdates} onClick={() => void run(async () => {
             setCheckingAll(true);
             try { await adapter.checkUpdates!(); } catch (e) { toast.error("Couldn’t check plugin updates.", {description: "You can check releases in your browser from each plugin’s card."}); } finally { if (mounted.current) setCheckingAll(false); }
           })}>{checkingAll ? <Loader2 className="animate-spin"/> : <RotateCw/>}{checkingAll ? "Checking…" : "Check for updates"}</Button></span></TooltipTrigger><TooltipContent side="top" sideOffset={8}>Last checked: {date(state.schedule?.lastChecked)}</TooltipContent></Tooltip></TooltipProvider>}>
@@ -212,7 +213,7 @@ export function PluginManager({
               <article
                 key={p.id}
                 aria-label={p.manifest.name}
-                className="min-w-0 p-5 space-y-4 transition-colors animate-in fade-in-0 duration-200"
+                className="min-w-0 border bg-card shadow-sm first:rounded-t-xl last:rounded-b-xl p-5 space-y-4 transition-colors animate-in fade-in-0 duration-200"
               >
                 <div className="flex flex-wrap items-start gap-3">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-muted/40"><Icon name={p.manifest.icon} className="size-5"/></div>
@@ -228,12 +229,12 @@ export function PluginManager({
                       setRestartingId(p.id);
                       try { await adapter.restart!(p.id); } finally { if (mounted.current) setRestartingId(undefined); }
                     })}>{restartingId === p.id && <Loader2 className="animate-spin"/>}Reload</Button>
-                    <details className="group relative">
+                    <details className="group relative" onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}>
                       <summary aria-label={`Activity for ${p.manifest.name}`} title="Plugin activity" className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md hover:bg-accent [&::-webkit-details-marker]:hidden">
                         {/· (?:failed|quarantined|Update check failed|Runtime failure)\b/i.test(p.logs?.at(-1) ?? "") ? <TriangleAlert className="size-4 text-amber-500"/> : <Activity className="size-4"/>}
                       </summary>
-                      <div className="absolute right-0 top-10 z-30 w-80 max-w-[calc(100vw-4rem)] space-y-2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-md">
-                        <p className="text-xs font-medium">Recent activity</p>
+                      <div className="absolute right-0 top-10 z-30 w-[30rem] max-w-[calc(100vw-4rem)] space-y-2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-md">
+                        <div className="flex items-center justify-between"><p className="text-xs font-medium">Recent activity</p><Button variant="ghost" size="icon-sm" aria-label="Close activity" onClick={event => { const details = event.currentTarget.closest("details"); if (details) { details.open = false; details.querySelector("summary")?.focus(); } }}><CircleX/></Button></div>
                         {p.logs?.length ? p.logs.slice(-3).reverse().map((line, index) => <div key={index} className="flex items-start gap-2 text-xs">
                           {/· (?:failed|quarantined|Update check failed|Runtime failure)\b/i.test(line) ? <CircleX className="mt-0.5 size-3.5 shrink-0 text-destructive"/> : <CircleCheck className="mt-0.5 size-3.5 shrink-0 text-green-600"/>}
                           <span className="min-w-0 whitespace-pre-wrap break-words">{line}</span>
@@ -275,7 +276,7 @@ export function PluginManager({
                     max={p.operation.total}
                   />
                 )}
-                <ManualUpdate name={p.manifest.name} version={p.version} repo={p.repo} prerelease={p.channel === "prerelease"} busy={busy || isActivePhase(p.phase)} review={tag => review(p.repo, tag, p.channel === "prerelease")} failed={updateCheckFailed(p)}/>
+                <ManualUpdate name={p.manifest.name} version={p.version} commit={p.commit} repo={p.repo} prerelease={p.channel === "prerelease"} busy={busy || isActivePhase(p.phase)} review={tag => review(p.repo, tag, p.channel === "prerelease")} failed={updateCheckFailed(p)}/>
                 {p.availableVersion && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{updateCheckFailed(p) ? "Previously found update" : "Available update"}</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.availableChannel === "prerelease" ? "warning" : p.availableChannel === "stable" ? "info" : "muted"))}>{p.availableChannel === "prerelease" ? "Prerelease" : p.availableChannel === "stable" ? "Stable" : "Channel not recorded"}</span></div>
@@ -409,7 +410,7 @@ export function PluginManager({
         >
           <ResizableDialogContent key={candidate?.token} className="gap-4">
             <DialogHeader>
-              <DialogTitle className="pr-7">{updating ? "Review update for" : "Review"} {candidate?.name}</DialogTitle>
+              <DialogTitle icon={<DialogDownload className="size-5"/>} className="pr-7">{updating ? "Review update for" : "Review"} {candidate?.name}</DialogTitle>
               <DialogDescription>
                 Approve this publisher before any plugin or migration code runs.
               </DialogDescription>
@@ -478,7 +479,7 @@ export function PluginManager({
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Remove {remove?.manifest.name}?</DialogTitle>
+              <DialogTitle icon={<DialogTrash className="size-5"/>}>Remove {remove?.manifest.name}?</DialogTitle>
               <DialogDescription>
                 Removing uninstalls the plugin. Keep its data to use again
                 later.
@@ -539,7 +540,7 @@ export function PluginManager({
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Use version {recovery?.choice.version}?</DialogTitle>
+              <DialogTitle icon={<DialogHistory className="size-5"/>}>Use version {recovery?.choice.version}?</DialogTitle>
               <DialogDescription>
                 {recovery?.choice.schemaCompatible
                   ? "This version supports your current managed data."

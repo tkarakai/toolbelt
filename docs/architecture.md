@@ -248,3 +248,5 @@ to ToolBelt (ToolBelt Plugin Tester for the tester). The application menu includ
 About panel, using the bundle icon and version metadata.
 
 App and installed-plugin cards always offer a manual release guide. Failed checks show a neutral recovery card explaining possible GitHub request limits without claiming a newer version exists. App guidance covers DMG replacement and retained profile data. Plugin guidance opens the owning repository’s stable/prerelease releases and accepts an explicit tag for the existing verified review/approval flow; it still requires GitHub access and never installs downloaded archives directly. Cached availability is labeled as previously found after check errors.
+
+Popover quit confirmation first removes the quick view and its exit snapshots, waits for compact native layout, then opens over the menu alone. Main-window confirmation retains its normal layout.
