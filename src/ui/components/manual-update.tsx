@@ -1,6 +1,6 @@
 import { toast } from "sonner";
 import { useRef, useState } from "react";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { Check, Copy, Download, ExternalLink } from "lucide-react";
 import { openUrl } from "../lib/store";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 type Props = {
   name: string;
   version: string;
+  commit?: string;
   repo: string;
   failed?: boolean;
   prerelease?: boolean;
@@ -17,7 +18,7 @@ type Props = {
 };
 
 /** Browser discovery is available independently of the GitHub API check. */
-export function ManualUpdate({ name, version, repo, failed, prerelease, review, busy }: Props) {
+export function ManualUpdate({ name, version, commit, repo, failed, prerelease, review, busy }: Props) {
   const [open, setOpen] = useState(false);
   const [tag, setTag] = useState("");
   const [copied, setCopied] = useState(false);
@@ -62,7 +63,7 @@ export function ManualUpdate({ name, version, repo, failed, prerelease, review, 
     <Button variant="link" size="sm" className="h-auto max-w-full whitespace-normal px-0 text-xs text-muted-foreground" onClick={() => setOpen(true)}>Check or {review ? "update" : "install"} manually<ExternalLink className="shrink-0"/></Button>
     <Dialog open={open} onOpenChange={value => { setOpen(value); setCopied(false); }}>
       <DialogContent ref={content} className="max-h-[min(42rem,90dvh)] overflow-y-auto sm:max-w-[31.2rem]">
-        <DialogHeader><DialogTitle>Check for a newer release</DialogTitle><DialogDescription>You have {name} {version}. Compare it with the {prerelease ? "stable or prerelease" : "latest stable"} {review ? "plugin" : "app"} release on GitHub. If the versions match, you’re already up to date.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle icon={<Download className="size-5"/>}>Check for a newer release</DialogTitle><DialogDescription>You have <strong className="text-foreground">{name} Version <span className="font-mono">{version}{commit ? ` (${commit.slice(0, 7)})` : ""}</span></strong>. Compare it with the {prerelease ? "stable or prerelease" : "latest stable"} {review ? "plugin" : "app"} release on GitHub. If the versions match, you’re already up to date.</DialogDescription></DialogHeader>
         <ol className="list-decimal space-y-3 pl-5 text-sm leading-relaxed text-muted-foreground">
           {review ? <>
             <li>Open the releases page and find a newer compatible plugin release.</li>
@@ -75,13 +76,13 @@ export function ManualUpdate({ name, version, repo, failed, prerelease, review, 
             <li>Launch ToolBelt again.</li>
           </>}
         </ol>
-        <p data-copy-note className="text-xs leading-relaxed text-muted-foreground">{review ? "ToolBelt still needs GitHub access to verify and install the release. If requests remain blocked, try again later. Your installed plugin stays in place." : "Your settings, installed plugins and plugin data stay in place. If GitHub’s website is also unavailable, try again later."}</p>
-        {review && <form className="space-y-2" onSubmit={event => { event.preventDefault(); if (!tag.trim() || busy) return; setOpen(false); review(tag.trim()); }}>
+        <p data-copy-note className="rounded-lg border border-sky-500/20 bg-sky-500/10 p-3 text-xs leading-relaxed">{review ? "ToolBelt still needs GitHub access to verify and install the release. If requests remain blocked, try again later. Your installed plugin stays in place." : "Your settings, installed plugins and plugin data stay in place. If GitHub’s website is also unavailable, try again later."}</p>
+        {review && <form className="space-y-2" onSubmit={event => { event.preventDefault(); if (!tag.trim() || busy) return; review(tag.trim()); }}>
           <label className="block text-xs font-medium">Release tag<Input value={tag} onChange={event => setTag(event.target.value)} placeholder="For example, v1.2.3" className="mt-1"/></label>
           <Button type="submit" variant="outline" size="sm" disabled={busy || !tag.trim()}>Review release in ToolBelt</Button>
         </form>}
         <DialogFooter className="flex-col gap-3 sm:flex-col">
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end"><Button variant="outline" onClick={() => void copyInstructions()}>{copied ? <Check/> : <Copy/>}{copied ? "Copied" : "Copy instructions"}</Button><Button variant="outline" onClick={() => setOpen(false)}>Done</Button><Button onClick={() => openUrl(page)}>Open releases on GitHub<ExternalLink/></Button></div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end"><Button variant="outline" onClick={() => setOpen(false)}>Done</Button><Button variant="outline" onClick={() => void copyInstructions()}>{copied ? <Check/> : <Copy/>}{copied ? "Copied" : "Copy instructions"}</Button><Button onClick={() => openUrl(page)}>Open releases on GitHub<ExternalLink/></Button></div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

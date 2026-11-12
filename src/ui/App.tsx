@@ -392,9 +392,9 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
     const appUpdate = useUpdateAvailable();
     const [remembered, remember] = usePersisted<string>("toolbelt.settings-tab", "appearance");
     const fallback = SETTINGS_TABS.some(t => t.id === remembered) ? remembered : "appearance";
-    const initialTab = section === "updates" ? "about" : section === "tools" ? "plugins" : section || fallback;
+    const initialTab = section === "updates" ? "about" : section === "tools" ? "plugins" : section === "keyboard-shortcut" ? "keyboard" : section || fallback;
     const [tab, setTab] = useState(initialTab);
-    useEffect(() => { if (!section) return; setTab(section === "updates" ? "about" : section === "tools" ? "plugins" : section || fallback); }, [section]);
+    useEffect(() => { if (!section) return; setTab(section === "updates" ? "about" : section === "tools" ? "plugins" : section === "keyboard-shortcut" ? "keyboard" : section || fallback); }, [section]);
 
     useEffect(() => { remember(tab); }, [tab]);
     useEffect(() => {
@@ -446,7 +446,7 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
                     {tab === "appearance" && <AppearanceSetting />}
                     {tab === "about" && <AboutSettings />}
                     {tab === "keyboard" && <>
-                    <SettingsGroup title="Menu bar"><div className="p-5"><ShortcutSetting /></div></SettingsGroup>
+                    <SettingsGroup title="Menu bar"><div className={cn("p-5", section === "keyboard-shortcut" && "shortcut-attention")}><ShortcutSetting /></div></SettingsGroup>
                     <SettingsGroup title="Navigation and actions"><div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 p-5 text-sm">
                             <Shortcut label="Switch tool (hold ⌘ to see the numbers)" keys={["⌘1 … ⌘9"]} />
 							<Shortcut label="Plugin or Settings tabs" keys={["⌘letter", "⌥⌘1 …"]} />

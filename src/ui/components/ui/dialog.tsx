@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { Button } from "@/components/ui/button"
-import { XIcon } from "lucide-react"
+import { InfoIcon, XIcon } from "lucide-react"
 
 function Dialog({
   ...props
@@ -122,17 +122,22 @@ function DialogFooter({
 
 function DialogTitle({
   className,
+  children,
+  icon = <InfoIcon className="size-5" />,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Title>) {
+}: React.ComponentProps<typeof DialogPrimitive.Title> & { icon?: React.ReactNode }) {
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
       className={cn(
-        "font-heading text-base leading-none font-medium",
+        "flex min-w-0 items-center gap-3 pr-6 text-base leading-normal font-semibold text-primary",
         className
       )}
       {...props}
-    />
+    >
+      {icon && <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-muted/40 text-primary">{icon}</span>}
+      <span className="min-w-0 break-words">{children}</span>
+    </DialogPrimitive.Title>
   )
 }
 

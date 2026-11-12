@@ -136,7 +136,7 @@ export function UpdatesCard() {
           <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Installed release</div><p className="text-sm">Version <span className="font-mono font-medium">{s.version} ({buildInfo.commit})</span></p><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs capitalize",pillClass("muted"))}>{s.channel}</span></div>
           <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Update channel</div><div className="flex items-center gap-1.5 text-sm"><GitBranch className="size-3.5 text-muted-foreground"/>{s.channel === "stable" ? "Stable" : s.channel === "dev" ? "Development" : s.channel}</div><p className="text-xs leading-relaxed text-muted-foreground">{s.enabled ? "Use stable releases for future checks." : "Automatic updates are unavailable in this build."}</p></div>
         </div>
-        <ManualUpdate name="ToolBelt" version={s.version} repo="tkarakai/toolbelt" failed={!!s.lastError}/>
+        <ManualUpdate name="ToolBelt" version={s.version} commit={buildInfo.commit} repo="tkarakai/toolbelt" failed={!!s.lastError}/>
         {r && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
           <div className="min-w-0 flex-1 space-y-2"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{s.lastError ? "Previously found update" : "Available update"}</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass("info"))}>Stable</span></div><p className="text-sm">Version <span className="font-mono font-medium">{r.version}</span></p><p className="text-xs text-muted-foreground">{r.published ? `Released ${date(r.published)} · ` : ""}{mb(r.size)}</p></div>
           <Button size="sm" disabled={s.phase.kind !== "idle"} onClick={() => openDialog()}><Download/>Review and Update</Button>
@@ -190,11 +190,11 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
         onInteractOutside={(e) => busy && e.preventDefault()}
       >
         <DialogHeader className="flex-row items-center gap-4 border-b p-5">
-          <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-            <Download className="size-6" />
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-muted/40 text-primary">
+            <Download className="size-5" />
           </div>
           <div className="min-w-0 space-y-1.5">
-            <DialogTitle className="text-base">
+            <DialogTitle icon={null} className="text-base">
               {kind === "idle"
                 ? "A new version of ToolBelt"
                 : kind === "failed"

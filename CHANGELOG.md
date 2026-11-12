@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Collapse the popover quick view before showing quit confirmation to avoid blurring the desktop between panels.
+
+- Give dialog headings framed icons matching the plugin cards in Settings.
+
+- Refine update guidance, plugin card separation, shortcut navigation and reflection, dialog headings, activity controls, and scrolling feedback across app and plugin screens.
+
 ## 0.3.1 — 2026-11-12
 - Support segmented page toolbar controls with hover and keyboard-focus explanations.
 

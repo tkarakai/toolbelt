@@ -35,6 +35,13 @@ export default function Popover() {
     const updatesAvailable = useAnyUpdateAvailable();
     const [selected, setSelected] = usePersisted<string | null>("toolbelt.popoverPlugin", null);
     const [updatePanelOpen, setUpdatePanelOpen] = useState(false);
+    const [quitRequested, setQuitRequested] = useState(false);
+    const [quitLayoutReady, setQuitLayoutReady] = useState(false);
+    const prepareQuit = useCallback((open: boolean) => {
+        setQuitRequested(open);
+        setQuitLayoutReady(false);
+        if (open) { setExits([]); setActivePane("menu"); }
+    }, []);
     const [controlFocused, setControlFocused] = useState(false);
     const [activePane, setActivePane] = useState<"menu" | "detail">("menu");
     const detailMemory = useRef(new Map<string, PaneBookmark>());
@@ -95,11 +102,11 @@ export default function Popover() {
     }, [shown.n, shown.closing]);
     const letters = useMemo(() => assignLetters(plugins.map(p => ({ id: p.manifest.id, name: p.manifest.name }))), [plugins]);
     const hasDetails = !!current?.manifest.quickView;
-    const showDetails = hasDetails && revealReady && !shown.closing;
+    const showDetails = hasDetails && revealReady && !shown.closing && !quitRequested;
     // Reserve the submenu geometry before first paint; the delayed reveal only
     // adds the panel, without resizing or moving the already-visible menu.
-    const needsPanelSpace = (hasDetails && !shown.closing) || exits.length > 0;
-    const reserveHeight = Math.max(0, ...exits.map(exit => exit.layout.height));
+    const needsPanelSpace = !quitRequested && ((hasDetails && !shown.closing) || exits.length > 0);
+    const reserveHeight = quitRequested ? 0 : Math.max(0, ...exits.map(exit => exit.layout.height));
     const panelVisible = showDetails && placedPlugin === current?.manifest.id && layout.detailWidth > 0;
     exitNow.current = () => {
         if (!detail.current) return;
@@ -128,13 +135,14 @@ export default function Popover() {
             last = signature;
             if (native) {
                 void rpc.request.popoverLayout({ height, details: needsPanelSpace, anchorTop, reserveHeight }).then(next => {
-                    if (live) { setLayout(next); setPlacedPlugin(current?.manifest.id ?? null); }
+                    if (live) { setLayout(next); setPlacedPlugin(current?.manifest.id ?? null); if (quitRequested) setQuitLayoutReady(true); }
                 });
             } else {
                 setLayout(popoverLayout({ x: 0, y: 0, width: 0, height: 0 }, {
                     bounds: { height: availableHeight }, workArea: { x: 0, y: 0, width, height: availableHeight },
                 }, height, needsPanelSpace, anchorTop, reserveHeight));
                 setPlacedPlugin(current?.manifest.id ?? null);
+                if (quitRequested) setQuitLayoutReady(true);
             }
         };
         report();
@@ -146,7 +154,7 @@ export default function Popover() {
         if (box.current?.parentElement) observer.observe(box.current.parentElement);
         window.addEventListener("resize", report);
         return () => { live = false; cancelAnimationFrame(frame); el.removeEventListener("scroll", schedule, true); observer.disconnect(); window.removeEventListener("resize", report); };
-    }, [needsPanelSpace, reserveHeight, shown.n, active, current?.manifest.id]);
+    }, [needsPanelSpace, reserveHeight, shown.n, active, current?.manifest.id, quitRequested]);
     useLayoutEffect(() => { menu.current?.focus({ preventScroll: true }); }, [shown.n]);
     useEffect(() => {
         menu.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
@@ -290,11 +298,11 @@ export default function Popover() {
                 shown.closing ? "animate-out fade-out-0 zoom-out-95 fill-mode-forwards duration-150" : "")}>
             <section ref={menu} tabIndex={-1} aria-label="Plugins" data-keyboard-pane="menu" data-keyboard-active={activePane === "menu"}
                 onFocusCapture={event => { setActivePane("menu"); setControlFocused(!!(event.target as HTMLElement).closest("button:not([data-plugin-sort])")); }}
-                style={{ minHeight: updatePanelOpen ? 300 : undefined, width: layout.menuWidth, maxHeight: layout.menuHeight, left: layout.side === "left" ? layout.width - layout.menuWidth : 0 }}
+                style={{ minHeight: updatePanelOpen || quitRequested ? 300 : undefined, width: layout.menuWidth, maxHeight: layout.menuHeight, left: layout.side === "left" ? layout.width - layout.menuWidth : 0 }}
                 className={cn(panelStyle, "absolute top-0 z-10 outline-none")}>
 					<div className="flex shrink-0 items-center gap-2 px-4 pt-3.5 pb-2">
 						<span className="text-sm font-semibold">{development ? "ToolBelt Dev" : "ToolBelt"}</span>
-						{settings && <Kbd>{settings.shortcutLabel}</Kbd>}
+						{settings && <button className="inline-flex rounded-sm focus-visible:ring-2 focus-visible:ring-ring [&_kbd]:transition-colors [&_kbd]:duration-200 [&:hover_kbd]:bg-foreground/15" title="Configure popover shortcut" onClick={() => rpc.send.showWindow({ plugin: "toolbelt", screen: "keyboard-shortcut" })}><Kbd>{settings.shortcutLabel}</Kbd></button>}
                         <PopoverUpdateRow onPanelChange={setUpdatePanelOpen} />
 					</div>
 					{/* Six rows, then it scrolls (without a scroll bar). */}
@@ -366,9 +374,9 @@ export default function Popover() {
                     <PluginDetails info={current} onOpen={openQuick} />
                 </div>
             </aside>}
-            {exits.map(snapshot => <QuickViewClosing key={snapshot.id} snapshot={snapshot}
+            {!quitRequested && exits.map(snapshot => <QuickViewClosing key={snapshot.id} snapshot={snapshot}
                 onDone={id => setExits(previous => previous.filter(exit => exit.id !== id))} />)}
-            <QuitDialog />
+            <QuitDialog onRequestChange={prepareQuit} ready={quitRequested && quitLayoutReady} />
         </div>
     );
 }
@@ -392,7 +400,7 @@ function QuickContent({ info }: { info: PluginInfo }) {
     const id = info.manifest.id;
     const tree = useSurface(id, "quick");
     const emit = useCallback((name: string, payload?: unknown) => sendEvent(id, "quick", name, payload), [id]);
-    return <div data-quick-content aria-busy={!tree} className="min-h-0 flex-1 overflow-auto p-2">
+    return <div data-quick-content aria-busy={!tree} className="quick-scroll min-h-0 flex-1 overflow-auto p-2">
         {tree ? <SurfaceContext.Provider value={`${id}/quick`}><SharedSelectionProvider plugin={id} tree={tree}><Render node={tree} emit={emit} /></SharedSelectionProvider></SurfaceContext.Provider> :
             <div className="space-y-2 p-1">{Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>}
     </div>;
