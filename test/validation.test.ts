@@ -73,3 +73,16 @@ test("group summary column keys are optional strings", () => {
  for (const column of [undefined,"x","missing"]) expect(()=>validateTree(JSON.parse(JSON.stringify(tree(column))))).not.toThrow();
  for (const column of [12,{},null]) expect(()=>validateTree(tree(column))).toThrow();
 });
+
+test("toolbar controls only accept segmented choices with text explanations", () => {
+ const control = {type:"segmented", id:"scope", label:"Scope", value:"work", options:[{value:"work",label:"Work",tooltip:"Commands you started"}]};
+ expect(() => validateTree({type:"page", controls:[control], children:[]})).not.toThrow();
+ expect(() => validateTree(control)).not.toThrow();
+ for (const invalid of [
+  {...control, type:"text"},
+  {...control, label:{}},
+  {...control, options:[{value:"work",label:"Work",tooltip:{}}]},
+  {...control, value:false},
+ ]) expect(() => validateTree({type:"page", controls:[invalid], children:[]})).toThrow();
+ expect(() => validateTree({type:"page",controls:{},children:[]})).toThrow();
+});

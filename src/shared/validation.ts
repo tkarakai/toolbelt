@@ -276,6 +276,10 @@ const dialog: Schema = (v, p) =>
     wide: optional(bool),
     resizable: optional(bool),
   })(v, p);
+const segmented = object({
+  type: literal("segmented"), id: text, value: text, label: optional(text),
+  options: array(object({ value: text, label: text, icon: optional(text), tooltip: optional(text) })),
+});
 const node: Schema = (v, p) => {
   const base = { type: text };
   const children = array(node);
@@ -289,6 +293,7 @@ const node: Schema = (v, p) => {
     page: object({
       ...base,
       search: optional(object({ placeholder: text })),
+      controls: optional(array(segmented)),
       actions,
       summary: optional(text),
       filters: optional(array(filter)),
@@ -399,14 +404,7 @@ const node: Schema = (v, p) => {
       ),
       empty: optional(text),
     }),
-    segmented: object({
-      ...base,
-      id: text,
-      value: text,
-      options: array(
-        object({ value: text, label: text, icon: optional(text) }),
-      ),
-    }),
+    segmented,
     progress: object({
       ...base,
       label: optional(text),

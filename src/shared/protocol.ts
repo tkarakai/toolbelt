@@ -272,6 +272,8 @@ export type Node =
 			search?: { placeholder: string };
 			/** Buttons in the page toolbar. */
 			actions?: Action[];
+			/** Segmented choices beside the search box; changes arrive as `field` events. */
+			controls?: Extract<Node, { type: "segmented" }>[];
 			/** Muted text in the toolbar ("12 processes"). */
 			summary?: string;
 			/** Multi-select filters, after the search box. */
@@ -325,7 +327,7 @@ export type Node =
 	/** A chat between a person and an agent: messages as bubbles, tool calls as compact rows. */
 	| { type: "conversation"; id: string; messages: Message[]; empty?: string }
 	/** One choice of a few, as a segmented control; changes arrive as `field` events. */
-	| { type: "segmented"; id: string; value: string; options: { value: string; label: string; icon?: string }[] }
+	| { type: "segmented"; id: string; value: string; label?: string; options: { value: string; label: string; icon?: string; tooltip?: string }[] }
 	/** `value` from 0 to 1; without one, "working…". `at`: when it started (shows elapsed time). */
 	| { type: "progress"; label?: string; value?: number; at?: number; tone?: Tone }
 	/**
