@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.3.2 — 2026-11-12
 - Add optional page `controls` (segmented nodes), accessible segmented labels and per-option tooltips.
 
 - Publishing older stable candidates preserves the newer Latest; owning workflows must serialize publication across release tags.
