@@ -4,6 +4,13 @@
 
 - Keep Quit and Cancel side by side in the popover quit confirmation.
 
+- Show when GitHub failures were received and their live age, label GitHub-supplied versus fallback retry times, and retain quota and request diagnostics in response details.
+
+- Share GitHub recovery notices across About and Plugins, expire retry/error notices after two hours, and explain rate-limit-disabled request buttons with retry-deadline tooltips. Other GitHub failures stay retryable and show their failure time in a red notice.
+
+- Show one section-wide amber notice while update checks are paused, switching to a green retry notice after the cooldown. Plugin review includes release notes and a publisher link to the exact release; drag dialogs by their header and resize with an unobtrusive corner grip.
+
+- Explain app and plugin release-check failures, show retry timing, and respect GitHub cooldowns. Cache release metadata with ETags, share concurrent lookups, and retain previously found releases with their last successful check time.
 - Explain manual app installation and the macOS verification warning in the README and Settings/About manual guide, including copied instructions.
 
 - Retry transient disk-image creation and verification contention for app and Plugin Tester packaging before failing the build.

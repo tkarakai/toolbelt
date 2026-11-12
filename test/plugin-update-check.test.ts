@@ -19,7 +19,7 @@ function fixture() {
   atomicJSON(join(root,"plugins/registry.json"),registry);
   let executions = 0;
   const released: string[] = [], requested: string[] = [];
-  const packages = {root,recoveryWarnings:[],listeners:new Set(), registry:() => readRegistry(root), releaseCandidate:(candidate:Candidate) => released.push(candidate.manifest.id), install:async () => {executions++;}} as unknown as PackageManager;
+  const packages = {root,collectCandidates:()=>{},recoveryWarnings:[],listeners:new Set(), registry:() => readRegistry(root), releaseCandidate:(candidate:Candidate) => released.push(candidate.manifest.id), install:async () => {executions++;}} as unknown as PackageManager;
   const host = {subscribe:() => {},list:() => [],prepare:async () => {executions++;},stop:async () => {executions++;}} as unknown as PluginHost;
   const resolve = async (_manager:PackageManager,repo:string): Promise<Candidate> => {
     requested.push(repo);
@@ -107,4 +107,57 @@ test("failed check activities survive service restart and are followed by succes
     const restarted = new PluginManagerService(f.packages, f.host, f.resolve);
     expect(restarted.read().plugins.find(p => p.id === "first")!.logs).toEqual(logs.slice(-3));
   } finally {rmSync(f.root,{recursive:true,force:true});}
+});
+
+test("structured update failures preserve the last successful result and date across restart", async () => {
+  const { GitHubError } = await import("../src/shared/github");
+  const f = fixture();
+  try {
+    await new PluginManagerService(f.packages,f.host,f.resolve).checkUpdates();
+    const checked = readRegistry(f.root).plugins.first!.updateCheckedAt;
+    const problem = {kind:"quota" as const, message:"Quota exhausted", status:403, retryAt:Date.now()+720000};
+    const service = new PluginManagerService(f.packages,f.host,async () => {throw new GitHubError(problem);});
+    await service.checkUpdates();
+    const restored = new PluginManagerService(f.packages,f.host,f.resolve).read().plugins.find(p=>p.id === "first")!;
+    expect(restored.availableVersion).toBe("2.0.0");
+    expect(restored.updateCheckedAt).toBe(checked);
+    expect(restored.updateFailure).toEqual(problem);
+    const response = await service.handle({operation:"resolve",repo:"test/first"});
+    expect(response.failure).toEqual(problem);
+    expect(f.executions()).toBe(0);
+  } finally {rmSync(f.root,{recursive:true,force:true});}
+});
+
+test("release review carries publisher release notes and exact tag through RPC", async () => {
+  const f = fixture();
+  try {
+    const notes = "## Changes\n\n- A useful improvement\n\n[Details](https://github.com/test/first/releases/tag/v2.0.0)";
+    const service = new PluginManagerService(f.packages, f.host, async (manager, repo) => ({...await f.resolve(manager,repo), release:"v2.0.0", notes}));
+    const result = await service.handle({operation:"resolve",repo:"test/first"});
+    expect(result.candidate?.release).toBe("v2.0.0");
+    expect(result.candidate?.notes).toBe(notes);
+    expect(f.executions()).toBe(0);
+  } finally {rmSync(f.root,{recursive:true,force:true});}
+});
+
+test("plugin GitHub failures notify About immediately and persist the same notice on both tabs", async () => {
+  const { Updater } = await import("../src/bun/updater");
+  const { githubMetadata } = await import("../src/bun/github-metadata");
+  const f=fixture();
+  const previousFetch=globalThis.fetch;
+  let notices=0;
+  const updater=new Updater({version:"1.0.0",channel:"stable",stateFile:join(f.root,"update.json"),appPath:null,onChange:()=>{notices++;},relaunch:()=>{}});
+  // A dev-channel instance subscribes without starting a network check of its own.
+  const about=new Updater({version:"1.0.0",channel:"dev",stateFile:join(f.root,"update.json"),appPath:null,onChange:()=>{notices++;},relaunch:()=>{}});
+  try {
+    globalThis.fetch=(async()=>Response.json({message:"secondary rate limit"},{status:429,headers:{"retry-after":"720"}})) as unknown as typeof fetch;
+    about.start();
+    const client=githubMetadata(join(f.root,"cache/github-metadata.json"));
+    await expect(client.get("https://api.github.com/repos/test/first/releases/latest")).rejects.toThrow();
+    const plugins=new PluginManagerService(f.packages,f.host,f.resolve).read();
+    expect(notices).toBe(1);
+    expect(about.state().failure?.kind).toBe("throttled");
+    expect(updater.state().retryAt).toBe(plugins.schedule.retryAt);
+    expect(about.state().failure).toEqual(plugins.schedule.failure);
+  } finally {about.stop();globalThis.fetch=previousFetch;rmSync(f.root,{recursive:true,force:true});}
 });

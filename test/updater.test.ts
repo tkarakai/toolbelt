@@ -263,7 +263,7 @@ describe("updater", () => {
     expect(s.lastChecked).not.toBeNull();
     expect(
       JSON.parse(readFileSync(join(dir, "config/update.json"), "utf8")),
-    ).toEqual({ lastChecked: s.lastChecked, lastAttempt: s.lastChecked });
+    ).toMatchObject({ lastChecked: s.lastChecked, lastAttempt: s.lastChecked });
   });
 
   test("up to date: latest known, nothing available", async () => {
@@ -279,7 +279,7 @@ describe("updater", () => {
     const { u, advance } = setup({ feedStatus: 403 });
     await u.check();
     expect(u.state()).toMatchObject({
-      lastError: "GitHub answered 403",
+      lastError: "GitHub refused the release request.",
       lastChecked: null,
     });
     expect(u.checkIfDue()).toBe(false); // waits for the next regular check
@@ -405,4 +405,34 @@ describe("updater", () => {
     expect(resumed).toBe(1);
     expect(s.relaunched()).toBeNull();
   });
+});
+
+test("release checks retain dated results and ETags through failure and restart, and enforce cooldowns", async () => {
+  const dir = tmp();
+  let now = 1800000000000;
+  const metadata = release();
+  metadata.assets[0]!.digest = "sha256:" + "a".repeat(64);
+  const replies = [Response.json(metadata, {headers:{etag:'"release"'}}), Response.json({message:"secondary rate limit"},{status:429,headers:{"retry-after":"120"}}), new Response(null,{status:304})];
+  const headers: Headers[] = [];
+  const fetcher = (async (_url: string, init: RequestInit) => { headers.push(new Headers(init.headers)); return replies.shift()!; }) as typeof fetch;
+  const options = {version:"0.1.0",channel:"stable",stateFile:join(dir,"update.json"),appPath:null,onChange:()=>{},relaunch:()=>{},fetch:fetcher,now:()=>now};
+  const first = new Updater(options);
+  await first.check();
+  const checkedAt = first.state().lastChecked;
+  now += 1000;
+  await first.check();
+  expect(first.state().failure?.kind).toBe("throttled");
+  expect(first.state().available?.version).toBe("0.2.0");
+  expect(first.state().lastChecked).toBe(checkedAt);
+  const restored = new Updater(options);
+  expect(restored.state().available?.version).toBe("0.2.0");
+  expect(restored.state().lastChecked).toBe(checkedAt);
+  await restored.check();
+  expect(restored.checkIfDue(0)).toBe(false);
+  expect(headers.length).toBe(2);
+  now += 120000;
+  await restored.check();
+  expect(headers[2]!.get("if-none-match")).toBe('"release"');
+  expect(restored.state().lastChecked).toBe(now);
+  expect(restored.state().failure).toBeUndefined();
 });

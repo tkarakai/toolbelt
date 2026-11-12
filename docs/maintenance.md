@@ -38,6 +38,8 @@ source tree and emit into `artifacts-tester/`, separate from app artifact cleanu
 In ToolBelt Dev, open Settings → About → Updates and use **Development preview**.
 Choose **Check failed / manual guide** to preview the GitHub recovery card and DMG instructions, **Check failed / cached update** for previously discovered availability, or **No update / manual link** for the always-available fallback. Retrying a simulated check preserves its selected scenario. Choose Available to review the confirmation, then select download, verification,
 installation, restart or failure stages inside the dialog. Off restores live state.
+The browser preview accepts `/update?recovery=quota`, `throttled`, `missing`, `network` or
+`service` to exercise recovery cards; quota/throttling simulate a twelve-minute cooldown.
 This renderer-only simulation intercepts update actions and never downloads, replaces
 or restarts an app. The browser preview also has its existing simulated update flow.
 

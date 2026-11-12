@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState, type ComponentProps, type PointerEvent } from "react";
-import { MoveDiagonal2 } from "lucide-react";
-import { DialogContent } from "./dialog";
+import { Children, cloneElement, isValidElement, useEffect, useRef, useState, type ComponentProps, type PointerEvent } from "react";
+import { DialogContent, DialogHeader } from "./dialog";
 import { cn } from "@/lib/utils";
 
 type Size = {w: number; h: number};
@@ -49,8 +48,9 @@ export function ResizableDialogContent({children, className, style, ...props}: C
         [-1,1,"-bottom-1 -left-1 size-3 cursor-nesw-resize"],[1,-1,"-top-1 -right-1 size-3 cursor-nesw-resize"],
         [-1,-1,"-top-1 -left-1 size-3 cursor-nwse-resize"],
     ] as const;
-    return <DialogContent {...props} ref={box} className={cn("flex max-w-none! flex-col transition-none",className)} style={{...style,left:`calc(50% + ${offset.x}px)`,top:`calc(50% + ${offset.y}px)`,width:size.w,height:size.h,maxWidth:"calc(100vw - 2rem)",maxHeight:"calc(100vh - 2rem)"}}>
-        <button type="button" aria-label="Move dialog" title="Drag to move, or use arrow keys" className="-mx-2 -mt-2 h-4 shrink-0 touch-none cursor-move rounded hover:bg-accent focus-visible:outline-ring" onPointerDown={event => {
+    return <DialogContent {...props} ref={box} className={cn("flex max-w-none! flex-col transition-none [&_[data-slot=dialog-header]]:cursor-move [&_[data-slot=dialog-header]]:touch-none",className)} style={{...style,left:`calc(50% + ${offset.x}px)`,top:`calc(50% + ${offset.y}px)`,width:size.w,height:size.h,maxWidth:"calc(100vw - 2rem)",maxHeight:"calc(100vh - 2rem)"}} onPointerDown={event => {
+            const target = event.target as HTMLElement;
+            if (!target.closest('[data-slot="dialog-header"]') || target.closest('button, a, input, select, textarea, [role="button"]')) return;
             if (event.button !== 0) return;
             event.preventDefault();
             moving.current = {x:event.clientX,y:event.clientY,left:offset.x,top:offset.y};
@@ -60,12 +60,14 @@ export function ResizableDialogContent({children, className, style, ...props}: C
             if (!start) return;
             setOffset({x:Math.max(-(innerWidth-size.w)/2+16,Math.min((innerWidth-size.w)/2-16,start.left+event.clientX-start.x)),y:Math.max(-(innerHeight-size.h)/2+16,Math.min((innerHeight-size.h)/2-16,start.top+event.clientY-start.y))});
         }} onPointerUp={() => {moving.current=null;}} onPointerCancel={() => {moving.current=null;}} onLostPointerCapture={() => {moving.current=null;}} onKeyDown={event => {
+            if (!(event.target as HTMLElement).matches('[data-slot="dialog-header"]')) return;
             const delta = {ArrowRight:[20,0],ArrowLeft:[-20,0],ArrowDown:[0,20],ArrowUp:[0,-20]}[event.key];
             if (!delta) return;
             event.preventDefault(); event.stopPropagation();
             setOffset(current => ({x:Math.max(-(innerWidth-size.w)/2+16,Math.min((innerWidth-size.w)/2-16,current.x+delta[0]!)),y:Math.max(-(innerHeight-size.h)/2+16,Math.min((innerHeight-size.h)/2-16,current.y+delta[1]!))}));
-        }}><span className="mx-auto block h-1 w-10 rounded-full bg-muted-foreground/40"/></button>
-        {children}
+        }}>
+        {Children.map(children, child => isValidElement<ComponentProps<typeof DialogHeader>>(child) && child.type === DialogHeader
+            ? cloneElement(child, {tabIndex: 0, "aria-label": "Move dialog using arrow keys"}) : child)}
         {edges.map(([dx,dy,classes]) => <div key={`${dx},${dy}`} aria-hidden="true" className={cn("absolute z-20 touch-none",classes)} onPointerDown={begin(dx,dy)} {...events}/>)}
         <button type="button" aria-label="Resize dialog" title="Drag to resize, or use arrow keys" className="absolute bottom-0.5 right-0.5 z-20 flex size-5 touch-none cursor-nwse-resize items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-ring" onPointerDown={begin(1,1)} {...events} onKeyDown={event => {
             const amount = event.shiftKey ? 80 : 20;
@@ -76,6 +78,6 @@ export function ResizableDialogContent({children, className, style, ...props}: C
             const next = fit({w:Math.min(size.w+delta[0]!, (innerWidth+size.w)/2-offset.x-16),h:Math.min(size.h+delta[1]!, (innerHeight+size.h)/2-offset.y-16)});
             setSize(next);
             setOffset(current => ({x:current.x+(next.w-size.w)/2,y:current.y+(next.h-size.h)/2}));
-        }}><MoveDiagonal2 className="size-3"/></button>
+        }}/>
     </DialogContent>;
 }
