@@ -1,4 +1,5 @@
 import { $ } from "bun";
+import { retryDiskImage } from "./disk-image";
 import { cpSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -25,12 +26,12 @@ export async function packageTester(
     );
     symlinkSync("/Applications", join(volume, "Applications"));
     const dmg = join(output, `Toolbelt-Plugin-Tester-${version}-arm64.dmg`);
-    await $`/usr/bin/hdiutil create -volname ${"Toolbelt Plugin Tester"} -srcfolder ${volume} -fs APFS -ov -format ULMO ${dmg}`;
+    await retryDiskImage("Creating disk image", () => $`/usr/bin/hdiutil create -volname ${"Toolbelt Plugin Tester"} -srcfolder ${volume} -fs APFS -ov -format ULMO ${dmg}`.nothrow());
     const mount = join(stage, "mounted");
     await $`mkdir -p ${mount}`;
     let mounted = false;
     try {
-      await $`/usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint ${mount} ${dmg}`;
+      await retryDiskImage("Mounting tester disk image", () => $`/usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint ${mount} ${dmg}`.nothrow());
       mounted = true;
       const mountedApp = join(mount, "Toolbelt Plugin Tester.app"),
         plist = join(mountedApp, "Contents/Info.plist");
