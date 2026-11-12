@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.3.1 — 2026-11-12
 - Support segmented page toolbar controls with hover and keyboard-focus explanations.
 
 - Copy app and plugin manual update instructions, including their release link, for saving elsewhere.

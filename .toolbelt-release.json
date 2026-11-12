@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repo": "tkarakai/toolbelt",
-  "product": "sdk",
-  "version": "0.3.2",
+  "product": "app",
+  "version": "0.3.1",
   "channel": "stable"
 }
