@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.3.2 — 2026-11-12
 - Collapse the popover quick view before showing quit confirmation to avoid blurring the desktop between panels.
 
 - Give dialog headings framed icons matching the plugin cards in Settings.
