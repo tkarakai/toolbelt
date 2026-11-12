@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.3.3 — 2026-11-12
 - Keep Quit and Cancel side by side in the popover quit confirmation.
 
 - Show when GitHub failures were received and their live age, label GitHub-supplied versus fallback retry times, and retain quota and request diagnostics in response details.
