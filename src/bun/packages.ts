@@ -1,3 +1,4 @@
+import type { GitHubFailure } from "../shared/github";
 import { terminateOwned } from "./owned-process";
 import { syncTree, syncPath, syncParents } from "./durability";
 import {
@@ -37,6 +38,8 @@ export type Installed = {
   /** Preference for future checks; independent of the installed release. */
   channel: "stable" | "prerelease";
   checkActivities?: string[];
+  updateFailure?: GitHubFailure;
+  updateCheckedAt?: number;
   installedChannel?: "stable" | "prerelease";
   release?: string;
   requestedRelease?: string;
@@ -76,6 +79,7 @@ export type ReleaseDescriptor = {
   packages: { target: string; asset: string; sha256: string; size: number }[];
 };
 export type Candidate = {
+  notes?: string;
   lease?: string;
   manifest: PackageManifest;
   hash: string;

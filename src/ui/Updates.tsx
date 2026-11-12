@@ -1,3 +1,5 @@
+import { GitHubButton } from "./components/github-button";
+import { UpdateRecovery, useRecoveryClock } from "./components/update-recovery";
 import { ManualUpdate } from "./components/manual-update";
 import { RepositoryLink } from "./components/repository-link";
 import { buildInfo } from "./build-info";
@@ -22,7 +24,6 @@ import { Markdown } from "@/renderer/Render";
 import { Button } from "@/components/ui/button";
 import { SettingsGroup } from "./components/settings-layout";
 import { pillClass } from "./renderer/colors";
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "./components/ui/tooltip";
 import appIcon from "../../icon.iconset/icon_128x128.png";
 import devAppIcon from "../../dev-icon.iconset/icon_128x128.png";
 import { GitBranch } from "lucide-react";
@@ -51,7 +52,9 @@ function simulate(kind: string) {
   else {
     const release = {version:"99.0.0",notes:"## Preview release\n\nSample improvements for reviewing the update experience.",page:"https://github.com/tkarakai/toolbelt/releases",dmg:"",size:48*1048576,sha256:null,published:Date.now()};
     const checkFailed = kind === "check-failed" || kind === "check-failed-cached";
-    simulated = {...current, enabled:true, available:kind === "check-failed" || kind === "up-to-date" ? null : release, latest:kind === "check-failed" || kind === "up-to-date" ? null : release, checking:false, lastError:checkFailed ? "GitHub answered 403" : null,
+    simulated = {...current, enabled:true, available:kind === "check-failed" || kind === "up-to-date" ? null : release, latest:kind === "check-failed" || kind === "up-to-date" ? null : release, checking:false, lastError:checkFailed ? "GitHub’s request quota is exhausted." : null,
+      failure:checkFailed ? {at:Date.now(),kind:"quota", message:"GitHub’s request quota is exhausted.", status:403, detail:"API rate limit exceeded", retryAt:Date.now()+12*60000} : undefined,
+      retryAt:checkFailed ? Date.now()+12*60000 : undefined,
       phase: kind === "downloading" ? {kind,received:24*1048576,total:48*1048576,speed:2*1048576} : kind === "failed" ? {kind,message:"Simulated update failure. Your app has not been changed."} : {kind:checkFailed || kind === "up-to-date" ? "idle" : kind as "idle"|"verifying"|"installing"|"relaunching"}};
   }
   local.forEach(l => l());
@@ -120,13 +123,14 @@ let openDialog: () => void = () => {};
 
 export function UpdatesCard() {
   const s = useUpdateState();
+  const now = useRecoveryClock();
   useEffect(() => {
     if (s && location.hash === "#/toolbelt/updates") document.getElementById("updates")?.scrollIntoView({ block: "start" });
   }, [!!s]);
   if (!s) return null;
   const r = s.available;
   return (
-    <div id="updates"><SettingsGroup title="App" description="ToolBelt · Copyright NetSense LLC." actions={<TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild><span className="inline-flex"><Button variant="outline" size="sm" className="h-6 text-xs" disabled={!s.enabled || s.checking || s.phase.kind !== "idle"} onClick={() => updateAction("checkForUpdates")}><RotateCw className={cn(s.checking && "animate-spin")}/>{s.checking ? "Checking…" : "Check for updates"}</Button></span></TooltipTrigger><TooltipContent>Last checked: {s.lastChecked ? new Date(s.lastChecked).toLocaleString() : "Not yet checked"}</TooltipContent></Tooltip></TooltipProvider>}>
+    <div id="updates"><SettingsGroup title="App" notice={(s.failure || s.lastError) && <UpdateRecovery failure={s.failure ?? {kind:"invalid", message:s.lastError!}} checkedAt={s.lastChecked}/>} description="ToolBelt · Copyright NetSense LLC." actions={<GitHubButton retryAt={s.retryAt} hint={`Last checked: ${s.lastChecked ? new Date(s.lastChecked).toLocaleString() : "Not yet checked"}`} variant="outline" size="sm" className="h-6 text-xs" disabled={!s.enabled || s.checking || s.phase.kind !== "idle" || (s.retryAt ?? 0) > now} onClick={() => updateAction("checkForUpdates")}><RotateCw className={cn(s.checking && "animate-spin")}/>{s.checking ? "Checking…" : "Check for updates"}</GitHubButton>}>
       <article aria-label="ToolBelt" className="min-w-0 space-y-4 p-5">
         <div className="flex flex-wrap items-start gap-3">
           <img src={s.channel === "dev" ? devAppIcon : appIcon} alt="ToolBelt app icon" className="size-10 shrink-0 object-contain"/>
@@ -136,10 +140,10 @@ export function UpdatesCard() {
           <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Installed release</div><p className="text-sm">Version <span className="font-mono font-medium">{s.version} ({buildInfo.commit})</span></p><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs capitalize",pillClass("muted"))}>{s.channel}</span></div>
           <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Update channel</div><div className="flex items-center gap-1.5 text-sm"><GitBranch className="size-3.5 text-muted-foreground"/>{s.channel === "stable" ? "Stable" : s.channel === "dev" ? "Development" : s.channel}</div><p className="text-xs leading-relaxed text-muted-foreground">{s.enabled ? "Use stable releases for future checks." : "Automatic updates are unavailable in this build."}</p></div>
         </div>
-        <ManualUpdate name="ToolBelt" version={s.version} commit={buildInfo.commit} repo="tkarakai/toolbelt" failed={!!s.lastError}/>
+        <ManualUpdate name="ToolBelt" version={s.version} commit={buildInfo.commit} repo="tkarakai/toolbelt" failure={s.failure} retryAt={s.retryAt}/>
         {r && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
-          <div className="min-w-0 flex-1 space-y-2"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{s.lastError ? "Previously found update" : "Available update"}</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass("info"))}>Stable</span></div><p className="text-sm">Version <span className="font-mono font-medium">{r.version}</span></p><p className="text-xs text-muted-foreground">{r.published ? `Released ${date(r.published)} · ` : ""}{mb(r.size)}</p></div>
-          <Button size="sm" disabled={s.phase.kind !== "idle"} onClick={() => openDialog()}><Download/>Review and Update</Button>
+          <div className="min-w-0 flex-1 space-y-2"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{s.lastError ? "Previously found update" : "Available update"}</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass("info"))}>Stable</span></div><p className="text-sm">Version <span className="font-mono font-medium">{r.version}</span></p><p className="text-xs text-muted-foreground">{r.published ? `Released ${date(r.published)} · ` : ""}{mb(r.size)}{s.lastChecked ? ` · Checked ${new Date(s.lastChecked).toLocaleString()}` : ""}</p></div>
+          <GitHubButton retryAt={s.retryAt} size="sm" disabled={s.phase.kind !== "idle"} onClick={() => openDialog()}><Download/>Review and Update</GitHubButton>
         </div>}
         <DevUpdatePreview/>
         <UpdateDialog s={s}/>
@@ -306,13 +310,13 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
                 Later
                 <KeyHint keys="esc" />
               </Button>
-              <Button
+              <GitHubButton retryAt={s.retryAt}
                 autoFocus
                 onClick={() => updateAction("installUpdate")}
               >
                 Update &amp; Restart
                 <KeyHint keys="↵" />
-              </Button>
+              </GitHubButton>
             </>
           )}
           {kind === "downloading" && (
@@ -335,13 +339,13 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
                 Close
                 <KeyHint keys="esc" />
               </Button>
-              <Button
+              <GitHubButton retryAt={s.retryAt}
                 autoFocus
                 onClick={() => updateAction("installUpdate")}
               >
                 Try Again
                 <KeyHint keys="↵" />
-              </Button>
+              </GitHubButton>
             </>
           )}
         </DialogFooter>

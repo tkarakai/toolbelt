@@ -1,10 +1,11 @@
+import { cn } from "@/lib/utils";
 import { ExternalLink } from "lucide-react";
 import { openUrl } from "@/lib/store";
 
 // GitHub mark: Simple Icons (CC0), icons/github.svg.
-export function RepositoryLink({repo}: {repo: string}) {
-    const url = `https://github.com/${repo.split("/").map(encodeURIComponent).join("/")}`;
-    return <a href={url} className="group mt-1 inline-flex max-w-full items-start gap-1 rounded-sm text-xs leading-4 text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring motion-reduce:transition-none" onClick={event => {
+export function RepositoryLink({repo, release, className}: {repo: string; release?: string; className?: string}) {
+    const url = `https://github.com/${repo.split("/").map(encodeURIComponent).join("/")}${release ? `/releases/tag/${encodeURIComponent(release)}` : ""}`;
+    return <a href={url} className={cn("group mt-1 inline-flex max-w-full items-start gap-1 rounded-sm text-xs leading-4 text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring motion-reduce:transition-none", className)} onClick={event => {
         event.preventDefault();
         openUrl(url);
     }}>

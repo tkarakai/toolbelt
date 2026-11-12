@@ -1,9 +1,12 @@
+import { GitHubButton } from "./components/github-button";
+import { Markdown } from "./renderer/Render";
+import { GitHubError, type GitHubFailure } from "../shared/github";
+import { UpdateRecovery, useRecoveryClock } from "./components/update-recovery";
 import { Download as DialogDownload, Trash2 as DialogTrash, History as DialogHistory } from "lucide-react";
 import { ManualUpdate } from "./components/manual-update";
 import { RepositoryLink } from "./components/repository-link";
 import { toast } from "sonner";
 import { Activity, TriangleAlert, CircleCheck, CircleX } from "lucide-react";
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "./components/ui/tooltip";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./components/ui/select";
 import { ResizableDialogContent } from "./components/ui/resizable-dialog-content";
 import { MoreHorizontal, Power, RotateCw, Trash2, Download, Loader2, GitBranch } from "lucide-react";
@@ -49,13 +52,14 @@ const legacy: PluginManagerAdapter = {
   async read() {
     const r = await rpc.request.pluginManager({ operation: "list" });
     if (r.error) throw Error(r.error);
-    return { plugins: r.installed ?? [] };
+    return (r.state as ManagerState | undefined) ?? { plugins: r.installed ?? [] };
   },
   async resolve(input) {
     const r = await rpc.request.pluginManager({
       operation: "resolve",
       ...input,
     });
+    if (r.failure) throw new GitHubError(r.failure);
     if (r.error) throw Error(r.error);
     if (!r.candidate) throw Error("No release was returned.");
     return r.candidate;
@@ -104,6 +108,8 @@ export function PluginManager({
   const [repo, setRepo] = useState(""),
     [release, setRelease] = useState(""),
     [prerelease, setPrerelease] = useState(false);
+  const [lookupFailure, setLookupFailure] = useState<GitHubFailure>();
+  const now = useRecoveryClock();
   const [checkingAll, setCheckingAll] = useState(false);
   const [restartingId, setRestartingId] = useState<string>();
   const [candidate, setCandidate] = useState<Candidate>();
@@ -156,6 +162,7 @@ export function PluginManager({
     locked.current = true;
     setBusy(true);
     setError("");
+    setLookupFailure(undefined);
     try {
       await action();
       const s = await adapter.read();
@@ -165,7 +172,10 @@ export function PluginManager({
         setLoaded(true);
       }
     } catch (e) {
-      if (mounted.current) toast.error(String(e));
+      if (mounted.current) {
+        if (e instanceof GitHubError) setLookupFailure(e.failure);
+        else toast.error(String(e));
+      }
     } finally {
       locked.current = false;
       if (mounted.current) setBusy(false);
@@ -189,13 +199,14 @@ export function PluginManager({
       if (mounted.current) setCandidate(c);
     });
   };
+  const checkFailures = [state.schedule?.failure, lookupFailure, ...state.plugins.map(p => p.updateFailure)].filter((failure): failure is GitHubFailure => !!failure);
   const updating = !!candidate && state.plugins.some(plugin => !plugin.removed && plugin.id === candidate.id);
   return (
     <div className="min-w-0 space-y-8">
-        <SettingsGroup separated title="Installed Plugins" description="Each plugin is its own program. ToolBelt starts it and draws its screens. ToolBelt has no control over plugins." actions={<TooltipProvider delayDuration={200} skipDelayDuration={0}><Tooltip><TooltipTrigger asChild><span className="inline-flex" tabIndex={busy || !adapter.checkUpdates ? 0 : undefined}><Button variant="outline" size="sm" className="h-6 text-xs" disabled={busy || !adapter.checkUpdates} onClick={() => void run(async () => {
+        <SettingsGroup separated title="Installed Plugins" notice={checkFailures.length > 0 && <UpdateRecovery failure={checkFailures[0]!} failures={checkFailures.slice(1)}/>} description="Each plugin is its own program. ToolBelt starts it and draws its screens. ToolBelt has no control over plugins." actions={<GitHubButton retryAt={state.schedule?.retryAt} hint={`Last checked: ${date(state.schedule?.lastChecked)}`} variant="outline" size="sm" className="h-6 text-xs" disabled={busy || !adapter.checkUpdates || (state.schedule?.retryAt ?? 0) > now} onClick={() => void run(async () => {
             setCheckingAll(true);
             try { await adapter.checkUpdates!(); } catch (e) { toast.error("Couldn’t check plugin updates.", {description: "You can check releases in your browser from each plugin’s card."}); } finally { if (mounted.current) setCheckingAll(false); }
-          })}>{checkingAll ? <Loader2 className="animate-spin"/> : <RotateCw/>}{checkingAll ? "Checking…" : "Check for updates"}</Button></span></TooltipTrigger><TooltipContent side="top" sideOffset={8}>Last checked: {date(state.schedule?.lastChecked)}</TooltipContent></Tooltip></TooltipProvider>}>
+          })}>{checkingAll ? <Loader2 className="animate-spin"/> : <RotateCw/>}{checkingAll ? "Checking…" : "Check for updates"}</GitHubButton>}>
           {!loaded ? (
             <p role="status" className="p-5 text-sm text-muted-foreground">
               Loading plugins…
@@ -276,13 +287,13 @@ export function PluginManager({
                     max={p.operation.total}
                   />
                 )}
-                <ManualUpdate name={p.manifest.name} version={p.version} commit={p.commit} repo={p.repo} prerelease={p.channel === "prerelease"} busy={busy || isActivePhase(p.phase)} review={tag => review(p.repo, tag, p.channel === "prerelease")} failed={updateCheckFailed(p)}/>
+                <ManualUpdate name={p.manifest.name} version={p.version} commit={p.commit} repo={p.repo} prerelease={p.channel === "prerelease"} busy={busy || isActivePhase(p.phase)} review={tag => review(p.repo, tag, p.channel === "prerelease")} failure={p.updateFailure} retryAt={state.schedule?.retryAt}/>
                 {p.availableVersion && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{updateCheckFailed(p) ? "Previously found update" : "Available update"}</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.availableChannel === "prerelease" ? "warning" : p.availableChannel === "stable" ? "info" : "muted"))}>{p.availableChannel === "prerelease" ? "Prerelease" : p.availableChannel === "stable" ? "Stable" : "Channel not recorded"}</span></div>
-                    <p className="text-sm">Version <span className="font-mono font-medium">{p.availableVersion}{p.availableCommit ? ` (${p.availableCommit.slice(0,7)})` : ""}</span></p>
+                    <p className="text-sm">Version <span className="font-mono font-medium">{p.availableVersion}{p.availableCommit ? ` (${p.availableCommit.slice(0,7)})` : ""}</span></p>{p.updateCheckedAt && <p className="text-xs text-muted-foreground">Checked {date(p.updateCheckedAt)}</p>}
                   </div>
-                  <Button size="sm" disabled={busy || isActivePhase(p.phase)} onClick={() => review(p.repo, undefined, p.channel === "prerelease")}><Download/>Review and Update</Button>
+                  <GitHubButton retryAt={state.schedule?.retryAt} size="sm" disabled={busy || isActivePhase(p.phase) || (state.schedule?.retryAt ?? 0) > now} onClick={() => review(p.repo, undefined, p.channel === "prerelease")}><Download/>Review and Update</GitHubButton>
                 </div>}
                 {p.operation?.cancellable && adapter.cancel && <div className="flex justify-end"><Button size="sm" variant="outline" onClick={() => void adapter.cancel!(p.operation!.id).catch(e => setError(String(e)))}>Cancel download</Button></div>}
                 {!!p.recovery?.length && (
@@ -333,7 +344,7 @@ export function PluginManager({
           className="space-y-4 p-5"
           onSubmit={(e) => {
             e.preventDefault();
-            review(repo, release);
+            if ((state.schedule?.retryAt ?? lookupFailure?.retryAt ?? 0) <= now) review(repo, release);
           }}
         >
           <p className="text-xs text-muted-foreground">
@@ -367,7 +378,7 @@ export function PluginManager({
               />
               Include prereleases for this search
             </label>
-            <Button disabled={busy || !repo.trim()}>Review release</Button>
+            <GitHubButton retryAt={state.schedule?.retryAt ?? lookupFailure?.retryAt} disabled={busy || !repo.trim() || (state.schedule?.retryAt ?? lookupFailure?.retryAt ?? 0) > now}>Review release</GitHubButton>
           </div>
         </form></SettingsGroup>
         {busy && (
@@ -420,7 +431,7 @@ export function PluginManager({
                 <div className="min-h-0 flex-1 space-y-4 overflow-auto pr-1">
                 <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
                   <dt>Publisher</dt>
-                  <dd className="break-all">{candidate.repo}</dd>
+                  <dd className="min-w-0"><RepositoryLink repo={candidate.repo} release={candidate.release} className="mt-0 text-sm leading-5"/></dd>
                   <dt>Plugin ID</dt>
                   <dd className="break-all">{candidate.id}</dd>
                   <dt>Version</dt>
@@ -443,11 +454,10 @@ export function PluginManager({
                   network. Checksums verify bytes; they do not establish
                   publisher trust.
                 </p>
-                {candidate.notes && (
-                  <p className="whitespace-pre-wrap break-words text-sm">
-                    {candidate.notes}
-                  </p>
-                )}
+                <section aria-label="Release notes" className="min-w-0 space-y-3 border-t pt-4 [overflow-wrap:anywhere]">
+                  <h4 className="text-sm font-semibold">Release notes</h4>
+                  {candidate.notes?.trim() ? <Markdown text={candidate.notes}/> : <p className="text-sm text-muted-foreground">The publisher didn’t include notes for this release.</p>}
+                </section>
                 </div>
                 <DialogFooter className="shrink-0 pr-8">
                   <Button

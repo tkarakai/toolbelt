@@ -1,3 +1,5 @@
+import { githubMetadata, GitHubError } from "./github-metadata";
+import type { GitHubFailure } from "../shared/github";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -136,10 +138,12 @@ export class PluginManagerService {
             cancellable: false,
           })),
       ],
-      schedule: { intervalHours: 6, ...registry.updateSchedule },
+      schedule: { intervalHours: 6, ...registry.updateSchedule, failure: githubMetadata(join(this.packages.root, "cache/github-metadata.json")).notice("https://api.github.com"), retryAt: githubMetadata(join(this.packages.root, "cache/github-metadata.json")).cooldown("https://api.github.com")?.retryAt },
     };
   }
+  private metadataChanged = () => this.emit();
   start() {
+    githubMetadata(join(this.packages.root, "cache/github-metadata.json")).listeners.add(this.metadataChanged);
     this.expireApprovals();
     if (
       !this.packages.registry().updateSchedule?.nextCheck ||
@@ -158,6 +162,7 @@ export class PluginManagerService {
     this.timer.unref();
   }
   stop() {
+    githubMetadata(join(this.packages.root, "cache/github-metadata.json")).listeners.delete(this.metadataChanged);
     clearInterval(this.timer);
     for (const controller of this.controllers.values()) controller.abort();
     for (const record of this.candidates.values())
@@ -211,6 +216,8 @@ export class PluginManagerService {
         version: candidate.manifest.version,
         repo: candidate.repo,
         hash: candidate.hash,
+        release: candidate.release,
+        notes: candidate.notes,
         channel: candidate.channel ?? "stable",
         compatibility: {
           compatible: true,
@@ -230,6 +237,7 @@ export class PluginManagerService {
     this.checking = true;
     try {
       let error: string | undefined;
+      const results = new Map<string, {checkedAt?: number; failure?: GitHubFailure}>();
       const updates = new Map<string, {version: string; channel?: "stable" | "prerelease"; commit?: string} | undefined>();
       for (const p of Object.values(this.packages.registry().plugins).filter(
         (p) => !p.removed,
@@ -250,8 +258,10 @@ export class PluginManagerService {
             this.available.delete(p.id);
             updates.set(p.id, undefined);
           }
+          results.set(p.id, {checkedAt: Date.now()});
           this.packages.releaseCandidate(candidate);
         } catch (e) {
+          results.set(p.id, {failure: e instanceof GitHubError ? e.failure : {kind: "invalid", message: String(e), at: Date.now()}});
           const detail = `${p.id} (${p.repo}): ${String(e)}`;
           error = error ? `${error}\n${detail}` : detail;
           const previous = this.states.get(p.id);
@@ -265,6 +275,13 @@ export class PluginManagerService {
         }
       }
       const registry = this.packages.registry();
+      for (const [id, result] of results) {
+        const plugin = registry.plugins[id];
+        if (plugin) {
+          plugin.updateFailure = result.failure;
+          if (result.checkedAt) plugin.updateCheckedAt = result.checkedAt;
+        }
+      }
       for (const [id, release] of updates) {
         const version = release?.version;
         const plugin = registry.plugins[id];
@@ -346,6 +363,8 @@ export class PluginManagerService {
           delete p.availableChannel;
           delete p.availableCommit;
           delete p.availableSince;
+          delete p.updateFailure;
+          delete p.updateCheckedAt;
           this.available.delete(p.id);
           atomicJSON(
             join(this.packages.root, "plugins/registry.json"),
@@ -379,6 +398,7 @@ export class PluginManagerService {
       };
     } catch (error) {
       return {
+        failure: error instanceof GitHubError ? error.failure : undefined,
         error: `${request.id ?? request.repo ?? request.operation}: ${String(error)}`,
         state: this.read(),
       };

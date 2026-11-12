@@ -1,3 +1,4 @@
+import { GitHubError } from "../../shared/github";
 import type { NavigationSelection } from "../../shared/navigation";
 import { useOrderedPlugins } from "./plugin-order";
 // The web side of Toolbelt: one RPC connection to the main process, and a tiny store of what
@@ -275,6 +276,7 @@ async function managerRequest(
   params: Parameters<Transport["request"]["pluginManager"]>[0],
 ) {
   const response = await rpc.request.pluginManager(params);
+  if (response.failure) throw new GitHubError(response.failure);
   if (response.error) throw new Error(response.error);
   return response;
 }

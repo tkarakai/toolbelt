@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { githubMetadata, GitHubError } from "./github-metadata";
 import { LIMITS } from "../shared/package";
 import {
   PackageManager,
@@ -48,21 +50,10 @@ export async function resolveGithub(
   } = {},
 ): Promise<Candidate> {
   const repo = parseRepository(input);
-  const response = await fetch(
-    `https://api.github.com/repos/${repo}/releases${options.release ? `/tags/${encodeURIComponent(options.release)}` : options.prerelease ? "?per_page=30" : "/latest"}`,
-    {
-      headers: { Accept: "application/vnd.github+json" },
-      signal: options.signal
-        ? AbortSignal.any([options.signal, AbortSignal.timeout(30000)])
-        : AbortSignal.timeout(30000),
-    },
+  const response = await githubMetadata(join(manager.root, "cache/github-metadata.json")).get(
+    `https://api.github.com/repos/${repo.toLowerCase()}/releases${options.release ? `/tags/${encodeURIComponent(options.release)}` : options.prerelease ? "?per_page=30" : "/latest"}`,
+    { signal: options.signal },
   );
-  if (response.status === 404)
-    throw new Error(
-      "Public release not found; private repositories/authentication are unsupported",
-    );
-  if (!response.ok)
-    throw new Error(`GitHub release lookup failed (${response.status})`);
   if (
     !new URL(response.url).pathname
       .toLowerCase()
@@ -71,12 +62,12 @@ export async function resolveGithub(
     throw new Error(
       "Repository identity changed; review new publisher explicitly",
     );
-  const result = (await response.json()) as any;
+  const result = response.data as any;
   const release = Array.isArray(result)
     ? result.find((r) => !r.draft && (options.prerelease || !r.prerelease))
     : result;
+  if (!release) throw new GitHubError({ kind: "missing", message: "No public release was found for this channel." });
   if (
-    !release ||
     typeof release.html_url !== "string" ||
     !release.html_url
       .toLowerCase()
@@ -137,6 +128,7 @@ export async function resolveGithub(
   return {
     ...candidate,
     release: release.tag_name,
+    notes: typeof release.body === "string" ? release.body : undefined,
     requestedRelease: options.release?.trim() || undefined,
     asset: String(asset.id),
     commit: descriptor.commit,
