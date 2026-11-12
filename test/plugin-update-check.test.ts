@@ -155,9 +155,11 @@ test("plugin GitHub failures notify About immediately and persist the same notic
     const client=githubMetadata(join(f.root,"cache/github-metadata.json"));
     await expect(client.get("https://api.github.com/repos/test/first/releases/latest")).rejects.toThrow();
     const plugins=new PluginManagerService(f.packages,f.host,f.resolve).read();
-    expect(notices).toBe(1);
+    expect(notices).toBe(3); // request history, response history, shared failure
     expect(about.state().failure?.kind).toBe("throttled");
     expect(updater.state().retryAt).toBe(plugins.schedule.retryAt);
     expect(about.state().failure).toEqual(plugins.schedule.failure);
+    expect(about.state().githubHistory).toEqual(plugins.githubHistory);
+    expect(plugins.githubHistory[0]?.status).toBe(429);
   } finally {about.stop();globalThis.fetch=previousFetch;rmSync(f.root,{recursive:true,force:true});}
 });

@@ -105,12 +105,12 @@ test("non-rate errors are dated, shared across repositories, expire, and never g
   expect(error.retryAt).toBeUndefined();
   expect(f.client.cooldown(url)).toBeUndefined();
   expect(f.client.notice("https://api.github.com/repos/other/tool/releases/latest")).toEqual(error);
-  expect(broadcasts).toBe(1);
+  expect(broadcasts).toBe(3); // request, response, failure notice
   f.advance(2*3600000);
   expect(f.client.notice(url)).toBeUndefined();
   await f.client.get(url);
   expect(f.requests.length).toBe(2);
-  expect(broadcasts).toBe(2);
+  expect(broadcasts).toBe(6); // next request, response, cleared notice
 });
 
 test("rate-limit notice survives the cooldown, expires two hours later and clears on success", async () => {
@@ -132,7 +132,7 @@ test("records the receipt time, retry source and diagnostic headers", async () =
   const error=await failure(f.client.get(url));
   expect(error.at).toBe(f.now());
   expect(error.retrySource).toBe("quota-reset");
-  expect(error.rateLimit).toEqual({limit:60,remaining:0,used:60,resource:"core"});
+  expect(error.rateLimit).toEqual({limit:60,remaining:0,used:60,resource:"core",resetAt:1800000720000});
   expect(error.requestId).toBe("ABCD:1234");
   expect(error.serverAt).toBe(f.now());
   const explicit=fixture([fail(429,"slow",{"retry-after":"120"})]);

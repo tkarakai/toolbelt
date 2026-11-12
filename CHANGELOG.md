@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Allow manual app release checks in development builds after GitHub cooldowns expire, while keeping scheduled app checks and self-installation disabled.
+
+- Align recovery message text and the quota timeline control with the header icon in both ready and warning boxes; use a compact dropdown-style timeline button without its call-count subtitle.
+
+- Expand timeline request details across the full table width, with response fields arranged in columns to reduce scrolling.
+
+- Show the parsed local timestamp beside GitHub’s x-ratelimit-reset value in request details.
+
+- Place Keyboard second in Settings, after Appearance, with tab navigation following the displayed order.
+
+- Collapse the update warning into its title and live retry time, and remove extra explanatory lines and dividers.
+
+- Keep quota analysis collapsed initially with animated, keyboard-accessible disclosures, respecting reduced motion. The failure message shows the latest call’s HTTP status, time and age; response diagnostics live in the timeline.
+
+- Show a rolling 24-hour GitHub quota timeline inside update recovery warnings, with every host release lookup, download and redirect, response quota details, and observed usage changes beside ToolBelt call counts.
+
 ## 0.3.3 — 2026-11-12
 - Keep Quit and Cancel side by side in the popover quit confirmation.
 

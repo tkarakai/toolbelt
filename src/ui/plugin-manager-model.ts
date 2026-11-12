@@ -48,6 +48,7 @@ export type Candidate = {
   release?: string;
 };
 export type ManagerState = {
+  githubHistory?: import("../shared/github-history").GitHubCall[];
   plugins: ManagedPlugin[];
   schedule?: {
     intervalHours: number;

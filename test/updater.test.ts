@@ -244,6 +244,34 @@ function setup(
 }
 
 describe("updater", () => {
+  test("dev builds allow manual release checks without scheduling or installing app updates", async () => {
+    const { u, calls, relaunched, advance } = setup({ channel: "dev" });
+    await u.check("scheduled");
+    expect(u.state().githubHistory).toHaveLength(0);
+    await u.check();
+    expect(u.state().lastChecked).not.toBeNull();
+    expect(u.state().available?.version).toBe("0.2.0");
+    expect(u.state().githubHistory).toHaveLength(1);
+    advance(24 * 3600_000);
+    expect(u.checkIfDue()).toBe(false);
+    await u.install();
+    expect(calls).toHaveLength(0);
+    expect(relaunched()).toBeNull();
+    expect(u.state().phase.kind).toBe("idle");
+  });
+
+  test("manual dev checks still respect the GitHub cooldown", async () => {
+    const { u, advance } = setup({ channel: "dev", feedStatus: 429 });
+    await u.check();
+    expect(u.state().retryAt).toBeDefined();
+    expect(u.state().githubHistory).toHaveLength(1);
+    await u.check();
+    expect(u.state().githubHistory).toHaveLength(1);
+    advance(60_000);
+    await u.check();
+    expect(u.state().githubHistory).toHaveLength(2);
+  });
+
   test("dev builds don't update, unless a feed is set", () => {
     expect(setup({ channel: "dev" }).u.enabled).toBe(false);
     expect(setup({ channel: "dev" }).u.checkIfDue()).toBe(false);

@@ -15,6 +15,7 @@ import { DEFAULTS, type Settings } from "../src/bun/settings";
 import { displayAccelerator } from "../src/bun/hotkey";
 import { FileIcons } from "../src/bun/file-icon";
 import type { Phase, UpdateState } from "../src/bun/updater";
+import { githubMetadata } from "../src/bun/github-metadata";
 
 // Settings live in memory here (the preview doesn't touch the app's settings file).
 let settings: Settings = { ...DEFAULTS };
@@ -76,6 +77,7 @@ const release = {
   published: Date.now() - 2 * 86_400_000,
 };
 let update: UpdateState = {
+  githubHistory: githubMetadata(join(configDir(homedir()), "cache/github-metadata.json")).history(),
   enabled: true,
   channel: "stable",
   version: "0.1.0",

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { githubMetadata, GitHubError } from "./github-metadata";
+import { githubMetadata, GitHubError, type GitHubCheckTrigger } from "./github-metadata";
 import { LIMITS } from "../shared/package";
 import {
   PackageManager,
@@ -20,12 +20,12 @@ export function parseRepository(input: string) {
     throw new Error("Use a public GitHub owner/repo or repository URL");
   return value;
 }
-async function download(url: string, limit: number, signal?: AbortSignal) {
+async function download(url: string, limit: number, signal: AbortSignal | undefined, metadata: ReturnType<typeof githubMetadata>, trigger?: GitHubCheckTrigger) {
   const timeout = AbortSignal.timeout(60000);
-  const response = await fetch(url, {
+  const response = await metadata.fetchResponse(url, {
     signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
     headers: { Accept: "application/octet-stream" },
-  });
+  }, { purpose: "download", trigger: trigger ?? "plugin-resolve" });
   if (!response.ok) throw new Error(`Download failed (${response.status})`);
   const length = Number(response.headers.get("content-length") ?? 0);
   if (length > limit) throw new Error("Download size limit");
@@ -45,14 +45,16 @@ export async function resolveGithub(
   options: {
     release?: string;
     prerelease?: boolean;
+    trigger?: GitHubCheckTrigger;
     signal?: AbortSignal;
     onPhase?: (phase: "downloading" | "verifying") => void;
   } = {},
 ): Promise<Candidate> {
   const repo = parseRepository(input);
-  const response = await githubMetadata(join(manager.root, "cache/github-metadata.json")).get(
+  const metadata = githubMetadata(join(manager.root, "cache/github-metadata.json"));
+  const response = await metadata.get(
     `https://api.github.com/repos/${repo.toLowerCase()}/releases${options.release ? `/tags/${encodeURIComponent(options.release)}` : options.prerelease ? "?per_page=30" : "/latest"}`,
-    { signal: options.signal },
+    { signal: options.signal, trigger: options.trigger ?? "plugin-resolve" },
   );
   if (
     !new URL(response.url).pathname
@@ -87,6 +89,8 @@ export async function resolveGithub(
         descriptors[0].browser_download_url,
         1024 * 1024,
         options.signal,
+        metadata,
+        options.trigger,
       ),
     ),
   ) as ReleaseDescriptor;
@@ -115,6 +119,8 @@ export async function resolveGithub(
     asset.browser_download_url,
     LIMITS.archiveBytes,
     options.signal,
+    metadata,
+    options.trigger,
   );
   if (bytes.length !== target.size)
     throw new Error("Downloaded package size mismatch");

@@ -60,6 +60,30 @@ Use fake software providers and scratch commands for mutating actions.
 
 ## Debugging
 
+Host GitHub traffic is retained in `cache/github-history.json` within the profile
+(normally `~/Library/Application Support/Toolbelt`). One record is persisted before
+each release metadata request, asset download and redirect hop, then updated when response
+headers arrive or a network error occurs. Records include a UUID, local start/response epoch
+milliseconds, process ID, trigger, sanitized endpoint, conditional/authenticated flags,
+HTTP status, and an allowlist of GitHub date/request ID/quota/retry headers. Bodies,
+credentials and query strings are excluded; custom feed paths remain visible. Failed
+logging never blocks checks. Missing responses remain visible after restart.
+
+History keeps every call from the rolling last 24 hours, pruning on load, write and read,
+plus once per minute while the profile client is running. There is no older rotation.
+The app and plugin recovery warnings share the same history. The quota timeline shows
+remaining quota samples, one table row per HTTP call, response details, and changes in
+GitHub used count beside ToolBelt calls started between comparable responses. Comparisons
+require the same origin, authentication mode, resource, limit and reset window. Shared
+lookups and cooldown refusals make no call and add no row. Headers absent from downloads
+or failures remain unknown, never zero. Older rows also expire in the renderer without
+network requests. The first version starts a new history; old checks cannot be reconstructed.
+
+GitHub anonymous quota belongs to the public IP. A larger usage rise than recorded calls
+can suggest outside traffic, but overlapping requests, IP changes and regional routing
+prevent exact attribution. Plugin-owned requests and other applications are outside this
+host history. Diagnostics send no additional GitHub requests.
+
 For a disposable native run:
 
 ```sh

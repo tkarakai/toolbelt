@@ -6,7 +6,7 @@ export type GitHubFailure = {
   detail?: string;
   retryAt?: number;
   retrySource?: "retry-after" | "quota-reset" | "backoff";
-  rateLimit?: { limit?: number; remaining?: number; used?: number; resource?: string };
+  rateLimit?: { limit?: number; remaining?: number; used?: number; resource?: string; resetAt?: number };
   requestId?: string;
   serverAt?: number;
 };
