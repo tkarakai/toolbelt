@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+## 0.3.4 — 2026-11-12
 - Allow manual app release checks in development builds after GitHub cooldowns expire, while keeping scheduled app checks and self-installation disabled.
 
 - Align recovery message text and the quota timeline control with the header icon in both ready and warning boxes; use a compact dropdown-style timeline button without its call-count subtitle.
