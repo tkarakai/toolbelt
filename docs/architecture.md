@@ -250,3 +250,34 @@ About panel, using the bundle icon and version metadata.
 App and installed-plugin cards always offer a manual release guide. Failed checks show a neutral recovery card explaining possible GitHub request limits without claiming a newer version exists. App guidance covers DMG replacement and retained profile data. Plugin guidance opens the owning repository’s stable/prerelease releases and accepts an explicit tag for the existing verified review/approval flow; it still requires GitHub access and never installs downloaded archives directly. Cached availability is labeled as previously found after check errors.
 
 Popover quit confirmation first removes the quick view and its exit snapshots, waits for compact native layout, then opens over the menu alone. Main-window confirmation retains its normal layout.
+
+Release lookups share a profile-scoped public metadata client (`github-metadata.ts`). Its
+bounded cache in `cache/github-metadata.json` retains successful JSON, ETags and validation
+timestamps by exact release endpoint (repository/channel/tag). Conditional requests reuse
+metadata on 304; concurrent identical lookups share one request. Cancellation detaches only
+the subscriber. Publisher identity and archive integrity checks still run on cached metadata.
+GitHub JSON messages, HTTP status and rate-limit headers distinguish exhausted quota,
+secondary throttling, missing public releases, network failures and service errors. Origin-wide
+cooldowns survive restart and block manual as well as scheduled metadata requests. Retry-After
+(seconds or HTTP date) and exhausted-quota reset times set the earliest retry; absent valid
+timing, throttling backs off from one minute to a thirty-minute cap. Requests are user/schedule
+initiated; the client does not automatically loop. Failed checks retain discovered releases
+and their last successful check time. One section-wide recovery notice below the check button shows the reason, retry duration/local
+time and expandable GitHub response. The amber waiting notice becomes a green invitation to
+check again when the retry window opens, describing the failure as historical. Browser release
+guidance remains available on each card. Plugin approval displays the selected GitHub release’s
+Markdown notes and links its publisher to that exact release. Resizable dialogs move from their
+header (or its focused arrow keys), with invisible edge/corner grips for resizing.
+
+GitHub failure notices are timestamped and shared by the app and plugin update surfaces through
+profile-scoped metadata notifications. Active quota/throttling pauses API lookup and app download
+controls, with focusable retry-deadline tooltips. Browser release links remain available. The green
+retry notice expires two hours after the cooldown deadline. Other GitHub failures use red notices,
+expire two hours after the failure, and leave request controls enabled, including when a service
+error supplies Retry-After. Successful metadata requests clear the shared notice.
+
+Failure notices show local receipt/failure time and a live elapsed age. New rate-limit responses
+retain whether the retry deadline came from Retry-After, quota reset, or ToolBelt’s fallback
+backoff; older cached deadlines have an unknown source. The UI labels fallback waits as
+precautionary rather than promising that GitHub’s limit has expired. Expandable response details
+include available quota limit/remaining/used/resource, GitHub server Date, and request ID.

@@ -1,3 +1,5 @@
+import { GitHubMetadata, githubMetadata, GitHubError } from "./github-metadata";
+import type { GitHubFailure } from "../shared/github";
 // Keeps the official app up to date from GitHub releases — a port of Running.app's updater.
 // Checks now and then; when a newer release is out, downloads its disk image, checks it
 // (SHA-256 from GitHub, bundle id, version, code signature), swaps the app bundle in place and
@@ -64,6 +66,8 @@ export type UpdateState = {
   lastChecked: number | null;
   nextCheck: number | null;
   lastError: string | null;
+  failure?: GitHubFailure;
+  retryAt?: number;
   /** The newest release GitHub knows of, newer or not. */
   latest: Release | null;
   available: Release | null;
@@ -175,6 +179,9 @@ export function installProblem(
 export type Persisted = {
   lastChecked?: number | null;
   lastAttempt?: number | null;
+  latest?: Release | null;
+  failure?: GitHubFailure;
+  feed?: string;
 };
 
 /** Runs a command; resolves with its output, rejects with an UpdateError on a non-zero exit. */
@@ -229,6 +236,8 @@ const defaultWritable = (dir: string) => {
 
 export class Updater {
   private o: Required<Omit<UpdaterOptions, "feed">> & { feed: string };
+  private metadata: GitHubMetadata;
+  private failure?: GitHubFailure;
   private checking = false;
   private lastChecked: number | null = null;
   private lastAttempt: number | null = null;
@@ -262,9 +271,22 @@ export class Updater {
       ...opts,
       feed: opts.feed || FEED,
     } as typeof this.o;
+    this.metadata = opts.fetch || opts.now
+      ? new GitHubMetadata({ file: opts.stateFile + ".metadata", fetch: this.o.fetch, now: this.o.now })
+      : githubMetadata(join(dirname(opts.stateFile), "cache/github-metadata.json"));
     this.enabled = opts.channel === "stable" || !!opts.feed;
     try {
       const p = JSON.parse(readFileSync(opts.stateFile, "utf8")) as Persisted;
+      if (p.feed === this.o.feed && p.failure) { this.failure = p.failure; this.lastError = p.failure.message; }
+      if (p.feed === this.o.feed && p.latest) {
+        // Validate persisted metadata before exposing it to installation.
+        const r = p.latest;
+        if (typeof r.version === "string" && typeof r.dmg === "string" && typeof r.page === "string" && typeof r.notes === "string" && Number.isFinite(r.size) && r.size >= 0 && (r.sha256 === null || (typeof r.sha256 === "string" && /^[a-f0-9]{64}$/.test(r.sha256))) && (r.published === null || Number.isFinite(r.published))) {
+          const available = isNewer(r.version, this.o.version) ? r : null;
+          this.latest = r;
+          this.available = available;
+        }
+      }
       this.lastChecked =
         typeof p.lastChecked === "number" ? p.lastChecked : null;
       this.lastAttempt =
@@ -280,7 +302,9 @@ export class Updater {
       checking: this.checking,
       lastChecked: this.lastChecked,
       nextCheck: this.lastAttempt === null ? null : this.lastAttempt + INTERVAL,
-      lastError: this.lastError,
+      lastError: this.lastError ?? this.metadata.cooldown(this.o.feed)?.message ?? null,
+      failure: this.metadata.notice(this.o.feed) ?? this.failure,
+      retryAt: this.metadata.cooldown(this.o.feed)?.retryAt,
       latest: this.latest,
       available: this.available,
       phase: this.phase,
@@ -300,6 +324,9 @@ export class Updater {
         JSON.stringify({
           lastChecked: this.lastChecked,
           lastAttempt: this.lastAttempt,
+          latest: this.latest,
+          feed: this.o.feed,
+          failure: this.failure,
         } satisfies Persisted) + "\n",
       );
     } catch {}
@@ -307,20 +334,23 @@ export class Updater {
 
   /** Checks at launch (unless the last attempt was within the hour), then whenever the last
    *  one is 6 hours old — looked at every 15 minutes. */
+  private metadataChanged = () => this.changed();
   start() {
+    this.metadata.listeners.add(this.metadataChanged);
     if (!this.enabled || this.timer) return;
     this.checkIfDue(SOON);
     this.timer = setInterval(() => this.checkIfDue(), TICK);
   }
 
   stop() {
+    this.metadata.listeners.delete(this.metadataChanged);
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }
 
   /** Returns whether a check started. */
   checkIfDue(age = INTERVAL): boolean {
-    if (!this.enabled || !isDue(this.lastAttempt, this.o.now(), age))
+    if (!this.enabled || this.metadata.cooldown(this.o.feed) || !isDue(this.lastAttempt, this.o.now(), age))
       return false;
     void this.check();
     return true;
@@ -328,21 +358,17 @@ export class Updater {
 
   async check(): Promise<void> {
     if (!this.enabled || this.checking || isBusy(this.phase)) return;
+    if (this.metadata.cooldown(this.o.feed)) { this.changed(); return; }
     this.checking = true;
     this.lastAttempt = this.o.now();
     this.persist();
     this.changed();
     try {
-      const res = await this.o.fetch(this.o.feed, {
-        headers: {
-          Accept: "application/vnd.github+json",
-          "User-Agent": `Toolbelt/${this.o.version}`,
-        },
-        signal: AbortSignal.timeout(20_000),
+      const res = await this.metadata.get(this.o.feed, {
+        headers: { "User-Agent": `Toolbelt/${this.o.version}` },
       });
-      if (res.status !== 200)
-        throw new UpdateError(`GitHub answered ${res.status}`);
-      const release = parseRelease(await res.json());
+      const release = parseRelease(res.data);
+      this.failure = undefined;
       this.lastError = null;
       this.lastChecked = this.o.now();
       this.latest = release;
@@ -352,8 +378,10 @@ export class Updater {
       this.persist();
     } catch (e) {
       this.lastError = errorText(e);
+      this.failure = e instanceof GitHubError ? e.failure : {kind: "invalid", message: errorText(e), at: this.o.now()};
     } finally {
       this.checking = false;
+      this.persist();
       this.changed();
     }
   }
@@ -377,6 +405,7 @@ export class Updater {
   }
 
   async install(): Promise<void> {
+    if (this.metadata.cooldown(this.o.feed)) { this.changed(); return; }
     const r = this.available;
     if (!r || isBusy(this.phase)) return;
     const work = join(tmpdir(), `toolbelt-update-${randomUUID()}`);

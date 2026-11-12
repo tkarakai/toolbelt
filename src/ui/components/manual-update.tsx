@@ -1,3 +1,6 @@
+import { GitHubButton } from "./github-button";
+import type { GitHubFailure } from "../../shared/github";
+import { useRecoveryClock } from "./update-recovery";
 import { toast } from "sonner";
 import { useRef, useState } from "react";
 import { Check, Copy, Download, ExternalLink } from "lucide-react";
@@ -11,14 +14,17 @@ type Props = {
   version: string;
   commit?: string;
   repo: string;
-  failed?: boolean;
+  failure?: GitHubFailure;
+  retryAt?: number;
   prerelease?: boolean;
   review?: (tag: string) => void;
   busy?: boolean;
 };
 
 /** Browser discovery is available independently of the GitHub API check. */
-export function ManualUpdate({ name, version, commit, repo, failed, prerelease, review, busy }: Props) {
+export function ManualUpdate({ name, version, commit, repo, failure, retryAt, prerelease, review, busy }: Props) {
+  const now = useRecoveryClock();
+  const cooling = (retryAt ?? failure?.retryAt ?? 0) > now;
   const [open, setOpen] = useState(false);
   const [tag, setTag] = useState("");
   const [copied, setCopied] = useState(false);
@@ -55,11 +61,6 @@ export function ManualUpdate({ name, version, commit, repo, failed, prerelease, 
     }
   }
   return <>
-    {failed && <div role="status" className="space-y-3 rounded-lg bg-muted/50 p-4">
-      <div className="space-y-1"><h4 className="text-sm font-medium">Can’t reach the update service</h4>
-        <p className="text-xs leading-relaxed text-muted-foreground">GitHub sometimes limits update requests. We couldn’t confirm whether a newer version of {name} is available.</p></div>
-      <Button size="sm" onClick={() => setOpen(true)}>Check in your browser<ExternalLink/></Button>
-    </div>}
     <Button variant="link" size="sm" className="h-auto max-w-full whitespace-normal px-0 text-xs text-muted-foreground" onClick={() => setOpen(true)}>Check or {review ? "update" : "install"} manually<ExternalLink className="shrink-0"/></Button>
     <Dialog open={open} onOpenChange={value => { setOpen(value); setCopied(false); }}>
       <DialogContent ref={content} className="max-h-[min(42rem,90dvh)] overflow-y-auto sm:max-w-[31.2rem]">
@@ -77,9 +78,9 @@ export function ManualUpdate({ name, version, commit, repo, failed, prerelease, 
           </>}
         </ol>
         <p data-copy-note className="rounded-lg border border-sky-500/20 bg-sky-500/10 p-3 text-xs leading-relaxed">{review ? "ToolBelt still needs GitHub access to verify and install the release. If requests remain blocked, try again later. Your installed plugin stays in place." : "Your settings, installed plugins and plugin data stay in place. If GitHub’s website is also unavailable, try again later."}</p>
-        {review && <form className="space-y-2" onSubmit={event => { event.preventDefault(); if (!tag.trim() || busy) return; review(tag.trim()); }}>
+        {review && <form className="space-y-2" onSubmit={event => { event.preventDefault(); if (!tag.trim() || busy || cooling) return; review(tag.trim()); }}>
           <label className="block text-xs font-medium">Release tag<Input value={tag} onChange={event => setTag(event.target.value)} placeholder="For example, v1.2.3" className="mt-1"/></label>
-          <Button type="submit" variant="outline" size="sm" disabled={busy || !tag.trim()}>Review release in ToolBelt</Button>
+          <GitHubButton retryAt={retryAt ?? failure?.retryAt} type="submit" variant="outline" size="sm" disabled={busy || cooling || !tag.trim()}>Review release in ToolBelt</GitHubButton>
         </form>}
         <DialogFooter className="flex-col gap-3 sm:flex-col">
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end"><Button variant="outline" onClick={() => setOpen(false)}>Done</Button><Button variant="outline" onClick={() => void copyInstructions()}>{copied ? <Check/> : <Copy/>}{copied ? "Copied" : "Copy instructions"}</Button><Button onClick={() => openUrl(page)}>Open releases on GitHub<ExternalLink/></Button></div>

@@ -153,6 +153,12 @@ Bun.serve<{ opened: Set<string> }>({
           version: q.get("available") === "0" ? release.version : "0.1.0",
         });
       if (q.has("error")) setUpdate({ lastError: q.get("error") || null });
+      if (q.has("recovery")) {
+        const kind = q.get("recovery") as "quota" | "throttled" | "missing" | "network" | "service";
+        const message = kind === "quota" ? "GitHub’s request quota is exhausted." : kind === "throttled" ? "GitHub is temporarily slowing requests." : kind === "missing" ? "No public release was found for this channel." : kind === "network" ? "Couldn’t connect to GitHub. Check your connection and try again." : "GitHub’s release service is having trouble.";
+        const retryAt = kind === "quota" || kind === "throttled" ? Date.now()+12*60000 : undefined;
+        setUpdate({lastError:message, failure:{kind, message, retryAt, retrySource:retryAt ? "quota-reset" : undefined, at:Date.now(), status:kind === "quota" ? 403 : kind === "throttled" ? 429 : kind === "missing" ? 404 : kind === "service" ? 503 : undefined}, retryAt});
+      }
       if (q.has("channel"))
         setUpdate({
           channel: q.get("channel")!,

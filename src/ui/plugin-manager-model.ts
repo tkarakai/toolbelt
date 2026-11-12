@@ -1,3 +1,4 @@
+import type { GitHubFailure } from "../shared/github";
 import type { Installed } from "../bun/packages";
 export type Phase =
   | "not installed"
@@ -44,11 +45,14 @@ export type Candidate = {
   channel?: "stable" | "prerelease";
   compatibility?: { compatible: boolean; summary: string };
   notes?: string;
+  release?: string;
 };
 export type ManagerState = {
   plugins: ManagedPlugin[];
   schedule?: {
     intervalHours: number;
+    retryAt?: number;
+    failure?: GitHubFailure;
     lastChecked?: number;
     nextCheck?: number;
     error?: string;
