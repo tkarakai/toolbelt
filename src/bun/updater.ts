@@ -1,4 +1,4 @@
-import { GitHubMetadata, githubMetadata, GitHubError } from "./github-metadata";
+import { GitHubMetadata, githubMetadata, GitHubError, type GitHubCheckTrigger } from "./github-metadata";
 import type { GitHubFailure } from "../shared/github";
 // Keeps the official app up to date from GitHub releases — a port of Running.app's updater.
 // Checks now and then; when a newer release is out, downloads its disk image, checks it
@@ -57,7 +57,7 @@ export type Phase =
   | { kind: "failed"; message: string };
 
 export type UpdateState = {
-  /** Only the official (stable) build updates itself, or any build with TOOLBELT_UPDATE_FEED. */
+  /** Enables scheduled checks and installation. Manual metadata checks are always available. */
   enabled: boolean;
   channel: string;
   version: string;
@@ -68,6 +68,7 @@ export type UpdateState = {
   lastError: string | null;
   failure?: GitHubFailure;
   retryAt?: number;
+  githubHistory?: import("../shared/github-history").GitHubCall[];
   /** The newest release GitHub knows of, newer or not. */
   latest: Release | null;
   available: Release | null;
@@ -305,6 +306,7 @@ export class Updater {
       lastError: this.lastError ?? this.metadata.cooldown(this.o.feed)?.message ?? null,
       failure: this.metadata.notice(this.o.feed) ?? this.failure,
       retryAt: this.metadata.cooldown(this.o.feed)?.retryAt,
+      githubHistory: this.metadata.history(),
       latest: this.latest,
       available: this.available,
       phase: this.phase,
@@ -338,7 +340,7 @@ export class Updater {
   start() {
     this.metadata.listeners.add(this.metadataChanged);
     if (!this.enabled || this.timer) return;
-    this.checkIfDue(SOON);
+    this.checkIfDue(SOON, "startup");
     this.timer = setInterval(() => this.checkIfDue(), TICK);
   }
 
@@ -349,15 +351,15 @@ export class Updater {
   }
 
   /** Returns whether a check started. */
-  checkIfDue(age = INTERVAL): boolean {
+  checkIfDue(age = INTERVAL, trigger: GitHubCheckTrigger = "scheduled"): boolean {
     if (!this.enabled || this.metadata.cooldown(this.o.feed) || !isDue(this.lastAttempt, this.o.now(), age))
       return false;
-    void this.check();
+    void this.check(trigger);
     return true;
   }
 
-  async check(): Promise<void> {
-    if (!this.enabled || this.checking || isBusy(this.phase)) return;
+  async check(trigger: GitHubCheckTrigger = "manual"): Promise<void> {
+    if ((!this.enabled && trigger !== "manual") || this.checking || isBusy(this.phase)) return;
     if (this.metadata.cooldown(this.o.feed)) { this.changed(); return; }
     this.checking = true;
     this.lastAttempt = this.o.now();
@@ -365,6 +367,7 @@ export class Updater {
     this.changed();
     try {
       const res = await this.metadata.get(this.o.feed, {
+        trigger,
         headers: { "User-Agent": `Toolbelt/${this.o.version}` },
       });
       const release = parseRelease(res.data);
@@ -405,6 +408,7 @@ export class Updater {
   }
 
   async install(): Promise<void> {
+    if (!this.enabled) return;
     if (this.metadata.cooldown(this.o.feed)) { this.changed(); return; }
     const r = this.available;
     if (!r || isBusy(this.phase)) return;
@@ -521,10 +525,10 @@ export class Updater {
   }
 
   private async download(r: Release, dest: string, signal: AbortSignal) {
-    const res = await this.o.fetch(r.dmg, {
+    const res = await this.metadata.fetchResponse(r.dmg, {
       headers: { "User-Agent": `Toolbelt/${this.o.version}` },
       signal,
-    });
+    }, { purpose: "download", trigger: "manual" }, this.o.fetch);
     if (res.status !== 200 || !res.body)
       throw new UpdateError(`The download failed (HTTP ${res.status})`);
     const total = Number(res.headers.get("content-length")) || r.size;

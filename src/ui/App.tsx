@@ -383,8 +383,8 @@ function Loading() {
 // ── ToolBelt's own page ──────────────────────────────────────────────────
 const SETTINGS_TABS = [
     {id: "appearance", label: "Appearance", shortcut: "a", icon: "palette"},
-    {id: "plugins", label: "Plugins", shortcut: "p", icon: "puzzle"},
     {id: "keyboard", label: "Keyboard", shortcut: "k", icon: "keyboard"},
+    {id: "plugins", label: "Plugins", shortcut: "p", icon: "puzzle"},
     {id: "about", label: "About", shortcut: "i", icon: "info"},
 ];
 function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: () => void; section?: string }) {
@@ -398,7 +398,7 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
 
     useEffect(() => { remember(tab); }, [tab]);
     useEffect(() => {
-        const tabs = ["appearance", "plugins", "keyboard", "about"];
+        const tabs = SETTINGS_TABS.map(t => t.id);
         const onKey = (e: KeyboardEvent) => {
             if (e.defaultPrevented || document.querySelector('[role="dialog"]')) return;
             const n = Number(e.code.replace("Digit", ""));

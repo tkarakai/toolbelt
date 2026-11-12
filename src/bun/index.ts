@@ -288,7 +288,7 @@ function showWindow(plugin?: string, screen?: string, selection?: NavigationSele
     return;
   }
   Utils.setDockIconVisible(true);
-  updater.checkIfDue(SOON); // opening the window checks if it's been an hour
+  updater.checkIfDue(SOON, "window"); // opening the window checks if it's been an hour
   winRPC = makeRPC();
   pendingWindowNavigation = plugin ? { plugin, screen, selection } : null;
   const hash = plugin ? `#/${plugin}${screen ? `/${screen}` : ""}` : "";
@@ -681,7 +681,7 @@ let heartbeat = Date.now();
 setInterval(() => {
   const now = Date.now();
   if (now - heartbeat > 3 * 60_000)
-    setTimeout(() => updater.checkIfDue(), 20_000);
+    setTimeout(() => updater.checkIfDue(undefined, "wake"), 20_000);
   heartbeat = now;
   if (trayAlert) showTrayAlert(true); // the menu bar may have changed shade
 }, 60_000);

@@ -85,6 +85,7 @@ export class PluginManagerService {
   read() {
     const registry = this.packages.registry();
     return {
+      githubHistory: githubMetadata(join(this.packages.root, "cache/github-metadata.json")).history(),
       plugins: Object.values(registry.plugins)
         .filter((p) => !p.removed)
         .map((p) => {
@@ -149,13 +150,13 @@ export class PluginManagerService {
       !this.packages.registry().updateSchedule?.nextCheck ||
       Date.now() >= (this.packages.registry().updateSchedule?.nextCheck ?? 0)
     )
-      void this.checkUpdates();
+      void this.checkUpdates("startup");
     this.timer = setInterval(
       () => {
         this.expireApprovals();
         const schedule = this.packages.registry().updateSchedule;
         if (!schedule?.nextCheck || Date.now() >= schedule.nextCheck)
-          void this.checkUpdates();
+          void this.checkUpdates("scheduled");
       },
       15 * 60 * 1000,
     );
@@ -232,7 +233,7 @@ export class PluginManagerService {
     }
   }
   private checking = false;
-  async checkUpdates() {
+  async checkUpdates(trigger: "manual" | "startup" | "scheduled" = "manual") {
     if (this.checking) return;
     this.checking = true;
     try {
@@ -244,6 +245,7 @@ export class PluginManagerService {
       )) {
         try {
           const candidate = await this.resolveRelease(this.packages, p.repo, {
+            trigger,
             prerelease: p.channel === "prerelease",
           });
           if (Bun.semver.order(candidate.manifest.version, p.version) > 0) {

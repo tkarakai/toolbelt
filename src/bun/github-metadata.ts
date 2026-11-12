@@ -1,10 +1,18 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { recentGitHubCalls, type GitHubCall } from "../shared/github-history";
 import { dirname } from "node:path";
 import { GitHubError, isRateLimit, visibleGitHubFailure, type GitHubFailure } from "../shared/github";
 export { GitHubError } from "../shared/github";
 
 type Entry = { data: unknown; etag?: string; url: string; checkedAt: number };
 type Gate = { failure?: GitHubFailure; attempts: number };
+export type GitHubCheckTrigger = "manual" | "startup" | "scheduled" | "window" | "wake" | "plugin-resolve";
+const diagnosticHeaders = ["date", "x-github-request-id", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-used", "x-ratelimit-reset", "x-ratelimit-resource", "retry-after"];
+function diagnosticUrl(input: string) {
+  const url = new URL(input);
+  // Custom feeds may contain credentials or signed query parameters.
+  return `${url.origin}${url.pathname}`.slice(0, 2048);
+}
 /** Public release metadata only. Archive verification and publisher binding remain at callers. */
 export class GitHubMetadata {
   private entries = new Map<string, Entry>();
@@ -12,7 +20,14 @@ export class GitHubMetadata {
   private notices = new Map<string, GitHubFailure>();
   readonly listeners = new Set<() => void>();
   private pending = new Map<string, Promise<Entry>>();
+  private calls: GitHubCall[] = [];
   constructor(private options: { file?: string; fetch?: typeof fetch; now?: () => number } = {}) {
+    try {
+      const saved = JSON.parse(readFileSync(this.historyFile!, "utf8"));
+      if (saved.version === 1 && Array.isArray(saved.calls)) this.calls = recentGitHubCalls(saved.calls.filter((call: GitHubCall) =>
+        typeof call.id === "string" && Number.isFinite(call.at) && typeof call.url === "string" && /^https?:\/\//.test(call.url) && call.headers && typeof call.headers === "object"), this.now());
+    } catch {}
+    this.pruneHistory();
     try {
       const saved = JSON.parse(readFileSync(options.file!, "utf8"));
       if (saved.version === 1) {
@@ -27,6 +42,67 @@ export class GitHubMetadata {
     } catch {}
   }
   private now() { return (this.options.now ?? Date.now)(); }
+  private get historyFile() { return this.options.file ? `${dirname(this.options.file)}/github-history.json` : undefined; }
+  private saveHistory() {
+    if (!this.historyFile) return;
+    try {
+      const file = this.historyFile;
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(`${file}.tmp`, JSON.stringify({ version: 1, calls: this.calls }), { mode: 0o600 });
+      renameSync(`${file}.tmp`, file);
+    } catch { /* Diagnostics must never prevent update checks. */ }
+  }
+  pruneHistory() {
+    this.calls = recentGitHubCalls(this.calls, this.now());
+    this.saveHistory();
+  }
+  history() {
+    const recent = recentGitHubCalls(this.calls, this.now());
+    if (recent.length !== this.calls.length) { this.calls = recent; this.saveHistory(); }
+    return structuredClone(recent);
+  }
+  private historyChanged() {
+    this.pruneHistory();
+    for (const listener of this.listeners) { try { listener(); } catch {} }
+  }
+  /** Covers host metadata and asset downloads. Never consumes response bodies. */
+  async fetchResponse(url: string, init: RequestInit, context: { trigger?: GitHubCheckTrigger; purpose: GitHubCall["purpose"] }, fetcher = this.options.fetch ?? globalThis.fetch, redirects = 0): Promise<Response> {
+    const headers = new Headers(init.headers);
+    const call: GitHubCall = { id: crypto.randomUUID(), at: this.now(), pid: process.pid,
+      url: diagnosticUrl(url), ...context, conditional: headers.has("If-None-Match"),
+      authenticated: headers.has("Authorization"), headers: {} };
+    this.calls.push(call);
+    this.historyChanged();
+    try {
+      const response = await fetcher(url, { ...init, redirect: init.redirect ?? "manual" });
+      call.completedAt = this.now();
+      call.status = response.status;
+      call.responseUrl = response.url ? diagnosticUrl(response.url) : undefined;
+      call.headers = Object.fromEntries(diagnosticHeaders.flatMap(name => {
+        const value = response.headers.get(name);
+        return value === null ? [] : [[name, value.slice(0, 256)]];
+      }));
+      this.historyChanged();
+      if (!init.redirect && [301,302,303,307,308].includes(response.status) && response.headers.has("location")) {
+        if (redirects >= 20) throw new Error("Too many release redirects");
+        const next = new URL(response.headers.get("location")!, url);
+        if (!["https:", "http:"].includes(next.protocol)) throw new Error("Unsupported release redirect");
+        if (next.origin !== new URL(url).origin) {
+          headers.delete("Authorization"); headers.delete("Cookie"); headers.delete("Proxy-Authorization");
+        }
+        await response.body?.cancel();
+        return this.fetchResponse(next.href, { ...init, headers }, context, fetcher, redirects + 1);
+      }
+      return response;
+    } catch (error) {
+      if (call.status === undefined) {
+        call.completedAt = this.now();
+        call.networkError = true;
+        this.historyChanged();
+      }
+      throw error;
+    }
+  }
   private save() {
     if (!this.options.file) return;
     try {
@@ -59,13 +135,15 @@ export class GitHubMetadata {
     this.save();
     for (const listener of this.listeners) { try { listener(); } catch {} }
   }
-  async get(url: string, options: { headers?: HeadersInit; signal?: AbortSignal } = {}): Promise<Entry> {
+  async get(url: string, options: { headers?: HeadersInit; signal?: AbortSignal; trigger?: GitHubCheckTrigger } = {}): Promise<Entry> {
     options.signal?.throwIfAborted();
     const blocked = this.cooldown(url);
-    if (blocked) throw new GitHubError(blocked);
+    if (blocked) {
+      throw new GitHubError(blocked);
+    }
     let work = this.pending.get(url);
     if (!work) {
-      work = this.request(url, options.headers).finally(() => this.pending.delete(url));
+      work = this.request(url, options.headers, options.trigger).finally(() => this.pending.delete(url));
       this.pending.set(url, work);
     }
     // Cancellation belongs to a subscriber; it must not cancel another caller's lookup.
@@ -78,7 +156,7 @@ export class GitHubMetadata {
         .finally(() => signal.removeEventListener("abort", abort));
     });
   }
-  private async request(url: string, supplied?: HeadersInit): Promise<Entry> {
+  private async request(url: string, supplied?: HeadersInit, trigger?: GitHubCheckTrigger): Promise<Entry> {
     const origin = new URL(url).origin;
     const previous = this.entries.get(url);
     const headers = new Headers(supplied);
@@ -86,7 +164,7 @@ export class GitHubMetadata {
     if (previous?.etag) headers.set("If-None-Match", previous.etag);
     let response: Response;
     try {
-      response = await (this.options.fetch ?? globalThis.fetch)(url, { headers, signal: AbortSignal.timeout(30000) });
+      response = await this.fetchResponse(url, { headers, signal: AbortSignal.timeout(30000) }, { trigger, purpose: "metadata" });
     } catch {
       return this.failed(url, { kind: "network", message: "Couldn’t connect to GitHub. Check your connection and try again." });
     }
@@ -104,11 +182,14 @@ export class GitHubMetadata {
       const quota = limited && response.headers.get("x-ratelimit-remaining") === "0";
       const throttled = limited && (response.status === 429 || response.headers.has("retry-after") || /secondary|rate limit|abuse/i.test(detail ?? ""));
       const kind: GitHubFailure["kind"] = quota ? "quota" : throttled ? "throttled" : response.status === 404 ? "missing" : response.status >= 500 ? "service" : "access";
+      const resetSeconds = headerCount(response.headers, "x-ratelimit-reset");
+      const resetAt = resetSeconds !== undefined && resetSeconds > 0 && Number.isFinite(new Date(resetSeconds * 1000).getTime()) ? resetSeconds * 1000 : undefined;
       const failure: GitHubFailure = {
         kind, status: response.status, detail, at: receivedAt,
         requestId: response.headers.get("x-github-request-id")?.slice(0, 200) || undefined,
         serverAt: Number.isFinite(Date.parse(response.headers.get("date") ?? "")) ? Date.parse(response.headers.get("date")!) : undefined,
         rateLimit: {
+          resetAt,
           limit: headerCount(response.headers, "x-ratelimit-limit"),
           remaining: headerCount(response.headers, "x-ratelimit-remaining"),
           used: headerCount(response.headers, "x-ratelimit-used"),
@@ -142,7 +223,11 @@ export class GitHubMetadata {
 const profiles = new Map<string, GitHubMetadata>();
 export function githubMetadata(file: string) {
   let client = profiles.get(file);
-  if (!client) { client = new GitHubMetadata({ file }); profiles.set(file, client); }
+  if (!client) {
+    client = new GitHubMetadata({ file }); profiles.set(file, client);
+    const timer = setInterval(() => client!.pruneHistory(), 60_000);
+    timer.unref();
+  }
   return client;
 }
 

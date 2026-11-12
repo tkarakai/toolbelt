@@ -130,7 +130,7 @@ export function UpdatesCard() {
   if (!s) return null;
   const r = s.available;
   return (
-    <div id="updates"><SettingsGroup title="App" notice={(s.failure || s.lastError) && <UpdateRecovery failure={s.failure ?? {kind:"invalid", message:s.lastError!}} checkedAt={s.lastChecked}/>} description="ToolBelt · Copyright NetSense LLC." actions={<GitHubButton retryAt={s.retryAt} hint={`Last checked: ${s.lastChecked ? new Date(s.lastChecked).toLocaleString() : "Not yet checked"}`} variant="outline" size="sm" className="h-6 text-xs" disabled={!s.enabled || s.checking || s.phase.kind !== "idle" || (s.retryAt ?? 0) > now} onClick={() => updateAction("checkForUpdates")}><RotateCw className={cn(s.checking && "animate-spin")}/>{s.checking ? "Checking…" : "Check for updates"}</GitHubButton>}>
+    <div id="updates"><SettingsGroup title="App" notice={(s.failure || s.lastError) && <UpdateRecovery failure={s.failure ?? {kind:"invalid", message:s.lastError!}} checkedAt={s.lastChecked} history={s.githubHistory}/>} description="ToolBelt · Copyright NetSense LLC." actions={<GitHubButton retryAt={s.retryAt} hint={`Last checked: ${s.lastChecked ? new Date(s.lastChecked).toLocaleString() : "Not yet checked"}`} variant="outline" size="sm" className="h-6 text-xs" disabled={s.checking || s.phase.kind !== "idle" || (s.retryAt ?? 0) > now} onClick={() => updateAction("checkForUpdates")}><RotateCw className={cn(s.checking && "animate-spin")}/>{s.checking ? "Checking…" : "Check for updates"}</GitHubButton>}>
       <article aria-label="ToolBelt" className="min-w-0 space-y-4 p-5">
         <div className="flex flex-wrap items-start gap-3">
           <img src={s.channel === "dev" ? devAppIcon : appIcon} alt="ToolBelt app icon" className="size-10 shrink-0 object-contain"/>
@@ -138,12 +138,12 @@ export function UpdatesCard() {
         </div>
         <div className="grid gap-4 rounded-lg bg-muted/30 p-3 sm:grid-cols-2">
           <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Installed release</div><p className="text-sm">Version <span className="font-mono font-medium">{s.version} ({buildInfo.commit})</span></p><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs capitalize",pillClass("muted"))}>{s.channel}</span></div>
-          <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Update channel</div><div className="flex items-center gap-1.5 text-sm"><GitBranch className="size-3.5 text-muted-foreground"/>{s.channel === "stable" ? "Stable" : s.channel === "dev" ? "Development" : s.channel}</div><p className="text-xs leading-relaxed text-muted-foreground">{s.enabled ? "Use stable releases for future checks." : "Automatic updates are unavailable in this build."}</p></div>
+          <div className="space-y-2"><div className="text-xs font-medium text-muted-foreground">Update channel</div><div className="flex items-center gap-1.5 text-sm"><GitBranch className="size-3.5 text-muted-foreground"/>{s.channel === "stable" ? "Stable" : s.channel === "dev" ? "Development" : s.channel}</div><p className="text-xs leading-relaxed text-muted-foreground">{s.enabled ? "Use stable releases for future checks." : "Manual checks are available; this build cannot install app updates."}</p></div>
         </div>
         <ManualUpdate name="ToolBelt" version={s.version} commit={buildInfo.commit} repo="tkarakai/toolbelt" failure={s.failure} retryAt={s.retryAt}/>
         {r && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
           <div className="min-w-0 flex-1 space-y-2"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{s.lastError ? "Previously found update" : "Available update"}</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass("info"))}>Stable</span></div><p className="text-sm">Version <span className="font-mono font-medium">{r.version}</span></p><p className="text-xs text-muted-foreground">{r.published ? `Released ${date(r.published)} · ` : ""}{mb(r.size)}{s.lastChecked ? ` · Checked ${new Date(s.lastChecked).toLocaleString()}` : ""}</p></div>
-          <GitHubButton retryAt={s.retryAt} size="sm" disabled={s.phase.kind !== "idle"} onClick={() => openDialog()}><Download/>Review and Update</GitHubButton>
+          {s.enabled && <GitHubButton retryAt={s.retryAt} size="sm" disabled={s.phase.kind !== "idle"} onClick={() => openDialog()}><Download/>Review and Update</GitHubButton>}
         </div>}
         <DevUpdatePreview/>
         <UpdateDialog s={s}/>

@@ -196,7 +196,10 @@ profiles, diagnostics, restart/reset, viewport controls and native menu-bar mode
 package and runtime contracts. It does not depend on an installed ToolBelt or plugin sources.
 
 App updates are a separate signed-DMG flow in `updater.ts`, with installed-plugin compatibility
-preflight and busy-plugin preparation. The app release contains its DMG and tester DMG/tarball. The SDK has a canonical, independently versioned sdk-v release. Plugin packages and terminal distributions have independent releases. Build and
+preflight and busy-plugin preparation. Development builds permit manual metadata checks,
+but scheduled app checks and app installation require a stable build or an explicit test
+feed. The check button follows the request cooldown independently of installation support.
+The app release contains its DMG and tester DMG/tarball. The SDK has a canonical, independently versioned sdk-v release. Plugin packages and terminal distributions have independent releases. Build and
 release procedures are in [releases.md](releases.md); maintenance is in
 [maintenance.md](maintenance.md), and author contracts are in
 [plugins.md](plugins.md).
@@ -224,7 +227,7 @@ Plugin availability dates record the first successful discovery of the current c
 app dates are release publication dates. Keyboard focus clears the plugin row highlight
 and does not open the summary. Click or Enter opens `#/toolbelt/updates`, selecting About in Settings and revealing its Updates section. Individual plugin release controls live in Installed Tools.
 Settings remembers its last tab. App and plugin update locations share a top-right exclamation badge with the Settings navigation controls and menu bar glyph. About uses the installed-plugin card layout for app identity, installed release, channel and available update review.
-Settings uses the shared header tabs for Appearance, Plugins, Keyboard and About. About contains app updates and a nested, searchable Legal notice pane.
+Settings uses the shared header tabs for Appearance, Keyboard, Plugins and About, in that order. About contains app updates and a nested, searchable Legal notice pane.
 Settings tabs use ⌘A (Appearance), ⌘P (Plugins), ⌘K (Keyboard) and ⌘I (About), with icons and visible key hints. Text fields retain editing shortcuts.
 Settings and plugin headers support ⌥⌘number and ⌃Tab navigation; F6 transfers focus between tabs and content.
 Shared tab strips hide scrollbar chrome, reveal the active tab, and expose edge arrows when overflow exists. The strip clips controls to its shared outline; adjacent free header space remains a native window drag target.
@@ -276,8 +279,38 @@ retry notice expires two hours after the cooldown deadline. Other GitHub failure
 expire two hours after the failure, and leave request controls enabled, including when a service
 error supplies Retry-After. Successful metadata requests clear the shared notice.
 
-Failure notices show local receipt/failure time and a live elapsed age. New rate-limit responses
+The failure message line shows the latest call's HTTP status, local response time and live
+elapsed age when a call has been recorded. New rate-limit responses
 retain whether the retry deadline came from Retry-After, quota reset, or ToolBelt’s fallback
-backoff; older cached deadlines have an unknown source. The UI labels fallback waits as
-precautionary rather than promising that GitHub’s limit has expired. Expandable response details
+backoff; older cached deadlines have an unknown source. Historical fallback waits are described
+as precautionary rather than promising that GitHub’s limit has expired. Timeline request details
 include available quota limit/remaining/used/resource, GitHub server Date, and request ID.
+Request details also show the quota reset as a local timestamp with timezone,
+separate from Retry-After or precautionary backoff timing.
+
+The recovery warning also contains a shared 24-hour quota timeline for the profile. The
+host records each HTTP release metadata call, asset download and redirect hop before
+dispatch, and stores response status and quota headers as soon as they arrive. Shared
+lookups and cooldown refusals add no HTTP row. `cache/github-history.json` retains only
+the rolling day, across restarts; expired rows are pruned in storage and in the renderer.
+The chart and table show remaining quota per response, missing-header/response states,
+triggers and request details. Usage comparisons pair observations in the same origin,
+authentication mode, resource, limit and reset window, showing GitHub's used-count change
+beside host calls started between responses. These observations can suggest outside
+traffic but cannot identify it or establish exact attribution across routing/IP changes
+and concurrent requests. This history excludes independent plugin traffic and never
+polls GitHub to fill gaps. Request credentials, query strings and bodies are not retained.
+Quota analysis and per-call details start collapsed behind shared
+plus/minus disclosures. Their height and opacity expand over 200 ms and collapse over
+150 ms; reduced-motion settings disable these transitions. Disclosure state stays local
+to the renderer, with keyboard-operable buttons and hidden content removed from tab order.
+The entire recovery warning also starts collapsed, with its retry countdown following
+the title so the deadline remains visible. The failure message carries the HTTP status,
+local response time and elapsed age, without Show/Hide text or a separate response disclosure;
+retry-source metadata remains in diagnostics rather
+than a separate explanatory line. Disclosure content and the quota section have no divider.
+Timeline request details open in an animated row spanning every table column; their
+fields use the available width in a responsive grid rather than stretching one narrow cell.
+Ready and warning recovery boxes align body text and the timeline control with the header
+icon's left edge. The timeline uses a compact outline button
+with a dropdown arrow; the inline failure metadata wraps when needed in narrow layouts.
