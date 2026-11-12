@@ -32,7 +32,7 @@ export function QuitDialog({ onRequestChange, ready = true }: { onRequestChange?
 					<DialogTitle icon={<Power className="size-5"/>}>Quit ToolBelt?</DialogTitle>
 					<DialogDescription>The menu bar icon and every tool stop. Processes you started in your terminals keep running.</DialogDescription>
 				</DialogHeader>
-				<DialogFooter>
+				<DialogFooter className="flex-row justify-end">
 					<Button variant="outline" onClick={() => setOpen(false)}>
 						Cancel
 						<KeyHint keys="esc" />

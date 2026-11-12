@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep Quit and Cancel side by side in the popover quit confirmation.
+
 - Show when GitHub failures were received and their live age, label GitHub-supplied versus fallback retry times, and retain quota and request diagnostics in response details.
 
 - Share GitHub recovery notices across About and Plugins, expire retry/error notices after two hours, and explain rate-limit-disabled request buttons with retry-deadline tooltips. Other GitHub failures stay retryable and show their failure time in a red notice.
