@@ -10,6 +10,7 @@
 // bundle signed ad hoc (the binaries inside keep their own signatures), next to an
 // Applications link to drag it onto. LZMA-compressed (ULMO): about a third smaller than UDZO.
 import { $ } from "bun";
+import { retryDiskImage } from "./disk-image";
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,7 +52,7 @@ export async function makeDmg(root = join(import.meta.dir, "..")): Promise<strin
 		symlinkSync("/Applications", join(vol, "Applications"));
 		console.log(`Creating ${out}`);
 		// Match Running's DMG builder rather than inheriting hdiutil's host-dependent default.
-		await $`/usr/bin/hdiutil create -volname Toolbelt -srcfolder ${vol} -fs APFS -ov -format ULMO ${out}`;
+		await retryDiskImage("Creating disk image", () => $`/usr/bin/hdiutil create -volname Toolbelt -srcfolder ${vol} -fs APFS -ov -format ULMO ${out}`.nothrow());
 	} finally {
 		rmSync(stage, { recursive: true, force: true });
 	}
@@ -66,22 +67,8 @@ export async function verifyDmg(dmg: string, version: string) {
 	console.log(`Verifying ${dmg}`);
 	let mounted = false;
 	try {
-		// A newly created image can still be busy when DiskImages first opens it on CI.
-		// Retry only transient resource errors; malformed images and other failures stop here.
-		for (let attempt = 1; ; attempt++) {
-			const result = await $`/usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint ${mnt} ${dmg}`.nothrow();
-			if (result.exitCode === 0) {
-				mounted = true;
-				break;
-			}
-			const detail = result.stderr.toString().trim();
-			if (attempt === 5 || !/Resource temporarily unavailable|Resource busy/i.test(detail)) {
-				throw new Error(`mounting ${dmg} failed (attempt ${attempt}): ${detail}`);
-			}
-			const delay = 1000 * 2 ** (attempt - 1);
-			console.warn(`Disk image temporarily busy; retrying mount in ${delay / 1000}s (attempt ${attempt}/5)`);
-			await Bun.sleep(delay);
-		}
+		await retryDiskImage("Mounting disk image", () => $`/usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint ${mnt} ${dmg}`.nothrow());
+		mounted = true;
 		const plist = join(mnt, "Toolbelt.app/Contents/Info.plist");
 		const v = (await $`/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" ${plist}`.text()).trim();
 		const id = (await $`/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" ${plist}`.text()).trim();
