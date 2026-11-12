@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Explain manual app installation and the macOS verification warning in the README and Settings/About manual guide, including copied instructions.
+
 - Retry transient disk-image creation and verification contention for app and Plugin Tester packaging before failing the build.
 
 ## 0.3.2 — 2026-11-12

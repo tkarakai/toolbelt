@@ -74,6 +74,7 @@ export function ManualUpdate({ name, version, commit, repo, failed, prerelease, 
             <li>Quit ToolBelt completely, including its menu-bar process.</li>
             <li>Open the DMG. Drag ToolBelt into Applications and choose Replace.</li>
             <li>Launch ToolBelt again.</li>
+            <li>If macOS says “ToolBelt.app” Not Opened because Apple could not verify it is free of malware, click <strong className="text-foreground">Done</strong>. Only if you trust the official download, open <strong className="text-foreground">System Settings → Privacy &amp; Security</strong>, scroll to <strong className="text-foreground">Security</strong>, and click <strong className="text-foreground">Open Anyway</strong> for ToolBelt. Authenticate if prompted, then click <strong className="text-foreground">Open</strong>. If Open Anyway is missing, try launching ToolBelt again and return to these settings.</li>
           </>}
         </ol>
         <p data-copy-note className="rounded-lg border border-sky-500/20 bg-sky-500/10 p-3 text-xs leading-relaxed">{review ? "ToolBelt still needs GitHub access to verify and install the release. If requests remain blocked, try again later. Your installed plugin stays in place." : "Your settings, installed plugins and plugin data stay in place. If GitHub’s website is also unavailable, try again later."}</p>
