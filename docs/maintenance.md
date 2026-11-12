@@ -137,3 +137,7 @@ and serve the new DMG plus a GitHub-style JSON feed using `Bun.serve`. Feed fiel
 Check compatibility rejection before download, busy-plugin refusal, bad hash preservation,
 signed swap/relaunch and retained managed data. Never use the daily installed app. Stop only
 owned PIDs, detach owned mounts and remove owned Launch Services registrations afterward.
+
+App and tester disk-image creation and verification mounts retry only `Resource busy` and
+`Resource temporarily unavailable` errors, with five attempts and 1/2/4/8-second delays.
+Other errors fail immediately; exhausted retries still require inspecting and retrying the release.

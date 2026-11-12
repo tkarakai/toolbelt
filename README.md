@@ -15,6 +15,22 @@ owns its `running` terminal command and shell integration; ToolBelt does not ins
 implicitly. Plugins execute with your user privileges; process isolation is not a security
 sandbox.
 
+## Manual installation
+
+1. Download `Toolbelt-<version>-arm64.dmg` from the official
+   [GitHub releases](https://github.com/tkarakai/toolbelt/releases/latest).
+2. If updating, quit ToolBelt completely, including its menu-bar process.
+3. Open the DMG and drag ToolBelt into Applications. Choose Replace if prompted.
+4. Launch ToolBelt from Applications.
+5. If macOS says “ToolBelt.app” Not Opened because Apple could not verify it is free
+   of malware, click **Done**. Only if you trust the official download, open
+   **System Settings → Privacy & Security**, scroll to **Security**, and click
+   **Open Anyway** for ToolBelt. Authenticate if prompted, then click **Open**.
+   If Open Anyway is missing, try launching ToolBelt again and return to these settings.
+
+Updating keeps your settings, installed plugins and plugin data. See
+[Apple’s guidance](https://support.apple.com/en-us/102445) for more about this macOS warning.
+
 ## Development
 
 Use Bun 1.4.4 and macOS:

@@ -9,6 +9,9 @@
 - Show one section-wide amber notice while update checks are paused, switching to a green retry notice after the cooldown. Plugin review includes release notes and a publisher link to the exact release; drag dialogs by their header and resize with an unobtrusive corner grip.
 
 - Explain app and plugin release-check failures, show retry timing, and respect GitHub cooldowns. Cache release metadata with ETags, share concurrent lookups, and retain previously found releases with their last successful check time.
+- Explain manual app installation and the macOS verification warning in the README and Settings/About manual guide, including copied instructions.
+
+- Retry transient disk-image creation and verification contention for app and Plugin Tester packaging before failing the build.
 
 ## 0.3.2 — 2026-11-12
 - Collapse the popover quick view before showing quit confirmation to avoid blurring the desktop between panels.
