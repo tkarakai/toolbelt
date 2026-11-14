@@ -19,7 +19,8 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl } from "@/lib/store";
 import { isTyping, SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { TerminalView } from "./Terminal";
-import { detailSections, fitColumns, groupActions, groupSummaryLayout } from "./pure";
+import { detailSections, groupActions, groupSummaryLayout, growOf, isReorderable, isResizable, layoutColumns, maxOf, minOf, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
+import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
 import { parseMarkdown, safeHref, type Block, type Inline } from "./markdown";
 import { Badge } from "@/components/ui/badge";
@@ -556,15 +557,20 @@ function ResizableDialog({ d, emit, close }: { d: DialogNode; emit: Emit; close:
 
 // ── table: groups, nested rows, actions, inspector ───────────────────────
 const owned=<T,>(record:Record<string,T>|undefined,key:string):T|undefined=>record&&Object.hasOwn(record,key)?record[key]:undefined;
-function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
+/**
+ * A cell's contents. Sparklines and chips need room: they show once the cell is wide enough
+ * (`.tb-cell-extra`, a container query on the cell). `measure` draws the cell at its natural
+ * width, everything shown, for sizing `width: "content"` columns.
+ */
+function CellView({ cell, col, measure }: { cell: Cell | undefined; col: Column; measure?: boolean }) {
 	if (cell === undefined || cell === null) return <span className="text-muted-foreground/50 tb-tone-muted">—</span>;
 	if (typeof cell !== "object") return <span className={cn(col.mono && "font-mono text-[0.8rem] tabular-nums")}><Hl text={String(cell)} /></span>;
 	const mono = cell.mono ?? col.mono;
 	return (
-		<div className="@container/cell flex w-full min-w-0 items-center gap-2.5">
+		<div className={cn("flex items-center gap-2.5", measure ? "w-max" : "@container/cell w-full min-w-0")}>
 			{cell.dot && <Dot dot={cell.dot} />}
 			{cell.icon && <Icon name={cell.icon} className={cn("shrink-0", isFileIcon(cell.icon) ? "size-6" : "size-4 text-muted-foreground")} />}
-			<div className="min-w-0 flex-1" title={[cell.text, cell.sub].filter(Boolean).join("\n")}>
+			<div className={measure ? "shrink-0" : "min-w-0 flex-1"} title={[cell.text, cell.sub].filter(Boolean).join("\n")}>
 				{cell.at !== undefined ? (
 					<When at={cell.at} className={cn("block truncate", mono && "font-mono text-[0.8rem] tabular-nums", textClass(cell.tone ?? "default"))} />
 				) : cell.text &&
@@ -585,9 +591,9 @@ function CellView({ cell, col }: { cell: Cell | undefined; col: Column }) {
 					</div>
 				)}
 			</div>
-			{cell.spark && cell.spark.length > 1 && <span className="hidden shrink-0 @2xs/cell:inline-flex"><Spark values={cell.spark} tone={cell.tone} /></span>}
+			{cell.spark && cell.spark.length > 1 && <span className={cn("shrink-0", measure ? "inline-flex" : "tb-cell-extra")}><Spark values={cell.spark} tone={cell.tone} /></span>}
 			{cell.chips && cell.chips.length > 0 && (
-				<div className="hidden shrink-0 flex-nowrap gap-1 @2xs/cell:flex">
+				<div className={cn("shrink-0 flex-nowrap gap-1", measure ? "inline-flex" : "tb-cell-extra")}>
 					{cell.chips.slice(0, 1).map((c) => (
 						<Badge key={c} variant="outline" className="font-mono text-[0.7rem] font-normal">
 							<Hl text={c} />
@@ -786,6 +792,18 @@ type GroupLevel = { summary?: { label: string; value: string; description?: stri
 const groupPath = (g: Row["group"]): GroupLevel[] =>
 	g === undefined ? [] : (typeof g === "string" ? [g] : g).map((l: GroupLabel) => (typeof l === "string" ? { key: l, label: l } : { key: l.id ?? l.label, label: l.label, strong: l.strong, sub: l.sub, tag: l.tag, muted: l.muted, icon: l.icon, summary: l.summary }));
 
+/** The row-actions column (the ⋯ button), and the checkbox column of tables with bulk actions. */
+const ACTIONS_WIDTH = 40;
+const CHECK_WIDTH = 40;
+
+/** Rows to measure for content-sized columns: those on screen, enough to be representative. */
+const MEASURE_ROWS = 200;
+const measureRows = (items: Item[]): Visible[] => {
+	const out: Visible[] = [];
+	for (const it of items) if (it.kind === "row" && out.push(it.v) >= MEASURE_ROWS) break;
+	return out;
+};
+
 /** Group headers are selectable too; their ids can't clash with row ids. */
 const HEADER = "\u0001group:";
 const headerId = (key: string) => HEADER + key;
@@ -796,7 +814,7 @@ type Item =
 	| { kind: "row"; id: string; v: Visible; muted: boolean };
 
 const TableRow = memo(
-	function TableRow({ v, muted, columns, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, run, ready }: { v: Visible; muted?: boolean; sig: string; columns: Column[]; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; run: Run; ready: { current: boolean } }) {
+	function TableRow({ v, muted, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, run, ready }: { v: Visible; muted?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; run: Run; ready: { current: boolean } }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
 		// Rows that appear after the table is up (expanded, new processes) fade in.
@@ -816,12 +834,12 @@ const TableRow = memo(
 				)}
 			>
 				{onCheck && (
-					<td className="w-0 pl-4" onClick={(e) => e.stopPropagation()}>
+					<td className="pl-4" onClick={(e) => e.stopPropagation()}>
 						{depth === 0 && <Checkbox tabIndex={-1} checked={!!checked} onCheckedChange={() => onCheck(row.id)} aria-label="Select row" />}
 					</td>
 				)}
 				{columns.map((c, i) => (
-					<td key={c.key} className={cn("h-12 px-3 align-middle text-sm", i === 0 && "pl-3", c.align === "right" && "text-right", c.grow ? "w-full max-w-0" : "whitespace-nowrap")}>
+					<td key={c.key} className={cn("h-12 overflow-hidden px-3 align-middle text-sm", i === 0 && "pl-3", c.align === "right" && "text-right", !growOf(c) && "whitespace-nowrap", roomy.split(",").includes(c.key) && "tb-cell-roomy")}>
 						{i === 0 ? (
 							<div className="flex min-w-0 items-center" style={{ paddingLeft: v.indent * 16 + depth * 20 }}>
 								<button
@@ -841,13 +859,13 @@ const TableRow = memo(
 						)}
 					</td>
 				))}
-				<td className="w-10 px-1 whitespace-nowrap">
+				<td className="px-1 whitespace-nowrap">
 					<RowActions actions={actions} row={row} run={run} menuOpen={menuOpen} setMenuOpen={(o) => onMenu(o ? row.id : null)} choosing={choosing} setChoosing={(a) => onChoose(a ? { row: row.id, action: a } : null)} />
 				</td>
 			</tr>
 		);
 	},
-	(a, b) => a.sig === b.sig && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.choosing === b.choosing && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.actions === b.actions && a.run === b.run,
+	(a, b) => a.sig === b.sig && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.choosing === b.choosing && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.roomy === b.roomy && a.actions === b.actions && a.run === b.run,
 );
 
 function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emit: Emit }) {
@@ -905,12 +923,11 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const check = useCallback((id: string) => setChecked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id])), [setChecked]);
 	const allChecked = checked.size > 0 && checked.size === rowIds.size;
 
-	// ── which columns fit ──
+	// ── columns: the person's order and widths, and what fits ──
 	const wrap = useRef<HTMLDivElement>(null);
 	const headRow = useRef<HTMLTableRowElement>(null);
+	const measureBox = useRef<HTMLDivElement>(null);
 	const [available, setAvailable] = useState(Infinity);
-	const measured = useRef<Record<string, number>>(Object.create(null));
-	const [, remeasure] = useState(0);
 	useLayoutEffect(() => {
 		const el = wrap.current;
 		if (!el) return;
@@ -919,25 +936,158 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		setAvailable(el.clientWidth);
 		return () => ro.disconnect();
 	}, [node.rows.length > 0]);
-	const hiddenCols = fitColumns(allColumns, available, (c) => measured.current[c.key] ?? 96, (measured.current["\u0001actions"] ?? 40) + (bulk.length ? 40 : 0));
-	const hiddenKey = [...hiddenCols].join(",");
-	const columns = useMemo(() => allColumns.filter((c) => !hiddenCols.has(c.key)), [allColumns, hiddenKey]);
-	// Natural widths of the columns on screen (the widest seen), for deciding what fits.
+	// Saved per plugin and table, so the same table keeps its layout on every screen it's on.
+	const layoutKey = `toolbelt.table-layout.${surface.split("/")[0]}.${node.id}.v${node.layoutVersion ?? 0}`;
+	const [savedRaw, setSavedRaw] = usePersisted<unknown>(layoutKey, null);
+	const saved = useMemo(() => readSavedLayout(savedRaw), [savedRaw]);
+	// Widths while a column edge is being dragged; saved when it's let go.
+	const [liveWidths, setLiveWidths] = useState<Record<string, number> | null>(null);
+	const ordered = useMemo(() => orderColumns(allColumns, saved.order), [allColumns, saved.order]);
+	// Natural widths of `width: "content"` columns (the widest seen), from the measuring box below.
+	const measured = useRef<Record<string, number>>(Object.create(null));
+	const [, remeasure] = useState(0);
+	const contentColumns = useMemo(() => ordered.filter((c) => !growOf(c) && typeof c.width !== "number"), [ordered]);
+	// The trailing cell is always drawn: the ⋯ button, or just its padding.
+	const actionsWidth = allActions.length ? ACTIONS_WIDTH : 8;
+	const fixedWidth = actionsWidth + (bulk.length ? CHECK_WIDTH : 0);
+	const overflow = node.overflow ?? "hide";
+	const layout = layoutColumns(ordered, available, { saved: liveWidths ?? saved.widths, content: (c) => measured.current[c.key], fixed: fixedWidth, overflow });
+	const hiddenKey = [...layout.hidden].join(",");
+	// Content-sized columns at (or above) their measured width fit their sparklines and chips.
+	const roomy = contentColumns.filter((c) => !layout.hidden.has(c.key) && measured.current[c.key] !== undefined && layout.widths[c.key] >= measured.current[c.key] - 1).map((c) => c.key).join(",");
+	const columns = useMemo(() => ordered.filter((c) => !layout.hidden.has(c.key)), [ordered, hiddenKey]);
 	useLayoutEffect(() => {
-		const ths = headRow.current?.querySelectorAll<HTMLElement>("th[data-col]");
 		let changed = false;
-		ths?.forEach((th) => {
-			const k = th.dataset.col!;
-			const col = allColumns.find((c) => c.key === k);
-			if (col?.grow) return;
-			const w = th.offsetWidth;
-			if (w && Math.abs((measured.current[k] ?? 0) - w) > 4 && w > (measured.current[k] ?? 0)) {
+		measureBox.current?.querySelectorAll<HTMLElement>("[data-measure]").forEach((el) => {
+			const k = el.dataset.measure!;
+			// Exact width, rounded up, plus a pixel: offsetWidth rounds down and text would truncate.
+			const w = Math.ceil(el.getBoundingClientRect().width) + 1;
+			if (w > (measured.current[k] ?? 0) + 2) {
 				measured.current[k] = w;
 				changed = true;
 			}
 		});
 		if (changed) remeasure((n) => n + 1);
 	});
+	const saveLayout = useCallback((next: Partial<SavedLayout>) => setSavedRaw({ ...saved, ...next }), [saved, setSavedRaw]);
+
+	// Dragging a header: its edge resizes the column, the rest of it moves the column.
+	const suppressClick = useRef(false);
+	const [moving, setMoving] = useState<{ key: string; title: string; x: number; y: number; drop?: { key: string; after: boolean; edge: number } } | null>(null);
+	const endDrag = (cursor: string) => {
+		document.body.style.cursor = cursor;
+		document.body.style.userSelect = "";
+	};
+	/** The column a growing column's edge resizes: its right-hand neighbour, the other way. */
+	const resizeSubject = (c: Column): { col: Column; sign: 1 | -1 } | null => {
+		const next = columns[columns.indexOf(c) + 1];
+		const subject = growOf(c) ? next : c;
+		if (!subject || growOf(subject) || !isResizable(subject)) return null;
+		return { col: subject, sign: subject === c ? 1 : -1 };
+	};
+	const startResize = (e: React.PointerEvent, c: Column) => {
+		const target = resizeSubject(c);
+		if (e.button !== 0 || !target) return;
+		e.preventDefault();
+		e.stopPropagation();
+		const { col, sign } = target;
+		const start = layout.widths[col.key];
+		const x0 = e.clientX;
+		// Growing columns (and spare room) pay for a wider column, down to their minimum, so
+		// nothing hides mid-drag. A scrolling table without growing columns just gets wider.
+		const growers = columns.filter((x) => x !== col && growOf(x));
+		const slack = overflow === "scroll" && !growers.length ? Infinity : growers.reduce((t, x) => t + layout.widths[x.key] - minOf(x), 0) + Math.max(0, available - layout.total);
+		const widthAt = (x: number) => Math.round(Math.min(maxOf(col), Math.max(minOf(col), Math.min(start + slack, start + sign * (x - x0)))));
+		let last = start;
+		document.body.style.cursor = "col-resize";
+		document.body.style.userSelect = "none";
+		const move = (ev: PointerEvent) => {
+			last = widthAt(ev.clientX);
+			setLiveWidths({ ...saved.widths, [col.key]: last });
+		};
+		const up = () => {
+			window.removeEventListener("pointermove", move);
+			window.removeEventListener("pointerup", up);
+			window.removeEventListener("pointercancel", up);
+			endDrag("");
+			setLiveWidths(null);
+			if (last !== start) saveLayout({ widths: { ...saved.widths, [col.key]: last } });
+		};
+		window.addEventListener("pointermove", move);
+		window.addEventListener("pointerup", up);
+		window.addEventListener("pointercancel", up);
+	};
+	const resetWidth = (c: Column) => {
+		const target = resizeSubject(c);
+		if (!target || !Object.hasOwn(saved.widths, target.col.key)) return;
+		const { [target.col.key]: _, ...rest } = saved.widths;
+		saveLayout({ widths: rest });
+	};
+	const dropAt = (x: number, key: string) => {
+		for (const th of headRow.current?.querySelectorAll<HTMLElement>("th[data-col]") ?? []) {
+			const r = th.getBoundingClientRect();
+			if (x < r.left || x >= r.right) continue;
+			const k = th.dataset.col!;
+			const i = allColumns.findIndex((c) => c.key === k);
+			if (k === key || i < 0 || !isReorderable(allColumns[i], i)) return undefined;
+			const after = x > r.left + r.width / 2;
+			return { key: k, after, edge: after ? r.right : r.left };
+		}
+		return undefined;
+	};
+	const startMove = (e: React.PointerEvent, c: Column) => {
+		if (e.button !== 0 || !isReorderable(c, allColumns.indexOf(c))) return;
+		const x0 = e.clientX, y0 = e.clientY;
+		let active = false, frame = 0, lastX = x0;
+		let drop: ReturnType<typeof dropAt>;
+		const scrollEdge = () => {
+			const el = wrap.current;
+			if (el && overflow === "scroll") {
+				const r = el.getBoundingClientRect();
+				const step = lastX < r.left + 32 ? -12 : lastX > r.right - 32 ? 12 : 0;
+				if (step) el.scrollLeft += step;
+			}
+			frame = requestAnimationFrame(scrollEdge);
+		};
+		const move = (ev: PointerEvent) => {
+			lastX = ev.clientX;
+			if (!active) {
+				if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
+				active = true;
+				document.body.style.cursor = "grabbing";
+				document.body.style.userSelect = "none";
+				frame = requestAnimationFrame(scrollEdge);
+			}
+			drop = dropAt(ev.clientX, c.key);
+			setMoving({ key: c.key, title: c.title, x: ev.clientX, y: ev.clientY, drop });
+		};
+		const finish = (commit: boolean) => {
+			window.removeEventListener("pointermove", move);
+			window.removeEventListener("pointerup", up);
+			window.removeEventListener("pointercancel", cancel);
+			window.removeEventListener("keydown", key, true);
+			cancelAnimationFrame(frame);
+			if (!active) return;
+			// The pointer comes up over a header: that's not a click on it (no sorting).
+			suppressClick.current = true;
+			setTimeout(() => (suppressClick.current = false));
+			endDrag("");
+			setMoving(null);
+			if (commit && drop) saveLayout({ order: moveColumn(ordered, allColumns, c.key, drop.key, drop.after) });
+		};
+		const up = () => finish(true);
+		const cancel = () => finish(false);
+		const key = (ev: KeyboardEvent) => {
+			if (ev.key !== "Escape" || !active) return;
+			ev.preventDefault();
+			ev.stopPropagation();
+			finish(false);
+		};
+		window.addEventListener("pointermove", move);
+		window.addEventListener("pointerup", up);
+		window.addEventListener("pointercancel", cancel);
+		window.addEventListener("keydown", key, true);
+	};
 
 	// Group headers (nested, in order of first appearance) and rows with their expanded children.
 	// Rows of one group needn't be adjacent in `rows`: they're gathered under the first header.
@@ -1132,11 +1282,17 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 					onScroll={(e) => uiState.set(surface, `${node.id}:scroll`, e.currentTarget.scrollTop)}
 					className="min-h-0 min-w-0 flex-1 scroll-pt-9 overflow-auto outline-none"
 				>
-					<table className="w-full border-separate border-spacing-0 text-left">
+					<table className="border-separate border-spacing-0 text-left" style={{ tableLayout: "fixed", width: Number.isFinite(available) ? Math.max(available, layout.total) : "100%" }}>
+							<colgroup>
+								{bulk.length > 0 && <col style={{ width: CHECK_WIDTH }} />}
+								{columns.map((c) => <col key={c.key} style={{ width: layout.widths[c.key] }} />)}
+								{/* Spare room (no growing column, or all at their maximum) sits after the last column. */}
+								<col style={{ width: actionsWidth + (Number.isFinite(available) ? Math.max(0, available - layout.total) : 0) }} />
+							</colgroup>
 						<thead className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
 							<tr ref={headRow}>
 								{bulk.length > 0 && (
-									<th className="w-0 border-b pl-4">
+									<th className="border-b pl-4">
 										<Checkbox checked={allChecked ? true : checked.size ? "indeterminate" : false} onCheckedChange={() => setChecked(allChecked ? [] : [...rowIds])} aria-label="Select all" />
 									</th>
 								)}
@@ -1145,12 +1301,13 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 									const Arrow = sorted && node.sort!.desc ? ArrowDown : ArrowUp;
 									return (
 										<th
-											key={c.key}
-											data-col={c.key}
-											aria-sort={sorted ? (node.sort!.desc ? "descending" : "ascending") : undefined}
-											style={c.grow ? { minWidth: c.minWidth ?? 240 } : undefined}
-											className={cn("h-9 border-b px-3 text-xs font-medium whitespace-nowrap text-muted-foreground", i === 0 && "pl-9", c.align === "right" && "text-right")}
-										>
+												key={c.key}
+												data-col={c.key}
+												aria-sort={sorted ? (node.sort!.desc ? "descending" : "ascending") : undefined}
+												onPointerDown={(e) => startMove(e, c)}
+												onClickCapture={(e) => suppressClick.current && (e.stopPropagation(), e.preventDefault())}
+												className={cn("relative h-9 overflow-hidden border-b px-3 text-xs font-medium whitespace-nowrap text-ellipsis text-muted-foreground transition-opacity duration-200", i === 0 && "pl-9", c.align === "right" && "text-right", moving?.key === c.key && "opacity-40")}
+											>
 											{c.sortable ? (
 												<button
 													onClick={() => sortBy(c)}
@@ -1161,12 +1318,25 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 													<Arrow className={cn("size-3 transition-[opacity,transform] duration-200", sorted ? "opacity-100" : "opacity-0 group-hover/sort:opacity-40")} />
 												</button>
 											) : (
-												c.title
-											)}
-										</th>
+													c.title
+												)}
+												{resizeSubject(c) && (
+													<span
+														role="separator"
+														aria-orientation="vertical"
+														aria-label={`Resize ${resizeSubject(c)!.col.title}`}
+														title="Drag to resize · double-click to reset"
+														onPointerDown={(e) => startResize(e, c)}
+														onDoubleClick={(e) => (e.stopPropagation(), resetWidth(c))}
+														className="group/resize absolute top-0 right-0 z-10 flex h-full w-2 cursor-col-resize justify-center"
+													>
+														<span className="my-2 w-px bg-border opacity-0 transition-opacity duration-200 group-hover/resize:opacity-100" />
+													</span>
+												)}
+											</th>
 									);
 								})}
-								<th data-col={"\u0001actions"} className="w-0 border-b" />
+								<th className="border-b" />
 							</tr>
 						</thead>
 						<tbody>
@@ -1179,8 +1349,9 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 										v={it.v}
 										muted={it.muted}
 										sig={JSON.stringify(it.v.row) + it.v.depth + it.v.indent}
-										columns={columns}
-										actions={actionsFor(it.v.row)}
+											columns={columns}
+											roomy={roomy}
+											actions={actionsFor(it.v.row)}
 										selected={it.v.row.id === selected}
 										expanded={expanded.has(it.v.row.id)}
 										menuOpen={menuFor === it.v.row.id}
@@ -1200,6 +1371,39 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 					</table>
 				</div>
 			</div>
+			{contentColumns.length > 0 && (
+				// Natural widths of `width: "content"` columns: their cells drawn unconstrained, off screen.
+				<div ref={measureBox} aria-hidden className="pointer-events-none invisible fixed top-0 left-0 -z-10 h-0 overflow-hidden">
+					{contentColumns.map((c) => {
+						const first = ordered[0] === c;
+						return (
+							<div key={c.key} data-measure={c.key} className="w-max">
+								<div className={cn("px-3 text-xs font-medium whitespace-nowrap", first && "pl-9")}>
+									{c.title}
+									{c.sortable && <span className="inline-block w-4" />}
+								</div>
+								{measureRows(items).map((v) => (
+									<div key={v.row.id} className="w-max px-3 text-sm whitespace-nowrap" style={first ? { paddingLeft: 12 + 24 + v.indent * 16 + v.depth * 20 } : undefined}>
+										<CellView cell={owned(v.row.cells, c.key)} col={c} measure />
+									</div>
+								))}
+							</div>
+						);
+					})}
+				</div>
+			)}
+			{moving &&
+				createPortal(
+					<>
+						{moving.drop && wrap.current && (
+							<div className="pointer-events-none fixed z-50 w-0.5 rounded-full bg-ring" style={{ left: moving.drop.edge - 1, top: wrap.current.getBoundingClientRect().top, height: wrap.current.clientHeight }} />
+						)}
+						<div className="pointer-events-none fixed z-50 rounded-md border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-md" style={{ left: moving.x + 8, top: moving.y + 8 }}>
+							{moving.title}
+						</div>
+					</>,
+					document.body,
+				)}
 			<Inspector
 				item={current?.kind === "row" && current.v.row.details ? current : current?.kind === "header" ? current : null}
 				actions={current?.kind === "row" ? actionsFor(current.v.row) : []}

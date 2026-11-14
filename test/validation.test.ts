@@ -86,3 +86,17 @@ test("toolbar controls only accept segmented choices with text explanations", ()
  ]) expect(() => validateTree({type:"page", controls:[invalid], children:[]})).toThrow();
  expect(() => validateTree({type:"page",controls:{},children:[]})).toThrow();
 });
+test("column layout fields and table overflow are checked", () => {
+  const withColumn = (column: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ ...table("fine"), columns: [{ key: "x", title: "X", ...column }], ...extra });
+  for (const column of [
+    { width: 120, minWidth: 40, maxWidth: 300, shrink: 1, resizable: false, reorderable: true },
+    { width: "content" },
+    { grow: true },
+    { grow: 2 },
+  ])
+    expect(() => validateTree(withColumn(column))).not.toThrow();
+  expect(() => validateTree(withColumn({}, { overflow: "scroll", layoutVersion: 2 }))).not.toThrow();
+  for (const column of [{ width: "auto" }, { width: -1 }, { grow: "yes" }, { minWidth: Infinity }, { shrink: -1 }, { reorderable: 1 }])
+    expect(() => validateTree(withColumn(column))).toThrow();
+  expect(() => validateTree(withColumn({}, { overflow: "wrap" }))).toThrow();
+});

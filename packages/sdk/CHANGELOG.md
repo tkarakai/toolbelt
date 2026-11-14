@@ -1,6 +1,7 @@
 # SDK changelog
 
 ## Unreleased
+- Add table column layout: `Column.width` (px or `"content"`), weighted `grow`, `shrink`, `maxWidth`, `minWidth` for every column, `resizable` and `reorderable`, plus table `overflow` (`"hide"`/`"scroll"`) and `layoutVersion`.
 
 ## 0.3.2 — 2026-11-12
 - Add optional page `controls` (segmented nodes), accessible segmented labels and per-option tooltips.

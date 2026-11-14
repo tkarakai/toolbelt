@@ -318,3 +318,42 @@ preferences and returns the selected value. Controls wrap on narrow surfaces.
 This additive contract requires a host/SDK containing segmented toolbar support; older
 hosts ignore `controls`. Consumers must wait for the public SDK release and declare a
 compatible host range before publishing a package using it.
+
+### Table column layout
+
+Columns declare layout constraints; ToolBelt solves them the same way for every plugin and
+keeps the person's choices in the renderer. Plugins express importance through these
+generic fields, not through host knowledge of what a column means.
+
+| Field | Meaning |
+| --- | --- |
+| `width` | Normal width in px, or `"content"` (the default): the widest value seen. |
+| `grow` | Takes spare space: `true` or a weight shared with other growing columns. |
+| `shrink` | Weight for giving up space, down to `minWidth`, before columns hide. Default: the `grow` weight. |
+| `minWidth`, `maxWidth` | Limits in px. Growing columns default to a 240 px minimum, others to 40 px. |
+| `priority`, `optional` | Drop order when the minimums don't fit: highest `priority` first, `optional` before all others. |
+| `resizable` | Dragging its right edge resizes it. Default: true except for growing columns. |
+| `reorderable` | Dragging its header moves it. Default: true except for the first declared column. |
+
+Layout order: start at the person's width, else `width`, else measured content; give spare
+space to growing columns by weight; take a shortfall from shrinking columns; then, with the
+table's `overflow: "hide"` (default), drop columns. Columns without a `priority` drop by their
+displayed position, so a column the person moves left outlasts the ones to its right. The first
+column and growing columns never drop. `overflow: "scroll"` keeps every column and scrolls
+sideways instead.
+
+Dragging a fixed column's edge takes space from growing columns and stops at their minimum;
+a growing column's edge resizes its right-hand neighbour. Double-clicking an edge restores the
+default width. Dragging a header elsewhere moves it among movable columns; Escape cancels.
+Non-movable columns keep their declared slot. Group summaries follow their column.
+
+ToolBelt saves widths and order per plugin and table `id`. It stores only widths the person
+changed, so later default changes still apply. Columns added by a plugin update appear after
+their declared neighbour, and removed keys are ignored. Bump the table's `layoutVersion` to
+discard saved layouts when columns change meaning. Plugins receive no layout events.
+
+Sparklines and chips appear when a cell has room: always in content-sized columns at their
+measured width, and in other cells once the cell is at least 6.5 rem wide. Older hosts ignore
+the new fields, except that a numeric `grow` fails their validation; declare a host range
+containing table column layout before publishing a package that uses it.
+

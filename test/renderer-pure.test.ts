@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Action, Column } from "../src/shared/protocol";
-import { groupSummaryLayout, continuation, detailSections, fitColumns, groupActions, looksLikeScreen, nextZoom, visibleWidth } from "../src/ui/renderer/pure";
+import { groupSummaryLayout, continuation, detailSections, groupActions, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -9,28 +9,107 @@ const cols: Column[] = [
 	{ key: "mem", title: "Memory" },
 	{ key: "up", title: "Up" },
 ];
-const width = () => 100;
+const content = () => 100;
+const hidden = (c: Column[], available: number, opts: Parameters<typeof layoutColumns>[2] = {}) => [...layoutColumns(c, available, { content, ...opts }).hidden];
+const set = (c: Column[], key: string, extra: Partial<Column>) => c.map((x) => (x.key === key ? { ...x, ...extra } : x));
 
-describe("fitColumns", () => {
+describe("layoutColumns: what fits", () => {
 	test("everything fits in a wide table", () => {
-		expect([...fitColumns(cols, 2000, width)]).toEqual([]);
+		expect(hidden(cols, 2000)).toEqual([]);
 	});
 	test("columns on the right give way first; the grow column never does", () => {
-		expect([...fitColumns(cols, 260 + 300, width)]).toEqual(["up"]);
-		expect([...fitColumns(cols, 260 + 100, width)]).toEqual(["up", "mem", "cpu"]);
-		expect([...fitColumns(cols, 10, width)]).toEqual(["up", "mem", "cpu", "ports"]);
+		expect(hidden(cols, 260 + 300)).toEqual(["up"]);
+		expect(hidden(cols, 260 + 100)).toEqual(["up", "mem", "cpu"]);
+		expect(hidden(cols, 10)).toEqual(["up", "mem", "cpu", "ports"]);
 	});
 	test("priority and optional override position", () => {
-		const c = cols.map((x) => (x.key === "ports" ? { ...x, priority: 99 } : x.key === "up" ? { ...x, priority: 0 } : x));
-		expect([...fitColumns(c, 260 + 300, width)]).toEqual(["ports"]);
-		const o = cols.map((x) => (x.key === "cpu" ? { ...x, optional: true } : x));
-		expect([...fitColumns(o, 260 + 300, width)]).toEqual(["cpu"]);
+		const c = set(set(cols, "ports", { priority: 99 }), "up", { priority: 0 });
+		expect(hidden(c, 260 + 300)).toEqual(["ports"]);
+		expect(hidden(set(cols, "cpu", { optional: true }), 260 + 300)).toEqual(["cpu"]);
+	});
+	test("without a priority, the displayed order decides", () => {
+		const moved = [cols[0], cols[4], cols[1], cols[2], cols[3]]; // Up dragged next to Process
+		expect(hidden(moved, 260 + 300)).toEqual(["mem"]);
 	});
 	test("the fixed part (row actions) counts", () => {
-		expect([...fitColumns(cols, 260 + 400, width, 80)]).toEqual(["up"]);
+		expect(hidden(cols, 260 + 400, { fixed: 80 })).toEqual(["up"]);
 	});
 	test("unknown width (before layout) hides nothing", () => {
-		expect(fitColumns(cols, Infinity, width).size).toBe(0);
+		expect(layoutColumns(cols, Infinity, { content }).hidden.size).toBe(0);
+	});
+	test("scroll overflow keeps every column, wider than the window", () => {
+		const l = layoutColumns(cols, 300, { content, overflow: "scroll" });
+		expect(l.hidden.size).toBe(0);
+		expect(l.total).toBe(260 + 400);
+	});
+});
+
+describe("layoutColumns: widths", () => {
+	const sized: Column[] = [
+		{ key: "name", title: "Process", grow: true, minWidth: 280 },
+		{ key: "ports", title: "Ports", width: 140 },
+		{ key: "cpu", title: "CPU", width: 120 },
+		{ key: "up", title: "Up", width: 72 },
+	];
+	test("only the growing column follows the window", () => {
+		expect(layoutColumns(sized, 1000).widths).toEqual({ name: 668, ports: 140, cpu: 120, up: 72 });
+		expect(layoutColumns(sized, 700).widths).toEqual({ name: 368, ports: 140, cpu: 120, up: 72 });
+	});
+	test("at its minimum, other columns hide instead of shrinking", () => {
+		const l = layoutColumns(sized, 560);
+		expect([...l.hidden]).toEqual(["up"]);
+		expect(l.widths).toEqual({ name: 300, ports: 140, cpu: 120 });
+	});
+	test("a person's width replaces the default and is kept within the limits", () => {
+		expect(layoutColumns(sized, 1000, { saved: { ports: 200 } }).widths.ports).toBe(200);
+		expect(layoutColumns(set(sized, "ports", { maxWidth: 180 }), 1000, { saved: { ports: 500 } }).widths.ports).toBe(180);
+		expect(layoutColumns(sized, 1000, { saved: { ports: 1 } }).widths.ports).toBe(40);
+	});
+	test("growing columns ignore saved widths", () => {
+		expect(layoutColumns(sized, 1000, { saved: { name: 100 } }).widths.name).toBe(668);
+	});
+	test("weights share spare space; maxWidth caps a share", () => {
+		const two: Column[] = [
+			{ key: "name", title: "Name", grow: 2, minWidth: 100 },
+			{ key: "path", title: "Path", grow: 1, minWidth: 100 },
+		];
+		expect(layoutColumns(two, 500).widths).toEqual({ name: 300, path: 200 });
+		expect(layoutColumns(set(two, "name", { maxWidth: 200 }), 500).widths).toEqual({ name: 200, path: 300 });
+	});
+	test("shrinking columns give way before anything hides", () => {
+		const c = set(sized, "ports", { shrink: 1, minWidth: 60 });
+		const l = layoutColumns(c, 560);
+		expect(l.hidden.size).toBe(0);
+		expect(l.widths).toEqual({ name: 280, ports: 88, cpu: 120, up: 72 });
+	});
+	test("content-sized columns use their measured width", () => {
+		const c = set(sized, "cpu", { width: "content" });
+		expect(layoutColumns(c, 1000, { content: (x) => (x.key === "cpu" ? 90 : undefined) }).widths.cpu).toBe(90);
+		expect(layoutColumns(c, 1000).widths.cpu).toBe(96);
+	});
+});
+
+describe("column order", () => {
+	test("the saved order applies; the first column stays put", () => {
+		const o = orderColumns(cols, ["up", "ports", "name", "mem", "cpu"]);
+		expect(o.map((c) => c.key)).toEqual(["name", "up", "ports", "mem", "cpu"]);
+	});
+	test("columns the plugin added go after their declared neighbour; removed ones are ignored", () => {
+		const o = orderColumns(cols, ["mem", "gone", "ports"]);
+		expect(o.map((c) => c.key)).toEqual(["name", "mem", "up", "ports", "cpu"]);
+	});
+	test("columns that can't move keep their declared slot", () => {
+		const c = set(cols, "up", { reorderable: false });
+		expect(orderColumns(c, ["mem", "cpu", "ports"]).map((x) => x.key)).toEqual(["name", "mem", "cpu", "ports", "up"]);
+	});
+	test("dropping before or after a column", () => {
+		expect(moveColumn(cols, cols, "up", "ports", false)).toEqual(["up", "ports", "cpu", "mem"]);
+		expect(moveColumn(cols, cols, "ports", "mem", true)).toEqual(["cpu", "mem", "ports", "up"]);
+		expect(moveColumn(cols, cols, "ports", "name", false)).toEqual(["ports", "cpu", "mem", "up"]); // the first column isn't a target
+	});
+	test("a saved layout from storage keeps only well-formed parts", () => {
+		expect(readSavedLayout({ widths: { a: 120, b: "x", c: -1, d: Infinity }, order: ["a", 3, "b"] })).toEqual({ widths: { a: 120 }, order: ["a", "b"] });
+		expect(readSavedLayout("junk")).toEqual({ widths: {}, order: [] });
 	});
 });
 
