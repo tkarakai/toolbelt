@@ -370,3 +370,9 @@ mark.hit {
  .shortcut-attention::after { content: ""; position: absolute; top: -50%; bottom: -50%; left: -65%; width: 55%; pointer-events: none; background: linear-gradient(90deg, transparent 0%, rgb(70 130 180 / .03) 15%, rgb(116 162 192 / .18) 40%, rgb(220 238 250 / .48) 49%, rgb(168 202 225 / .25) 53%, rgb(70 130 180 / .08) 70%, transparent 100%); transform: skewX(-18deg); animation: shortcut-reflection 1s ease-in-out forwards; }
  @keyframes shortcut-reflection { from { left: -65%; } to { left: 125%; } }
 }
+
+/* Table cell extras (sparklines, chips) appear once the cell has room for them beside its text. */
+.tb-cell-extra { display: none; }
+@container cell (min-width: 6.5rem) { .tb-cell-extra { display: inline-flex; } }
+/* Content-sized columns measured them in: they fit at any width. */
+.tb-cell-roomy .tb-cell-extra { display: inline-flex; }

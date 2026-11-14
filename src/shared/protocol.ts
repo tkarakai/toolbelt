@@ -106,19 +106,43 @@ export type Column = {
 	key: string;
 	title: string;
 	align?: "left" | "right";
-	/** This column takes the remaining width. */
-	grow?: boolean;
 	mono?: boolean;
 	/**
+	 * Its normal width, px — or `"content"` to fit the widest value seen (the default for
+	 * columns without one). People can drag it wider or narrower (`resizable`); ToolBelt
+	 * remembers their widths per table.
+	 */
+	width?: number | "content";
+	/**
+	 * Takes the space that's left: `true`, or a weight when several columns share it (2 gets
+	 * twice the share of 1). Growing columns shrink down to `minWidth` before other columns
+	 * hide, never hide themselves, and follow the window rather than a remembered width.
+	 */
+	grow?: boolean | number;
+	/**
+	 * Gives up space when the table is too narrow, by weight, down to `minWidth`, before columns
+	 * start hiding. Default: the `grow` weight (fixed columns don't shrink; they hide).
+	 */
+	shrink?: number;
+	/** The narrowest it gets, px (growing columns: default 240; others: 40). */
+	minWidth?: number;
+	/** The widest it gets, px, even while growing or dragged. */
+	maxWidth?: number;
+	/**
 	 * Which columns give way when the table gets narrow: the highest `priority` hides first.
-	 * Without one, columns further right are less important (priority = position), so the
-	 * leftmost column is the last to go — and the `grow` column never hides.
+	 * Without one, columns further right in the displayed order are less important (priority =
+	 * position), so the leftmost column is the last to go — and growing columns never hide.
 	 */
 	priority?: number;
-	/** The narrowest the `grow` column may get before other columns hide (px, default 240). */
-	minWidth?: number;
 	/** Hidden first in narrow layouts (same as a high `priority`). */
 	optional?: boolean;
+	/** People can drag its right edge to resize it. Default: true, except for growing columns. */
+	resizable?: boolean;
+	/**
+	 * People can drag it to another place among the movable columns. Default: true, except for
+	 * the first column, which holds the tree (expand chevrons, indentation, group labels).
+	 */
+	reorderable?: boolean;
 	/** Clicking the header sorts by this column: the table's `sort`, and a `sort` event. */
 	sortable?: boolean;
 	/** The direction of the first click (default: ascending; numbers often want descending). */
@@ -299,6 +323,16 @@ export type Node =
 			empty?: { title: string; description?: string; icon?: string };
 			/** The column it's sorted by (see `Column.sortable`). */
 			sort?: { key: string; desc: boolean };
+			/**
+			 * When the columns' minimum widths don't fit: `"hide"` (default) drops columns by
+			 * priority; `"scroll"` keeps them all and scrolls sideways.
+			 */
+			overflow?: "hide" | "scroll";
+			/**
+			 * Bump it when the columns change meaning, to forget the widths and order people
+			 * chose for this table (default 0).
+			 */
+			layoutVersion?: number;
 	  }
 	| {
 			type: "list";

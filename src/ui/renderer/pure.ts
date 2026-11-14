@@ -20,24 +20,158 @@ export function groupActions(actions: Action[]): Action[][] {
 	return [...groups.values()];
 }
 
+// ── table columns: width, order, what fits ──────────────────────────────
+
+/** The narrowest a growing column gets before other columns hide (when it sets no `minWidth`). */
+export const GROW_MIN = 240;
+/** The narrowest a fixed column can be dragged or shrunk to (when it sets no `minWidth`). */
+export const COLUMN_MIN = 40;
+/** A column without a declared width, before its content has been measured. */
+export const COLUMN_FALLBACK = 96;
+
+const weight = (v: boolean | number | undefined) => (v === true ? 1 : typeof v === "number" && v > 0 ? v : 0);
+export const growOf = (c: Column) => weight(c.grow);
+/** Growing columns give up space by default; fixed ones hide instead (unless they set `shrink`). */
+export const shrinkOf = (c: Column) => (c.shrink === undefined ? growOf(c) : Math.max(0, c.shrink));
+export const minOf = (c: Column) => Math.max(0, c.minWidth ?? (growOf(c) ? GROW_MIN : COLUMN_MIN));
+export const maxOf = (c: Column) => Math.max(minOf(c), c.maxWidth ?? Infinity);
+const clamp = (c: Column, w: number) => Math.min(maxOf(c), Math.max(minOf(c), w));
+
 /**
- * Which columns fit: the `grow` column keeps at least its `minWidth`; the others give way in
- * priority order (highest `priority` first; by default the rightmost). Pure, for the tests.
+ * Can the person drag this column elsewhere? The first declared column carries the tree
+ * (chevrons, indentation, group labels), so it stays put unless the plugin says otherwise.
  */
-export function fitColumns(columns: Column[], available: number, widthOf: (c: Column) => number, fixed = 0): Set<string> {
-	const hidden = new Set<string>();
-	if (!Number.isFinite(available)) return hidden;
-	const rank = (c: Column, i: number) => (c.priority ?? i) + (c.optional ? 1000 : 0);
-	const candidates = columns
-		.map((c, i) => ({ c, i, r: rank(c, i) }))
-		.filter(({ c, i }) => !c.grow && i > 0)
-		.sort((a, b) => b.r - a.r || b.i - a.i);
-	const need = () => columns.reduce((t, c) => t + (hidden.has(c.key) ? 0 : c.grow ? (c.minWidth ?? 240) : widthOf(c)), fixed);
-	for (const { c } of candidates) {
-		if (need() <= available) break;
-		hidden.add(c.key);
+export const isReorderable = (c: Column, declaredIndex: number) => c.reorderable ?? declaredIndex !== 0;
+/** Fixed columns are resizable by default; growing ones take what's left. */
+export const isResizable = (c: Column) => c.resizable ?? !growOf(c);
+
+/**
+ * The columns in the person's order (`saved`: column keys). Columns that can't move keep their
+ * declared slot. Keys no longer declared are ignored; columns the person hasn't seen yet (a
+ * plugin update) go right after the column they follow in the plugin's list.
+ */
+export function orderColumns(columns: Column[], saved: readonly string[] | undefined): Column[] {
+	if (!saved?.length) return columns;
+	const movable = columns.filter((c, i) => isReorderable(c, i));
+	const byKey = new Map(movable.map((c) => [c.key, c]));
+	const order: Column[] = [];
+	for (const k of saved) {
+		const c = byKey.get(k);
+		if (c && !order.includes(c)) order.push(c);
 	}
-	return hidden;
+	movable.forEach((c, i) => {
+		if (order.includes(c)) return;
+		const before = movable.slice(0, i).reverse().find((p) => order.includes(p));
+		order.splice(before ? order.indexOf(before) + 1 : 0, 0, c);
+	});
+	let next = 0;
+	return columns.map((c, i) => (isReorderable(c, i) ? order[next++] : c));
+}
+
+/**
+ * The saved order after dropping `key` before or after `target` — both movable. Returns every
+ * movable key (hidden ones too), so columns come back where the person put them.
+ */
+export function moveColumn(ordered: Column[], declared: Column[], key: string, target: string, after: boolean): string[] {
+	const movable = new Set(declared.filter((c, i) => isReorderable(c, i)).map((c) => c.key));
+	const keys = ordered.map((c) => c.key).filter((k) => movable.has(k));
+	if (key === target || !movable.has(key) || !movable.has(target)) return keys;
+	const rest = keys.filter((k) => k !== key);
+	rest.splice(rest.indexOf(target) + (after ? 1 : 0), 0, key);
+	return rest;
+}
+
+export type ColumnLayout = {
+	/** Width of each visible column, px. */
+	widths: Record<string, number>;
+	hidden: Set<string>;
+	/** Sum of the visible columns and the fixed part; wider than `available` when it scrolls. */
+	total: number;
+};
+
+/**
+ * Where every column goes, given the width available — the same rules for every plugin:
+ *
+ * 1. Each column starts at the person's width (`saved`), else its declared `width`, else its
+ *    measured content (`content`), kept within `minWidth`…`maxWidth`. Growing columns start at
+ *    their `width` or `minWidth`.
+ * 2. Spare space goes to growing columns by `grow` weight, up to their `maxWidth`.
+ * 3. A shortfall comes out of columns with `shrink` (by weight), down to their `minWidth`.
+ * 4. Still short: with `overflow: "hide"`, columns drop out — highest `priority` first;
+ *    without one, the rightmost in the displayed order (`optional` ones before all others).
+ *    The first column and growing columns that can't shrink further never drop. With
+ *    `overflow: "scroll"`, nothing drops and the table scrolls sideways.
+ *
+ * `columns` is in displayed order; `fixed` is the space taken by checkboxes and row actions.
+ */
+export function layoutColumns(
+	columns: Column[],
+	available: number,
+	opts: { saved?: Record<string, number>; content?: (c: Column) => number | undefined; fixed?: number; overflow?: "hide" | "scroll" } = {},
+): ColumnLayout {
+	const { saved = {}, content = () => undefined, fixed = 0, overflow = "hide" } = opts;
+	const basis = (c: Column) => {
+		if (growOf(c)) return clamp(c, typeof c.width === "number" ? c.width : minOf(c));
+		const own = Object.hasOwn(saved, c.key) ? saved[c.key] : undefined;
+		return clamp(c, own ?? (typeof c.width === "number" ? c.width : (content(c) ?? COLUMN_FALLBACK)));
+	};
+	const hidden = new Set<string>();
+	const fit = () => {
+		const shown = columns.filter((c) => !hidden.has(c.key));
+		const widths: Record<string, number> = {};
+		for (const c of shown) widths[c.key] = basis(c);
+		const sum = () => shown.reduce((t, c) => t + widths[c.key], fixed);
+		// Spread `amount` (positive: grow, negative: shrink) by weight, respecting limits.
+		const spread = (amount: number, weightOf: (c: Column) => number) => {
+			let left = amount;
+			for (let pass = 0; pass < shown.length && Math.abs(left) > 0.5; pass++) {
+				const open = shown.filter((c) => weightOf(c) > 0 && (left > 0 ? widths[c.key] < maxOf(c) : widths[c.key] > minOf(c)));
+				const total = open.reduce((t, c) => t + weightOf(c), 0);
+				if (!total) break;
+				let used = 0;
+				for (const c of open) {
+					const next = clamp(c, widths[c.key] + (left * weightOf(c)) / total);
+					used += next - widths[c.key];
+					widths[c.key] = next;
+				}
+				left -= used;
+			}
+		};
+		if (Number.isFinite(available)) {
+			const gap = available - sum();
+			if (gap > 0) spread(gap, growOf);
+			else if (gap < 0) spread(gap, shrinkOf);
+		}
+		return { widths, total: sum() };
+	};
+	let result = fit();
+	if (overflow === "hide" && Number.isFinite(available)) {
+		const rank = (c: Column, i: number) => (c.priority ?? i) + (c.optional ? 1000 : 0);
+		const candidates = columns
+			.map((c, i) => ({ c, i, r: rank(c, i) }))
+			.filter(({ c, i }) => i > 0 && !growOf(c))
+			.sort((a, b) => b.r - a.r || b.i - a.i);
+		for (const { c } of candidates) {
+			if (result.total <= available + 0.5) break;
+			hidden.add(c.key);
+			result = fit();
+		}
+	}
+	return { ...result, hidden };
+}
+
+/** What a person chose for a table: widths of the columns they resized, and their order. */
+export type SavedLayout = { widths: Record<string, number>; order: string[] };
+
+/** A saved layout from storage, keeping only well-formed parts (it may be old or edited). */
+export function readSavedLayout(v: unknown): SavedLayout {
+	const out: SavedLayout = { widths: {}, order: [] };
+	if (!v || typeof v !== "object") return out;
+	const { widths, order } = v as Record<string, unknown>;
+	if (widths && typeof widths === "object" && !Array.isArray(widths))
+		for (const [k, w] of Object.entries(widths)) if (typeof w === "number" && Number.isFinite(w) && w >= 0) out.widths[k] = w;
+	if (Array.isArray(order)) out.order = order.filter((k): k is string => typeof k === "string");
+	return out;
 }
 
 /** Details in their sections (`DetailItem.section`), in order of first appearance. */

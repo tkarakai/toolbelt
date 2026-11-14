@@ -194,15 +194,24 @@ const row: Schema = (v, p) =>
     children: optional(array(row)),
     targets: optional(record(array(target))),
   })(v, p);
+const pixels: Schema = (v, p) => {
+  number(v, p);
+  if ((v as number) < 0 || (v as number) > 100_000) fail(p);
+};
 const column = object({
   key: text,
   title: text,
   align: optional(enumeration("left", "right")),
-  grow: optional(bool),
+  grow: optional(union(bool, pixels)),
+  shrink: optional(pixels),
   mono: optional(bool),
+  width: optional(union(pixels, literal("content"))),
   priority: optional(number),
-  minWidth: optional(number),
+  minWidth: optional(pixels),
+  maxWidth: optional(pixels),
   optional: optional(bool),
+  resizable: optional(bool),
+  reorderable: optional(bool),
   sortable: optional(bool),
   sortDesc: optional(bool),
 });
@@ -310,6 +319,8 @@ const node: Schema = (v, p) => {
       bulkActions: actions,
       empty: optional(empty),
       sort: optional(object({ key: text, desc: bool })),
+      overflow: optional(enumeration("hide", "scroll")),
+      layoutVersion: optional(number),
     }),
     list: object({
       ...base,

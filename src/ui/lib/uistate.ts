@@ -78,25 +78,33 @@ export function useUIState<T>(name: string, initial: T): [T, Set<T>] {
   return [value, set];
 }
 
+function readPersisted<T>(key: string, initial: T): T {
+  try {
+    const raw = localStorage.getItem(storageKey(key));
+    return raw === null ? initial : (JSON.parse(raw) as T);
+  } catch {
+    return initial;
+  }
+}
+
+/** A saved layout choice; switching `key` reads that key's value instead. */
 export function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
-  const [value, setValue] = useState<T>(() => {
-    try {
-      const raw = localStorage.getItem(storageKey(key));
-      return raw === null ? initial : (JSON.parse(raw) as T);
-    } catch {
-      return initial;
-    }
-  });
+  const [state, setState] = useState(() => ({ key, value: readPersisted(key, initial) }));
+  let current = state;
+  if (state.key !== key) {
+    current = { key, value: readPersisted(key, initial) };
+    setState(current);
+  }
   const set = useCallback(
     (v: T) => {
-      setValue(v);
+      setState({ key, value: v });
       try {
         localStorage.setItem(storageKey(key), JSON.stringify(v));
       } catch {}
     },
     [key],
   );
-  return [value, set];
+  return [current.value, set];
 }
 
 /**
