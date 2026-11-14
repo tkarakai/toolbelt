@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.5 — 2026-11-14
 - Tables size columns from declared widths: only growing columns follow the window, and other columns hide by priority once those reach their minimum. Drag a header edge to resize a column (double-click restores its default) or drag a header to reorder columns; ToolBelt remembers both per plugin table. Sparklines and port chips show again whenever their cells have room.
 
 ## 0.3.4 — 2026-11-12
