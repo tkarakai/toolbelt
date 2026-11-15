@@ -91,6 +91,8 @@ const hue = enumeration(
   "stone",
 );
 const color = union(tone, hue);
+/** One key, or `alt+`/`shift+` (in that order) before a key or an arrow name. */
+export const ACTION_KEY = /^(?:.|(?:alt\+(?:shift\+)?|shift\+)(?:[^+\s]|up|down|left|right))$/u;
 const dot = union(
   color,
   object({
@@ -113,7 +115,7 @@ const actionFields = {
   checked: optional(bool),
   key: optional((v: unknown, p: string) => {
     text(v, p);
-    if ((v as string).length !== 1) fail(p);
+    if (!ACTION_KEY.test(v as string)) fail(p);
   }),
 };
 /** A split button's alternatives: plain actions, one level deep. */
@@ -208,6 +210,7 @@ const row: Schema = (v, p) =>
     stats: optional(array(stat)),
     children: optional(array(row)),
     targets: optional(record(array(target))),
+    unread: optional(bool),
   })(v, p);
 const pixels: Schema = (v, p) => {
   number(v, p);
@@ -230,6 +233,16 @@ const column = object({
   sortable: optional(bool),
   sortDesc: optional(bool),
 });
+const section = object({
+  id: text,
+  label: text,
+  icon: optional(text),
+  empty: optional(text),
+  collapsed: optional(bool),
+  order: optional(enumeration("manual", "fixed", false)),
+  dropLabel: optional(text),
+  dropIcon: optional(text),
+});
 const empty = object({
   title: text,
   description: optional(text),
@@ -242,6 +255,20 @@ const environment = object({
   selected: bool,
   secret: bool,
 });
+const rowCount: Schema = (v, p) => {
+  number(v, p);
+  if (!Number.isInteger(v) || (v as number) < 1 || (v as number) > 40) fail(p);
+};
+/** "" (no date), a real local date, or a date and time. */
+const localDateTime: Schema = (v, p) => {
+  text(v, p);
+  if (v === "") return;
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T([01]\d|2[0-3]):([0-5]\d))?$/.exec(v as string);
+  if (!m) fail(p);
+  const [y, mo, d] = [Number(m![1]), Number(m![2]), Number(m![3])];
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) fail(p);
+};
 const field: Schema = (v, p) => {
   const base = { id: text, label: text, description: optional(text) };
   switch ((v as any)?.type) {
@@ -272,6 +299,55 @@ const field: Schema = (v, p) => {
         sensitive: optional(bool),
       })(v, p);
       break;
+    case "textarea":
+      object({
+        ...base,
+        type: literal("textarea"),
+        value: text,
+        placeholder: optional(text),
+        markdown: optional(bool),
+        rows: optional(rowCount),
+      })(v, p);
+      break;
+    case "datetime":
+      object({ ...base, type: literal("datetime"), value: localDateTime, time: optional(bool) })(v, p);
+      if ((v as any).time === false && (v as any).value.includes("T")) fail(`${p}.value`);
+      break;
+    case "color":
+      object({ ...base, type: literal("color"), value: hue })(v, p);
+      break;
+    case "combobox":
+      object({
+        ...base,
+        type: literal("combobox"),
+        value: text,
+        options: array(object({ value: text, label: text, sub: optional(text) })),
+        freeform: optional(bool),
+        placeholder: optional(text),
+      })(v, p);
+      break;
+    case "tags": {
+      object({
+        ...base,
+        type: literal("tags"),
+        value: array(object({ key: text, value: optional(text) })),
+        keys: array(
+          object({
+            key: text,
+            label: text,
+            color: optional(color),
+            values: optional(array(text)),
+            freeform: optional(bool),
+            flag: optional(bool),
+          }),
+        ),
+      })(v, p);
+      const keys = (v as any).keys.map((k: { key: string }) => k.key);
+      if (new Set(keys).size !== keys.length) fail(`${p}.keys`);
+      const used = (v as any).value.map((t: { key: string }) => t.key);
+      if (new Set(used).size !== used.length || used.some((k: string) => !keys.includes(k))) fail(`${p}.value`);
+      break;
+    }
     default:
       fail(p);
   }
@@ -336,6 +412,9 @@ const node: Schema = (v, p) => {
       sort: optional(object({ key: text, desc: bool })),
       overflow: optional(enumeration("hide", "scroll")),
       layoutVersion: optional(number),
+      sections: optional(array(section)),
+      reorder: optional(bool),
+      selectEvents: optional(bool),
     }),
     list: object({
       ...base,
@@ -350,6 +429,7 @@ const node: Schema = (v, p) => {
           meta: optional(text),
           metaAt: optional(timestamp),
           actions,
+          unread: optional(bool),
         }),
       ),
       empty: optional(empty),

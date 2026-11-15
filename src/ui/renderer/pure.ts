@@ -1,6 +1,6 @@
 // The renderer's pure parts — layout decisions and text helpers — kept free of React and the
 // web view, so the tests can import them.
-import type { Action, Column, DetailItem } from "../../shared/protocol";
+import type { Action, Column, DetailItem, Row, Section } from "../../shared/protocol";
 
 /**
  * Actions in their groups (`Action.group`), groups in order of first appearance. Without any
@@ -26,6 +26,40 @@ export const withAlternatives = (actions: Action[]): Action[] => actions.flatMap
 /** The enabled action or alternative whose one-key shortcut is `key` (case-insensitive). */
 export const actionForKey = (actions: Action[], key: string): Action | undefined =>
 	withAlternatives(actions).find((a) => !!a.key && a.key.toLowerCase() === key.toLowerCase() && !a.disabled);
+
+type KeyLike = { key: string; code?: string; altKey?: boolean; shiftKey?: boolean };
+const ARROWS: Record<string, string> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+
+/**
+ * The shortcut names a key press can mean, most specific first: `alt+shift+up`, then the plain
+ * key ("j" also for J, as before modifier shortcuts). ⌥ changes the typed character on macOS
+ * (⌥S types ß), so letters and digits with modifiers come from the physical key.
+ */
+export function keyNames(e: KeyLike): string[] {
+	const arrow = ARROWS[e.key];
+	const physical = e.code && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : e.code && /^Digit\d$/.test(e.code) ? e.code.slice(5) : undefined;
+	const base = arrow ?? physical ?? e.key.toLowerCase();
+	const mods = (e.altKey ? "alt+" : "") + (e.shiftKey ? "shift+" : "");
+	const out: string[] = [];
+	if (mods) out.push(mods + base);
+	if (!e.altKey && !arrow && e.key.length === 1) out.push(e.key.toLowerCase());
+	return out;
+}
+
+/** The enabled action or alternative whose shortcut this key press is. */
+export function actionForEvent(actions: Action[], e: KeyLike): Action | undefined {
+	const all = withAlternatives(actions);
+	for (const name of keyNames(e)) {
+		const a = all.find((x) => !!x.key && x.key.toLowerCase() === name && !x.disabled);
+		if (a) return a;
+	}
+	return undefined;
+}
+
+const KEY_SYMBOLS: Record<string, string> = { alt: "⌥", shift: "⇧", up: "↑", down: "↓", left: "←", right: "→" };
+/** How a shortcut is shown: "alt+up" → "⌥↑", "j" → "J". */
+export const formatKey = (key: string): string =>
+	key.length === 1 ? key.toUpperCase() : key.split("+").map((part) => KEY_SYMBOLS[part] ?? part.toUpperCase()).join("");
 
 // ── table columns: width, order, what fits ──────────────────────────────
 
@@ -286,4 +320,70 @@ export function nextZoom(current: number, cmd: ZoomCommand, steps = ZOOM_STEPS):
 export function groupSummaryLayout(columns: Column[], column: string | undefined, bulk: boolean) {
  const index = column === undefined ? -1 : columns.findIndex(c => c.key === column);
  return { index, labelSpan: (index < 0 ? columns.length + 1 : Math.max(1, index)) + Number(bulk) };
+}
+
+// ── dragging rows between sections (`reorder` tables) ───────────────────
+
+/** Where a dragged row goes: into `section`, before row `before` (null: the end, or the plugin's choice). */
+export type RowMove = { rowId: string; section: string; before: string | null };
+
+/** A row's top-level group key ("" without a group): the section it belongs to. */
+export function rowSection(row: Row): string {
+	const first = typeof row.group === "string" ? row.group : row.group?.[0];
+	if (first === undefined) return "";
+	return typeof first === "string" ? first : (first.id ?? first.label);
+}
+
+const withSection = (group: Row["group"], section: string): Row["group"] =>
+	section === "" ? undefined : Array.isArray(group) && group.length > 1 ? [section, ...group.slice(1)] : section;
+
+/** The rows with one moved, as the renderer shows them until the plugin answers. */
+export function applyMove(rows: Row[], move: RowMove): Row[] {
+	const moving = rows.find((r) => r.id === move.rowId);
+	if (!moving) return rows;
+	const rest = rows.filter((r) => r !== moving);
+	const moved = rowSection(moving) === move.section ? moving : { ...moving, group: withSection(moving.group, move.section) };
+	let at = move.before === null ? -1 : rest.findIndex((r) => r.id === move.before);
+	if (at < 0) {
+		const last = rest.map(rowSection).lastIndexOf(move.section);
+		at = last < 0 ? rest.length : last + 1;
+	}
+	return [...rest.slice(0, at), moved, ...rest.slice(at)];
+}
+
+/** A drop that leaves the row where it is. */
+export function isNoopMove(rows: Row[], move: RowMove): boolean {
+	const i = rows.findIndex((r) => r.id === move.rowId);
+	if (i < 0) return true;
+	const section = rowSection(rows[i]!);
+	if (section !== move.section) return false;
+	if (move.before === move.rowId) return true;
+	const after = rows.slice(i + 1).find((r) => rowSection(r) === section);
+	return move.before === null ? !after : after?.id === move.before;
+}
+
+/** What the pointer is over while dragging: a section header, a top-level row, or something else. */
+export type DropSlot = { kind: "header"; section: string } | { kind: "row"; id: string; section: string } | { kind: "other" };
+
+/**
+ * The move a drop over `slots[index]` makes (in its `lower` half when `lower`). `whole` means the
+ * section takes the row as a whole (a `"fixed"` section, highlighted rather than given a line).
+ * null: the section refuses drops; undefined: not a drop place (keep the previous one).
+ */
+export function resolveDrop(slots: DropSlot[], index: number, lower: boolean, sections: Section[], rowId: string): (Omit<RowMove, "rowId"> & { whole: boolean }) | null | undefined {
+	const slot = slots[index];
+	if (!slot || slot.kind === "other") return undefined;
+	const order = sections.find((s) => s.id === slot.section)?.order ?? "manual";
+	if (order === false) return null;
+	if (order === "fixed") return { section: slot.section, before: null, whole: true };
+	const nextRow = (from: number) => {
+		for (let i = from; i < slots.length; i++) {
+			const s = slots[i]!;
+			if (s.kind === "header") return null;
+			if (s.kind === "row" && s.id !== rowId) return s.section === slot.section ? s.id : null;
+		}
+		return null;
+	};
+	if (slot.kind === "header") return { section: slot.section, before: nextRow(index + 1), whole: false };
+	return { section: slot.section, before: lower ? nextRow(index + 1) : slot.id, whole: false };
 }

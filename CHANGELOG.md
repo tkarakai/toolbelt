@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Plugins can show more kinds of form fields: several lines of text, a Markdown editor that styles what you type as you type it, a date with an optional time, color swatches, a searchable list, and colored label pills you add, change and remove in place.
+- Plugin tables can have fixed sections that show even when empty, mark rows unread (a bold title and a blue dot), and let you drag rows to reorder them or move them between sections. While you drag, a line shows where the row will land and a label says what the drop does (for example “Settle”); Escape cancels.
+- Plugin shortcuts can use ⌥ and ⇧, for example ⌥↑ to move a row up.
 
 ## 0.3.8 — 2026-11-15
 - Table rows animate when a plugin's refresh changes them. Rows that change places slide to their new position (200 ms), and removed rows fade out where they were (150 ms) before the rows below close the gap. New rows already faded in. Your own changes (sorting, filtering, typing, collapsing, clicking), the first paint and Reduce motion change the table at once. A refresh that removes more than 30 rows doesn't fade them.

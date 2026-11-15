@@ -126,3 +126,49 @@ test("refused trees say which limit or field was wrong", () => {
   expect(protocolReason(new Error("short"))).toBe("short");
   expect(protocolReason(new Error("x".repeat(500))).length).toBe(200);
 });
+
+const form = (field: unknown) => ({ type: "form", id: "f", fields: [field] });
+test("rich fields check their values", () => {
+  const good = [
+    { type: "textarea", id: "d", label: "D", value: "# hi", markdown: true, rows: 6 },
+    { type: "datetime", id: "w", label: "W", value: "" },
+    { type: "datetime", id: "w", label: "W", value: "2026-02-28" },
+    { type: "datetime", id: "w", label: "W", value: "2026-11-20T09:05" },
+    { type: "color", id: "c", label: "C", value: "teal" },
+    { type: "combobox", id: "t", label: "T", value: "x", options: [{ value: "1", label: "One", sub: "#1" }], freeform: true },
+    { type: "tags", id: "l", label: "L", value: [{ key: "p", value: "High" }, { key: "f" }], keys: [{ key: "p", label: "Priority", color: "orange", values: ["High"] }, { key: "f", label: "Flag", flag: true }] },
+  ];
+  for (const f of good) expect(() => validateTree(form(f))).not.toThrow();
+  const bad = [
+    { type: "textarea", id: "d", label: "D", value: "", rows: 0 },
+    { type: "datetime", id: "w", label: "W", value: "2026-02-30" },
+    { type: "datetime", id: "w", label: "W", value: "2026-11-20T24:00" },
+    { type: "datetime", id: "w", label: "W", value: "2026-11-20T10:00", time: false },
+    { type: "color", id: "c", label: "C", value: "magenta" },
+    { type: "combobox", id: "t", label: "T", value: "x", options: [{ value: 1, label: "One" }] },
+    { type: "tags", id: "l", label: "L", value: [{ key: "zzz" }], keys: [{ key: "p", label: "P" }] },
+    { type: "tags", id: "l", label: "L", value: [{ key: "p" }, { key: "p" }], keys: [{ key: "p", label: "P" }] },
+    { type: "tags", id: "l", label: "L", value: [], keys: [{ key: "p", label: "P" }, { key: "p", label: "Q" }] },
+  ];
+  for (const f of bad) expect(() => validateTree(form(f))).toThrow();
+});
+test("tables accept sections, reorder, select events and unread rows", () => {
+  const tree = {
+    type: "table",
+    id: "t",
+    columns: [{ key: "x", title: "X" }],
+    rows: [{ id: "a", cells: { x: "A" }, group: "inbox", unread: true }],
+    sections: [{ id: "inbox", label: "Inbox", empty: "Nothing new" }, { id: "settled", label: "Settled", collapsed: true, order: "fixed", dropLabel: "Settle", dropIcon: "check" }, { id: "snoozed", label: "Snoozed", order: false }],
+    reorder: true,
+    selectEvents: true,
+  };
+  expect(() => validateTree(tree)).not.toThrow();
+  expect(() => validateTree({ ...tree, sections: [{ id: "x", label: "X", order: "random" }] })).toThrow();
+  expect(() => validateTree({ ...tree, rows: [{ id: "a", cells: { x: "A" }, unread: "yes" }] })).toThrow();
+  expect(() => validateTree({ type: "list", id: "l", items: [{ id: "1", title: "T", unread: true }] })).not.toThrow();
+});
+test("action keys are one key, or alt/shift before a key or arrow", () => {
+  const withKey = (key: string) => ({ type: "page", actions: [{ id: "a", label: "A", key }], children: [] });
+  for (const key of ["j", "alt+up", "alt+shift+down", "shift+s", "alt+1"]) expect(() => validateTree(withKey(key))).not.toThrow();
+  for (const key of ["up", "jj", "ctrl+a", "cmd+s", "shift+alt+x", "alt+"]) expect(() => validateTree(withKey(key))).toThrow();
+});

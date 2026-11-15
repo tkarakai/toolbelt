@@ -102,6 +102,13 @@ feedback; plugins receive meaningful events. Group summaries can bind to a table
 Actions with `menu` render as split buttons. Their alternatives also appear in row menus and
 answer row shortcut keys. Pages can place segmented controls beside search; options support hover/focus explanations,
 and selection is immediate in the renderer before the field event reaches the plugin.
+Forms add `textarea` (with a CodeMirror editor that styles Markdown as typed), `datetime`,
+`color`, `combobox` and `tags` fields in `renderer/fields.tsx`; values commit on blur or pick.
+Tables can declare `sections`, mark rows `unread`, send `select` once the selection rests 400 ms,
+and let people drag rows between sections. The drag logic (where a drop lands, which drops
+change nothing, the optimistic move shown until the next tree) is pure code in `renderer/pure.ts`.
+Action keys may carry `alt+`/`shift+`; `keyNames` reads the physical key because ⌥ changes the
+typed character on macOS.
 Tables lay out declared column widths with fixed table layout; people resize and reorder
 columns by dragging headers, and the renderer saves those choices per plugin table. Resizing
 drags the boundary between two columns: the columns to its right pay for the change and

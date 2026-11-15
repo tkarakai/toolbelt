@@ -120,7 +120,8 @@ explicit targets such as `darwin-arm64` or `darwin-x64`; ship every required bin
 `requires.host` and `requires.bun` are compatible ranges, not SDK equality checks.
 
 Capabilities are `ui.core`, `ui.action-key`, `ui.terminal`, `ui.conversation`, `assets`,
-`lifecycle`, `native.handoff`, `ui.split-action` and `navigate`. Require what cannot be omitted. For optional features, test
+`lifecycle`, `native.handoff`, `ui.split-action`, `navigate`, `ui.rich-fields`, `ui.row-select`,
+`ui.row-reorder` and `ui.modifier-keys`. Require what cannot be omitted. For optional features, test
 `context.capabilities.has(name)` and render a working fallback. Unknown required features
 prevent activation; declaring a feature optional does not implement its fallback.
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing
@@ -342,6 +343,48 @@ shows the screen and selects `select` there through the same stable-ID handoff a
 Enter. The Plugin Tester shows the screen in its embedded window. A toast button reaches the
 plugin as an event with `surface: "toast"`, so the plugin can respond to it by navigating.
 Without the `navigate` capability, the SDK method returns false and sends nothing.
+
+### Rich form fields
+
+With `ui.rich-fields`, forms accept five more field types. Each sends `field` with
+`{form, field, value}` when the person commits a value; typing stays in the renderer.
+
+| Type | Value | Notes |
+| --- | --- | --- |
+| `textarea` | text | Several lines; `rows` sets the height. With `markdown: true`, an editor styles Markdown as it's typed (headings, emphasis, code, links) and keeps the source unchanged. Commits on blur and ⌘↵. |
+| `datetime` | `""`, `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` | Local wall-clock date with an optional time and a clear button. `time: false` allows dates only. |
+| `color` | a hue | Swatches of the named theme colors, which stay legible in every theme. Arrow keys move the choice. |
+| `combobox` | text | A searchable list of `{value, label, sub?}`. `freeform: true` also offers “Use …” for typed text. |
+| `tags` | `[{key, value?}]` | Pills, at most one per key, drawn in the key's `color`. `keys` declares each key: `flag` keys have no value, `values` keys pick from a list (any text too with `freeform`), others take free text. Add, change and remove all send the whole array. |
+
+`textarea`, `tags` and `color` take the form's full width under their label. Hosts without the
+capability reject these field types, so require it.
+
+### Sections, unread rows, selection and drag-to-reorder
+
+Tables can declare `sections`: top-level groups in a fixed order that show even with no rows
+(`empty` is shown in the header then) and can start `collapsed`. Rows join one with
+`group: "<section id>"`. `Row.unread` and list items' `unread` draw a bold title and a dot for
+something new since the person last looked; older hosts ignore them.
+
+With `selectEvents: true` (capability `ui.row-select`), the table sends `select` with
+`{table, rowId}` once the selection rests on a row for 400 ms, and `rowId: null` when the
+selection is cleared or is on a group header. Use it to mark items read when they are opened.
+
+With `reorder: true` (capability `ui.row-reorder`), people drag top-level rows within and
+between sections. A drop sends `reorder` with `{table, rowId, section, before}`: the row goes
+into `section` before row `before`, or at the end when `before` is null. A section's `order`
+says how it takes drops: `"manual"` (default) at the position shown, `"fixed"` anywhere in it
+with the plugin choosing the position (a section sorted by time), `false` not at all.
+`dropLabel` and `dropIcon` name what a drop from another section does ("Settle"); the chip
+under the pointer shows it. The renderer shows the row in its new place until the next tree,
+so apply the move or re-render to undo it. Escape cancels a drag.
+
+### Modifier shortcuts
+
+With `ui.modifier-keys`, `Action.key` may put `alt+` and/or `shift+` (in that order) before a
+key or `up`, `down`, `left`, `right`: `"alt+up"`, `"shift+s"`. They act on the selected row
+and are shown as ⌥↑ and ⇧S. Plain keys behave as before. Older hosts reject these keys.
 
 ### Segmented toolbar controls
 

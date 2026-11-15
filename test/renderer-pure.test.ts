@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Action, Column } from "../src/shared/protocol";
-import { actionForKey, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
+import { actionForEvent, actionForKey, applyMove, formatKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -230,5 +230,84 @@ describe("split-button alternatives", () => {
 		expect(actionForKey([update], "U")?.id).toBe("update");
 		expect(actionForKey([update], "r")?.id).toBe("review");
 		expect(actionForKey([update], "t")).toBeUndefined();
+	});
+});
+
+describe("modifier shortcuts", () => {
+	const acts: Action[] = [
+		{ id: "up", label: "Move up", key: "alt+up" },
+		{ id: "snooze", label: "Snooze", key: "s" },
+		{ id: "settle", label: "Settle", key: "shift+s" },
+	];
+	test("a key press matches its most specific shortcut", () => {
+		expect(keyNames({ key: "ArrowUp", code: "ArrowUp", altKey: true })).toEqual(["alt+up"]);
+		expect(keyNames({ key: "ß", code: "KeyS", altKey: true })).toEqual(["alt+s"]);
+		expect(keyNames({ key: "S", code: "KeyS", shiftKey: true })).toEqual(["shift+s", "s"]);
+		expect(actionForEvent(acts, { key: "ArrowUp", code: "ArrowUp", altKey: true })?.id).toBe("up");
+		expect(actionForEvent(acts, { key: "S", code: "KeyS", shiftKey: true })?.id).toBe("settle");
+		expect(actionForEvent(acts, { key: "s", code: "KeyS" })?.id).toBe("snooze");
+		expect(actionForEvent(acts, { key: "ArrowUp", code: "ArrowUp" })).toBeUndefined();
+		// Without a ⇧ shortcut, J still means j, as before.
+		expect(actionForEvent([{ id: "j", label: "J", key: "j" }], { key: "J", code: "KeyJ", shiftKey: true })?.id).toBe("j");
+	});
+	test("shortcuts are shown with symbols", () => {
+		expect(formatKey("alt+up")).toBe("⌥↑");
+		expect(formatKey("alt+shift+down")).toBe("⌥⇧↓");
+		expect(formatKey("shift+s")).toBe("⇧S");
+		expect(formatKey("j")).toBe("J");
+	});
+});
+
+describe("dragging rows between sections", () => {
+	const rows = [
+		{ id: "a", cells: {}, group: "inbox" },
+		{ id: "b", cells: {}, group: "inbox" },
+		{ id: "c", cells: {}, group: "working" },
+		{ id: "d", cells: {}, group: [{ id: "settled", label: "Settled" }] },
+	];
+	const sections = [
+		{ id: "inbox", label: "Inbox" },
+		{ id: "working", label: "Working" },
+		{ id: "snoozed", label: "Snoozed", order: false as const },
+		{ id: "settled", label: "Settled", order: "fixed" as const, dropLabel: "Settle" },
+	];
+	const slots: DropSlot[] = [
+		{ kind: "header", section: "inbox" },
+		{ kind: "row", id: "a", section: "inbox" },
+		{ kind: "row", id: "b", section: "inbox" },
+		{ kind: "header", section: "working" },
+		{ kind: "row", id: "c", section: "working" },
+		{ kind: "header", section: "snoozed" },
+		{ kind: "header", section: "settled" },
+		{ kind: "row", id: "d", section: "settled" },
+	];
+	test("rows know their section", () => {
+		expect(rows.map(rowSection)).toEqual(["inbox", "inbox", "working", "settled"]);
+		expect(rowSection({ id: "x", cells: {} })).toBe("");
+	});
+	test("a drop lands before a row, after it, or at the top of a section", () => {
+		expect(resolveDrop(slots, 2, false, sections, "c")).toEqual({ section: "inbox", before: "b", whole: false });
+		expect(resolveDrop(slots, 2, true, sections, "c")).toEqual({ section: "inbox", before: null, whole: false });
+		expect(resolveDrop(slots, 3, false, sections, "a")).toEqual({ section: "working", before: "c", whole: false });
+		expect(resolveDrop(slots, 4, true, sections, "a")).toEqual({ section: "working", before: null, whole: false });
+		// The dragged row itself is skipped when finding the next one.
+		expect(resolveDrop(slots, 1, true, sections, "b")).toEqual({ section: "inbox", before: null, whole: false });
+	});
+	test("fixed sections take the row whole; refusing sections take nothing", () => {
+		expect(resolveDrop(slots, 6, false, sections, "a")).toEqual({ section: "settled", before: null, whole: true });
+		expect(resolveDrop(slots, 7, true, sections, "a")).toEqual({ section: "settled", before: null, whole: true });
+		expect(resolveDrop(slots, 5, false, sections, "a")).toBeNull();
+		expect(resolveDrop([{ kind: "other" }], 0, false, sections, "a")).toBeUndefined();
+	});
+	test("moves apply locally and no-op drops are recognized", () => {
+		expect(applyMove(rows, { rowId: "c", section: "inbox", before: "a" }).map((r) => [r.id, rowSection(r)])).toEqual([["c", "inbox"], ["a", "inbox"], ["b", "inbox"], ["d", "settled"]]);
+		expect(applyMove(rows, { rowId: "a", section: "working", before: null }).map((r) => r.id)).toEqual(["b", "c", "a", "d"]);
+		expect(applyMove(rows, { rowId: "a", section: "snoozed", before: null }).map((r) => [r.id, rowSection(r)]).at(-1)).toEqual(["a", "snoozed"]);
+		expect(applyMove(rows, { rowId: "a", section: "settled", before: null }).find((r) => r.id === "a")!.group).toBe("settled");
+		expect(isNoopMove(rows, { rowId: "a", section: "inbox", before: "b" })).toBe(true);
+		expect(isNoopMove(rows, { rowId: "a", section: "inbox", before: "a" })).toBe(true);
+		expect(isNoopMove(rows, { rowId: "b", section: "inbox", before: null })).toBe(true);
+		expect(isNoopMove(rows, { rowId: "b", section: "inbox", before: "a" })).toBe(false);
+		expect(isNoopMove(rows, { rowId: "a", section: "working", before: null })).toBe(false);
 	});
 });
