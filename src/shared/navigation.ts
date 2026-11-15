@@ -5,6 +5,11 @@ export type NavigationSelection = { item: string; collection?: string };
 export type WindowNavigation = { plugin: string; screen?: string; selection?: NavigationSelection };
 export type SelectionTarget = NavigationSelection & { collection: string; ancestors: string[]; groups: string[] };
 
+/** Which selection a target is. A target is recomputed whenever the plugin sends a new tree, so
+ *  a collection reveals (scrolls to, expands) its selection only when this key changes; otherwise
+ *  every refresh would undo the person's scrolling and collapsing. */
+export const selectionKey = (target: SelectionTarget | null): string | null => (target ? `${target.collection}\0${target.item}` : null);
+
 /** Collections can have different IDs across surfaces; prefer the same collection, then
  * match the stable item ID. Never infer identity from a label or select an unrelated row. */
 export function findSelectionTarget(tree: Node, selection: NavigationSelection): SelectionTarget | null {

@@ -15,6 +15,7 @@ import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, 
 import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Tag, Target, Tone } from "../../shared/protocol";
 import { dotClass, dotSpec, pillClass, textClass } from "./colors";
 import { duration, refreshEvery, relative } from "../../shared/time";
+import { selectionKey } from "../../shared/navigation";
 import { cn } from "@/lib/utils";
 import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
@@ -1270,7 +1271,11 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		return () => window.removeEventListener("keydown", onKey);
 	}, [items, selected, expanded, toggle, toggleGroup, select, actionsFor, trigger, setSelected, bulk, check]);
 
+    const revealedTarget = useRef<string | null>(null);
     useLayoutEffect(() => {
+        const key = selectionKey(sharedTarget);
+        if (key === revealedTarget.current) return;
+        revealedTarget.current = key;
         if (!sharedTarget) return;
         if (sharedTarget.ancestors.some(id => !openIds.has(id)))
             setOverrides(previous => ({ ...previous, ...Object.fromEntries(sharedTarget.ancestors.map(id => [id, true])) }));
@@ -1884,7 +1889,11 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
 	}, [keyboard, node.items, active, setActive, run]);
+    const revealedTarget = useRef<string | null>(null);
     useLayoutEffect(() => {
+        const key = selectionKey(sharedTarget);
+        if (key === revealedTarget.current) return;
+        revealedTarget.current = key;
         if (sharedTarget) requestAnimationFrame(() => self.current?.querySelector(`[data-item-id="${CSS.escape(sharedTarget.item)}"]`)?.scrollIntoView({ block: "nearest" }));
     }, [sharedTarget]);
     const restoreSelection = () => {
