@@ -110,7 +110,10 @@ preference toggled from the pane header (`PaneActionsContext` gives renderers th
 `renderer/pure.ts` contains testable layout
 rules, including column layout and ordering. Themes use separate selection tokens and enforce AA contrast. Motion is 200 ms easing
 out, with shorter exits and global reduced-motion support; continuously changing values do
-not animate. Native popover positioning and lifecycle are shared by app and tester.
+not animate. `renderer/row-motion.ts` animates table rows a refresh changes: moved rows slide
+(FLIP) and removed rows fade out in place before the gap closes. It skips changes within 600 ms
+of a click or key press, sort changes, the first paint, reduced motion and refreshes that remove
+more than 30 rows. Native popover positioning and lifecycle are shared by app and tester.
 
 Plugin navigation order is a profile-scoped renderer preference shared between the sidebar and
 popover through local storage events. Dragging previews placement locally and saves on drop;
