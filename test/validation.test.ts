@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { validateTree, validateMessage } from "../src/shared/validation";
+import { protocolReason, validateTree, validateMessage } from "../src/shared/validation";
 const table = (cell: unknown) => ({
   type: "table",
   id: "test",
@@ -115,4 +115,14 @@ test("navigate messages name a screen and optionally an item", () => {
   expect(() => validateMessage({ type: "navigate", screen: "queue", select: "job-1" })).not.toThrow();
   expect(() => validateMessage({ type: "navigate" })).toThrow();
   expect(() => validateMessage({ type: "navigate", screen: "queue", select: 3 })).toThrow();
+});
+test("refused trees say which limit or field was wrong", () => {
+  let deep: unknown = { type: "text", text: "leaf" };
+  for (let i = 0; i < 40; i++) deep = { type: "stack", children: [deep] };
+  expect(() => validateTree(deep)).toThrow("nested deeper than 32 levels");
+  const wide = { type: "list", id: "l", items: Array.from({ length: 20_000 }, (_, i) => ({ id: String(i), title: "x" })) };
+  expect(() => validateTree(wide)).toThrow("more than 50000 values");
+  expect(() => validateTree(table({ text: {} }))).toThrow("Invalid protocol value at tree.");
+  expect(protocolReason(new Error("short"))).toBe("short");
+  expect(protocolReason(new Error("x".repeat(500))).length).toBe(200);
 });

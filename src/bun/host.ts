@@ -18,7 +18,7 @@ import {
   parsePackageManifest,
   type PackageManifest,
 } from "../shared/package";
-import { validateMessage, validateEventPayload } from "../shared/validation";
+import { protocolReason, validateMessage, validateEventPayload } from "../shared/validation";
 import {
   runtimeEnv,
   verifyPackageBytes,
@@ -336,9 +336,15 @@ export class PluginProcess {
         let msg: PluginMessage;
         try {
           msg = JSON.parse(line);
-          validateMessage(msg);
         } catch {
-          this.fail(`Invalid protocol message`);
+          this.fail("Invalid protocol message: not JSON");
+          return;
+        }
+        try {
+          validateMessage(msg);
+        } catch (error) {
+          // Say what was wrong (which field, or which limit), so a plugin author can fix it.
+          this.fail(`Invalid protocol message: ${protocolReason(error)}`);
           return;
         }
         this.opts.diagnostic?.(
