@@ -175,6 +175,14 @@ export type Action = {
 	 * the tooltip, the row menu and the details drawer's buttons.
 	 */
 	key?: string;
+	/**
+	 * A split button: alternatives to this action for the same target, in a menu attached to
+	 * the button ("Update" ▾ "Review first…"). The button runs this action; picking an
+	 * alternative sends the alternative's id with the same payload and honors its own
+	 * `confirm`, `disabled`, `tone`, `icon` and `key`. One level: alternatives have no `menu`.
+	 * Needs the `ui.split-action` capability; older hosts show only the main button.
+	 */
+	menu?: Action[];
 };
 
 /**
@@ -386,7 +394,13 @@ export type PluginMessage =
 	| { type: "badge"; value: number | string | null }
 	| { type: "toast"; text: string; tone?: "default" | "success" | "error"; /** a button on the toast; clicking sends this event, surface "toast" */ action?: { id: string; label: string; payload?: unknown } }
 	/** Put text on the clipboard. */
-	| { type: "clipboard"; text: string };
+	| { type: "clipboard"; text: string }
+	/**
+	 * Show one of the plugin's screens in the main window, optionally selecting an item (a
+	 * stable row/list item id). Honored only shortly after the person acted on the plugin, so
+	 * it never steals focus. Needs the `navigate` capability.
+	 */
+	| { type: "navigate"; screen: string; select?: string };
 
 /** Events Toolbelt sends, by `name`. */
 export type EventPayloads = {

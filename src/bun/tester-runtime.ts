@@ -51,6 +51,8 @@ export class TesterRuntime {
       tree: (plugin, surface, tree) =>
         this.record("validated-render", { plugin, surface, tree }),
       toast: (plugin, text) => this.record("toast", { plugin, text }),
+      navigate: (plugin, screen, select) =>
+        this.record("navigate", { plugin, screen, select }),
     });
   }
   record(kind: string, detail: unknown) {

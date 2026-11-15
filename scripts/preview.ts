@@ -58,6 +58,12 @@ host.subscribe({
     p.stdin.write(text);
     p.stdin.end();
   },
+  navigate: (plugin, screen, select) =>
+    broadcast("navigate", {
+      plugin,
+      screen,
+      selection: select ? { item: select } : undefined,
+    }),
 });
 host.start();
 manager.start();

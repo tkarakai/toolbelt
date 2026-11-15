@@ -57,6 +57,7 @@ describe("PluginHost", () => {
   function start() {
     const trees: { plugin: string; surface: string; tree: Node }[] = [];
     const toasts: string[] = [];
+    const navigations: string[] = [];
     let plugins: PluginInfo[] = [];
     host = new PluginHost({
       dirs: [join(fixtures, "echo"), join(fixtures, "crash")],
@@ -68,9 +69,10 @@ describe("PluginHost", () => {
       plugins: (l) => (plugins = l),
       tree: (plugin, surface, tree) => trees.push({ plugin, surface, tree }),
       toast: (_p, t) => toasts.push(t),
+      navigate: (p, screen, select) => navigations.push(`${p}/${screen}/${select}`),
     });
     host.start();
-    return { trees, toasts, plugins: () => plugins };
+    return { trees, toasts, navigations, plugins: () => plugins };
   }
 
   test("opens a surface, relays events, badges and toasts", async () => {
@@ -93,6 +95,17 @@ describe("PluginHost", () => {
       type: "text",
       text: "count 1",
     });
+  });
+
+  test("navigation follows the person's action, to declared screens only", async () => {
+    const s = start();
+    host!.open("echo", "screen:main");
+    await until(() => s.trees.find((t) => t.surface === "screen:main"));
+    expect(s.navigations).toEqual([]); // start-up navigation: nobody asked
+    host!.event("echo", "screen:main", "go", { screen: "nope" });
+    host!.event("echo", "screen:main", "go", { screen: "main" });
+    await until(() => s.navigations.length);
+    expect(s.navigations).toEqual(["echo/main/row-1"]);
   });
 
   test("each plugin gets its own data folder", async () => {

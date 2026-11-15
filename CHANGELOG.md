@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Plugin buttons can be split buttons: the button runs the main action and its chevron opens alternatives (for example Update ▾ Review first). Row menus list the alternatives under their action, and their shortcut keys work on the selected row.
+- Plugins can take you to one of their screens, with an item selected, right after you act on them (for example a toast's Show button). Plugins can't switch screens or bring the window forward on their own.
 - Show or hide the details drawer with ⌥⌘B (View → Toggle Details).
 - The sidebar, details drawer and Settings icon buttons in the window no longer show a permanent shortcut hint. Hovering or focusing them shows a card with what clicking will do now ("Collapse sidebar", "Show details", "Open settings") and its keys.
 - Column dividers in table headers are always visible, so it's clear where to drag.

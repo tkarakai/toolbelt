@@ -120,7 +120,7 @@ explicit targets such as `darwin-arm64` or `darwin-x64`; ship every required bin
 `requires.host` and `requires.bun` are compatible ranges, not SDK equality checks.
 
 Capabilities are `ui.core`, `ui.action-key`, `ui.terminal`, `ui.conversation`, `assets`,
-`lifecycle` and `native.handoff`. Require what cannot be omitted. For optional features, test
+`lifecycle`, `native.handoff`, `ui.split-action` and `navigate`. Require what cannot be omitted. For optional features, test
 `context.capabilities.has(name)` and render a working fallback. Unknown required features
 prevent activation; declaring a feature optional does not implement its fallback.
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing
@@ -318,6 +318,30 @@ numbers do not need to match. Coordinate publication using the
 [release sequencing guidance](releases.md#coordinating-app-sdk-and-plugin-changes).
 New SDK release tools require deliberate consumer pins and compatible workflow inputs;
 they do not update installed plugins automatically.
+
+### Split buttons
+
+`Action.menu` lists alternatives for the same target. Toolbars, cards, dialog footers, bulk
+actions and the details drawer draw the action as a split button: the main part runs the
+action and a joined chevron opens the alternatives. In the row menu, alternatives appear
+indented under their action. List items show them as extra icon buttons. Picking one sends
+its own id with the same payload (`rowId`, `rowIds` or `dialog`). It honors its own `confirm`,
+`disabled`, `tone`, `icon` and `key`, and its key works on the selected row. Only one level
+is allowed: alternatives cannot have `menu` or `checked`, and a switch (`checked`) cannot have
+a menu. Hosts without `ui.split-action` ignore `menu` and show only the main button, so make
+the main action a safe default or require the capability.
+
+### Navigating to a screen
+
+`Context.navigate(screen, {select?})` sends `{type: "navigate", screen, select?}`. The host
+honors it only for a screen declared in the manifest, and only within 10 s after it delivered
+an event (an action, field, search, sort, filter, dialog or toast-button event) to that plugin.
+Each event allows one navigation. Opening or closing a surface doesn't count as an event.
+Rejected calls are logged as diagnostics. An honored call opens or focuses the main window,
+shows the screen and selects `select` there through the same stable-ID handoff as quick-view
+Enter. The Plugin Tester shows the screen in its embedded window. A toast button reaches the
+plugin as an event with `surface: "toast"`, so the plugin can respond to it by navigating.
+Without the `navigate` capability, the SDK method returns false and sends nothing.
 
 ### Segmented toolbar controls
 

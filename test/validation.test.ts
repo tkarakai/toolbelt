@@ -100,3 +100,19 @@ test("column layout fields and table overflow are checked", () => {
     expect(() => validateTree(withColumn(column))).toThrow();
   expect(() => validateTree(withColumn({}, { overflow: "wrap" }))).toThrow();
 });
+test("split-button alternatives are one level of plain actions", () => {
+  const page = (action: unknown) => ({ type: "page", actions: [action], children: [] });
+  const alt = { id: "review", label: "Review first", icon: "eye", key: "r", confirm: "Sure?" };
+  expect(() => validateTree(page({ id: "update", label: "Update", menu: [alt] }))).not.toThrow();
+  expect(() => validateTree(page({ id: "update", label: "Update", menu: [{ ...alt, menu: [] }] }))).toThrow();
+  expect(() => validateTree(page({ id: "update", label: "Update", menu: [{ ...alt, checked: true }] }))).toThrow();
+  expect(() => validateTree(page({ id: "update", label: "Update", checked: true, menu: [alt] }))).toThrow();
+  expect(() => validateTree(page({ id: "update", label: "Update", menu: [{ id: "x" }] }))).toThrow();
+  expect(() => validateTree(page({ id: "update", label: "Update", menu: {} }))).toThrow();
+});
+test("navigate messages name a screen and optionally an item", () => {
+  expect(() => validateMessage({ type: "navigate", screen: "queue" })).not.toThrow();
+  expect(() => validateMessage({ type: "navigate", screen: "queue", select: "job-1" })).not.toThrow();
+  expect(() => validateMessage({ type: "navigate" })).toThrow();
+  expect(() => validateMessage({ type: "navigate", screen: "queue", select: 3 })).toThrow();
+});

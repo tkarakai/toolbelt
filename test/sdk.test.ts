@@ -92,3 +92,18 @@ test("SDK preserves column-bound group summaries through the fake host", async (
  await tick();
  expect(h.out.at(-1)).toEqual({type:"render",surface:"screen:a",tree});
 });
+
+test("navigate is sent only when the host offers it", async () => {
+	const h = harness();
+	const ctx = definePlugin({ render: {} }, { write: h.write, input: h.input });
+	await tick();
+	h.send({ type: "hello", protocol: 1, capabilities: ["ui.core"], plugin: { id: "t" }, host: { name: "test", version: "0" } });
+	await tick();
+	expect(ctx.navigate("main")).toBe(false);
+	expect(h.out).toEqual([]);
+	h.send({ type: "hello", protocol: 1, capabilities: ["ui.core", "navigate"], plugin: { id: "t" }, host: { name: "test", version: "0" } });
+	await tick();
+	expect(ctx.navigate("main", { select: "row-1" })).toBe(true);
+	expect(ctx.navigate("other")).toBe(true);
+	expect(h.out).toEqual([{ type: "navigate", screen: "main", select: "row-1" }, { type: "navigate", screen: "other" }]);
+});

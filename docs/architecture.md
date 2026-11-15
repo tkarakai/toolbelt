@@ -80,7 +80,9 @@ explicit profile/package/data/lifecycle variables. It sends `hello`; the plugin 
 its protocol/SDK/capabilities and explicit `ready`. No tree is published before readiness.
 Surfaces are `screen:<id>` and optional `quick`. Visibility produces `open`/`close`; actions,
 fields, search and sort produce `event`. Plugin messages include complete render trees,
-badges, toasts and clipboard requests. stdout is protocol only; stderr is diagnostic output.
+badges, toasts, clipboard requests and screen navigation. The host honors navigation only for
+a declared screen, within 10 s after it delivered an event to that plugin, and once per event.
+It then reuses window navigation and the selection handoff. stdout is protocol only; stderr is diagnostic output.
 
 The host validates every message, tree and host action payload. Limits include a 4 MiB frame,
 32 levels, 50,000 tree values/nodes, 120 messages and 16 MiB per second, 30 renders per second,
@@ -97,7 +99,8 @@ terminal sessions must not belong to a plugin-owned process group.
 `Render.tsx` maps nodes into shared components. `SafeRender`/`Boundary` contain component
 failures. Typing, selection, scroll, column sizes and zoom stay in the renderer for immediate
 feedback; plugins receive meaningful events. Group summaries can bind to a table column key and share its cells, alignment and visibility.
-Pages can place segmented controls beside search; options support hover/focus explanations,
+Actions with `menu` render as split buttons. Their alternatives also appear in row menus and
+answer row shortcut keys. Pages can place segmented controls beside search; options support hover/focus explanations,
 and selection is immediate in the renderer before the field event reaches the plugin.
 Tables lay out declared column widths with fixed table layout; people resize and reorder
 columns by dragging headers, and the renderer saves those choices per plugin table. Resizing

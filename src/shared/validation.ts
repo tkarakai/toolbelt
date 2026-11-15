@@ -100,7 +100,7 @@ const dot = union(
     dim: optional(bool),
   }),
 );
-const action = object({
+const actionFields = {
   id: text,
   label: text,
   icon: optional(text),
@@ -111,11 +111,26 @@ const action = object({
   disabled: optional(bool),
   group: optional(text),
   checked: optional(bool),
-  key: optional((v, p) => {
+  key: optional((v: unknown, p: string) => {
     text(v, p);
     if ((v as string).length !== 1) fail(p);
   }),
+};
+/** A split button's alternatives: plain actions, one level deep. */
+const alternative = object({
+  ...actionFields,
+  menu: (v, p) => {
+    if (v !== undefined) fail(p);
+  },
+  checked: (v, p) => {
+    if (v !== undefined) fail(p);
+  },
 });
+const action: Schema = (v, p) => {
+  object({ ...actionFields, menu: optional(array(alternative)) })(v, p);
+  const a = v as { menu?: unknown[]; checked?: unknown };
+  if (a.menu !== undefined && a.checked !== undefined) fail(`${p}.menu`);
+};
 const actions = optional(array(action));
 const tag = object({
   text,
@@ -486,6 +501,11 @@ export function validateMessage(
       ),
     }),
     clipboard: object({ type: literal("clipboard"), text }),
+    navigate: object({
+      type: literal("navigate"),
+      screen: text,
+      select: optional(text),
+    }),
   };
   const schema = Object.hasOwn(schemas, v?.type) ? schemas[v?.type] : undefined;
   if (!schema) fail("message.type");
