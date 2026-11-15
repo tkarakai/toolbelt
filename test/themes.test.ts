@@ -2,7 +2,7 @@
 // pairing the UI uses, and 3:1 for the focus ring against the page.
 import { describe, expect, test } from "bun:test";
 import { HUES } from "../src/shared/protocol";
-import { THEMES, contrast, textPairs, tokens } from "../src/ui/themes";
+import { SHADE_STRENGTHS, THEMES, contrast, shadeStep, textPairs, tokens } from "../src/ui/themes";
 
 describe.each(THEMES.flatMap((t) => (["light", "dark"] as const).map((mode) => [`${t.name} ${mode}`, t[mode]] as const)))("%s", (_name, palette) => {
 	test.each(textPairs(palette))("%s ≥ 4.5:1", (_label, fg, bg) => {
@@ -53,4 +53,24 @@ describe.each(THEMES.flatMap(t => [t.light, t.dark]))("shared hover semantics", 
         expect(contrast(values.foreground, values.accent)).toBeGreaterThanOrEqual(4.5);
         expect(contrast(values["muted-foreground"], values.accent)).toBeGreaterThanOrEqual(4.5);
     });
+});
+
+describe.each(THEMES.flatMap(t => [t.light, t.dark]))("tag shades", palette => {
+    test("every shade of every hue keeps AA text and gets stronger step by step", () => {
+        const values = tokens(palette);
+        for (const hue of ["success", "warning", "danger", "info", ...HUES]) {
+            let previous = 0;
+            for (let step = 0; step < SHADE_STRENGTHS.length; step++) {
+                const background = values[`shade-${hue}-${step}`]!;
+                expect(contrast(values[`shade-${hue}-${step}-foreground`]!, background)).toBeGreaterThanOrEqual(4.5);
+                const distance = contrast(background, palette.bg);
+                expect(distance).toBeGreaterThanOrEqual(previous);
+                previous = distance;
+            }
+        }
+    });
+});
+
+test("tag shade values map to steps", () => {
+    expect([0, 0.1, 0.5, 0.9, 1, -1, 2].map(shadeStep)).toEqual([0, 0, 2, 4, 4, 0, 4]);
 });

@@ -172,3 +172,14 @@ test("action keys are one key, or alt/shift before a key or arrow", () => {
   for (const key of ["j", "alt+up", "alt+shift+down", "shift+s", "alt+1"]) expect(() => validateTree(withKey(key))).not.toThrow();
   for (const key of ["up", "jj", "ctrl+a", "cmd+s", "shift+alt+x", "alt+"]) expect(() => validateTree(withKey(key))).toThrow();
 });
+test("tables accept the document appearance, and tags a shade from 0 to 1", () => {
+  const table = (extra: object, cell: object = { text: "A" }) => ({ type: "table", id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "a", cells: { x: cell } }], ...extra });
+  expect(() => validateTree(table({ appearance: "document" }))).not.toThrow();
+  expect(() => validateTree(table({ appearance: "grid" }))).not.toThrow();
+  expect(() => validateTree(table({ appearance: "paper" }))).toThrow();
+  for (const shade of [0, 0.5, 1]) expect(() => validateTree(table({}, { text: "A", tags: [{ text: "High", color: "orange", shade }] }))).not.toThrow();
+  for (const shade of [-0.1, 1.5, "1", Number.NaN]) expect(() => validateTree(table({}, { text: "A", tags: [{ text: "High", color: "orange", shade }] }))).toThrow();
+  const tags = (shades: unknown) => ({ type: "form", id: "f", fields: [{ type: "tags", id: "l", label: "L", value: [], keys: [{ key: "p", label: "P", values: ["High", "Low"], shades }] }] });
+  expect(() => validateTree(tags({ High: 1, Low: 0 }))).not.toThrow();
+  expect(() => validateTree(tags({ High: 2 }))).toThrow();
+});

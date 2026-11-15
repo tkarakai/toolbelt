@@ -386,6 +386,40 @@ With `ui.modifier-keys`, `Action.key` may put `alt+` and/or `shift+` (in that or
 key or `up`, `down`, `left`, `right`: `"alt+up"`, `"shift+s"`. They act on the selected row
 and are shown as ⌥↑ and ⇧S. Plain keys behave as before. Older hosts reject these keys.
 
+### Toolbar action keys
+
+`Action.key` on a page's toolbar actions works too ("n" for New task) and shows as a key hint on
+the button. It runs while the page has the keyboard and no field, menu or dialog does. A selected
+row's action with the same key comes first. Older hosts show the button without the hint and
+ignore the key.
+
+### Document tables
+
+A table with `appearance: "document"` drops the lines between rows and the tint of section
+headers: the whole table sits on one background, like a page of notes, and hovered and selected
+rows are drawn as rounded bars inset slightly from the sides. Column headers, sections, nested
+rows, expanding and collapsing, keyboard navigation, dragging and the details drawer work exactly
+as in the default `"grid"` appearance. Older hosts ignore it and draw the grid.
+
+### Tag shades
+
+`Tag.shade`, from 0 (lightest) to 1 (the full color), draws a tag as one step of its color's
+intensity, for values with an order such as High · Medium · Low. Hosts round it to five steps.
+Each step is an opaque background computed per theme with a text color that meets WCAG AA
+(4.5:1), so shaded tags stay readable in every theme and on a selected row. `TagKey.shades` maps
+a key's values to shades for the `tags` field: its pills and its value picker use them.
+`default` and `muted` tags have no shades. Older hosts ignore `shade` and draw the usual tint.
+
+### Dialog keyboard
+
+A dialog focuses its first form field when it opens (else the dialog itself). Return runs the
+primary action from anywhere except buttons, multi-line fields and terminals; in a one-line field
+the value is committed first. ⌘Return runs it from any field, Markdown editors included, after
+committing what is being typed. Tab moves through every control, including out of Markdown
+editors. Inside dialogs, forms drop their card and line up labels in one column and controls,
+as wide as the dialog allows, in the other; descriptions sit under their control. A resizable
+dialog opens at a reading width and its content's height until the person resizes it.
+
 ### Segmented toolbar controls
 
 Pages may provide `controls`, an array of segmented nodes, beside the search box. Each

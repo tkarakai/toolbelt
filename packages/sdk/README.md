@@ -37,6 +37,9 @@ button into a split button with one level of alternatives (`ui.split-action`).
 `selectEvents` sends `select` when the selection rests on a row (`ui.row-select`), and `reorder`
 lets people drag rows within and between sections, sending `reorder` (`ui.row-reorder`).
 `Action.key` accepts `alt+`/`shift+` combinations such as `alt+up` (`ui.modifier-keys`).
+Tables with `appearance: "document"` drop row lines and tinted section headers; `Tag.shade`
+(0–1) and `TagKey.shades` draw tags as steps of their color's intensity. Older hosts ignore
+both. Page toolbar actions can have a `key` too.
 
 `start(context)` must respect `context.mode`: `probe` may load staged data and become ready
 but must not schedule external work or cause external side effects; `active` is final runtime

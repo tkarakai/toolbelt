@@ -29,3 +29,13 @@ test("group-header handoff opens enclosing groups without selecting an unrelated
     item: "\u0001group:\0Outer\0Inner", collection: "table:main", ancestors: [], groups: ["\0Outer"],
   });
 });
+
+test("an empty declared section's header can be selected", () => {
+  const tree: Node = { type: "table", id: "tasks", columns: [], sections: [{ id: "pinned", label: "Pinned" }, { id: "inbox", label: "Inbox" }], rows: [
+    { id: "1", cells: {}, group: "inbox" },
+  ] };
+  expect(findSelectionTarget(tree, { item: "\u0001group:\0pinned", collection: "table:tasks" })).toEqual({
+    item: "\u0001group:\0pinned", collection: "table:tasks", ancestors: [], groups: [],
+  });
+  expect(findSelectionTarget(tree, { item: "\u0001group:\0missing" })).toBeNull();
+});
