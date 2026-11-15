@@ -26,6 +26,8 @@ export default {
 			// With a neutral badge, when an update is available (scripts/make-icons.ts).
 			"assets/tray-icon-update-light@2x.png": "views/assets/tray-icon-update-light@2x.png",
 			"assets/tray-icon-update-dark@2x.png": "views/assets/tray-icon-update-dark@2x.png",
+			"assets/tray-icon-dev-update-light@2x.png": "views/assets/tray-icon-dev-update-light@2x.png",
+			"assets/tray-icon-dev-update-dark@2x.png": "views/assets/tray-icon-dev-update-dark@2x.png",
 			"build-seed": "seed",
 		},
 		watchIgnore: ["dist/**", "build-seed/**"],

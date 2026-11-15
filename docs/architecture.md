@@ -100,7 +100,10 @@ feedback; plugins receive meaningful events. Group summaries can bind to a table
 Pages can place segmented controls beside search; options support hover/focus explanations,
 and selection is immediate in the renderer before the field event reaches the plugin.
 Tables lay out declared column widths with fixed table layout; people resize and reorder
-columns by dragging headers, and the renderer saves those choices per plugin table.
+columns by dragging headers, and the renderer saves those choices per plugin table. Resizing
+drags the boundary between two columns: the columns to its right pay for the change and
+columns to its left stay put. The details drawer's open state is a per-plugin renderer
+preference toggled from the pane header (`PaneActionsContext` gives renderers that slot).
 `renderer/pure.ts` contains testable layout
 rules, including column layout and ordering. Themes use separate selection tokens and enforce AA contrast. Motion is 200 ms easing
 out, with shorter exits and global reduced-motion support; continuously changing values do
@@ -134,6 +137,11 @@ shared between the main and quick surfaces through local-storage events and a ho
 relay (hidden native WebKit views also refresh on focus/show). Collections map
 that stable ID into their own tree; an unavailable item has no visible selection there but
 does not clear the other surface's selection. Explicit clears propagate to both surfaces.
+Each change is timestamped. A relayed copy or storage event older than the view's current
+selection is ignored, so late or out-of-order deliveries can't move the highlight back.
+Only the view that made a change saves it to storage. Hover selects an item only when the
+pointer itself moved. Mouse events WebKit synthesizes when content shifts under a still pointer
+repeat the last coordinates and are ignored.
 Fresh plugins begin unselected; legacy main-window selections can seed the shared model.
 Keyboard pane/collection focus remains independent of item selection. Command+Enter has
 no popover binding or hint.
@@ -231,6 +239,7 @@ and does not open the summary. Click or Enter opens `#/toolbelt/updates`, select
 Settings remembers its last tab. App and plugin update locations share a top-right exclamation badge with the Settings navigation controls and menu bar glyph. About uses the installed-plugin card layout for app identity, installed release, channel and available update review.
 Settings uses the shared header tabs for Appearance, Keyboard, Plugins and About, in that order. About contains app updates and a nested, searchable Legal notice pane.
 Settings tabs use ⌘A (Appearance), ⌘P (Plugins), ⌘K (Keyboard) and ⌘I (About), with icons and visible key hints. Text fields retain editing shortcuts.
+Window icon buttons with a shortcut (sidebar ⌘B, details drawer ⌥⌘B, Settings ⌘,) carry no visible key hint; `ShortcutTooltip` shows, on hover or keyboard focus, what activating the button does in its current state and its keys in the usual key hint. The buttons expose `aria-keyshortcuts` and no native `title`.
 Settings and plugin headers support ⌥⌘number and ⌃Tab navigation; F6 transfers focus between tabs and content.
 Shared tab strips hide scrollbar chrome, reveal the active tab, and expose edge arrows when overflow exists. The strip clips controls to its shared outline; adjacent free header space remains a native window drag target.
 Main-window navigation cancels pending popover dismissal and explicitly activates both the application and its target window, including first creation. Keyboard focus is assigned to the actual WKWebView in that window at navigation and initial renderer readiness; Electrobun BrowserView wrapper pointers are never passed as native responder views.

@@ -297,6 +297,17 @@ a newly required public capability needs corresponding host/SDK/renderer support
 summary in that column with the same alignment and horizontal padding as row values,
 including on collapsed groups. A hidden or unknown column hides the summary in the table;
 the group inspector retains it. Omit `column` to keep a trailing, full-width summary.
+
+### Group headers and the details drawer
+
+Section headers (the first group level) show their label as text. Deeper group levels, such as
+folders, show their label as a blue pill, `sub` as a violet branch pill and the item count as
+a neutral pill. Tables whose rows have `details` or groups get a details drawer on the right.
+Whether it is open is the person's choice per plugin, set with the panel toggle at the right
+end of the pane header (or ⌥⌘B) and remembered across selections and restarts. The drawer has no close
+button, and Escape clears the selection without closing it. While open, it shows the selected
+row's or group's details, or says that nothing is selected or that the row has no details. The
+drawer and its toggle only appear when the table is at least 48 rem wide.
 Column-bound summaries require ToolBelt 0.2.2 or newer.
 
 Settings shows the installed release separately from the preference used for future update checks. Allowing prereleases includes stable releases too; each available update reports the channel of the release actually discovered. Existing update preferences survive installation. Release review remains required before plugin or migration execution.
@@ -342,9 +353,13 @@ displayed position, so a column the person moves left outlasts the ones to its r
 column and growing columns never drop. `overflow: "scroll"` keeps every column and scrolls
 sideways instead.
 
-Dragging a fixed column's edge takes space from growing columns and stops at their minimum;
-a growing column's edge resizes its right-hand neighbour. Double-clicking an edge restores the
-default width. Dragging a header elsewhere moves it among movable columns; Escape cancels.
+Header dividers are always visible. A column's right edge is the boundary with the next column, and dragging it keeps the edge
+under the pointer. Widening takes any free room after the last column first, then width from
+the columns to the right, nearest first, each down to its minimum. Narrowing gives the width to
+the nearest column on the right. Columns to the left never move, and growing columns take
+whatever remains. When a column grows to fill the table, the last column's right edge is the
+table edge and can't be dragged. Double-clicking an edge restores the default widths of the
+columns on both sides. Dragging a header elsewhere moves it among movable columns; Escape cancels.
 Non-movable columns keep their declared slot. Group summaries follow their column.
 
 ToolBelt saves widths and order per plugin and table `id`. It stores only widths the person
@@ -352,7 +367,8 @@ changed, so later default changes still apply. Columns added by a plugin update 
 their declared neighbour, and removed keys are ignored. Bump the table's `layoutVersion` to
 discard saved layouts when columns change meaning. Plugins receive no layout events.
 
-Sparklines and chips appear when a cell has room: always in content-sized columns at their
+A sparkline draws oldest to newest and sits before the cell's text, so its newest point is
+next to the current value. Sparklines and chips appear when a cell has room: always in content-sized columns at their
 measured width, and in other cells once the cell is at least 6.5 rem wide. Older hosts ignore
 the new fields, except that a numeric `grow` fails their validation; declare a host range
 containing table column layout before publishing a package that uses it.

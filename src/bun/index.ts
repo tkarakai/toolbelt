@@ -394,7 +394,8 @@ function showTrayAlert(on: boolean) {
   if (want === trayAlert) return;
   trayAlert = want;
   tray.setImage(
-    want ? `views://assets/tray-icon-update-${want}@2x.png` : TRAY_IMAGE,
+    // Dev builds keep their orange glyph under the update badge.
+    want ? `views://assets/tray-icon${channel === "dev" ? "-dev" : ""}-update-${want}@2x.png` : TRAY_IMAGE,
   );
   // Electrobun keeps the template flag it was created with; fix it once the image is in.
   for (const ms of [50, 400])
@@ -516,6 +517,11 @@ ApplicationMenu.setApplicationMenu([
         action: "toggle-sidebar",
         accelerator: "CommandOrControl+B",
       },
+      {
+        label: "Toggle Details",
+        action: "toggle-details",
+        accelerator: "CommandOrControl+Alt+B",
+      },
       { type: "separator" },
       {
         label: "Actual Size",
@@ -557,6 +563,8 @@ Electrobun.events.on("application-menu-clicked", (e: any) => {
   }
   if (action === "toggle-sidebar")
     winRPC?.send.command({ name: "toggleSidebar" });
+  if (action === "toggle-details")
+    winRPC?.send.command({ name: "toggleDetails" });
   if (action === "zoomIn" || action === "zoomOut" || action === "zoomReset")
     winRPC?.send.command({ name: action });
 });

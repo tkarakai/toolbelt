@@ -44,7 +44,7 @@ export type ToolbeltRPC = {
 			/** From the popover: show the main window on this plugin (and screen). */
 			showWindow: { plugin?: string; screen?: string; selection?: import("./navigation").NavigationSelection };
 			hidePopover: {};
-            selectionChanged: { plugin: string; selection: import("./navigation").NavigationSelection | null };
+            selectionChanged: { plugin: string; selection: import("./navigation").NavigationSelection | null; at?: number };
 			closeWindow: {};
 			zoomWindow: {};
 			/** Debug channel: the value of a script the main process evaluated in this view. */
@@ -56,7 +56,7 @@ export type ToolbeltRPC = {
 		requests: {};
 		messages: {
 			plugins: PluginInfo[];
-            selectionChanged: { plugin: string; selection: import("./navigation").NavigationSelection | null };
+            selectionChanged: { plugin: string; selection: import("./navigation").NavigationSelection | null; at?: number };
             pluginManagerState:ReturnType<import("../bun/plugin-manager-service").PluginManagerService["read"]>;
 			tree: Surface & { tree: Node };
 			toast: { plugin: string; text: string; tone?: "default" | "success" | "error"; action?: { id: string; label: string; payload?: unknown } };

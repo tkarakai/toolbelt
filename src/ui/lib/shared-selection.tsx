@@ -7,8 +7,8 @@ import { SurfaceContext, uiState, useUIState } from "./uistate";
 
 const profile = new URLSearchParams(location.search).get("profile");
 const store = createSelectionStore(localStorage, profile ? `toolbelt.profile.${profile}.selection.` : "toolbelt.selection.",
-  (plugin, selection) => rpc.send.selectionChanged({ plugin, selection }));
-selectionListeners.add(({ plugin, selection }) => store.apply(plugin, selection));
+  (plugin, selection, at) => rpc.send.selectionChanged({ plugin, selection, at }));
+selectionListeners.add(({ plugin, selection, at }) => store.apply(plugin, selection, at));
 export const refreshSharedSelection = () => store.refresh(null);
 window.addEventListener("focus", refreshSharedSelection);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshSharedSelection(); });

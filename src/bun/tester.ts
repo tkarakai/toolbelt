@@ -55,6 +55,8 @@ ApplicationMenu.setApplicationMenu([
   {
     label: "View",
     submenu: [
+      { label: "Toggle Details", accelerator: "CommandOrControl+Alt+B", action: "toggleDetails" },
+      { type: "separator" },
       { label: "Zoom in", accelerator: "CommandOrControl+=", action: "zoomIn" },
       {
         label: "Zoom out",

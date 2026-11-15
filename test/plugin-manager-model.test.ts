@@ -3,6 +3,7 @@ import {
   canInstall,
   canRecover,
   isActivePhase,
+  pluginCheckResult,
   type Candidate,
 } from "../src/ui/plugin-manager-model";
 test("publisher approval cannot bypass missing or incompatible compatibility review", () => {
@@ -68,4 +69,13 @@ test("manual update recovery follows each plugin's latest check, not runtime act
   expect(updateCheckFailed({ logs: [failure, "today · Update available: 2.0.0"] })).toBe(false);
   expect(updateCheckFailed({ logs: ["today · Runtime failure: crash"] })).toBe(false);
   expect(updateCheckFailed({})).toBe(false);
+});
+
+test("a manual plugin check says what it found, including nothing new", () => {
+  const p = (name: string, extra: Record<string, unknown> = {}) => ({ manifest: { name } as never, ...extra });
+  expect(pluginCheckResult([p("Processes"), p("Upkeep")])).toEqual({ kind: "current", title: "All plugins are up to date", description: "Processes · Upkeep" });
+  expect(pluginCheckResult([p("Processes")]).title).toBe("Processes is up to date");
+  expect(pluginCheckResult([p("Processes", { availableVersion: "0.1.3" }), p("Upkeep")])).toEqual({ kind: "updates", title: "Update available for Processes", description: "Processes 0.1.3" });
+  expect(pluginCheckResult([p("Processes", { updateFailure: { kind: "quota" } }), p("Upkeep")])).toEqual({ kind: "failed", title: "Couldn’t check Processes", description: "The other plugins are up to date." });
+  expect(pluginCheckResult([p("Gone", { removed: true })]).kind).toBe("none");
 });

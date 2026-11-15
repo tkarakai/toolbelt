@@ -1,6 +1,6 @@
 import { SharedSelectionProvider, readSharedSelection, refreshSharedSelection } from "./lib/shared-selection";
 import { captureQuickViewExit, QuickViewClosing, quickViewOrigin, type QuickViewExit } from "./QuickViewTransition";
-import { selectedPaneItem, paneBookmark, restorePaneFocus, type PaneBookmark } from "./lib/pane-navigation";
+import { selectedPaneItem, paneBookmark, restorePaneFocus, pointerTracker, type PaneBookmark } from "./lib/pane-navigation";
 import { usePluginDrag } from "./lib/use-plugin-drag";
 // The menu-bar tool list stays visible beside the selected plugin's quick view.
 // ↑/↓ and plugin hotkeys select; Enter opens the window; Escape closes.
@@ -47,6 +47,7 @@ export default function Popover() {
     const detailMemory = useRef(new Map<string, PaneBookmark>());
     const lastCollection = useRef(new Map<string, string>());
     const mouseNavigation = useRef(false);
+    const [pointerMoved] = useState(pointerTracker);
     const pointer = useRef<{ x: number; y: number } | null>(null);
     const current = plugins.find(p => p.manifest.id === selected) ?? plugins[0];
     const active = current ? plugins.indexOf(current) : -1;
@@ -314,8 +315,8 @@ export default function Popover() {
                                 style={{ touchAction: "none", userSelect: "none" }}
                                 data-index={i}
 								data-active={i === active && !controlFocused}
-								onMouseEnter={() => { if (mouseNavigation.current) select(i); }}
-                                onMouseMove={() => { if (mouseNavigation.current && (activePane !== "menu" || selected !== p.manifest.id)) select(i); }}
+								onMouseEnter={(e) => { if (mouseNavigation.current && pointerMoved(e)) select(i); }}
+                                onMouseMove={(e) => { if (mouseNavigation.current && pointerMoved(e) && (activePane !== "menu" || selected !== p.manifest.id)) select(i); }}
                                 tabIndex={i === active ? 0 : -1}
                                 aria-current={i === active && !controlFocused ? "true" : undefined}
                                 onFocus={() => { if (selected !== p.manifest.id) select(i); }}

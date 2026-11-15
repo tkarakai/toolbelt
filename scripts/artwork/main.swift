@@ -12,6 +12,8 @@ func render() throws {
         ("tray-icon-dev@2x.png", 36, false, NSColor.systemOrange, NSAppearance.Name.aqua),
         ("tray-icon-update-light@2x.png", 36, true, nil, NSAppearance.Name.aqua),
         ("tray-icon-update-dark@2x.png", 36, true, nil, NSAppearance.Name.darkAqua),
+        ("tray-icon-dev-update-light@2x.png", 36, true, NSColor.systemOrange, NSAppearance.Name.aqua),
+        ("tray-icon-dev-update-dark@2x.png", 36, true, NSColor.systemOrange, NSAppearance.Name.darkAqua),
     ] as [(String, Int, Bool, NSColor?, NSAppearance.Name)] {
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size,
                                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,

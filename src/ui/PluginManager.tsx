@@ -38,6 +38,7 @@ import {
   type ManagerState,
   type PluginManagerAdapter,
   type RecoveryChoice,
+  pluginCheckResult,
 } from "./plugin-manager-model";
 export type { PluginManagerAdapter } from "./plugin-manager-model";
 const date = (at?: number) =>
@@ -205,7 +206,14 @@ export function PluginManager({
     <div className="min-w-0 space-y-8">
         <SettingsGroup separated title="Installed Plugins" notice={checkFailures.length > 0 && <UpdateRecovery failure={checkFailures[0]!} failures={checkFailures.slice(1)} history={state.githubHistory}/>} description="Each plugin is its own program. ToolBelt starts it and draws its screens. ToolBelt has no control over plugins." actions={<GitHubButton retryAt={state.schedule?.retryAt} hint={`Last checked: ${date(state.schedule?.lastChecked)}`} variant="outline" size="sm" className="h-6 text-xs" disabled={busy || !adapter.checkUpdates || (state.schedule?.retryAt ?? 0) > now} onClick={() => void run(async () => {
             setCheckingAll(true);
-            try { await adapter.checkUpdates!(); } catch (e) { toast.error("Couldn’t check plugin updates.", {description: "You can check releases in your browser from each plugin’s card."}); } finally { if (mounted.current) setCheckingAll(false); }
+            try {
+              await adapter.checkUpdates!();
+              const result = pluginCheckResult((await adapter.read()).plugins);
+              if (result.kind === "current") toast.success(result.title, {description: result.description});
+              else if (result.kind === "updates") toast.info(result.title, {description: result.description});
+              else if (result.kind === "failed") toast.error(result.title, {description: result.description});
+              else toast(result.title);
+            } catch (e) { toast.error("Couldn’t check plugin updates.", {description: "You can check releases in your browser from each plugin’s card."}); } finally { if (mounted.current) setCheckingAll(false); }
           })}>{checkingAll ? <Loader2 className="animate-spin"/> : <RotateCw/>}{checkingAll ? "Checking…" : "Check for updates"}</GitHubButton>}>
           {!loaded ? (
             <p role="status" className="p-5 text-sm text-muted-foreground">
