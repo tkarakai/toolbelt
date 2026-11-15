@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.3.8 — 2026-11-15
 - Add `Row.pane` behind the new `ui.row-pane` capability: nodes the details drawer shows instead of `details`, with the row's actions in a slim bar above. Events from inside carry `rowId` (also on `field` events). Forms take `appearance: "inline"` (a property sheet that edits in place) and `text` fields take `heading`. `Action.focus` moves the keyboard to a pane element instead of sending the action, and table `enter` picks the row action ↵ runs.
 - Add the `composer` node behind the new `ui.composer` capability: sends its action with `{composer, text}`; Markdown with ⌘↵, or one line with `single`; `key` focuses it. `timeline` takes `edit` for editing an entry's text in place (`{timeline, entryId, text}`), and `Action.input` asks for text before sending (`text`).
 
