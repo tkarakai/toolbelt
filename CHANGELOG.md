@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Plugin tables can look like a document: one background, no lines between rows or tinted section headers, and rounded hovered and selected rows. Sections, nesting, the keyboard, dragging and the details drawer work as before.
+- Plugin tags can show shades of their color, for example High, Medium and Low from strongest to lightest. Every shade keeps its text readable in every theme.
+- Plugin toolbar buttons can have a shortcut key, shown on the button (for example N for New task).
+- Dialogs are easier to use from the keyboard: the first field has focus when a dialog opens, Return in a one-line field saves, ⌘Return saves from any field, and Tab no longer gets stuck in Markdown editors. Dialog forms line up their labels and use the dialog's width, and resizable dialogs open at a comfortable size.
+- Fixed: an empty section (such as an empty Pinned) couldn't be selected with the arrow keys, so the selection disappeared when you arrowed onto it.
+- Fixed: on screens with two tables, the arrow keys moved the selection in both.
+- When an action you run removes the selected row or moves it into a collapsed section, the selection moves to the next row instead of disappearing.
+- Fixed: rows whose tag list was empty showed a stray “0” under their name.
 
 ## 0.3.9 — 2026-11-15
 - Plugins can show more kinds of form fields: several lines of text, a Markdown editor that styles what you type as you type it, a date with an optional time, color swatches, a searchable list, and colored label pills you add, change and remove in place.

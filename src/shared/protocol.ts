@@ -64,8 +64,13 @@ export type Hue = (typeof HUES)[number];
  */
 export type Dot = Tone | Hue | { color: Tone | Hue; label?: string; pulse?: boolean; dim?: boolean };
 
-/** A small colored pill (an agent's name, a state). `tooltip` shows instantly on hover. */
-export type Tag = { text: string; color?: Tone | Hue; icon?: string; tooltip?: string };
+/**
+ * A small colored pill (an agent's name, a state). `tooltip` shows instantly on hover.
+ * `shade`, from 0 (lightest) to 1 (the full color), draws it as a step of its color's
+ * intensity (High · Medium · Low as darker to lighter): opaque, in five steps, with text that
+ * stays readable in every theme. Without it, the usual tinted pill. Older hosts ignore it.
+ */
+export type Tag = { text: string; color?: Tone | Hue; icon?: string; tooltip?: string; shade?: number };
 
 /** A small icon after a cell's text, with an instant tooltip (a bookmark: "kept as …"). */
 export type Mark = { icon: string; tooltip: string; color?: Tone | Hue };
@@ -305,7 +310,8 @@ export type Field =
 	 */
 	| { type: "tags"; id: string; label: string; value: TagValue[]; keys: TagKey[]; description?: string };
 
-export type TagKey = { key: string; label: string; color?: Tone | Hue; values?: string[]; freeform?: boolean; flag?: boolean };
+/** `shades` gives values a `Tag.shade` (value → 0…1), used for their pills and in the picker. */
+export type TagKey = { key: string; label: string; color?: Tone | Hue; values?: string[]; freeform?: boolean; flag?: boolean; shades?: Record<string, number> };
 export type TagValue = { key: string; value?: string };
 
 /** A line of output in a `log`. */
@@ -397,6 +403,13 @@ export type Node =
 			 * has rested on a row for a moment (capability `ui.row-select`).
 			 */
 			selectEvents?: boolean;
+			/**
+			 * `"document"`: no lines between rows and no tinted section headers; the table sits on
+			 * one background like a page of notes, and hovered and selected rows are rounded.
+			 * Column headers, grouping, expanding and the details drawer work as usual. Default
+			 * `"grid"`. Older hosts ignore it.
+			 */
+			appearance?: "grid" | "document";
 	  }
 	| {
 			type: "list";

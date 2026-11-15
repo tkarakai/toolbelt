@@ -75,6 +75,7 @@ export function tokens(p: Palette): Record<string, string> {
 	return {
         ...selectionTokens(p),
         ...inactiveSelectionTokens(p),
+        ...shadeTokens(p),
 		background: p.bg,
 		foreground: p.fg,
 		card: p.surface,
@@ -206,4 +207,33 @@ export function hoverColor(p: Palette) {
         if (contrast(p.fg, color) >= 4.5 && contrast(p.mutedFg, color) >= 4.5) break;
     }
     return color;
+}
+
+
+/** How strongly each tag shade step (`Tag.shade`, rounded to 0–4) shows its hue over the page. */
+export const SHADE_STRENGTHS = [0.16, 0.34, 0.54, 0.76, 0.96];
+/** The shade step for a `Tag.shade` value from 0 (lightest) to 1 (the full hue). */
+export const shadeStep = (shade: number) => Math.round(Math.max(0, Math.min(1, shade)) * (SHADE_STRENGTHS.length - 1));
+
+/**
+ * Opaque tag backgrounds in steps of one hue, lightest to strongest, and a text color for each
+ * that meets AA: the hue pushed toward black or white (whichever contrasts more) only as far
+ * as it must, so lighter steps keep colored text. Pure black or white always reaches 4.5:1.
+ */
+export function shadeTokens(p: Palette): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [name, base] of Object.entries(SELECTION_HUES)) {
+        SHADE_STRENGTHS.forEach((strength, step) => {
+            const background = mix(base, p.bg, strength);
+            const pole = contrast("#000000", background) >= contrast("#ffffff", background) ? "#000000" : "#ffffff";
+            let foreground = pole;
+            for (let t = 35; t <= 100; t++) {
+                foreground = mix(pole, base, t / 100);
+                if (contrast(foreground, background) >= 4.5) break;
+            }
+            out[`shade-${name}-${step}`] = background;
+            out[`shade-${name}-${step}-foreground`] = foreground;
+        });
+    }
+    return out;
 }

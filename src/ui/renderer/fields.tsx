@@ -2,11 +2,11 @@
 // several lines with optional live Markdown styling, a local date with an optional time, a
 // theme color, a searchable choice and key/value pills. Typing stays here; the plugin hears
 // committed values (blur, ⌘↵, a pick).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Check, ChevronsUpDown, Plus, X } from "lucide-react";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { tags as t } from "@lezer/highlight";
@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { dotClass, pillClass } from "./colors";
+import { dotClass, pillClass, shadeStyle } from "./colors";
 
 type Of<T extends Field["type"]> = Extract<Field, { type: T }>;
 
@@ -94,7 +94,8 @@ function MarkdownEditor({ id, field, onChange }: { id: string; field: Of<"textar
 				doc: field.value,
 				extensions: [
 					history(),
-					keymap.of([{ key: "Mod-Enter", run: () => (commit(), true) }, indentWithTab, ...defaultKeymap, ...historyKeymap]),
+					// No Tab binding: Tab moves on to the next control, as everywhere else.
+					keymap.of([{ key: "Mod-Enter", run: () => (commit(), true) }, ...defaultKeymap, ...historyKeymap]),
 					markdown(),
 					syntaxHighlighting(markdownStyle),
 					editorTheme,
@@ -193,7 +194,7 @@ export function ColorField({ id, field, onChange }: { id: string; field: Of<"col
 // ── searchable choice ───────────────────────────────────────────────────
 
 /** A list to pick from, with "Use …" for typed text when any text is allowed. */
-function Picker({ options, value, freeform, placeholder, onPick }: { options: { value: string; label: string; sub?: string }[]; value: string; freeform: boolean; placeholder: string; onPick: (v: string) => void }) {
+function Picker({ options, value, freeform, placeholder, onPick }: { options: { value: string; label: string; sub?: string; swatch?: CSSProperties }[]; value: string; freeform: boolean; placeholder: string; onPick: (v: string) => void }) {
 	const [query, setQuery] = useState("");
 	const typed = query.trim();
 	const exact = options.some((o) => o.value === typed || o.label.toLowerCase() === typed.toLowerCase());
@@ -214,7 +215,11 @@ function Picker({ options, value, freeform, placeholder, onPick }: { options: { 
 						{options.map((o) => (
 							<CommandItem key={o.value} value={`${o.label} ${o.sub ?? ""} \u0002${o.value}`} onSelect={() => onPick(o.value)}>
 								<Check className={cn("size-3.5", o.value === value ? "opacity-100" : "opacity-0")} />
-								<span className="min-w-0 flex-1 truncate">{o.label}</span>
+								{o.swatch ? (
+									// A shaded value: shown as the pill it will be.
+									<span style={o.swatch} className="min-w-0 truncate rounded px-1.5 py-0.5 text-xs font-medium">{o.label}</span>
+								) : null}
+								<span className={cn("min-w-0 flex-1 truncate", o.swatch && "sr-only")}>{o.label}</span>
 								{o.sub && <span className="truncate text-xs text-muted-foreground">{o.sub}</span>}
 							</CommandItem>
 						))}
@@ -225,19 +230,19 @@ function Picker({ options, value, freeform, placeholder, onPick }: { options: { 
 	);
 }
 
-export function ComboboxField({ id, field, onChange }: { id: string; field: Of<"combobox">; onChange: (v: string) => void }) {
+export function ComboboxField({ id, field, onChange, className }: { id: string; field: Of<"combobox">; onChange: (v: string) => void; className?: string }) {
 	const [open, setOpen] = useState(false);
 	const current = field.options.find((o) => o.value === field.value);
 	const shown = current?.label ?? field.value;
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
-				<Button id={id} type="button" variant="outline" role="combobox" aria-expanded={open} aria-label={field.label} className="w-64 justify-between font-normal">
+				<Button id={id} type="button" variant="outline" role="combobox" aria-expanded={open} aria-label={field.label} className={cn("w-64 justify-between font-normal", className)}>
 					<span className={cn("truncate", !shown && "text-muted-foreground")}>{shown || field.placeholder || "Choose…"}</span>
 					<ChevronsUpDown className="opacity-50" />
 				</Button>
 			</PopoverTrigger>
-			<PopoverContent className="w-72 p-0" align="end">
+			<PopoverContent className="w-(--radix-popover-trigger-width) min-w-72 p-0" align="end">
 				<Picker
 					options={field.options}
 					value={field.value}
@@ -256,6 +261,8 @@ export function ComboboxField({ id, field, onChange }: { id: string; field: Of<"
 // ── key/value pills ─────────────────────────────────────────────────────
 
 const anyText = (k: TagKey) => !!k.freeform || !k.values?.length;
+/** A key's values as picker options, each shown as its shaded pill when the key has shades. */
+const valueOptions = (k: TagKey) => (k.values ?? []).map((v) => ({ value: v, label: v, swatch: shadeStyle(k.color, k.shades?.[v]) }));
 
 export function TagsField({ id, field, onChange }: { id: string; field: Of<"tags">; onChange: (v: TagValue[]) => void }) {
 	const [tags, setTags] = useState(field.value);
@@ -285,8 +292,9 @@ export function TagsField({ id, field, onChange }: { id: string; field: Of<"tags
 function TagPillEditor({ k, tag, onSet, onRemove }: { k: TagKey; tag: TagValue; onSet: (v: string) => void; onRemove: () => void }) {
 	const [open, setOpen] = useState(false);
 	const text = k.flag ? k.label : `${k.label}: ${tag.value ?? ""}`;
+	const shaded = tag.value === undefined ? undefined : shadeStyle(k.color, k.shades?.[tag.value]);
 	return (
-		<span className={cn("inline-flex h-7 items-center overflow-hidden rounded-md text-xs font-medium", pillClass(k.color ?? "default"))}>
+		<span style={shaded} className={cn("inline-flex h-7 items-center overflow-hidden rounded-md text-xs font-medium", !shaded && pillClass(k.color ?? "default"))}>
 			{k.flag ? (
 				<span className="pl-2">{text}</span>
 			) : (
@@ -297,7 +305,7 @@ function TagPillEditor({ k, tag, onSet, onRemove }: { k: TagKey; tag: TagValue; 
 						</button>
 					</PopoverTrigger>
 					<PopoverContent className="w-64 p-0" align="start">
-						<Picker options={(k.values ?? []).map((v) => ({ value: v, label: v }))} value={tag.value ?? ""} freeform={anyText(k)} placeholder={`${k.label}…`} onPick={(v) => (setOpen(false), onSet(v))} />
+						<Picker options={valueOptions(k)} value={tag.value ?? ""} freeform={anyText(k)} placeholder={`${k.label}…`} onPick={(v) => (setOpen(false), onSet(v))} />
 					</PopoverContent>
 				</Popover>
 			)}
@@ -320,7 +328,7 @@ function AddTag({ keys, onAdd }: { keys: TagKey[]; onAdd: (key: string, value?: 
 			</PopoverTrigger>
 			<PopoverContent className="w-64 p-0" align="start">
 				{key ? (
-					<Picker options={(key.values ?? []).map((v) => ({ value: v, label: v }))} value="" freeform={anyText(key)} placeholder={`${key.label}…`} onPick={(v) => (setOpen(false), setKey(null), onAdd(key.key, v))} />
+					<Picker options={valueOptions(key)} value="" freeform={anyText(key)} placeholder={`${key.label}…`} onPick={(v) => (setOpen(false), setKey(null), onAdd(key.key, v))} />
 				) : (
 					<Command>
 						<CommandInput placeholder="Add…" />

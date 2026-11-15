@@ -134,11 +134,17 @@ const action: Schema = (v, p) => {
   if (a.menu !== undefined && a.checked !== undefined) fail(`${p}.menu`);
 };
 const actions = optional(array(action));
+/** A tag shade: 0 (lightest) to 1 (the full color). */
+const shade: Schema = (v, p) => {
+  number(v, p);
+  if ((v as number) < 0 || (v as number) > 1) fail(p);
+};
 const tag = object({
   text,
   color: optional(color),
   icon: optional(text),
   tooltip: optional(text),
+  shade: optional(shade),
 });
 const mark = object({ icon: text, tooltip: text, color: optional(color) });
 const cell = union(
@@ -339,6 +345,7 @@ const field: Schema = (v, p) => {
             values: optional(array(text)),
             freeform: optional(bool),
             flag: optional(bool),
+            shades: optional(record(shade)),
           }),
         ),
       })(v, p);
@@ -415,6 +422,7 @@ const node: Schema = (v, p) => {
       sections: optional(array(section)),
       reorder: optional(bool),
       selectEvents: optional(bool),
+      appearance: optional(enumeration("grid", "document")),
     }),
     list: object({
       ...base,

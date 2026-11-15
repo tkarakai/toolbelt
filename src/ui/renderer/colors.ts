@@ -1,7 +1,9 @@
 // Colors for tones and hues (shared/protocol.ts): dots, text, pills. Written out in full so
 // Tailwind sees every class. Hue shades: -700 text on light, -400 on dark; pills tint the
 // background and use -800 / -300 text, which keeps them readable in every theme.
+import type { CSSProperties } from "react";
 import type { Dot, Hue, Tone } from "../../shared/protocol";
+import { shadeStep } from "../themes";
 
 const DOT: Record<Tone | Hue, string> = {
 	default: "bg-foreground/40",
@@ -122,4 +124,14 @@ export const pillClass = (c: Tone | Hue = "default") => `${PILL[c] ?? PILL.defau
 /** A `Dot` in one shape. */
 export function dotSpec(d: Dot): { color: Tone | Hue; label?: string; pulse?: boolean; dim?: boolean } {
 	return typeof d === "string" ? { color: d } : d;
+}
+
+/**
+ * A pill drawn as a step of its color's intensity (`Tag.shade`): the theme's opaque shade and
+ * its AA text color (themes.ts `shadeTokens`). Neutral tones have no shades: undefined.
+ */
+export function shadeStyle(c: Tone | Hue | undefined, shade: number | undefined): CSSProperties | undefined {
+	if (shade === undefined || !c || c === "default" || c === "muted") return undefined;
+	const step = shadeStep(shade);
+	return { background: `var(--shade-${c}-${step})`, color: `var(--shade-${c}-${step}-foreground)` };
 }

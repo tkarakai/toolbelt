@@ -1,6 +1,9 @@
 # SDK changelog
 
 ## Unreleased
+- Add table `appearance` (`"grid"` or `"document"`): a document table has no row lines or tinted section headers, and rounded hovered and selected rows. Older hosts ignore it.
+- Add `Tag.shade` (0–1) and `TagKey.shades`: tags drawn as steps of their color's intensity with AA-readable text. Older hosts ignore them.
+- Page toolbar actions' `key` now works on hosts with this release and shows on the button.
 
 ## 0.3.5 — 2026-11-15
 - Add `textarea` (with an optional live Markdown editor), `datetime`, `color`, `combobox` and `tags` form fields behind the new `ui.rich-fields` capability, and the `TagKey`/`TagValue` types.

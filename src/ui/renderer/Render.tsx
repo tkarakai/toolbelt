@@ -10,11 +10,11 @@ import { ColorField, ComboboxField, DateTimeField, TagsField, TextAreaField, WID
 // Keyboard (tables): ↑/↓ move · →/← expand/collapse (← again: to the parent) · ↵ first action
 // · an action's own key (`Action.key`: J, P…) · . row menu · esc clear. The table is the
 // keyboard's home: menus hand focus back to it when they close. Pages: ⌘F or / to filter, esc
-// back to the list.
+// back to the list, toolbar actions' own keys. Dialogs: the first field has focus; ↵ / ⌘↵ save.
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
 import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Section, Tag, TagValue, Target, Tone } from "../../shared/protocol";
-import { dotClass, dotSpec, pillClass, textClass } from "./colors";
+import { dotClass, dotSpec, pillClass, shadeStyle, textClass } from "./colors";
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { selectionKey } from "../../shared/navigation";
 import { EXIT_MS, useRowMotion } from "./row-motion";
@@ -107,8 +107,9 @@ function Strong({ text, strong }: { text: string; strong?: string }) {
 
 /** A small colored pill; its tooltip shows instantly. */
 function TagPill({ tag }: { tag: Tag }) {
+	const shaded = shadeStyle(tag.color, tag.shade);
 	const pill = (
-		<span className={cn("inline-flex h-4 shrink-0 items-center gap-1 rounded px-1.5 text-[10.5px] leading-none font-medium whitespace-nowrap", pillClass(tag.color))}>
+		<span style={shaded} className={cn("inline-flex h-4 shrink-0 items-center gap-1 rounded px-1.5 text-[10.5px] leading-none font-medium whitespace-nowrap", !shaded && pillClass(tag.color))}>
 			{tag.icon && <Icon name={tag.icon} className="size-2.5" />}
 			<Hl text={tag.text} />
 		</span>
@@ -162,7 +163,7 @@ function Elapsed({ at }: { at: number }) {
 
 /** Buttons for toolbar, card and dialog actions; `checked` actions are switches, actions with a
  *  `menu` are split buttons. */
-function ActionButtons({ actions, onRun, size = "sm", enter }: { actions: Action[]; onRun: (a: Action) => void; size?: "sm" | "default"; enter?: Action }) {
+function ActionButtons({ actions, onRun, size = "sm", enter, keys }: { actions: Action[]; onRun: (a: Action) => void; size?: "sm" | "default"; enter?: Action; keys?: boolean }) {
 	return (
 		<>
 			{actions.map((a) =>
@@ -172,7 +173,7 @@ function ActionButtons({ actions, onRun, size = "sm", enter }: { actions: Action
 						{a.label}
 					</label>
 				) : (
-					<SplitButton key={a.id} a={a} size={size} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onRun={onRun} hints={a === enter && <KeyHint keys="↵" />} />
+					<SplitButton key={a.id} a={a} size={size} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onRun={onRun} hints={a === enter ? <KeyHint keys="↵" /> : keys && a.key && <KeyHint keys={formatKey(a.key)} />} />
 				),
 			)}
 		</>
@@ -353,15 +354,35 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 		return () => window.removeEventListener("keydown", onKey);
 	}, [node.search]);
 
+	// Toolbar actions' own keys ("n": New task). A selected row's action with the same key
+	// wins: the table sees the key first and claims it, so the page waits until it has.
+	const root = useRef<HTMLDivElement>(null);
+	const keyed = useMemo(() => (node.actions ?? []).filter((a) => a.key && a.checked === undefined), [JSON.stringify(node.actions ?? [])]);
+	const runRef = useRef<(a: Action) => void>(() => {});
+	useEffect(() => {
+		if (!keyed.length) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (e.metaKey || e.ctrlKey || e.repeat || isTyping(e) || document.querySelector("[role=dialog], [role=menu], [role=listbox]")) return;
+			if (!root.current?.getClientRects().length) return;
+			const pane = root.current.closest<HTMLElement>("[data-keyboard-pane]");
+			if (pane && pane.dataset.keyboardActive !== "true") return;
+			const a = actionForEvent(keyed, e);
+			if (a) setTimeout(() => !e.defaultPrevented && runRef.current(a));
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [keyed]);
+
 	const words = (node.highlight ?? []).filter((w) => w.trim().length > 0);
 	const highlight = useMemo(() => (words.length ? new RegExp(`(${words.map(escape).sort((a, b) => b.length - a.length).join("|")})`, "ig") : null), [words.join("\n")]);
 	const { run, dialog: confirm } = useConfirm(emit);
+	runRef.current = (a) => run(a);
 	const hasToolbar = node.search || node.controls?.length || node.actions?.length || node.summary;
 	// Pages without a table read better as a centered column.
 	const narrow = !node.children.some((c) => c.type === "table");
 	return (
 		<HighlightContext.Provider value={highlight}>
-		<div className="flex h-full min-h-0 min-w-0 flex-col">
+		<div ref={root} className="flex h-full min-h-0 min-w-0 flex-col">
 			{hasToolbar && (
 				<div className={cn("flex w-full min-w-0 shrink-0 flex-wrap items-center gap-3 px-6 pt-4 pb-3", narrow && "mx-auto max-w-4xl")}>
 					{node.search && (
@@ -399,7 +420,7 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 					))}
 					{node.summary && <span className="truncate text-sm text-muted-foreground tabular-nums">{node.summary}</span>}
 					<div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-2">
-						<ActionButtons actions={node.actions ?? []} onRun={(a) => run(a)} />
+						<ActionButtons actions={node.actions ?? []} onRun={(a) => run(a)} keys />
 					</div>
 				</div>
 			)}
@@ -502,29 +523,48 @@ function PageDialog({ dialog, emit }: { dialog?: DialogNode; emit: Emit }) {
 	);
 }
 
+/** What a dialog focuses when it opens: the first of these in a form. */
+const FIRST_FIELD = "input:not([type=hidden]):not(:disabled), textarea:not(:disabled), [contenteditable=true], button[role=combobox]:not(:disabled), [role=radio][tabindex='0'], [role=switch]:not(:disabled)";
+
 /** Nodes that fill the space they get (and scroll themselves). */
 const FILLS = new Set(["terminal", "conversation"]);
 
 function DialogBody({ d, emit, close, className, style, header, children }: { d: DialogNode; emit: Emit; close: () => void; className?: string; style?: React.CSSProperties; header?: ReactNode; children?: ReactNode }) {
 	const fills = d.children.some((c) => FILLS.has(c.type));
-	// ↵ runs the main action, wherever focus is — unless it's on another button, or in a field
-	// or terminal that wants the key itself. Esc (Cancel / Close) is the dialog's own.
+	// ↵ runs the main action, wherever focus is — in a one-line field too (its value is committed
+	// first) — unless it's on another button, or in a field or terminal that wants the key itself.
+	// ⌘↵ runs it from anywhere, Markdown editors included. Esc (Cancel / Close) is the dialog's own.
 	const main = d.actions?.find((a) => a.primary && !a.disabled && a.checked === undefined);
+	const inside = (e: React.KeyboardEvent) => e.currentTarget.contains(e.target as globalThis.Node) && !(e.target as HTMLElement).closest(".tb-terminal");
+	const onKeyDownCapture = (e: React.KeyboardEvent) => {
+		if (e.key !== "Enter" || !main || !e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.nativeEvent.isComposing || !inside(e)) return;
+		e.preventDefault();
+		e.stopPropagation();
+		// Blurring commits what's being typed (fields send their value on blur) before the action.
+		(e.target as HTMLElement).blur?.();
+		emit(main.id, { dialog: d.id });
+	};
 	const onKeyDown = (e: React.KeyboardEvent) => {
-		if (e.key !== "Enter" || !main || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.nativeEvent.isComposing) return;
-		if ((e.target as HTMLElement).closest("button, a, input, textarea, select, [contenteditable], [role=switch], .tb-terminal")) return;
+		if (e.key !== "Enter" || !main || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.nativeEvent.isComposing || !inside(e)) return;
+		const target = e.target as HTMLElement;
+		const oneLine = target instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "reset", "file"].includes(target.type);
+		if (!oneLine && target.closest("button, a, input, textarea, select, [contenteditable], [role=switch]")) return;
 		e.preventDefault();
 		emit(main.id, { dialog: d.id });
 	};
 	return (
 		<DialogContent
+			onKeyDownCapture={onKeyDownCapture}
 			onKeyDown={onKeyDown}
 			className={cn("flex max-h-[85vh] flex-col gap-0 p-0 duration-200", d.wide ? "sm:max-w-3xl" : "sm:max-w-lg", className)}
 			style={style}
-			// Focus the dialog itself, not its first button (a ring on "Maximize" reads as a state).
+			// Focus the first form field, so typing can start at once; with none, the dialog itself
+			// (not its first button: a ring on "Maximize" reads as a state).
 			onOpenAutoFocus={(e) => {
 				e.preventDefault();
-				(e.currentTarget as HTMLElement | null)?.focus();
+				const content = e.currentTarget as HTMLElement | null;
+				const field = content?.querySelector<HTMLElement>(`[data-form-fields] :is(${FIRST_FIELD})`);
+				(field ?? content)?.focus();
 			}}
 		>
 			<DialogHeader className="border-b px-6 pt-6 pb-4 pr-20">
@@ -536,7 +576,7 @@ function DialogBody({ d, emit, close, className, style, header, children }: { d:
                 <LocalSelectionProvider>
                     <SelectionHandoffContext.Provider value={null}>
                         <SelectionRequestContext.Provider value={null}>
-                            {d.children.map((c, i) => <Render key={i} node={c} emit={emit} />)}
+                            <InDialog.Provider value={true}>{d.children.map((c, i) => <Render key={i} node={c} emit={emit} />)}</InDialog.Provider>
                         </SelectionRequestContext.Provider>
                     </SelectionHandoffContext.Provider>
                 </LocalSelectionProvider>
@@ -562,8 +602,9 @@ function ResizableDialog({ d, emit, close }: { d: DialogNode; emit: Emit; close:
 	const [max, setMax] = usePersisted(`toolbelt.dialog.${d.id}.max`, false);
 	const [dragging, setDragging] = useState(false);
 	const box = useRef<HTMLDivElement>(null);
-	const w = size?.w ?? Math.min(960, window.innerWidth - 64);
-	const h = size?.h ?? Math.min(680, window.innerHeight - 64);
+	// Until the person resizes it: a comfortable reading width, and as tall as its content.
+	const w = size?.w ?? Math.min(720, window.innerWidth - 64);
+	const h = size?.h;
 
 	// The dialog is centered, so an edge moves half as far as its size changes: grow by 2×.
 	const startResize = (dx: -1 | 0 | 1, dy: -1 | 0 | 1) => (e: React.PointerEvent) => {
@@ -595,7 +636,7 @@ function ResizableDialog({ d, emit, close }: { d: DialogNode; emit: Emit; close:
 			emit={emit}
 			close={close}
 			className={cn("max-h-none sm:max-w-none", !dragging && "transition-[width,height] duration-200 ease-out")}
-			style={max ? { width: "calc(100vw - 2rem)", height: "calc(100vh - 2rem)" } : { width: w, height: h, maxWidth: "calc(100vw - 2rem)", maxHeight: "calc(100vh - 2rem)" }}
+			style={max ? { width: "calc(100vw - 2rem)", height: "calc(100vh - 2rem)" } : { width: w, height: h, maxWidth: "calc(100vw - 2rem)", maxHeight: h === undefined ? "85vh" : "calc(100vh - 2rem)" }}
 			header={
 				<>
 					<div ref={box} className="pointer-events-none absolute inset-0" />
@@ -650,7 +691,7 @@ function CellView({ cell, col, measure }: { cell: Cell | undefined; col: Column;
 					) : (
 						<div className={cn("truncate", mono && "font-mono text-[0.8rem] tabular-nums", textClass(cell.tone ?? "default"))}><Strong text={cell.text} strong={cell.strong} /></div>
 					))}
-				{(cell.sub || cell.tags?.length) && (
+				{(!!cell.sub || !!cell.tags?.length) && (
 					<div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
 						{cell.tags?.map((t) => <TagPill key={t.text} tag={t} />)}
 						{cell.sub && <span className="truncate"><Hl text={cell.sub} /></span>}
@@ -873,12 +914,18 @@ const measureRows = (items: Item[]): Visible[] => {
 	return out;
 };
 
+/** `appearance: "document"`: rows round at their ends, inset this far (px) from the table's sides. */
+const DOC_INSET = 8;
+const DOC_ROW = "*:first:rounded-l-md *:last:rounded-r-md";
+
 /** A row the plugin removed, fading out in place before the rows around it close the gap. */
 const LEAVING = "pointer-events-none animate-out fade-out-0 fill-mode-forwards";
 const leavingProps = { "aria-hidden": true, "data-leaving": "", style: { animationDuration: `${EXIT_MS}ms` } } as const;
 
 /** A declared section's group key (top-level groups are keyed under the root's empty key). */
 const sectionKey = (id: string) => `\u0000${id}`;
+/** How soon after an action its refresh counts as the action's result (see `lastAction`). */
+const ACTION_REFRESH_MS = 3_000;
 /** How long the selection rests on a row before a `select` event (arrowing past doesn't count). */
 const SELECT_SETTLE_MS = 400;
 
@@ -892,7 +939,7 @@ type Item =
 	| { kind: "row"; id: string; v: Visible; muted: boolean };
 
 const TableRow = memo(
-	function TableRow({ v, muted, leaving, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, onDragStart, dragging, run, ready }: { v: Visible; muted?: boolean; leaving?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; onDragStart?: (e: React.PointerEvent, row: Row) => void; dragging?: boolean; run: Run; ready: { current: boolean } }) {
+	function TableRow({ v, muted, leaving, doc, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, onDragStart, dragging, run, ready }: { v: Visible; muted?: boolean; leaving?: boolean; doc?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; onDragStart?: (e: React.PointerEvent, row: Row) => void; dragging?: boolean; run: Run; ready: { current: boolean } }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
 		// Rows that appear after the table is up (expanded, new processes) fade in.
@@ -907,10 +954,12 @@ const TableRow = memo(
 				onPointerDown={onDragStart && depth === 0 ? (e) => onDragStart(e, row) : undefined}
 				data-unread={row.unread || undefined}
 				className={cn(
-					"group/row cursor-default transition-[background-color,opacity] duration-200 [&>td]:border-b [&>td]:border-border/50",
+					"group/row cursor-default transition-[background-color,opacity] duration-200",
 					dragging && "opacity-40",
-                    selected ? "bg-selected text-selected-foreground" : "hover:bg-accent",
-					depth > 0 && !selected && "bg-muted/20",
+					// A document: no lines, and the cells carry the fill so the row's ends can round.
+					doc
+						? cn(DOC_ROW, selected ? "text-selected-foreground *:bg-selected" : "hover:*:bg-accent")
+						: cn("[&>td]:border-b [&>td]:border-border/50", selected ? "bg-selected text-selected-foreground" : "hover:bg-accent", depth > 0 && !selected && "bg-muted/20"),
 					muted && !selected && "text-muted-foreground",
 					fresh && !leaving && "animate-in fade-in-0 slide-in-from-top-1 duration-200",
 					leaving && LEAVING,
@@ -954,11 +1003,12 @@ const TableRow = memo(
 			</tr>
 		);
 	},
-	(a, b) => a.sig === b.sig && a.dragging === b.dragging && a.onDragStart === b.onDragStart && a.leaving === b.leaving && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.choosing === b.choosing && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.roomy === b.roomy && a.actions === b.actions && a.run === b.run,
+	(a, b) => a.sig === b.sig && a.doc === b.doc && a.dragging === b.dragging && a.onDragStart === b.onDragStart && a.leaving === b.leaving && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.choosing === b.choosing && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.roomy === b.roomy && a.actions === b.actions && a.run === b.run,
 );
 
 function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emit: Emit }) {
 	const surface = useContext(SurfaceContext);
+	const doc = node.appearance === "document";
 	const [selected, setSelected, sharedTarget] = useCollectionSelection(`${node.id}:selected`, `table:${node.id}`);
 	// Expanded rows: the person's choices, on top of what the plugin opens (`row.open`).
 	const [overrides, setOverrides] = useUIState<Record<string, boolean>>(`${node.id}:expanded`, {});
@@ -979,7 +1029,11 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const [menuFor, setMenuFor] = useState<string | null>(null);
 	// An action's "which one?" menu, open on a row.
 	const [choosing, setChoosing] = useState<{ row: string; action: string } | null>(null);
-	const { run, dialog } = useConfirm(emit);
+	// When the person last ran an action here: if its refresh takes the selected row away
+	// (settled into a collapsed section, deleted), the selection moves to its neighbor.
+	const lastAction = useRef(0);
+	const emitAction = useCallback<Emit>((name, payload) => ((lastAction.current = Date.now()), emit(name, payload)), [emit]);
+	const { run, dialog } = useConfirm(emitAction);
 	const allColumns = useMemo(() => node.columns, [JSON.stringify(node.columns)]);
 	const allActions = useMemo(() => node.actions ?? [], [JSON.stringify(node.actions ?? [])]);
 	const actionsFor = useMemo(() => {
@@ -1023,11 +1077,13 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	useLayoutEffect(() => {
 		const el = wrap.current;
 		if (!el) return;
-		const ro = new ResizeObserver(() => setAvailable(el.clientWidth));
+		// A document's rows are inset from the edges (`DOC_INSET` on each side).
+		const measure = () => setAvailable(el.clientWidth - (doc ? 2 * DOC_INSET : 0));
+		const ro = new ResizeObserver(measure);
 		ro.observe(el);
-		setAvailable(el.clientWidth);
+		measure();
 		return () => ro.disconnect();
-	}, [node.rows.length > 0]);
+	}, [node.rows.length > 0, doc]);
 	// Saved per plugin and table, so the same table keeps its layout on every screen it's on.
 	const layoutKey = `toolbelt.table-layout.${surface.split("/")[0]}.${node.id}.v${node.layoutVersion ?? 0}`;
 	const [savedRaw, setSavedRaw] = usePersisted<unknown>(layoutKey, null);
@@ -1245,6 +1301,20 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		},
 		[setSelected],
 	);
+
+	// An action took the selected row out of view: select what took its place, the next item
+	// still shown, else the previous one. Searching or collapsing doesn't move the selection.
+	const previousItems = useRef(items);
+	useEffect(() => {
+		const before = previousItems.current;
+		previousItems.current = items;
+		if (!selected || Date.now() - lastAction.current > ACTION_REFRESH_MS || items.some((it) => it.id === selected)) return;
+		const i = before.findIndex((it) => it.id === selected);
+		if (i < 0) return;
+		const shown = new Set(items.map((it) => it.id));
+		const next = before.slice(i + 1).find((it) => shown.has(it.id)) ?? before.slice(0, i).reverse().find((it) => shown.has(it.id));
+		if (next) select(next.id);
+	}, [items, selected, select]);
 
 	// ── dragging rows within and between sections (`reorder`) ──
 	type RowDropTarget = (Omit<RowMove, "rowId"> & { whole: boolean }) | null;
@@ -1546,6 +1616,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 					onScroll={(e) => uiState.set(surface, `${node.id}:scroll`, e.currentTarget.scrollTop)}
 					onClickCapture={(e) => suppressRowClick.current && (e.stopPropagation(), e.preventDefault())}
 					className="min-h-0 min-w-0 flex-1 scroll-pt-9 overflow-auto outline-none"
+					style={doc ? { paddingInline: DOC_INSET } : undefined}
 				>
 					<table className="border-separate border-spacing-0 text-left" style={{ tableLayout: "fixed", width: Number.isFinite(available) ? Math.max(available, layout.total) : "100%" }}>
 							<colgroup>
@@ -1607,12 +1678,13 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						<tbody ref={body}>
 							{shown.map((it) =>
 								it.kind === "header" ? (
-									<GroupHeader key={it.id} item={it} columns={columns} bulk={bulk.length > 0} selected={!it.leaving && it.id === selected} leaving={it.leaving} onSelect={() => select(it.id)} onToggle={() => toggleGroup(it.key)} />
+									<GroupHeader key={it.id} item={it} doc={doc} columns={columns} bulk={bulk.length > 0} selected={!it.leaving && it.id === selected} leaving={it.leaving} onSelect={() => select(it.id)} onToggle={() => toggleGroup(it.key)} />
 								) : (
 									<TableRow
 										key={it.v.row.id}
 										v={it.v}
 										leaving={it.leaving}
+										doc={doc}
 										muted={it.muted}
 										sig={JSON.stringify(it.v.row) + it.v.depth + it.v.indent}
 											columns={columns}
@@ -1713,18 +1785,19 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 
 /** A group header: a section (level 0: where jobs run) or a group inside it (a folder). It can be
  *  selected (and moved through with the keyboard) and collapsed. */
-function GroupHeader({ item, columns, bulk, selected, leaving, onSelect, onToggle }: { item: Extract<Item, { kind: "header" }>; columns: Column[]; bulk: boolean; selected: boolean; leaving?: boolean; onSelect: () => void; onToggle: () => void }) {
+function GroupHeader({ item, doc, columns, bulk, selected, leaving, onSelect, onToggle }: { item: Extract<Item, { kind: "header" }>; doc?: boolean; columns: Column[]; bulk: boolean; selected: boolean; leaving?: boolean; onSelect: () => void; onToggle: () => void }) {
 	const { group: g, level, count, muted, collapsed } = item;
 	const top = level === 0;
 	const { index, labelSpan: colSpan } = groupSummaryLayout(columns, g.summary?.column, bulk);
-	const background = selected ? "bg-selected text-selected-foreground" : top ? "bg-muted/60 group-hover/row:bg-accent" : "bg-background group-hover/row:bg-accent";
+	// In a document, headers sit on the page like headings: no tint, no line under them.
+	const background = cn(selected ? "bg-selected text-selected-foreground" : doc ? "group-hover/row:bg-accent" : top ? "bg-muted/60 group-hover/row:bg-accent" : "bg-background group-hover/row:bg-accent", !doc && "border-b");
 	const summary = g.summary && <Tooltip><TooltipTrigger asChild><span tabIndex={0} aria-label={`${g.summary.label}: ${g.summary.value}`} className="inline-block shrink-0 rounded font-mono text-xs text-muted-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring">{g.summary.value}</span></TooltipTrigger><TooltipContent className="max-w-xs"><div className="font-medium">{g.summary.label}</div>{g.summary.description && <p className="mt-1 leading-relaxed">{g.summary.description}</p>}</TooltipContent></Tooltip>;
 	return (
-		<tr data-row-id={item.id} data-group-level={level} data-selected={selected} {...(leaving ? leavingProps : {})} onClick={(e) => (onSelect(), refocusTable(e.currentTarget))} onDoubleClick={onToggle} className={cn("group/row cursor-default", leaving && LEAVING)}>
+		<tr data-row-id={item.id} data-group-level={level} data-selected={selected} {...(leaving ? leavingProps : {})} onClick={(e) => (onSelect(), refocusTable(e.currentTarget))} onDoubleClick={onToggle} className={cn("group/row cursor-default", doc && DOC_ROW, leaving && LEAVING)}>
 			<td
 				colSpan={colSpan}
 				className={cn(
-					"border-b transition-colors duration-200",
+					"transition-colors duration-200",
                     background,
 					top ? "py-2" : "py-1",
 				)}
@@ -1771,8 +1844,8 @@ function GroupHeader({ item, columns, bulk, selected, leaving, onSelect, onToggl
                     {(g.summary?.column === undefined || index === 0) && <span className="ml-auto">{summary}</span>}
 				</div>
 			</td>
-			{index >= 0 && columns.slice(Math.max(1, index)).map((c, offset) => <td key={c.key} className={cn("border-b px-3 whitespace-nowrap transition-colors duration-200", background, c.align === "right" && "text-right", muted && !selected && "text-muted-foreground")} >{index > 0 && offset === 0 && summary}</td>)}
-			{index >= 0 && <td className={cn("border-b transition-colors duration-200", background)} />}
+			{index >= 0 && columns.slice(Math.max(1, index)).map((c, offset) => <td key={c.key} className={cn("px-3 whitespace-nowrap transition-colors duration-200", background, c.align === "right" && "text-right", muted && !selected && "text-muted-foreground")} >{index > 0 && offset === 0 && summary}</td>)}
+			{index >= 0 && <td className={cn("transition-colors duration-200", background)} />}
 		</tr>
 	);
 }
@@ -2176,8 +2249,50 @@ function Stats({ node }: { node: Extract<Node, { type: "stats" }> }) {
 }
 
 // ── forms (settings) ─────────────────────────────────────────────────────
+/** True inside a plugin's dialog: forms there drop their card and line up in two columns. */
+const InDialog = createContext(false);
+
+/** Fields whose label names a group of controls rather than one input. */
+const GROUP_LABEL = new Set<Field["type"]>(["environment", "tags", "color"]);
+
 function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emit }) {
 	const change = (field: Field, value: FieldValue) => emit("field", { form: node.id, field: field.id, value });
+	const label = (f: Field, className?: string) =>
+		GROUP_LABEL.has(f.type) ? <div className={cn("text-sm font-medium", className)}>{f.label}</div> : <Label htmlFor={`${node.id}-${f.id}`} className={className}>{f.label}</Label>;
+	if (useContext(InDialog))
+		// Labels in a column of their own, controls lined up beside them and as wide as the
+		// dialog allows; descriptions under their control.
+		return (
+			<div className="space-y-4">
+				{(node.title || node.description) && (
+					<div className="space-y-1">
+						{node.title && <div className="font-medium">{node.title}</div>}
+						{node.description && <p className="text-sm text-muted-foreground">{node.description}</p>}
+					</div>
+				)}
+				<div data-form-fields className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-[minmax(5.5rem,max-content)_minmax(0,1fr)]">
+					{node.fields.map((f) =>
+						f.type === "environment" ? (
+							<div key={f.id} className="space-y-2 sm:col-span-2">
+								{label(f)}
+								{f.description && <p className="text-sm text-muted-foreground">{f.description}</p>}
+								<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} />
+							</div>
+						) : (
+							<div key={f.id} className="contents">
+								{label(f, cn("sm:flex sm:min-h-8 sm:items-center sm:self-start", f.type === "textarea" && "sm:items-start sm:pt-2"))}
+								<div className="min-w-0 space-y-1.5">
+									<div className={cn("flex min-h-8 items-center *:max-w-full", f.type === "textarea" && "*:w-full", (f.type === "tags" || f.type === "color") && "py-1")}>
+										<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} fill />
+									</div>
+									{f.description && <p className="text-xs text-muted-foreground">{f.description}</p>}
+								</div>
+							</div>
+						),
+					)}
+				</div>
+			</div>
+		);
 	return (
 		<Card>
 			{(node.title || node.description) && (
@@ -2186,11 +2301,11 @@ function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emi
 					{node.description && <CardDescription>{node.description}</CardDescription>}
 				</CardHeader>
 			)}
-			<CardContent className="divide-y">
+			<CardContent data-form-fields className="divide-y">
 				{node.fields.map((f) => (
 					<div key={f.id} className={cn("py-4 first:pt-0 last:pb-0", WIDE_FIELDS.has(f.type) ? "space-y-3" : "flex items-center justify-between gap-6")}>
 						<div className="space-y-1">
-							{f.type === "environment" || f.type === "tags" || f.type === "color" ? <div className="text-sm font-medium">{f.label}</div> : <Label htmlFor={`${node.id}-${f.id}`}>{f.label}</Label>}
+							{label(f)}
 							{f.description && <p className="text-sm text-muted-foreground">{f.description}</p>}
 						</div>
 						<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} />
@@ -2202,14 +2317,15 @@ function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emi
 }
 
 type FieldValue = string | boolean | EnvironmentEntry[] | TagValue[];
-function FieldControl({ id, field, onChange }: { id: string; field: Field; onChange: (v: FieldValue) => void }) {
+/** `fill`: as wide as the space it's given (dialog forms), instead of the control's usual width. */
+function FieldControl({ id, field, onChange, fill }: { id: string; field: Field; onChange: (v: FieldValue) => void; fill?: boolean }) {
 	switch (field.type) {
 		case "environment":
             return <EnvironmentEditor value={field.value} onChange={onChange} />;
         case "select":
 			return (
 				<Select value={field.value} onValueChange={onChange}>
-					<SelectTrigger id={id} className="w-48">
+					<SelectTrigger id={id} className={fill ? "w-full max-w-sm" : "w-48"}>
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
@@ -2224,7 +2340,7 @@ function FieldControl({ id, field, onChange }: { id: string; field: Field; onCha
 		case "switch":
 			return <Switch id={id} checked={field.value} onCheckedChange={onChange} />;
 		case "text":
-			return <TextField id={id} field={field} onChange={onChange} />;
+			return <TextField id={id} field={field} onChange={onChange} className={fill ? "w-full" : "w-64"} />;
 		case "textarea":
 			return <TextAreaField id={id} field={field} onChange={onChange} />;
 		case "datetime":
@@ -2232,16 +2348,17 @@ function FieldControl({ id, field, onChange }: { id: string; field: Field; onCha
 		case "color":
 			return <ColorField id={id} field={field} onChange={onChange} />;
 		case "combobox":
-			return <ComboboxField id={id} field={field} onChange={onChange} />;
+			return <ComboboxField id={id} field={field} onChange={onChange} className={fill ? "w-full" : undefined} />;
 		case "tags":
 			return <TagsField id={id} field={field} onChange={onChange} />;
 	}
 }
 
-function TextField({ id, field, onChange }: { id: string; field: Extract<Field, { type: "text" }>; onChange: (v: string) => void }) {
+function TextField({ id, field, onChange, className }: { id: string; field: Extract<Field, { type: "text" }>; onChange: (v: string) => void; className?: string }) {
 	const [v, setV] = useState(field.value);
 	useEffect(() => setV(field.value), [field.value]);
-	return <Input id={id} type={field.sensitive ? "password" : "text"} className="w-64" value={v} placeholder={field.placeholder} onChange={(e) => setV(e.target.value)} onBlur={() => v !== field.value && onChange(v)} onKeyDown={(e) => e.key === "Enter" && onChange(v)} />;
+	const commit = () => v !== field.value && onChange(v);
+	return <Input id={id} type={field.sensitive ? "password" : "text"} className={className} value={v} placeholder={field.placeholder} onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && commit()} />;
 }
 
 // ── cards, details, logs, progress ───────────────────────────────────────

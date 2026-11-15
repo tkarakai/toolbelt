@@ -1,9 +1,16 @@
-/** Renderer-only keyboard ownership for adjacent host panes. Ordinary screens retain
- * their existing keyboard behavior; a popover collection responds only while focused. */
+/** Renderer-only keyboard ownership for adjacent host panes. A popover collection responds
+ * only while focused. On ordinary screens one collection answers: the one holding focus, or,
+ * with focus elsewhere (a toolbar button, the page), the first one on the screen, so a page
+ * with two tables doesn't move both selections at once. */
 export function ownsCollectionKeyboard(element: HTMLElement | null): boolean {
   if (!element) return false;
   const pane = element.closest<HTMLElement>("[data-keyboard-pane]");
-  if (!pane) return true;
+  if (!pane) {
+    const focused = document.activeElement?.closest<HTMLElement>(COLLECTION);
+    if (focused) return focused === element;
+    const first = [...document.querySelectorAll<HTMLElement>(COLLECTION)].find((el) => el.getClientRects().length);
+    return !first || first === element;
+  }
   if (document.querySelector("[role=dialog], [role=menu], [role=listbox]")) return false;
   return pane.dataset.keyboardActive === "true" && element.contains(document.activeElement);
 }

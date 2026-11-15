@@ -34,6 +34,9 @@ export function findSelectionTarget(tree: Node, selection: NavigationSelection):
         }
       };
       rows(node.rows, [], []);
+      // Declared sections are headers even with no rows (an empty Pinned, say).
+      for (const section of node.sections ?? [])
+        if (selection.item === `\u0001group:\0${section.id}`) matches.push({ ...selection, collection: `table:${node.id}`, ancestors: [], groups: [] });
     }
     if ("children" in node) node.children.forEach(visit);
   };

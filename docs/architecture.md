@@ -296,6 +296,13 @@ guidance remains available on each card. Plugin approval displays the selected G
 Markdown notes and links its publisher to that exact release. Resizable dialogs move from their
 header (or its focused arrow keys), with invisible edge/corner grips for resizing.
 
+On a plugin screen one collection owns the arrow and action keys: the table or list holding
+focus, else the first one shown, so a page with two tables never moves both selections. When an
+action the person ran takes the selected row out of view (deleted, or moved into a collapsed
+section) within three seconds, the selection moves to the next item still shown, else the
+previous one; searching, filtering and collapsing never move it. Empty declared sections are
+selectable like any group header.
+
 GitHub failure notices are timestamped and shared by the app and plugin update surfaces through
 profile-scoped metadata notifications. Active quota/throttling pauses API lookup and app download
 controls, with focusable retry-deadline tooltips. Browser release links remain available. The green
