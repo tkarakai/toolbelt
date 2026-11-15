@@ -171,8 +171,10 @@ export type Action = {
 	/** A switch instead of a button (page toolbars): on when true. Clicking sends the action. */
 	checked?: boolean;
 	/**
-	 * A one-key shortcut for the selected row ("j", "p"; no modifiers). Toolbelt shows it in
-	 * the tooltip, the row menu and the details drawer's buttons.
+	 * A shortcut for the selected row: one key ("j", "p"), or with the `ui.modifier-keys`
+	 * capability, `alt+` and/or `shift+` before a key or `up`/`down`/`left`/`right`
+	 * ("alt+up", "shift+s"). Toolbelt shows it in the tooltip, the row menu and the details
+	 * drawer's buttons.
 	 */
 	key?: string;
 	/**
@@ -230,6 +232,30 @@ export type Row = {
 	children?: Row[];
 	/** Per action id: what it can apply to. With two or more, the action asks which one. */
 	targets?: Record<string, Target[]>;
+	/** Something happened since the person last looked: a bold title and a dot. */
+	unread?: boolean;
+};
+
+/**
+ * A top-level group declared by the table (`sections`): it keeps its place and shows even with
+ * no rows. Rows join it with `group: id` (or a path starting with it).
+ */
+export type Section = {
+	id: string;
+	label: string;
+	icon?: string;
+	/** Shown in the section while it has no rows. */
+	empty?: string;
+	/** Start collapsed (until the person opens it). */
+	collapsed?: boolean;
+	/**
+	 * Dragging rows (`reorder`): `"manual"` (default) drops between rows at a position;
+	 * `"fixed"` takes a drop anywhere in it and the plugin decides the position; `false`
+	 * refuses drops. `dropLabel` names what a drop from another section does ("Settle").
+	 */
+	order?: "manual" | "fixed" | false;
+	dropLabel?: string;
+	dropIcon?: string;
 };
 
 /**
@@ -263,7 +289,24 @@ export type Field =
     | { type: "environment"; id: string; label: string; value: EnvironmentEntry[]; description?: string }
 	| { type: "select"; id: string; label: string; value: string; options: { value: string; label: string }[]; description?: string }
 	| { type: "switch"; id: string; label: string; value: boolean; description?: string }
-	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean };
+	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean }
+	// The fields below need the `ui.rich-fields` capability.
+	/** Several lines; with `markdown`, an editor that styles Markdown as it's typed. Sent on blur and ⌘↵. */
+	| { type: "textarea"; id: string; label: string; value: string; placeholder?: string; description?: string; markdown?: boolean; rows?: number }
+	/** A local date (`YYYY-MM-DD`), with an optional time (`YYYY-MM-DDTHH:MM`) unless `time: false`; "" when cleared. */
+	| { type: "datetime"; id: string; label: string; value: string; time?: boolean; description?: string }
+	/** One of the theme's named colors, as swatches. */
+	| { type: "color"; id: string; label: string; value: Hue; description?: string }
+	/** A searchable choice; with `freeform`, any typed text is accepted too. */
+	| { type: "combobox"; id: string; label: string; value: string; options: { value: string; label: string; sub?: string }[]; freeform?: boolean; placeholder?: string; description?: string }
+	/**
+	 * Key/value pills, at most one per key. A key with `flag` has no value; with `values`, its
+	 * value is picked from them (any text too with `freeform`); otherwise it's free text.
+	 */
+	| { type: "tags"; id: string; label: string; value: TagValue[]; keys: TagKey[]; description?: string };
+
+export type TagKey = { key: string; label: string; color?: Tone | Hue; values?: string[]; freeform?: boolean; flag?: boolean };
+export type TagValue = { key: string; value?: string };
 
 /** A line of output in a `log`. */
 export type LogLine = { text: string; at?: number; tone?: Tone };
@@ -341,12 +384,25 @@ export type Node =
 			 * chose for this table (default 0).
 			 */
 			layoutVersion?: number;
+			/** Top-level groups in order, shown even when empty (see `Section`). */
+			sections?: Section[];
+			/**
+			 * People can drag rows within and between sections (capability `ui.row-reorder`).
+			 * A drop sends `reorder` with `{ table, rowId, section, before }`; Toolbelt keeps the
+			 * order it shows until the plugin sends the next tree.
+			 */
+			reorder?: boolean;
+			/**
+			 * Send `select` with `{ table, rowId }` (null when cleared) once the person's selection
+			 * has rested on a row for a moment (capability `ui.row-select`).
+			 */
+			selectEvents?: boolean;
 	  }
 	| {
 			type: "list";
 			id: string;
 			/** `metaAt` shows a moment (epoch ms) relative to now instead of `meta`. */
-			items: { id: string; title: string; subtitle?: string; icon?: string; dot?: Dot; meta?: string; metaAt?: number; actions?: Action[] }[];
+			items: { id: string; title: string; subtitle?: string; icon?: string; dot?: Dot; meta?: string; metaAt?: number; actions?: Action[]; unread?: boolean }[];
 			empty?: { title: string; description?: string; icon?: string };
 	  }
 	/** `at` shows a moment (epoch ms) relative to now instead of `value`. */
@@ -412,9 +468,16 @@ export type EventPayloads = {
 	/** A sortable column header was clicked: sort `table` by `key`. */
 	sort: { table: string; key: string; desc: boolean };
 	/** A form field changed. */
-	field: { form: string; field: string; value: string | boolean | EnvironmentEntry[] };
+	field: { form: string; field: string; value: string | boolean | EnvironmentEntry[] | TagValue[] };
 	/** A filter's checked options changed. */
 	filter: { filter: string; values: string[] };
+	/** The selection rested on a row (`selectEvents` tables); null when cleared. */
+	select: { table: string; rowId: string | null };
+	/**
+	 * A row was dragged (`reorder` tables) into `section`, before the row `before` (null: at the
+	 * end, or anywhere in a `"fixed"` section).
+	 */
+	reorder: { table: string; rowId: string; section: string; before: string | null };
 };
 
 /** Parse a manifest and check the parts Toolbelt relies on. Throws with a readable message. */

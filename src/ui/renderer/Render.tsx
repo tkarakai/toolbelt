@@ -3,6 +3,7 @@ import { SelectionHandoffContext, SelectionRequestContext } from "@/lib/selectio
 import { PaneActionsContext } from "@/lib/pane-actions";
 import { ownsCollectionKeyboard, focusPopoverCollection, canHoverNavigate, pointerTracker } from "@/lib/pane-navigation";
 import { EnvironmentEditor } from "./EnvironmentEditor";
+import { ColorField, ComboboxField, DateTimeField, TagsField, TextAreaField, WIDE_FIELDS } from "./fields";
 // Turns a plugin's UI tree into shadcn/ui components. Every node type in shared/protocol.ts
 // has one renderer here; plugins never ship their own components.
 //
@@ -12,7 +13,7 @@ import { EnvironmentEditor } from "./EnvironmentEditor";
 // back to the list.
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
-import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Tag, Target, Tone } from "../../shared/protocol";
+import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Section, Tag, TagValue, Target, Tone } from "../../shared/protocol";
 import { dotClass, dotSpec, pillClass, textClass } from "./colors";
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { selectionKey } from "../../shared/navigation";
@@ -22,7 +23,7 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
 import { isTyping, SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { TerminalView } from "./Terminal";
-import { actionForKey, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
+import { actionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
 import { parseMarkdown, safeHref, type Block, type Inline } from "./markdown";
@@ -81,6 +82,11 @@ export function Dot({ tone, dot, className }: { tone?: Tone; dot?: DotNode; clas
 }
 
 /** `text` with its `strong` part drawn stronger (and search hits marked). */
+/** Something new on this row or item since the person last looked. */
+function UnreadDot({ className }: { className?: string }) {
+	return <span role="img" aria-label="Unread" className={cn("size-2 shrink-0 rounded-full bg-sky-500 group-data-[selected=true]/row:bg-selected-foreground group-data-[active=true]/row:bg-selected-foreground", className)} />;
+}
+
 function Strong({ text, strong }: { text: string; strong?: string }) {
 	const at = strong ? text.lastIndexOf(strong) : -1;
 	if (!strong || at < 0) return <Hl text={text} />;
@@ -181,7 +187,7 @@ function AlternativeItem({ a, onRun, inset }: { a: Action; onRun: (a: Action) =>
 		<DropdownMenuItem disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : "default"} onSelect={() => onRun(a)} className={cn(inset && "pl-7 text-muted-foreground focus:text-accent-foreground")}>
 			{a.icon && <Icon name={a.icon} />}
 			{a.label}
-			{a.key && <DropdownMenuShortcut className="uppercase">{a.key}</DropdownMenuShortcut>}
+			{a.key && <DropdownMenuShortcut>{formatKey(a.key)}</DropdownMenuShortcut>}
 		</DropdownMenuItem>
 	);
 }
@@ -823,7 +829,7 @@ function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setCho
 									<DropdownMenuSub key={a.id}>
 										<DropdownMenuSubTrigger disabled={a.disabled}>
 											{a.icon && <Icon name={a.icon} />}{a.label}
-											{a.key && <DropdownMenuShortcut className="mr-1 uppercase">{a.key}</DropdownMenuShortcut>}
+											{a.key && <DropdownMenuShortcut className="mr-1">{formatKey(a.key)}</DropdownMenuShortcut>}
 										</DropdownMenuSubTrigger>
 										<DropdownMenuSubContent className="w-72"><TargetItems a={a} targets={choices} onPick={t => pick(a, t.id)} /></DropdownMenuSubContent>
 									</DropdownMenuSub>
@@ -832,7 +838,7 @@ function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setCho
 									<div key={a.id} className="contents">
 										<DropdownMenuItem disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : "default"} onSelect={() => pick(a)}>
 											{a.icon && <Icon name={a.icon} />}{a.label}
-											{a.key && <DropdownMenuShortcut className="uppercase">{a.key}</DropdownMenuShortcut>}
+											{a.key && <DropdownMenuShortcut>{formatKey(a.key)}</DropdownMenuShortcut>}
 										</DropdownMenuItem>
 										{/* Split-button alternatives read as variants of the action above. */}
 										{a.menu?.map((m) => <AlternativeItem key={m.id} a={m} onRun={pick} inset />)}
@@ -871,17 +877,22 @@ const measureRows = (items: Item[]): Visible[] => {
 const LEAVING = "pointer-events-none animate-out fade-out-0 fill-mode-forwards";
 const leavingProps = { "aria-hidden": true, "data-leaving": "", style: { animationDuration: `${EXIT_MS}ms` } } as const;
 
+/** A declared section's group key (top-level groups are keyed under the root's empty key). */
+const sectionKey = (id: string) => `\u0000${id}`;
+/** How long the selection rests on a row before a `select` event (arrowing past doesn't count). */
+const SELECT_SETTLE_MS = 400;
+
 /** Group headers are selectable too; their ids can't clash with row ids. */
 const HEADER = "\u0001group:";
 const headerId = (key: string) => HEADER + key;
 
 /** What a table body shows, in order: group headers and rows. */
 type Item =
-	| { kind: "header"; id: string; level: number; group: GroupLevel; count: number; key: string; muted: boolean; parent?: string; collapsed: boolean; firstChild?: string }
+	| { kind: "header"; id: string; level: number; group: GroupLevel; count: number; key: string; muted: boolean; parent?: string; collapsed: boolean; firstChild?: string; section?: Section }
 	| { kind: "row"; id: string; v: Visible; muted: boolean };
 
 const TableRow = memo(
-	function TableRow({ v, muted, leaving, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, run, ready }: { v: Visible; muted?: boolean; leaving?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; run: Run; ready: { current: boolean } }) {
+	function TableRow({ v, muted, leaving, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, onDragStart, dragging, run, ready }: { v: Visible; muted?: boolean; leaving?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; onDragStart?: (e: React.PointerEvent, row: Row) => void; dragging?: boolean; run: Run; ready: { current: boolean } }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
 		// Rows that appear after the table is up (expanded, new processes) fade in.
@@ -893,8 +904,11 @@ const TableRow = memo(
 				{...(leaving ? leavingProps : {})}
 				onClick={(e) => (onSelect(row.id), refocusTable(e.currentTarget))}
 				onDoubleClick={() => hasChildren && onToggle(row.id)}
+				onPointerDown={onDragStart && depth === 0 ? (e) => onDragStart(e, row) : undefined}
+				data-unread={row.unread || undefined}
 				className={cn(
-					"group/row cursor-default transition-[background-color] duration-200 [&>td]:border-b [&>td]:border-border/50",
+					"group/row cursor-default transition-[background-color,opacity] duration-200 [&>td]:border-b [&>td]:border-border/50",
+					dragging && "opacity-40",
                     selected ? "bg-selected text-selected-foreground" : "hover:bg-accent",
 					depth > 0 && !selected && "bg-muted/20",
 					muted && !selected && "text-muted-foreground",
@@ -911,15 +925,21 @@ const TableRow = memo(
 					<td key={c.key} className={cn("h-12 overflow-hidden px-3 align-middle text-sm", i === 0 && "pl-3", c.align === "right" && "text-right", !growOf(c) && "whitespace-nowrap", roomy.split(",").includes(c.key) && "tb-cell-roomy")}>
 						{i === 0 ? (
 							<div className="flex min-w-0 items-center" style={{ paddingLeft: v.indent * 16 + depth * 20 }}>
-								<button
-									tabIndex={-1}
-									aria-label={expanded ? "Collapse" : "Expand"}
-									onClick={(e) => (e.stopPropagation(), onToggle(row.id))}
-									className={cn("mr-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground", !hasChildren && "invisible")}
-								>
-									<ChevronRight className={cn("size-3.5 transition-transform duration-200", expanded && "rotate-90")} />
-								</button>
-								<div className="min-w-0 flex-1">
+								{hasChildren ? (
+									<button
+										tabIndex={-1}
+										aria-label={expanded ? "Collapse" : "Expand"}
+										onClick={(e) => (e.stopPropagation(), onToggle(row.id))}
+										className="mr-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+									>
+										<ChevronRight className={cn("size-3.5 transition-transform duration-200", expanded && "rotate-90")} />
+									</button>
+								) : (
+									// No children: the chevron's slot holds the unread dot.
+									<span className="mr-1 flex size-5 shrink-0 items-center justify-center">{row.unread && <UnreadDot />}</span>
+								)}
+								{hasChildren && row.unread && <UnreadDot className="mr-1.5" />}
+								<div className={cn("min-w-0 flex-1", row.unread && "font-semibold")}>
 									<CellView cell={owned(row.cells,c.key)} col={c} />
 								</div>
 							</div>
@@ -934,7 +954,7 @@ const TableRow = memo(
 			</tr>
 		);
 	},
-	(a, b) => a.sig === b.sig && a.leaving === b.leaving && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.choosing === b.choosing && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.roomy === b.roomy && a.actions === b.actions && a.run === b.run,
+	(a, b) => a.sig === b.sig && a.dragging === b.dragging && a.onDragStart === b.onDragStart && a.leaving === b.leaving && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.choosing === b.choosing && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.roomy === b.roomy && a.actions === b.actions && a.run === b.run,
 );
 
 function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emit: Emit }) {
@@ -982,7 +1002,10 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		[run],
 	);
 	const toggle = useCallback((id: string) => setOverrides((o) => ({ ...o, [id]: !openIds.has(id) })), [setOverrides, openIds]);
-	const toggleGroup = useCallback((key: string) => setCollapsedGroups((c) => ({ ...c, [key]: !c[key] })), [setCollapsedGroups]);
+	const sections = useMemo(() => node.sections ?? [], [JSON.stringify(node.sections ?? [])]);
+	// A section can start collapsed; the person's choice wins once they make one.
+	const isCollapsed = useCallback((key: string) => owned(collapsedGroups, key) ?? sections.some((sec) => sectionKey(sec.id) === key && sec.collapsed), [collapsedGroups, sections]);
+	const toggleGroup = useCallback((key: string) => setCollapsedGroups((c) => ({ ...c, [key]: !(owned(c, key) ?? sections.some((sec) => sectionKey(sec.id) === key && sec.collapsed)) })), [setCollapsedGroups, sections]);
 
 	// Checked rows (tables with bulk actions): only top-level rows that still exist count.
 	const bulk = useMemo(() => node.bulkActions ?? [], [JSON.stringify(node.bulkActions ?? [])]);
@@ -1152,10 +1175,19 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 
 	// Group headers (nested, in order of first appearance) and rows with their expanded children.
 	// Rows of one group needn't be adjacent in `rows`: they're gathered under the first header.
+	// A dropped row shows in its new place until the plugin's next tree arrives.
+	const [pending, setPending] = useState<{ rows: Row[]; move: RowMove } | null>(null);
+	const rows = useMemo(() => (pending && pending.rows === node.rows ? applyMove(node.rows, pending.move) : node.rows), [node.rows, pending]);
 	const items = useMemo(() => {
-		type GNode = { group: GroupLevel; key: string; level: number; rows: Row[]; kids: Map<string, GNode>; order: GNode[]; muted: boolean; parent?: GNode };
+		type GNode = { group: GroupLevel; key: string; level: number; rows: Row[]; kids: Map<string, GNode>; order: GNode[]; muted: boolean; parent?: GNode; section?: Section };
 		const root: GNode = { group: { key: "", label: "" }, key: "", level: -1, rows: [], kids: new Map(), order: [], muted: false };
-		for (const r of node.rows) {
+		// Declared sections come first, in order, even without rows.
+		for (const sec of sections) {
+			const n: GNode = { group: { key: sec.id, label: sec.label, icon: sec.icon }, key: sectionKey(sec.id), level: 0, rows: [], kids: new Map(), order: [], muted: false, parent: root, section: sec };
+			root.kids.set(sec.id, n);
+			root.order.push(n);
+		}
+		for (const r of rows) {
 			let at = root;
 			for (const [i, g] of groupPath(r.group).entries()) {
 				let next = at.kids.get(g.key);
@@ -1171,10 +1203,10 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		const count = (n: GNode): number => n.rows.length + n.order.reduce((s, k) => s + count(k), 0);
 		const out: Item[] = [];
 		const add = (n: GNode) => {
-			const collapsed = n.level >= 0 && !!owned(collapsedGroups,n.key);
+			const collapsed = n.level >= 0 && isCollapsed(n.key);
 			if (n.level >= 0) {
 				const firstChild = n.rows[0]?.id ?? (n.order[0] ? headerId(n.order[0].key) : undefined);
-				out.push({ kind: "header", id: headerId(n.key), level: n.level, group: n.group, count: count(n), key: n.key, muted: n.muted, parent: n.parent && n.parent.level >= 0 ? headerId(n.parent.key) : undefined, collapsed, firstChild });
+				out.push({ kind: "header", id: headerId(n.key), level: n.level, group: n.group, count: count(n), key: n.key, muted: n.muted, parent: n.parent && n.parent.level >= 0 ? headerId(n.parent.key) : undefined, collapsed, firstChild, section: n.section });
 				if (collapsed) return;
 			}
 			const indent = n.level + 1;
@@ -1188,8 +1220,23 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		};
 		add(root);
 		return out;
-	}, [node.rows, expanded, collapsedGroups]);
+	}, [rows, sections, expanded, isCollapsed]);
+	useEffect(() => setPending((p) => (p && p.rows !== node.rows ? null : p)), [node.rows]);
+
 	const current = items.find((it) => it.id === selected) ?? null;
+
+	// `selectEvents`: tell the plugin which row the person is looking at, once it rests there.
+	const selectedRow = current?.kind === "row" ? current.v.row.id : null;
+	// Nothing selected at first needs no event.
+	const sentSelection = useRef<string | null>(null);
+	useEffect(() => {
+		if (!node.selectEvents || sentSelection.current === selectedRow) return;
+		const t = setTimeout(() => {
+			sentSelection.current = selectedRow;
+			emit("select", { table: node.id, rowId: selectedRow });
+		}, SELECT_SETTLE_MS);
+		return () => clearTimeout(t);
+	}, [node.selectEvents, node.id, selectedRow, emit]);
 
 	const select = useCallback(
 		(id: string | null) => {
@@ -1197,6 +1244,123 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 			if (id) requestAnimationFrame(() => rowElement(wrap.current, id)?.scrollIntoView({ block: "nearest" }));
 		},
 		[setSelected],
+	);
+
+	// ── dragging rows within and between sections (`reorder`) ──
+	type RowDropTarget = (Omit<RowMove, "rowId"> & { whole: boolean }) | null;
+	const [rowDrag, setRowDrag] = useState<{ rowId: string; title: string; x: number; y: number; target?: RowDropTarget; label?: string; mark?: { top: number; left: number; width: number; height: number } } | null>(null);
+	const live = useRef({ items, rows, nodeRows: node.rows, sections, columns: allColumns, isCollapsed });
+	live.current = { items, rows, nodeRows: node.rows, sections, columns: allColumns, isCollapsed };
+	const suppressRowClick = useRef(false);
+	const startRowDrag = useCallback(
+		(e: React.PointerEvent, row: Row) => {
+			if (e.button !== 0 || (e.target as HTMLElement).closest("button, a, input, [role=checkbox], [role=menuitem]")) return;
+			const x0 = e.clientX, y0 = e.clientY;
+			let active = false, frame = 0, x = x0, y = y0;
+			let target: RowDropTarget | undefined;
+			const firstKey = live.current.columns[0]?.key;
+			const firstCell = firstKey ? owned(row.cells, firstKey) : undefined;
+			const title = typeof firstCell === "object" && firstCell ? firstCell.text : String(firstCell ?? row.id);
+			const from = rowSection(row);
+			const elements = () => [...(body.current?.querySelectorAll<HTMLElement>(":scope > tr[data-row-id]") ?? [])].filter((el) => !el.hasAttribute("data-leaving"));
+			const update = () => {
+				const els = elements();
+				const byId = new Map(live.current.items.map((it) => [it.id, it]));
+				const slots: DropSlot[] = els.map((el) => {
+					const it = byId.get(el.dataset.rowId!);
+					if (it?.kind === "header") return it.level === 0 ? { kind: "header", section: it.group.key } : { kind: "other" };
+					if (it?.kind === "row" && it.v.depth === 0) return { kind: "row", id: it.v.row.id, section: rowSection(it.v.row) };
+					return { kind: "other" };
+				});
+				let index = els.findIndex((el) => {
+					const r = el.getBoundingClientRect();
+					return y >= r.top && y < r.bottom;
+				});
+				let lower = false;
+				if (index >= 0) {
+					const r = els[index]!.getBoundingClientRect();
+					lower = y > r.top + r.height / 2;
+				} else if (els.length && y >= els[els.length - 1]!.getBoundingClientRect().bottom) {
+					index = els.length - 1;
+					lower = true;
+				}
+				const next = resolveDrop(slots, index, lower, live.current.sections, row.id);
+				if (next !== undefined) target = next;
+				let mark: { top: number; left: number; width: number; height: number } | undefined;
+				const box = wrap.current?.getBoundingClientRect();
+				if (target && box) {
+					const t = target;
+					const inSection = els.filter((_, i) => { const sl = slots[i]!; return sl.kind !== "other" && sl.section === t.section; });
+					const header = els.find((_, i) => { const sl = slots[i]!; return sl.kind === "header" && sl.section === t.section; });
+					if (t.whole && inSection.length) {
+						const a = inSection[0]!.getBoundingClientRect(), b = inSection[inSection.length - 1]!.getBoundingClientRect();
+						mark = { top: a.top, left: box.left, width: box.width, height: b.bottom - a.top };
+					} else if (!t.whole) {
+						const before = t.before !== null ? els.find((el) => el.dataset.rowId === t.before) : undefined;
+						const last = inSection.filter((el) => el.dataset.rowId !== row.id).at(-1) ?? header;
+						const lineY = before ? before.getBoundingClientRect().top : last ? last.getBoundingClientRect().bottom : undefined;
+						if (lineY !== undefined) mark = { top: lineY - 1, left: box.left, width: box.width, height: 2 };
+					}
+				}
+				const sec = target ? live.current.sections.find((s) => s.id === target!.section) : undefined;
+				const label = target === null ? "Can't drop here" : target && target.section !== from ? (sec?.dropLabel ?? `Move to ${sec?.label ?? target.section}`) : undefined;
+				setRowDrag({ rowId: row.id, title, x, y, target, label, mark });
+			};
+			const scrollEdge = () => {
+				const el = wrap.current;
+				if (el) {
+					const r = el.getBoundingClientRect();
+					const step = y < r.top + 40 ? -12 : y > r.bottom - 32 ? 12 : 0;
+					if (step) (el.scrollTop += step, update());
+				}
+				frame = requestAnimationFrame(scrollEdge);
+			};
+			const move = (ev: PointerEvent) => {
+				x = ev.clientX;
+				y = ev.clientY;
+				if (!active) {
+					if (Math.hypot(x - x0, y - y0) < 4) return;
+					active = true;
+					document.body.style.cursor = "grabbing";
+					document.body.style.userSelect = "none";
+					frame = requestAnimationFrame(scrollEdge);
+				}
+				update();
+			};
+			const finish = (commit: boolean) => {
+				window.removeEventListener("pointermove", move);
+				window.removeEventListener("pointerup", up);
+				window.removeEventListener("pointercancel", cancel);
+				window.removeEventListener("keydown", key, true);
+				cancelAnimationFrame(frame);
+				if (!active) return;
+				document.body.style.cursor = "";
+				document.body.style.userSelect = "";
+				suppressRowClick.current = true;
+				setTimeout(() => (suppressRowClick.current = false));
+				setRowDrag(null);
+				if (!commit || !target) return;
+				const m: RowMove = { rowId: row.id, section: target.section, before: target.before };
+				if (isNoopMove(live.current.rows, m)) return;
+				setPending({ rows: live.current.nodeRows, move: m });
+				// Into a collapsed section, the row goes out of sight: don't select what can't be seen.
+				if (!live.current.isCollapsed(sectionKey(m.section))) setSelected(row.id);
+				emit("reorder", { table: node.id, rowId: m.rowId, section: m.section, before: m.before });
+			};
+			const up = () => finish(true);
+			const cancel = () => finish(false);
+			const key = (ev: KeyboardEvent) => {
+				if (ev.key !== "Escape" || !active) return;
+				ev.preventDefault();
+				ev.stopPropagation();
+				finish(false);
+			};
+			window.addEventListener("pointermove", move);
+			window.addEventListener("pointerup", up);
+			window.addEventListener("pointercancel", cancel);
+			window.addEventListener("keydown", key, true);
+		},
+		[emit, node.id, setSelected],
 	);
 
 	// Coming back to this table: where it was scrolled to, and the selection in view.
@@ -1216,9 +1380,16 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (!ownsCollectionKeyboard(wrap.current) || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+			if (!ownsCollectionKeyboard(wrap.current) || isTyping(e) || e.metaKey || e.ctrlKey) return;
 			const i = items.findIndex((it) => it.id === selected);
 			const cur = items[i];
+			// ⌥ / ⇧ shortcuts ("alt+up") belong to the selected row's actions, never to navigation.
+			if (e.altKey || (e.shiftKey && e.key.startsWith("Arrow"))) {
+				if (cur?.kind !== "row") return;
+				const a = actionForEvent(actionsFor(cur.v.row), e);
+				if (a) (e.preventDefault(), trigger(a, cur.v.row));
+				return;
+			}
 			switch (e.key) {
 				case "ArrowDown":
 				case "ArrowUp": {
@@ -1274,7 +1445,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				default: {
 					// An action's own key ("j", "p"…) on the selected row.
 					if (cur?.kind !== "row" || e.key.length !== 1) break;
-					const a = actionForKey(actionsFor(cur.v.row), e.key);
+					const a = actionForEvent(actionsFor(cur.v.row), e);
 					if (a) (e.preventDefault(), trigger(a, cur.v.row));
 				}
 			}
@@ -1373,6 +1544,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
                         if (id) select(id);
                     }}
 					onScroll={(e) => uiState.set(surface, `${node.id}:scroll`, e.currentTarget.scrollTop)}
+					onClickCapture={(e) => suppressRowClick.current && (e.stopPropagation(), e.preventDefault())}
 					className="min-h-0 min-w-0 flex-1 scroll-pt-9 overflow-auto outline-none"
 				>
 					<table className="border-separate border-spacing-0 text-left" style={{ tableLayout: "fixed", width: Number.isFinite(available) ? Math.max(available, layout.total) : "100%" }}>
@@ -1456,6 +1628,8 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 										onMenu={setMenuFor}
 										checked={checked.has(it.v.row.id)}
 										onCheck={bulk.length ? check : undefined}
+										onDragStart={node.reorder ? startRowDrag : undefined}
+										dragging={rowDrag?.rowId === it.v.row.id}
 										run={run}
 										ready={ready}
 									/>
@@ -1494,6 +1668,22 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						)}
 						<div className="pointer-events-none fixed z-50 rounded-md border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-md" style={{ left: moving.x + 8, top: moving.y + 8 }}>
 							{moving.title}
+						</div>
+					</>,
+					document.body,
+				)}
+			{rowDrag &&
+				createPortal(
+					<>
+						{rowDrag.mark && <div className={cn("pointer-events-none fixed z-50 rounded-sm", rowDrag.target?.whole ? "bg-ring/10 ring-2 ring-ring ring-inset" : "bg-ring")} style={rowDrag.mark} />}
+						<div className="pointer-events-none fixed z-50 flex max-w-80 items-center gap-2 rounded-md border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-md" style={{ left: rowDrag.x + 12, top: rowDrag.y + 12 }}>
+							<span className="truncate">{rowDrag.title}</span>
+							{rowDrag.label && (
+								<span className={cn("flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5", rowDrag.target === null ? "bg-destructive/15 text-destructive" : "bg-primary text-primary-foreground")}>
+									{rowDrag.target && (() => { const icon = sections.find((sec) => sec.id === rowDrag.target!.section)?.dropIcon; return icon ? <Icon name={icon} className="size-3" /> : null; })()}
+									{rowDrag.label}
+								</span>
+							)}
 						</div>
 					</>,
 					document.body,
@@ -1576,6 +1766,7 @@ function GroupHeader({ item, columns, bulk, selected, leaving, onSelect, onToggl
 							{g.tag}
 						</Badge>
 					)}
+					{count === 0 && item.section?.empty && <span className="truncate text-xs font-normal text-muted-foreground">{item.section.empty}</span>}
 					<span aria-label={`${count} ${count === 1 ? "item" : "items"}`} className={cn("shrink-0 rounded-md px-1.5 py-0.5 text-[11px] leading-none font-medium tabular-nums", selected ? "bg-selected-foreground/15 text-selected-foreground" : "bg-muted text-muted-foreground")}>{count}</span>
                     {(g.summary?.column === undefined || index === 0) && <span className="ml-auto">{summary}</span>}
 				</div>
@@ -1770,7 +1961,7 @@ function InspectorActions({ groups, main, row, run }: { groups: Action[][]; main
 		const hints = (
 			<>
 				{a === main && <KeyHint keys="↵" />}
-				{a.key && <KeyHint keys={a.key.toUpperCase()} />}
+				{a.key && <KeyHint keys={formatKey(a.key)} />}
 			</>
 		);
 		const cls = cn(variant === "ghost" && "px-2 text-muted-foreground hover:text-foreground");
@@ -1883,10 +2074,10 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 	useEffect(() => {
 		if (!keyboard) return;
 		const onKey = (e: KeyboardEvent) => {
-			if (!ownsCollectionKeyboard(self.current) || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+			if (!ownsCollectionKeyboard(self.current) || isTyping(e) || e.metaKey || e.ctrlKey) return;
             if ((e.target as HTMLElement).closest("button, a, [role=switch]")) return;
 			const i = node.items.findIndex((it) => it.id === active);
-			if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+			if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.altKey && !e.shiftKey) {
 				e.preventDefault();
 				const next = node.items[i < 0 ? (e.key === "ArrowDown" ? 0 : node.items.length - 1) : Math.max(0, Math.min(node.items.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
 				if (next) {
@@ -1895,7 +2086,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 				}
             } else if (i >= 0) {
                 const item = node.items[i]!;
-                const action = e.key === "Enter" ? item.actions?.find(a => !a.disabled) : actionForKey(item.actions ?? [], e.key);
+                const action = e.key === "Enter" ? item.actions?.find(a => !a.disabled) : actionForEvent(item.actions ?? [], e);
                 if (action) { e.preventDefault(); run(action, item.id); }
             }
 		};
@@ -1937,7 +2128,10 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 					{it.dot && <Dot dot={it.dot} />}
                     {it.icon && <Icon name={it.icon} className="size-4 shrink-0" />}
 					<div className="min-w-0 flex-1">
-						<div className="truncate text-sm font-medium">{it.title}</div>
+						<div className={cn("flex items-center gap-1.5 text-sm", it.unread ? "font-semibold" : "font-medium")}>
+							{it.unread && <UnreadDot />}
+							<span className="truncate">{it.title}</span>
+						</div>
 						{it.subtitle && <div className="truncate font-mono text-xs text-muted-foreground">{it.subtitle}</div>}
 					</div>
 					{(it.meta || it.metaAt !== undefined) && <span className="text-xs text-muted-foreground tabular-nums group-data-[active=true]/row:hidden">{it.metaAt !== undefined ? <When at={it.metaAt} /> : it.meta}</span>}
@@ -1983,7 +2177,7 @@ function Stats({ node }: { node: Extract<Node, { type: "stats" }> }) {
 
 // ── forms (settings) ─────────────────────────────────────────────────────
 function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emit }) {
-	const change = (field: Field, value: string | boolean | EnvironmentEntry[]) => emit("field", { form: node.id, field: field.id, value });
+	const change = (field: Field, value: FieldValue) => emit("field", { form: node.id, field: field.id, value });
 	return (
 		<Card>
 			{(node.title || node.description) && (
@@ -1994,9 +2188,9 @@ function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emi
 			)}
 			<CardContent className="divide-y">
 				{node.fields.map((f) => (
-					<div key={f.id} className={cn("py-4 first:pt-0 last:pb-0", f.type === "environment" ? "space-y-3" : "flex items-center justify-between gap-6")}>
+					<div key={f.id} className={cn("py-4 first:pt-0 last:pb-0", WIDE_FIELDS.has(f.type) ? "space-y-3" : "flex items-center justify-between gap-6")}>
 						<div className="space-y-1">
-							{f.type === "environment" ? <div className="text-sm font-medium">{f.label}</div> : <Label htmlFor={`${node.id}-${f.id}`}>{f.label}</Label>}
+							{f.type === "environment" || f.type === "tags" || f.type === "color" ? <div className="text-sm font-medium">{f.label}</div> : <Label htmlFor={`${node.id}-${f.id}`}>{f.label}</Label>}
 							{f.description && <p className="text-sm text-muted-foreground">{f.description}</p>}
 						</div>
 						<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} />
@@ -2007,7 +2201,8 @@ function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emi
 	);
 }
 
-function FieldControl({ id, field, onChange }: { id: string; field: Field; onChange: (v: string | boolean | EnvironmentEntry[]) => void }) {
+type FieldValue = string | boolean | EnvironmentEntry[] | TagValue[];
+function FieldControl({ id, field, onChange }: { id: string; field: Field; onChange: (v: FieldValue) => void }) {
 	switch (field.type) {
 		case "environment":
             return <EnvironmentEditor value={field.value} onChange={onChange} />;
@@ -2030,6 +2225,16 @@ function FieldControl({ id, field, onChange }: { id: string; field: Field; onCha
 			return <Switch id={id} checked={field.value} onCheckedChange={onChange} />;
 		case "text":
 			return <TextField id={id} field={field} onChange={onChange} />;
+		case "textarea":
+			return <TextAreaField id={id} field={field} onChange={onChange} />;
+		case "datetime":
+			return <DateTimeField id={id} field={field} onChange={onChange} />;
+		case "color":
+			return <ColorField id={id} field={field} onChange={onChange} />;
+		case "combobox":
+			return <ComboboxField id={id} field={field} onChange={onChange} />;
+		case "tags":
+			return <TagsField id={id} field={field} onChange={onChange} />;
 	}
 }
 

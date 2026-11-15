@@ -32,6 +32,12 @@ the last event it delivered, and allows one navigation per event. It requires th
 capability; without it the method returns false and sends nothing. `Action.menu` turns a
 button into a split button with one level of alternatives (`ui.split-action`).
 
+`ui.rich-fields` adds `textarea` (optionally a live Markdown editor), `datetime`, `color`,
+`combobox` and `tags` form fields. Tables can declare `sections` and mark rows `unread`;
+`selectEvents` sends `select` when the selection rests on a row (`ui.row-select`), and `reorder`
+lets people drag rows within and between sections, sending `reorder` (`ui.row-reorder`).
+`Action.key` accepts `alt+`/`shift+` combinations such as `alt+up` (`ui.modifier-keys`).
+
 `start(context)` must respect `context.mode`: `probe` may load staged data and become ready
 but must not schedule external work or cause external side effects; `active` is final runtime
 activation. `prepare(reason, context)` returns `{ready, reason?}` and can defer an unsafe stop.

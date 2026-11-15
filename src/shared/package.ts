@@ -13,6 +13,10 @@ export const CAPABILITIES = [
   "native.handoff",
   "ui.split-action",
   "navigate",
+  "ui.rich-fields",
+  "ui.row-select",
+  "ui.row-reorder",
+  "ui.modifier-keys",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

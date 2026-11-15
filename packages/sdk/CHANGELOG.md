@@ -1,6 +1,11 @@
 # SDK changelog
 
 ## Unreleased
+- Add `textarea` (with an optional live Markdown editor), `datetime`, `color`, `combobox` and `tags` form fields behind the new `ui.rich-fields` capability, and the `TagKey`/`TagValue` types.
+- Add table `sections` (ordered top-level groups that show even when empty), `Row.unread` and list item `unread`.
+- Add table `selectEvents` and the `select` event, behind `ui.row-select`: sent when the selection rests on a row.
+- Add table `reorder` and the `reorder` event, behind `ui.row-reorder`: people drag rows within and between sections, and each section says how it takes drops (`order`, `dropLabel`, `dropIcon`).
+- `Action.key` accepts `alt+` and `shift+` combinations, including arrows (`alt+up`), behind `ui.modifier-keys`.
 
 ## 0.3.4 — 2026-11-15
 - Add `Action.menu`, split-button alternatives (one level), behind the new `ui.split-action` capability. Older hosts show only the main button.
