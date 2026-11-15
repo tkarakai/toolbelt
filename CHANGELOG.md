@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.8 — 2026-11-15
 - Table rows animate when a plugin's refresh changes them. Rows that change places slide to their new position (200 ms), and removed rows fade out where they were (150 ms) before the rows below close the gap. New rows already faded in. Your own changes (sorting, filtering, typing, collapsing, clicking), the first paint and Reduce motion change the table at once. A refresh that removes more than 30 rows doesn't fade them.
 - When a plugin stops with “Invalid protocol message”, the message now says why: the field that was wrong, nesting deeper than the protocol allows, too many values, or output that isn't JSON.
 
