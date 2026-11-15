@@ -11,6 +11,8 @@ export const CAPABILITIES = [
   "assets",
   "lifecycle",
   "native.handoff",
+  "ui.split-action",
+  "navigate",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

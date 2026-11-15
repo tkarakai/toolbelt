@@ -118,6 +118,14 @@ export type Context = {
   ): void;
   /** Put text on the clipboard. */
   copy(text: string): void;
+  /**
+   * Show one of this plugin's screens (its manifest id, without `screen:`) in the main window,
+   * optionally selecting the row/list item with id `select`. Call it in response to the
+   * person's action (an event, including a toast button): the host ignores navigation that
+   * doesn't closely follow one. Returns false (and sends nothing) when the host lacks the
+   * `navigate` capability.
+   */
+  navigate(screen: string, options?: { select?: string }): boolean;
   /** Surfaces the host currently shows. */
   readonly open: ReadonlySet<string>;
 };
@@ -203,6 +211,11 @@ export function definePlugin(
     badge: (value) => send({ type: "badge", value }),
     toast: (text, tone, action) => send({ type: "toast", text, tone, action }),
     copy: (text) => send({ type: "clipboard", text }),
+    navigate(screen, options) {
+      if (!capabilities.has("navigate")) return false;
+      send({ type: "navigate", screen, ...(options?.select !== undefined && { select: options.select }) });
+      return true;
+    },
     open,
   };
 

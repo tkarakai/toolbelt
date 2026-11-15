@@ -66,7 +66,12 @@ type Listener = {
     action?: { id: string; label: string; payload?: unknown },
   ): void;
   clipboard?(plugin: string, text: string): void;
+  /** Show the plugin's screen in the main window (already checked: declared, user-initiated). */
+  navigate?(plugin: string, screen: string, select?: string): void;
 };
+
+/** How long after a person's action a plugin may still move them to another screen. */
+export const NAVIGATE_GRACE_MS = 10_000;
 
 export class PluginProcess {
   private readyResolve?: () => void;
@@ -129,6 +134,8 @@ export class PluginProcess {
 
   state: PluginState = "stopped";
   badge: number | string | null = null;
+  /** When the host last delivered a person's action (event) to this plugin. */
+  userEventAt = 0;
   error?: string;
   trees = new Map<string, Node>();
   /** Surface → how many viewers have it open. */
@@ -484,6 +491,16 @@ export class PluginProcess {
       case "clipboard":
         this.listener.clipboard?.(this.manifest.id, msg.text);
         break;
+      case "navigate":
+        if (!this.manifest.screens.some((s) => s.id === msg.screen))
+          this.log(`navigate ignored: undeclared screen ${JSON.stringify(msg.screen.slice(0, 64))}`);
+        else if (Date.now() - this.userEventAt > NAVIGATE_GRACE_MS)
+          this.log("navigate ignored: not in response to a recent action");
+        else {
+          this.userEventAt = 0; // one navigation per action
+          this.listener.navigate?.(this.manifest.id, msg.screen, msg.select);
+        }
+        break;
     }
   }
 
@@ -617,7 +634,9 @@ export class PluginHost {
     )
       throw new Error("Invalid event metadata");
     validateEventPayload(payload);
-    this.get(plugin).send({ type: "event", surface, name, payload });
+    const p = this.get(plugin);
+    p.userEventAt = Date.now();
+    p.send({ type: "event", surface, name, payload });
   }
 
   async restart(plugin: string) {
@@ -731,6 +750,12 @@ export class PluginHost {
           this.listeners.forEach((l) => {
             try {
               l.clipboard?.(plugin, text);
+            } catch {}
+          }),
+        navigate: (plugin, screen, select) =>
+          this.listeners.forEach((l) => {
+            try {
+              l.navigate?.(plugin, screen, select);
             } catch {}
           }),
       },

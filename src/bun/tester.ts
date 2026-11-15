@@ -284,6 +284,13 @@ runtime.host.subscribe({
   tree: (plugin, surface, tree) => broadcast("tree", { plugin, surface, tree }),
   toast: (plugin, text, tone, action) =>
     broadcast("toast", { plugin, text, tone, action }),
+  // The tester's frame embeds the production window: show the screen there.
+  navigate: (plugin, screen, select) =>
+    broadcast("navigate", {
+      plugin,
+      screen,
+      selection: select ? { item: select } : undefined,
+    }),
 });
 await runtime.start();
 const win = new BrowserWindow({

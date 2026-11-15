@@ -267,6 +267,8 @@ host.subscribe({
   toast: (plugin, text, tone, action) =>
     views.forEach((v) => v.send.toast({ plugin, text, tone, action })),
   clipboard: (_plugin, text) => Utils.clipboardWriteText(text),
+  navigate: (plugin, screen, select) =>
+    showWindow(plugin, screen, select ? { item: select } : undefined),
 });
 
 // ── main window ──────────────────────────────────────────────────────────

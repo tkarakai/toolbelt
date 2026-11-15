@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Action, Column } from "../src/shared/protocol";
-import { groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
+import { actionForKey, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -219,4 +219,16 @@ test("group summaries share column tracks through visibility and bulk selection 
  for (const key of ["mem", "unknown"]) expect(groupSummaryLayout(cols.filter(c=>c.key!=="mem"),key,false)).toEqual({index:-1,labelSpan:5});
  expect(groupSummaryLayout(cols,undefined,false)).toEqual({index:-1,labelSpan:6});
  expect(groupSummaryLayout(cols,"name",true)).toEqual({index:0,labelSpan:2});
+});
+
+describe("split-button alternatives", () => {
+	const update: Action = { id: "update", label: "Update", key: "u", menu: [{ id: "review", label: "Review first", key: "r" }, { id: "terminal", label: "In Terminal", key: "t", disabled: true }] };
+	test("follow their action in menu order", () => {
+		expect(withAlternatives([update, { id: "pin", label: "Pin" }]).map((a) => a.id)).toEqual(["update", "review", "terminal", "pin"]);
+	});
+	test("answer their own shortcut keys, unless disabled", () => {
+		expect(actionForKey([update], "U")?.id).toBe("update");
+		expect(actionForKey([update], "r")?.id).toBe("review");
+		expect(actionForKey([update], "t")).toBeUndefined();
+	});
 });

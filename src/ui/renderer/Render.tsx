@@ -20,7 +20,7 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
 import { isTyping, SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { TerminalView } from "./Terminal";
-import { detailSections, dragBoundary, groupActions, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
+import { actionForKey, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
 import { parseMarkdown, safeHref, type Block, type Inline } from "./markdown";
@@ -152,7 +152,8 @@ function Elapsed({ at }: { at: number }) {
 	return <span className="tabular-nums">{duration(Date.now() - at)}</span>;
 }
 
-/** Buttons for toolbar, card and dialog actions; `checked` actions are switches. */
+/** Buttons for toolbar, card and dialog actions; `checked` actions are switches, actions with a
+ *  `menu` are split buttons. */
 function ActionButtons({ actions, onRun, size = "sm", enter }: { actions: Action[]; onRun: (a: Action) => void; size?: "sm" | "default"; enter?: Action }) {
 	return (
 		<>
@@ -163,14 +164,66 @@ function ActionButtons({ actions, onRun, size = "sm", enter }: { actions: Action
 						{a.label}
 					</label>
 				) : (
-					<Button key={a.id} size={size} disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onClick={() => onRun(a)}>
-						{a.icon && <Icon name={a.icon} />}
-						{a.label}
-						{a === enter && <KeyHint keys="↵" />}
-					</Button>
+					<SplitButton key={a.id} a={a} size={size} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onRun={onRun} hints={a === enter && <KeyHint keys="↵" />} />
 				),
 			)}
 		</>
+	);
+}
+
+type ButtonVariant = "default" | "outline" | "ghost" | "destructive";
+
+/** An alternative in a split button's menu (or the row menu): its icon, label and key. */
+function AlternativeItem({ a, onRun, inset }: { a: Action; onRun: (a: Action) => void; inset?: boolean }) {
+	return (
+		<DropdownMenuItem disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : "default"} onSelect={() => onRun(a)} className={cn(inset && "pl-7 text-muted-foreground focus:text-accent-foreground")}>
+			{a.icon && <Icon name={a.icon} />}
+			{a.label}
+			{a.key && <DropdownMenuShortcut className="uppercase">{a.key}</DropdownMenuShortcut>}
+		</DropdownMenuItem>
+	);
+}
+
+/**
+ * A button; with `menu`, a split button: the main part runs the action, the joined chevron opens
+ * its alternatives. Both halves share the variant and a 1 px divider separates them.
+ */
+function SplitButton({ a, size, variant, onRun, hints, className }: { a: Action; size: "sm" | "default"; variant: ButtonVariant; onRun: (a: Action) => void; hints?: ReactNode; className?: string }) {
+	const main = (
+		<Button size={size} disabled={a.disabled} variant={variant} onClick={() => onRun(a)} className={cn(a.menu?.length && "rounded-r-none", className)}>
+			{a.icon && <Icon name={a.icon} />}
+			{a.label}
+			{hints}
+		</Button>
+	);
+	if (!a.menu?.length) return main;
+	return (
+		<div role="group" aria-label={a.label} data-slot="split-button" className="inline-flex shrink-0 items-stretch">
+			{main}
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button
+						size={size === "sm" ? "icon-sm" : "icon"}
+						variant={variant}
+						disabled={a.menu.every((m) => m.disabled)}
+						aria-label={`Other ways: ${a.label}`}
+						className={cn(
+							"w-6 rounded-l-none",
+							variant === "outline" && "-ml-px",
+							variant === "default" && "border-l-primary-foreground/25",
+							variant === "destructive" && "border-l-destructive/25",
+						)}
+					>
+						<ChevronDown className="size-3.5" />
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end" className="min-w-48" onCloseAutoFocus={toTable}>
+					{a.menu.map((m) => (
+						<AlternativeItem key={m.id} a={m} onRun={onRun} />
+					))}
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</div>
 	);
 }
 
@@ -774,10 +827,14 @@ function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setCho
 									</DropdownMenuSub>
 								);
 								return (
-									<DropdownMenuItem key={a.id} disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : "default"} onSelect={() => pick(a)}>
-										{a.icon && <Icon name={a.icon} />}{a.label}
-										{a.key && <DropdownMenuShortcut className="uppercase">{a.key}</DropdownMenuShortcut>}
-									</DropdownMenuItem>
+									<div key={a.id} className="contents">
+										<DropdownMenuItem disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : "default"} onSelect={() => pick(a)}>
+											{a.icon && <Icon name={a.icon} />}{a.label}
+											{a.key && <DropdownMenuShortcut className="uppercase">{a.key}</DropdownMenuShortcut>}
+										</DropdownMenuItem>
+										{/* Split-button alternatives read as variants of the action above. */}
+										{a.menu?.map((m) => <AlternativeItem key={m.id} a={m} onRun={pick} inset />)}
+									</div>
 								);
 							})}
 						</DropdownMenuGroup>
@@ -1204,7 +1261,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				default: {
 					// An action's own key ("j", "p"…) on the selected row.
 					if (cur?.kind !== "row" || e.key.length !== 1) break;
-					const a = actionsFor(cur.v.row).find((x) => x.key && x.key.toLowerCase() === e.key.toLowerCase() && !x.disabled);
+					const a = actionForKey(actionsFor(cur.v.row), e.key);
 					if (a) (e.preventDefault(), trigger(a, cur.v.row));
 				}
 			}
@@ -1699,6 +1756,7 @@ function InspectorActions({ groups, main, row, run }: { groups: Action[][]; main
 			</>
 		);
 		const cls = cn(variant === "ghost" && "px-2 text-muted-foreground hover:text-foreground");
+		if (!targets && a.menu?.length) return <SplitButton key={a.id} a={a} size="sm" variant={variant} onRun={(x) => run(x)} hints={hints} className={cls} />;
 		if (!targets)
 			return (
 				<Button key={a.id} size="sm" disabled={a.disabled} variant={variant} onClick={() => run(a)} className={cls}>
@@ -1819,7 +1877,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 				}
             } else if (i >= 0) {
                 const item = node.items[i]!;
-                const action = e.key === "Enter" ? item.actions?.find(a => !a.disabled) : item.actions?.find(a => !a.disabled && a.key?.toLowerCase() === e.key.toLowerCase());
+                const action = e.key === "Enter" ? item.actions?.find(a => !a.disabled) : actionForKey(item.actions ?? [], e.key);
                 if (action) { e.preventDefault(); run(action, item.id); }
             }
 		};
@@ -1863,7 +1921,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 					{(it.meta || it.metaAt !== undefined) && <span className="text-xs text-muted-foreground tabular-nums group-data-[active=true]/row:hidden">{it.metaAt !== undefined ? <When at={it.metaAt} /> : it.meta}</span>}
 					{it.actions && it.actions.length > 0 && (
 						<div className="hidden items-center gap-0.5 group-data-[active=true]/row:flex">
-							{it.actions.map((a, i) => (
+							{withAlternatives(it.actions).map((a, i) => (
 								<Tooltip key={a.id}>
 									<TooltipTrigger asChild>
 										<Button variant="ghost" size="icon-xs" tabIndex={-1} className="hover:bg-selected-foreground/15 hover:text-selected-foreground" onClick={() => run(a, it.id)} aria-label={a.label}>

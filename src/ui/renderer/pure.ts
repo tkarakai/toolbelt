@@ -20,6 +20,13 @@ export function groupActions(actions: Action[]): Action[][] {
 	return [...groups.values()];
 }
 
+/** Actions followed by their split-button alternatives (`menu`), in menu order. */
+export const withAlternatives = (actions: Action[]): Action[] => actions.flatMap((a) => [a, ...(a.menu ?? [])]);
+
+/** The enabled action or alternative whose one-key shortcut is `key` (case-insensitive). */
+export const actionForKey = (actions: Action[], key: string): Action | undefined =>
+	withAlternatives(actions).find((a) => !!a.key && a.key.toLowerCase() === key.toLowerCase() && !a.disabled);
+
 // ── table columns: width, order, what fits ──────────────────────────────
 
 /** The narrowest a growing column gets before other columns hide (when it sets no `minWidth`). */

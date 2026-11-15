@@ -25,6 +25,13 @@ coalesces renders; unchanged trees are not resent. `Context.capabilities` contai
 host support. Declare used features required or implement an actual fallback when optional
 capabilities are absent. Keep stdout protocol-only; use stderr for diagnostics.
 
+`Context.navigate(screen, {select?})` shows one of the plugin's declared screens in the main
+window and selects a stable row/list item ID there. Call it only in response to an event, such
+as a toast button (`surface: "toast"`). The host ignores calls that come more than 10 s after
+the last event it delivered, and allows one navigation per event. It requires the `navigate`
+capability; without it the method returns false and sends nothing. `Action.menu` turns a
+button into a split button with one level of alternatives (`ui.split-action`).
+
 `start(context)` must respect `context.mode`: `probe` may load staged data and become ready
 but must not schedule external work or cause external side effects; `active` is final runtime
 activation. `prepare(reason, context)` returns `{ready, reason?}` and can defer an unsafe stop.
