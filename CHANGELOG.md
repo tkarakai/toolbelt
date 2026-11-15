@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.10 — 2026-11-15
 - Plugin tables can look like a document: one background, no lines between rows or tinted section headers, and rounded hovered and selected rows. Sections, nesting, the keyboard, dragging and the details drawer work as before.
 - Plugin tags can show shades of their color, for example High, Medium and Low from strongest to lightest. Every shade keeps its text readable in every theme.
 - Plugin toolbar buttons can have a shortcut key, shown on the button (for example N for New task).
