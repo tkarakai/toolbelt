@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { createSelectionStore } from "../src/ui/lib/selection-store";
-import { findSelectionTarget } from "../src/shared/navigation";
+import { findSelectionTarget, selectionKey } from "../src/shared/navigation";
 import { pointerTracker } from "../src/ui/lib/pane-navigation";
 function storage() {
   const values = new Map<string, string>();
@@ -95,4 +95,14 @@ test("hover follows real pointer moves, not content moving under a still pointer
   expect(moved({ screenX: 10, screenY: 10 })).toBe(false);
   expect(moved({ screenX: 10, screenY: 10 })).toBe(false);
   expect(moved({ screenX: 11, screenY: 10 })).toBe(true);
+});
+test("a refreshed tree keeps the selection's reveal key, so collections don't scroll back to it", () => {
+  const tree = (order: string[]) => ({ type: "table" as const, id: "main", columns: [], rows: order.map(id => ({ id, cells: {} })) });
+  const selection = { item: "b", collection: "table:main" };
+  const before = findSelectionTarget(tree(["a", "b", "c"]), selection);
+  const after = findSelectionTarget(tree(["c", "b", "a"]), selection);
+  expect(after).not.toBe(before);
+  expect(selectionKey(after)).toBe(selectionKey(before));
+  expect(selectionKey(findSelectionTarget(tree(["a", "b", "c"]), { item: "c", collection: "table:main" }))).not.toBe(selectionKey(before));
+  expect(selectionKey(null)).toBeNull();
 });

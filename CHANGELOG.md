@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Tables and lists keep your scroll position when the plugin refreshes. They used to scroll the selected row back into view (and reopen its collapsed parents) on every refresh, for example every two seconds in Processes. They now do that only when the selection changes.
 
 ## 0.3.6 — 2026-11-15
 - Plugin buttons can be split buttons: the button runs the main action and its chevron opens alternatives (for example Update ▾ Review first). Row menus list the alternatives under their action, and their shortcut keys work on the selected row.
