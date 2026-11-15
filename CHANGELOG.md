@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.12 — 2026-11-15
 - Plugins can let you edit a row right in the details drawer: a title you click to rename, properties that look like text until you hover them, a description that turns into an editor when you click it, and a box to write updates. A slim bar above shows the row's actions as icons, with everything in a ⋯ menu.
 - → on a row moves into its details drawer (opening it if it's closed); Esc comes back to the list. Plugins can choose what Return does on a row, such as starting an update in the drawer.
 - Plugins can show a box to write something new (an update, a quick task), let you edit a timeline entry's text in place, and ask for a line of text before running an action, such as adding an update from the menu-bar quick view.
