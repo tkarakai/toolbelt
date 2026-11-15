@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.3.7 — 2026-11-15
 - Add the `timeline` node and `TimelineEntry` type behind the new `ui.timeline` capability: dated Markdown notes (status updates, comments) with entry actions that arrive with `{timeline, entryId}`, keyboard navigation and a `selected` entry.
 - `datetime` fields take `placeholder` (shown while empty) and `presets` (the picker's quick picks). Older hosts ignore them.
 - Any form field can set `autofocus` to take focus when its dialog opens or when it replaces another form. Older hosts ignore it.
