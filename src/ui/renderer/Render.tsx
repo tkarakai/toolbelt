@@ -16,6 +16,7 @@ import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as Dial
 import { dotClass, dotSpec, pillClass, textClass } from "./colors";
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { selectionKey } from "../../shared/navigation";
+import { EXIT_MS, useRowMotion } from "./row-motion";
 import { cn } from "@/lib/utils";
 import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
@@ -866,6 +867,10 @@ const measureRows = (items: Item[]): Visible[] => {
 	return out;
 };
 
+/** A row the plugin removed, fading out in place before the rows around it close the gap. */
+const LEAVING = "pointer-events-none animate-out fade-out-0 fill-mode-forwards";
+const leavingProps = { "aria-hidden": true, "data-leaving": "", style: { animationDuration: `${EXIT_MS}ms` } } as const;
+
 /** Group headers are selectable too; their ids can't clash with row ids. */
 const HEADER = "\u0001group:";
 const headerId = (key: string) => HEADER + key;
@@ -876,7 +881,7 @@ type Item =
 	| { kind: "row"; id: string; v: Visible; muted: boolean };
 
 const TableRow = memo(
-	function TableRow({ v, muted, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, run, ready }: { v: Visible; muted?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; run: Run; ready: { current: boolean } }) {
+	function TableRow({ v, muted, leaving, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, run, ready }: { v: Visible; muted?: boolean; leaving?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; run: Run; ready: { current: boolean } }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
 		// Rows that appear after the table is up (expanded, new processes) fade in.
@@ -885,6 +890,7 @@ const TableRow = memo(
 			<tr
 				data-row-id={row.id}
 				data-selected={selected}
+				{...(leaving ? leavingProps : {})}
 				onClick={(e) => (onSelect(row.id), refocusTable(e.currentTarget))}
 				onDoubleClick={() => hasChildren && onToggle(row.id)}
 				className={cn(
@@ -892,7 +898,8 @@ const TableRow = memo(
                     selected ? "bg-selected text-selected-foreground" : "hover:bg-accent",
 					depth > 0 && !selected && "bg-muted/20",
 					muted && !selected && "text-muted-foreground",
-					fresh && "animate-in fade-in-0 slide-in-from-top-1 duration-200",
+					fresh && !leaving && "animate-in fade-in-0 slide-in-from-top-1 duration-200",
+					leaving && LEAVING,
 				)}
 			>
 				{onCheck && (
@@ -927,7 +934,7 @@ const TableRow = memo(
 			</tr>
 		);
 	},
-	(a, b) => a.sig === b.sig && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.choosing === b.choosing && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.roomy === b.roomy && a.actions === b.actions && a.run === b.run,
+	(a, b) => a.sig === b.sig && a.leaving === b.leaving && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.choosing === b.choosing && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.roomy === b.roomy && a.actions === b.actions && a.run === b.run,
 );
 
 function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emit: Emit }) {
@@ -1202,6 +1209,11 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		requestAnimationFrame(() => (ready.current = true));
 	});
 
+	// Refreshes that reorder, add or remove rows animate (see row-motion.ts); the person's own
+	// changes (sorting, filtering, collapsing) don't.
+	const body = useRef<HTMLTableSectionElement>(null);
+	const shown = useRowMotion(items, body, wrap, `${node.id}\0${node.sort?.key ?? ""}\0${node.sort?.desc ?? ""}`, ready);
+
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (!ownsCollectionKeyboard(wrap.current) || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -1420,20 +1432,21 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 								<th className="border-b" />
 							</tr>
 						</thead>
-						<tbody>
-							{items.map((it) =>
+						<tbody ref={body}>
+							{shown.map((it) =>
 								it.kind === "header" ? (
-									<GroupHeader key={it.id} item={it} columns={columns} bulk={bulk.length > 0} selected={it.id === selected} onSelect={() => select(it.id)} onToggle={() => toggleGroup(it.key)} />
+									<GroupHeader key={it.id} item={it} columns={columns} bulk={bulk.length > 0} selected={!it.leaving && it.id === selected} leaving={it.leaving} onSelect={() => select(it.id)} onToggle={() => toggleGroup(it.key)} />
 								) : (
 									<TableRow
 										key={it.v.row.id}
 										v={it.v}
+										leaving={it.leaving}
 										muted={it.muted}
 										sig={JSON.stringify(it.v.row) + it.v.depth + it.v.indent}
 											columns={columns}
 											roomy={roomy}
 											actions={actionsFor(it.v.row)}
-										selected={it.v.row.id === selected}
+										selected={!it.leaving && it.v.row.id === selected}
 										expanded={expanded.has(it.v.row.id)}
 										menuOpen={menuFor === it.v.row.id}
 										choosing={choosing?.row === it.v.row.id ? choosing.action : null}
@@ -1510,14 +1523,14 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 
 /** A group header: a section (level 0: where jobs run) or a group inside it (a folder). It can be
  *  selected (and moved through with the keyboard) and collapsed. */
-function GroupHeader({ item, columns, bulk, selected, onSelect, onToggle }: { item: Extract<Item, { kind: "header" }>; columns: Column[]; bulk: boolean; selected: boolean; onSelect: () => void; onToggle: () => void }) {
+function GroupHeader({ item, columns, bulk, selected, leaving, onSelect, onToggle }: { item: Extract<Item, { kind: "header" }>; columns: Column[]; bulk: boolean; selected: boolean; leaving?: boolean; onSelect: () => void; onToggle: () => void }) {
 	const { group: g, level, count, muted, collapsed } = item;
 	const top = level === 0;
 	const { index, labelSpan: colSpan } = groupSummaryLayout(columns, g.summary?.column, bulk);
 	const background = selected ? "bg-selected text-selected-foreground" : top ? "bg-muted/60 group-hover/row:bg-accent" : "bg-background group-hover/row:bg-accent";
 	const summary = g.summary && <Tooltip><TooltipTrigger asChild><span tabIndex={0} aria-label={`${g.summary.label}: ${g.summary.value}`} className="inline-block shrink-0 rounded font-mono text-xs text-muted-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring">{g.summary.value}</span></TooltipTrigger><TooltipContent className="max-w-xs"><div className="font-medium">{g.summary.label}</div>{g.summary.description && <p className="mt-1 leading-relaxed">{g.summary.description}</p>}</TooltipContent></Tooltip>;
 	return (
-		<tr data-row-id={item.id} data-group-level={level} data-selected={selected} onClick={(e) => (onSelect(), refocusTable(e.currentTarget))} onDoubleClick={onToggle} className="group/row cursor-default">
+		<tr data-row-id={item.id} data-group-level={level} data-selected={selected} {...(leaving ? leavingProps : {})} onClick={(e) => (onSelect(), refocusTable(e.currentTarget))} onDoubleClick={onToggle} className={cn("group/row cursor-default", leaving && LEAVING)}>
 			<td
 				colSpan={colSpan}
 				className={cn(
