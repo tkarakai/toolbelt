@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- When a plugin stops with “Invalid protocol message”, the message now says why: the field that was wrong, nesting deeper than the protocol allows, too many values, or output that isn't JSON.
 
 ## 0.3.7 — 2026-11-15
 - Tables and lists keep your scroll position when the plugin refreshes. They used to scroll the selected row back into view (and reopen its collapsed parents) on every refresh, for example every two seconds in Processes. They now do that only when the selection changes.

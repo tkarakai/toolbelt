@@ -452,8 +452,10 @@ const node: Schema = (v, p) => {
 function bounded(value: unknown) {
   let count = 0;
   const walk = (v: unknown, depth: number) => {
-    if (depth > LIMITS.depth || ++count > LIMITS.nodes)
-      throw new Error("Protocol complexity limit");
+    if (depth > LIMITS.depth)
+      throw new Error(`Protocol complexity limit: nested deeper than ${LIMITS.depth} levels`);
+    if (++count > LIMITS.nodes)
+      throw new Error(`Protocol complexity limit: more than ${LIMITS.nodes} values`);
     if (v && typeof v === "object") {
       for (const child of Object.values(v)) walk(child, depth + 1);
     } else if (
@@ -515,4 +517,11 @@ export function validateEventPayload(value: unknown) {
   if (Buffer.byteLength(JSON.stringify(value ?? null)) > 64 * 1024)
     throw new Error("Event payload limit");
   bounded(value ?? null);
+}
+
+/** Why a plugin message was refused, short enough for the plugin's crash screen. Field paths can
+ *  contain plugin-chosen keys, so the reason is capped. */
+export function protocolReason(error: unknown): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  return reason.length > 200 ? `${reason.slice(0, 199)}…` : reason;
 }
