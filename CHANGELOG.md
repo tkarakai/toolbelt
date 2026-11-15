@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.11 — 2026-11-15
 - A new date and time picker for plugin forms. The field reads its value in words (“Fri, Nov 20 · 2:30 PM”, “in 5 days”) and shows “No date” when there is none, instead of a placeholder that looked like a date. Type dates the way you say them (“fri 5pm”, “+3d”, “next mon”, “nov 20”), pick a quick choice, move through the month with the arrow and Page keys, and type a time as “930”, “2pm” or “14:00” (↑/↓ change it by 15 minutes). ⌫ clears it.
 - Plugins can show timelines: dated notes in Markdown, such as a task's status updates. Move through them with ↑/↓, edit with the plugin's key, and delete with ⌫ (after confirming).
 - The details drawer can show Markdown, for example a task's description and updates, with their own edit and delete buttons.
