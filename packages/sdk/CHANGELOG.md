@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.3.5 — 2026-11-15
 - Add `textarea` (with an optional live Markdown editor), `datetime`, `color`, `combobox` and `tags` form fields behind the new `ui.rich-fields` capability, and the `TagKey`/`TagValue` types.
 - Add table `sections` (ordered top-level groups that show even when empty), `Row.unread` and list item `unread`.
 - Add table `selectEvents` and the `select` event, behind `ui.row-select`: sent when the selection rests on a row.
