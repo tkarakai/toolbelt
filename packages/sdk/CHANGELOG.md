@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.3.4 — 2026-11-15
 - Add `Action.menu`, split-button alternatives (one level), behind the new `ui.split-action` capability. Older hosts show only the main button.
 - Add `Context.navigate(screen, { select? })` and the `navigate` plugin message, behind the new `navigate` capability. The host honors it only within 10 s after delivering an event to the plugin, for declared screens only. It returns false without sending anything when the host lacks the capability.
 
