@@ -51,7 +51,7 @@ function PlainTextArea({ id, field, onChange }: { id: string; field: Of<"textare
  * Markdown styled as it's typed: headings grow, emphasis and code look the part, and the
  * syntax characters stay visible but quiet. The text is the Markdown source, unchanged.
  */
-const markdownStyle = HighlightStyle.define([
+export const markdownStyle = HighlightStyle.define([
 	{ tag: t.heading1, fontSize: "1.45em", fontWeight: "700" },
 	{ tag: t.heading2, fontSize: "1.25em", fontWeight: "700" },
 	{ tag: t.heading3, fontSize: "1.1em", fontWeight: "650" },
@@ -66,7 +66,7 @@ const markdownStyle = HighlightStyle.define([
 	{ tag: [t.processingInstruction, t.contentSeparator, t.labelName], color: "color-mix(in oklab, var(--muted-foreground) 75%, transparent)" },
 	{ tag: t.list, color: "var(--muted-foreground)" },
 ]);
-const editorTheme = EditorView.theme({
+export const editorTheme = EditorView.theme({
 	"&": { backgroundColor: "transparent", color: "var(--foreground)", fontSize: "0.875rem" },
 	"&.cm-focused": { outline: "none" },
 	".cm-content": { fontFamily: "inherit", padding: "0.5rem 0", caretColor: "var(--foreground)", lineHeight: "1.55" },

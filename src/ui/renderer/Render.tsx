@@ -6,6 +6,7 @@ import { EnvironmentEditor } from "./EnvironmentEditor";
 import { ColorField, ComboboxField, TagsField, TextAreaField, WIDE_FIELDS } from "./fields";
 import { DateTimeField } from "./DateTimeField";
 import { Timeline } from "./Timeline";
+import { Composer, InlineMarkdown, MarkdownBox, PaneRow, leaveToCollection } from "./compose";
 // Turns a plugin's UI tree into shadcn/ui components. Every node type in shared/protocol.ts
 // has one renderer here; plugins never ship their own components.
 //
@@ -13,7 +14,7 @@ import { Timeline } from "./Timeline";
 // · an action's own key (`Action.key`: J, P…) · . row menu · esc clear. The table is the
 // keyboard's home: menus hand focus back to it when they close. Pages: ⌘F or / to filter, esc
 // back to the list, toolbar actions' own keys. Dialogs: the first field has focus; ↵ / ⌘↵ save.
-import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, Fragment, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
 import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Section, Tag, TagValue, Target, Tone } from "../../shared/protocol";
 import { dotClass, dotSpec, pillClass, shadeStyle, textClass } from "./colors";
@@ -299,6 +300,8 @@ export function Render({ node, emit }: { node: Node; emit: Emit }): ReactNode {
 			return <ConversationView node={node} />;
 		case "timeline":
 			return <Timeline node={node} emit={emit} />;
+		case "composer":
+			return <Composer node={node} emit={emit} />;
 		case "segmented":
 			return <Segmented node={node} emit={emit} />;
 		default:
@@ -528,6 +531,8 @@ function PageDialog({ dialog, emit }: { dialog?: DialogNode; emit: Emit }) {
 }
 
 /** What a dialog focuses when it opens: the first of these in a form. */
+/** What can take the keyboard in a drawer pane. */
+const PANE_FOCUS = "input:not([type=hidden]):not(:disabled), textarea:not(:disabled), [contenteditable=true], button:not(:disabled), [tabindex='0']";
 const FIRST_FIELD = "input:not([type=hidden]):not(:disabled), textarea:not(:disabled), [contenteditable=true], button[role=combobox]:not(:disabled), [role=radio][tabindex='0'], [role=switch]:not(:disabled)";
 
 /** Nodes that fill the space they get (and scroll themselves). */
@@ -744,14 +749,48 @@ export function useConfirm(emit: Emit) {
 	const [pending, setPending] = useState<Confirm>(null);
 	const run = useCallback(
 		(action: Action, rowId?: string, extra?: Record<string, unknown>) => {
-			const payload = { ...(rowId !== undefined && { rowId }), ...extra };
-			if (action.confirm) setPending({ action, payload });
+			const payload: Record<string, unknown> = { ...(rowId !== undefined && { rowId }), ...extra };
+			if (action.input && typeof payload.text !== "string") setAsking({ action, payload });
+			else if (action.confirm) setPending({ action, payload });
 			else emit(action.id, payload);
 		},
 		[emit],
 	);
 	const confirmButton = useRef<HTMLButtonElement>(null);
+	// An action with `input`: what to send, asked in a small editor first.
+	const [asking, setAsking] = useState<Confirm>(null);
+	const [text, setText] = useState("");
+	const sendAsked = (t: string) => {
+		if (!asking || !t.trim()) return;
+		const next = { ...asking.payload, text: t.trim() };
+		setAsking(null);
+		setText("");
+		if (asking.action.confirm) setPending({ action: asking.action, payload: next });
+		else emit(asking.action.id, next);
+	};
+	const prompt = (
+		<Dialog open={!!asking} onOpenChange={(o) => !o && (setAsking(null), setText(""))}>
+			<DialogContent className="sm:max-w-md" onOpenAutoFocus={(e) => e.preventDefault()}>
+				<DialogHeader>
+					<DialogTitle>{asking?.action.label}</DialogTitle>
+				</DialogHeader>
+				{asking && <MarkdownBox value="" label={asking.action.label} placeholder={asking.action.input?.placeholder} rows={4} autoFocus onChange={setText} onSubmit={sendAsked} />}
+				<DialogFooter>
+					<Button variant="outline" onClick={() => (setAsking(null), setText(""))}>
+						Cancel
+						<KeyHint keys="esc" />
+					</Button>
+					<Button disabled={!text.trim()} onClick={() => sendAsked(text)}>
+						{asking?.action.label}
+						<KeyHint keys="⌘↵" />
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
 	const dialog = (
+		<>
+		{prompt}
 		<Dialog open={!!pending} onOpenChange={(o) => !o && setPending(null)}>
 			<DialogContent
 				className="sm:max-w-sm"
@@ -784,6 +823,7 @@ export function useConfirm(emit: Emit) {
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
+		</>
 	);
 	return { run, dialog };
 }
@@ -1046,6 +1086,12 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const lastAction = useRef(0);
 	const emitAction = useCallback<Emit>((name, payload) => ((lastAction.current = Date.now()), emit(name, payload)), [emit]);
 	const { run, dialog } = useConfirm(emitAction);
+	// An action with `focus` goes into the drawer instead, when the drawer can show (set below).
+	const focusInPane = useRef<(a: Action, rowId: string) => boolean>(() => false);
+	const runRow = useCallback<Run>((a, rowId, extra) => {
+		if (a.focus && rowId !== undefined && focusInPane.current(a, rowId)) return;
+		run(a, rowId, extra);
+	}, [run]);
 	const allColumns = useMemo(() => node.columns, [JSON.stringify(node.columns)]);
 	const allActions = useMemo(() => node.actions ?? [], [JSON.stringify(node.actions ?? [])]);
 	const actionsFor = useMemo(() => {
@@ -1061,11 +1107,11 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	 *  only in the row menu open that menu instead (their choice is a submenu there). */
 	const trigger = useCallback(
 		(a: Action, row: Row) => {
-			if (!choicesFor(row, a)) return run(a, row.id);
+			if (!choicesFor(row, a)) return runRow(a, row.id);
 			if (a.inline) setChoosing({ row: row.id, action: a.id });
 			else setMenuFor(row.id);
 		},
-		[run],
+		[runRow],
 	);
 	const toggle = useCallback((id: string) => setOverrides((o) => ({ ...o, [id]: !openIds.has(id) })), [setOverrides, openIds]);
 	const sections = useMemo(() => node.sections ?? [], [JSON.stringify(node.sections ?? [])]);
@@ -1463,8 +1509,14 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (!ownsCollectionKeyboard(wrap.current) || isTyping(e) || e.metaKey || e.ctrlKey) return;
+			// The drawer's controls keep their keys (Esc there comes back to the table).
+			if ((e.target as HTMLElement | null)?.closest?.("[data-inspector]")) return;
 			const i = items.findIndex((it) => it.id === selected);
 			const cur = items[i];
+			// Moving through the rows brings the keyboard into the table, wherever it was (a
+			// screen tab, a toolbar button), so ←/→ and Tab carry on here instead of there.
+			if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key) && wrap.current && !wrap.current.contains(document.activeElement))
+				wrap.current.focus({ preventScroll: true });
 			// ⌥ / ⇧ shortcuts ("alt+up") belong to the selected row's actions, never to navigation.
 			if (e.altKey || (e.shiftKey && e.key.startsWith("Arrow"))) {
 				if (cur?.kind !== "row") return;
@@ -1489,6 +1541,9 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						e.preventDefault();
 						if (!expanded.has(cur.v.row.id)) toggle(cur.v.row.id);
 						else select(cur.v.row.children[0].id);
+					} else if (cur?.v.row.pane && focusPane.current(null)) {
+						// A row with a pane: into its details.
+						e.preventDefault();
 					}
 					break;
 				case "ArrowLeft":
@@ -1507,8 +1562,9 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						toggleGroup(cur.key);
 						break;
 					}
-					const a = cur && actionsFor(cur.v.row).find((x) => x.inline);
-					if (a) (e.preventDefault(), trigger(a, cur.v.row));
+					const acts = cur ? actionsFor(cur.v.row) : [];
+					const a = node.enter ? acts.find((x) => x.id === node.enter && !x.disabled) : acts.find((x) => x.inline);
+					if (a) (e.preventDefault(), trigger(a, cur!.v.row));
 					break;
 				}
 				case ".":
@@ -1534,7 +1590,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [items, selected, expanded, toggle, toggleGroup, select, actionsFor, trigger, setSelected, bulk, check]);
+	}, [items, selected, expanded, toggle, toggleGroup, select, actionsFor, trigger, setSelected, bulk, check, node.enter]);
 
     const revealedTarget = useRef<string | null>(null);
     useLayoutEffect(() => {
@@ -1569,7 +1625,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const [drawerOpen, setDrawerOpen] = usePersisted(`toolbelt.inspector.${surface.split("/")[0]}`, true);
 	const paneActions = useContext(PaneActionsContext);
 	const drawerUseful = useMemo(() => {
-		const any = (rows: Row[]): boolean => rows.some((r) => r.details?.length || r.group !== undefined || (r.children && any(r.children)));
+		const any = (rows: Row[]): boolean => rows.some((r) => r.details?.length || r.pane || r.group !== undefined || (r.children && any(r.children)));
 		return any(node.rows);
 	}, [node.rows]);
 	const outer = useRef<HTMLDivElement>(null);
@@ -1577,6 +1633,27 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const toggleDrawer = useCallback(() => setDrawerOpen(!drawerOpen), [drawerOpen, setDrawerOpen]);
 	// ⌥⌘B (View → Toggle Details), where the toggle is showing.
 	useCommand(useCallback((name: string) => { if (name === "toggleDetails" && drawerUseful && paneActions && drawerFits) toggleDrawer(); }, [drawerUseful, paneActions, drawerFits, toggleDrawer]));
+	// Into the drawer: at a pane element (`Action.focus`), or its first control. Opens the drawer
+	// first when it's closed; false when it can't show (the window is too narrow).
+	const focusPane = useRef<(target: string | null, rowId?: string) => boolean>(() => false);
+	focusPane.current = (target, rowId) => {
+		if (!drawerUseful || !drawerFits) return false;
+		if (rowId !== undefined && rowId !== selected) select(rowId);
+		const go = () => {
+			const aside = outer.current?.querySelector<HTMLElement>("[data-inspector]");
+			const box = aside?.querySelector<HTMLElement>(target === null ? "[data-pane]" : `[data-pane-id="${CSS.escape(target)}"]`);
+			const el = box?.matches(PANE_FOCUS) ? box : box?.querySelector<HTMLElement>(PANE_FOCUS);
+			el?.focus();
+		};
+		if (!drawerOpen) setDrawerOpen(true);
+		// After the drawer has drawn the row (a newly selected one, or the drawer just opened).
+		setTimeout(go, drawerOpen && (rowId === undefined || rowId === selected) ? 0 : 60);
+		return true;
+	};
+	focusInPane.current = (a, rowId) => {
+		const row = items.find((it) => it.kind === "row" && it.v.row.id === rowId);
+		return !!(row?.kind === "row" && row.v.row.pane && a.focus && focusPane.current(a.focus, rowId));
+	};
 	useLayoutEffect(() => {
 		const el = outer.current;
 		if (!el) return;
@@ -1714,7 +1791,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 										onCheck={bulk.length ? check : undefined}
 										onDragStart={node.reorder ? startRowDrag : undefined}
 										dragging={rowDrag?.rowId === it.v.row.id}
-										run={run}
+										run={runRow}
 										ready={ready}
 									/>
 								),
@@ -1776,9 +1853,11 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				<Inspector
 					open={drawerOpen}
 					selected={!!current}
-					item={current?.kind === "row" && current.v.row.details ? current : current?.kind === "header" ? current : null}
+					item={current?.kind === "row" && (current.v.row.details || current.v.row.pane) ? current : current?.kind === "header" ? current : null}
 					actions={current?.kind === "row" ? actionsFor(current.v.row) : []}
-					run={run}
+					run={runRow}
+					emit={emitAction}
+					onLeave={() => wrap.current?.focus({ preventScroll: true })}
 					onToggleGroup={toggleGroup}
 				/>
 			)}
@@ -1871,7 +1950,7 @@ type InspectorItem = Extract<Item, { kind: "row" }> | Extract<Item, { kind: "hea
  * sectioned details and grouped actions; a group header shows what it holds and collapse /
  * expand; with nothing to show it says so.
  */
-function Inspector({ open, item, selected, actions, run, onToggleGroup }: { open: boolean; item: InspectorItem | null; selected: boolean; actions: Action[]; run: Run; onToggleGroup: (key: string) => void }) {
+function Inspector({ open, item, selected, actions, run, emit, onLeave, onToggleGroup }: { open: boolean; item: InspectorItem | null; selected: boolean; actions: Action[]; run: Run; emit: Emit; onLeave: () => void; onToggleGroup: (key: string) => void }) {
 	const [width, setWidth] = usePersisted("toolbelt.inspectorWidth", 340);
 	const [dragging, setDragging] = useState(false);
 	const onPointerDown = (e: React.PointerEvent) => {
@@ -1894,7 +1973,15 @@ function Inspector({ open, item, selected, actions, run, onToggleGroup }: { open
 	};
 	return (
 		<aside
+			data-inspector
 			aria-hidden={!open}
+			onKeyDown={(e) => {
+				// Esc in the drawer goes back to the table, unless a control used it (an editor
+				// putting its text back) or it came from a menu or picker outside the drawer.
+				if (e.key !== "Escape" || e.defaultPrevented || !e.currentTarget.contains(e.target as globalThis.Node)) return;
+				e.preventDefault();
+				onLeave();
+			}}
 			className={cn("relative hidden shrink-0 overflow-hidden bg-muted/20 @3xl:flex", open && "border-l", !dragging && "transition-[width] duration-200 ease-out")}
 			style={{ width: open ? width : 0 }}
 		>
@@ -1907,6 +1994,8 @@ function Inspector({ open, item, selected, actions, run, onToggleGroup }: { open
 					</div>
 				) : item.kind === "header" ? (
 					<GroupSummary item={item} onToggle={() => onToggleGroup(item.key)} />
+				) : item.v.row.pane ? (
+					<RowPane key={item.v.row.id} row={item.v.row} pane={item.v.row.pane} actions={actions} run={run} emit={emit} />
 				) : (
 					<RowDetails row={item.v.row} actions={actions} run={run} />
 				)}
@@ -2028,6 +2117,127 @@ function RowDetails({ row, actions, run }: { row: Row; actions: Action[]; run: R
 				))}
 			</div>
 			{groups.length > 0 && <InspectorActions groups={groups} main={main} row={row} run={(a, target) => run(a, row.id, target ? { target } : undefined)} />}
+		</>
+	);
+}
+
+/** A drawer menu closed: focus stays where its action put it (a composer), or goes to the table. */
+const paneMenuClosed = (e: Event) => {
+	e.preventDefault();
+	if (document.activeElement?.closest("[data-pane]")) return;
+	(document.querySelector(TABLE) as HTMLElement | null)?.focus({ preventScroll: true });
+};
+
+/**
+ * A row's own drawer (`Row.pane`): a slim bar of its actions — the first group as icon buttons,
+ * everything in the ⋯ menu — above the plugin's nodes. Events from the nodes carry the row.
+ */
+function RowPane({ row, pane, actions, run, emit }: { row: Row; pane: Node[]; actions: Action[]; run: Run; emit: Emit }) {
+	const paneEmit = useCallback<Emit>((name, payload) => emit(name, { ...(payload as object | undefined), rowId: row.id }), [emit, row.id]);
+	const groups = groupActions(actions);
+	const first = groups[0] ?? [];
+	const runAction = (a: Action, target?: string) => run(a, row.id, target ? { target } : undefined);
+	const tip = (a: Action) => (
+		<TooltipContent>
+			{a.label}
+			{a.key && <KeyHint keys={formatKey(a.key)} />}
+		</TooltipContent>
+	);
+	return (
+		<>
+			{actions.length > 0 && (
+				<div className="flex shrink-0 items-center gap-0.5 border-b px-2 py-1.5">
+					{first.map((a) => {
+						const targets = choicesFor(row, a);
+						const choices = targets ? targets.map((t) => ({ ...a, id: a.id, label: t.label, icon: t.icon ?? a.icon, target: t.id })) : a.menu?.length ? [{ ...a, target: undefined }, ...a.menu.map((m) => ({ ...m, target: undefined }))] : null;
+						const button = (
+							<Button variant="ghost" size="icon-sm" disabled={a.disabled} aria-label={a.label} className={cn("text-muted-foreground hover:text-foreground", a.tone === "destructive" && "hover:text-destructive")} onClick={choices ? undefined : () => runAction(a)}>
+								<Icon name={a.icon ?? "circle"} />
+							</Button>
+						);
+						if (!choices)
+							return (
+								<Tooltip key={a.id}>
+									<TooltipTrigger asChild>{button}</TooltipTrigger>
+									{tip(a)}
+								</Tooltip>
+							);
+						return (
+							<DropdownMenu key={a.id}>
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
+									</TooltipTrigger>
+									{tip(a)}
+								</Tooltip>
+								<DropdownMenuContent align="start" className="min-w-48" onCloseAutoFocus={paneMenuClosed}>
+									{choices.map((c, i) => (
+										<DropdownMenuItem key={`${c.id}:${c.target ?? i}`} disabled={c.disabled} variant={c.tone === "destructive" ? "destructive" : "default"} onSelect={() => runAction(c, c.target)}>
+											{c.icon && <Icon name={c.icon} />}
+											{c.label}
+											{c.key && <DropdownMenuShortcut>{formatKey(c.key)}</DropdownMenuShortcut>}
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuContent>
+							</DropdownMenu>
+						);
+					})}
+					<DropdownMenu>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<DropdownMenuTrigger asChild>
+									<Button variant="ghost" size="icon-sm" aria-label="All actions" className="ml-auto text-muted-foreground hover:text-foreground">
+										<MoreHorizontal />
+									</Button>
+								</DropdownMenuTrigger>
+							</TooltipTrigger>
+							<TooltipContent>
+								All actions <KeyHint keys="." />
+							</TooltipContent>
+						</Tooltip>
+						<DropdownMenuContent align="end" className="min-w-56" onCloseAutoFocus={paneMenuClosed}>
+							{groups.map((g, gi) => (
+								<Fragment key={gi}>
+									{gi > 0 && <DropdownMenuSeparator />}
+									<DropdownMenuGroup>
+										{g.map((a) => {
+											const targets = choicesFor(row, a);
+											const item = (
+												<>
+													{a.icon && <Icon name={a.icon} />}
+													{a.label}
+													{a.key && <DropdownMenuShortcut>{formatKey(a.key)}</DropdownMenuShortcut>}
+												</>
+											);
+											if (targets)
+												return (
+													<DropdownMenuSub key={a.id}>
+														<DropdownMenuSubTrigger disabled={a.disabled}>{item}</DropdownMenuSubTrigger>
+														<DropdownMenuSubContent className="w-72">
+															<TargetItems a={a} targets={targets} onPick={(t) => runAction(a, t.id)} />
+														</DropdownMenuSubContent>
+													</DropdownMenuSub>
+												);
+											return (
+												<DropdownMenuItem key={a.id} disabled={a.disabled} variant={a.tone === "destructive" ? "destructive" : "default"} onSelect={() => runAction(a)}>
+													{item}
+												</DropdownMenuItem>
+											);
+										})}
+									</DropdownMenuGroup>
+								</Fragment>
+							))}
+						</DropdownMenuContent>
+					</DropdownMenu>
+				</div>
+			)}
+			<div data-pane className="min-h-0 flex-1 space-y-5 overflow-auto px-4 pt-3 pb-8">
+				<PaneRow.Provider value={row.id}>
+					{pane.map((n, i) => (
+						<Render key={(n as { id?: string }).id ?? `${n.type}${i}`} node={n} emit={paneEmit} />
+					))}
+				</PaneRow.Provider>
+			</div>
 		</>
 	);
 }
@@ -2164,6 +2374,9 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
     const self = useRef<HTMLDivElement>(null);
 	const [active, setActive, sharedTarget] = useCollectionSelection(`${node.id}:active`, `list:${node.id}`);
 	const [pointerMoved] = useState(pointerTracker);
+	// An action with `input` asks for its text in a line under the item.
+	const [asking, setAsking] = useState<{ item: string; action: Action } | null>(null);
+	const runItem = useCallback((a: Action, id: string) => (a.input ? (setActive(id), setAsking({ item: id, action: a })) : run(a, id)), [run, setActive]);
 	useEffect(() => {
 		if (!keyboard) return;
 		const onKey = (e: KeyboardEvent) => {
@@ -2180,12 +2393,12 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
             } else if (i >= 0) {
                 const item = node.items[i]!;
                 const action = e.key === "Enter" ? item.actions?.find(a => !a.disabled) : actionForEvent(item.actions ?? [], e);
-                if (action) { e.preventDefault(); run(action, item.id); }
+                if (action) { e.preventDefault(); runItem(action, item.id); }
             }
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [keyboard, node.items, active, setActive, run]);
+	}, [keyboard, node.items, active, setActive, runItem]);
     const revealedTarget = useRef<string | null>(null);
     useLayoutEffect(() => {
         const key = selectionKey(sharedTarget);
@@ -2215,7 +2428,8 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 		<div ref={self} tabIndex={keyboard ? 0 : undefined} data-navigation-collection={keyboard ? `list:${node.id}` : undefined}
             onFocusCapture={restoreSelection} className="flex flex-col outline-none">
 			{node.items.map((it) => (
-				<div key={it.id} data-item-id={it.id} data-active={it.id === active} onMouseEnter={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e)) { focusPopoverCollection(self.current); setActive(it.id); } }}
+				<Fragment key={it.id}>
+				<div data-item-id={it.id} data-active={it.id === active} onMouseEnter={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e)) { focusPopoverCollection(self.current); setActive(it.id); } }}
                     onMouseMove={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e) && (active !== it.id || !self.current?.contains(document.activeElement))) { focusPopoverCollection(self.current); setActive(it.id); } }}
                     onPointerDown={() => { focusPopoverCollection(self.current); setActive(it.id); }} className="group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground">
 					{it.dot && <Dot dot={it.dot} />}
@@ -2233,21 +2447,61 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 							{withAlternatives(it.actions).map((a, i) => (
 								<Tooltip key={a.id}>
 									<TooltipTrigger asChild>
-										<Button variant="ghost" size="icon-xs" tabIndex={-1} className="hover:bg-selected-foreground/15 hover:text-selected-foreground" onClick={() => run(a, it.id)} aria-label={a.label}>
+										<Button variant="ghost" size="icon-xs" tabIndex={-1} className="hover:bg-selected-foreground/15 hover:text-selected-foreground" onClick={() => runItem(a, it.id)} aria-label={a.label}>
 											<Icon name={a.icon} />
 										</Button>
 									</TooltipTrigger>
 									<TooltipContent>
 										{a.label}
 										{i === 0 && " ↵"}
+										{a.key && <KeyHint keys={formatKey(a.key)} />}
 									</TooltipContent>
 								</Tooltip>
 							))}
 						</div>
 					)}
 				</div>
+				{asking?.item === it.id && (
+					<ItemInput
+						action={asking.action}
+						onSend={(text) => {
+							run(asking.action, it.id, { text });
+							setAsking(null);
+							self.current?.focus({ preventScroll: true });
+						}}
+						onCancel={() => {
+							setAsking(null);
+							self.current?.focus({ preventScroll: true });
+						}}
+					/>
+				)}
+				</Fragment>
 			))}
 			{dialog}
+		</div>
+	);
+}
+
+/** A line under a list item for an action's text (`Action.input`): ↵ sends, Esc cancels. */
+function ItemInput({ action, onSend, onCancel }: { action: Action; onSend: (text: string) => void; onCancel: () => void }) {
+	const [v, setV] = useState("");
+	return (
+		<div className="flex items-center gap-2 py-1 pr-1 pl-8 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+			<Input
+				autoFocus
+				value={v}
+				aria-label={action.label}
+				placeholder={action.input?.placeholder ?? action.label}
+				onChange={(e) => setV(e.target.value)}
+				onBlur={() => !v.trim() && onCancel()}
+				onKeyDown={(e) => {
+					if (e.nativeEvent.isComposing) return;
+					if (e.key === "Enter" && v.trim()) (e.preventDefault(), onSend(v.trim()));
+					if (e.key === "Escape") (e.preventDefault(), e.stopPropagation(), onCancel());
+				}}
+				className="h-7 text-sm"
+			/>
+			<KeyHint keys="↵" />
 		</div>
 	);
 }
@@ -2276,6 +2530,95 @@ const InDialog = createContext(false);
 const GROUP_LABEL = new Set<Field["type"]>(["environment", "tags", "color"]);
 
 function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emit }) {
+	if (node.appearance === "inline") return <InlineForm node={node} emit={emit} />;
+	return <BoxedForm node={node} emit={emit} />;
+}
+
+/**
+ * A drawer's property sheet: labels in a narrow column, controls drawn like text until hovered
+ * or focused (see `[data-inline-form]` in index.css), each field committing on its own.
+ */
+function InlineForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emit }) {
+	const change = (field: Field, value: FieldValue) => emit("field", { form: node.id, field: field.id, value });
+	return (
+		<div data-inline-form className="grid grid-cols-[minmax(4.5rem,max-content)_minmax(0,1fr)] items-start gap-x-3 gap-y-px">
+			{node.fields.map((f) => {
+				const id = `${node.id}-${f.id}`;
+				const control =
+					f.type === "text" && f.heading ? (
+						<HeadingField id={id} field={f} onChange={(v) => change(f, v)} />
+					) : f.type === "text" ? (
+						<TextField id={id} field={f} onChange={(v) => change(f, v)} className="h-8 w-full" />
+					) : f.type === "textarea" && f.markdown ? (
+						<InlineMarkdown id={id} field={f} onChange={(v) => change(f, v)} />
+					) : (
+						<FieldControl id={id} field={f} onChange={(v) => change(f, v)} fill />
+					);
+				if (!f.label || (f.type === "text" && f.heading))
+					return (
+						<div key={f.id} data-pane-id={f.id} className={cn("col-span-2 min-w-0", f.type === "text" && f.heading ? "mb-1.5" : "mt-1.5")}>
+							{control}
+						</div>
+					);
+				return (
+					<Fragment key={f.id}>
+						<label htmlFor={id} className="flex min-h-8 items-center truncate text-xs text-muted-foreground">
+							{f.label}
+						</label>
+						<div data-pane-id={f.id} className={cn("flex min-h-8 min-w-0 items-center *:max-w-full", f.type === "tags" && "py-0.5")}>
+							{control}
+						</div>
+					</Fragment>
+				);
+			})}
+		</div>
+	);
+}
+
+/** The title of what a drawer edits: large, wrapping; ↵ or leaving commits, Esc puts it back. */
+function HeadingField({ id, field, onChange }: { id: string; field: Extract<Field, { type: "text" }>; onChange: (v: string) => void }) {
+	const [v, setV] = useState(field.value);
+	useEffect(() => setV(field.value), [field.value]);
+	const box = useRef<HTMLTextAreaElement>(null);
+	const cancelled = useRef(false);
+	// As tall as its text; measured again when the drawer's width changes (it may start hidden).
+	useLayoutEffect(() => {
+		const el = box.current;
+		if (!el) return;
+		const fit = () => {
+			el.style.height = "auto";
+			if (el.scrollHeight) el.style.height = `${el.scrollHeight}px`;
+		};
+		fit();
+		const ro = new ResizeObserver(fit);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [v]);
+	return (
+		<textarea
+			ref={box}
+			id={id}
+			rows={1}
+			value={v}
+			aria-label={field.label || "Title"}
+			placeholder={field.placeholder}
+			onChange={(e) => setV(e.target.value.replace(/\n/g, " "))}
+			onBlur={() => {
+				if (cancelled.current) (cancelled.current = false), setV(field.value);
+				else if (v.trim() && v !== field.value) onChange(v.trim());
+				else setV(field.value);
+			}}
+			onKeyDown={(e) => {
+				if (e.nativeEvent.isComposing) return;
+				if (e.key === "Enter") (e.preventDefault(), e.currentTarget.blur(), leaveToCollection(e.currentTarget));
+				if (e.key === "Escape") cancelled.current = true;
+			}}
+			className="-mx-2 block w-[calc(100%+1rem)] resize-none overflow-hidden rounded-md bg-transparent px-2 py-1 text-[1.05rem] leading-snug font-semibold outline-none transition-colors duration-150 placeholder:text-muted-foreground hover:bg-accent/60 focus:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+		/>
+	);
+}
+
+function BoxedForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emit }) {
 	const change = (field: Field, value: FieldValue) => emit("field", { form: node.id, field: field.id, value });
 	const label = (f: Field, className?: string) =>
 		GROUP_LABEL.has(f.type) ? <div className={cn("text-sm font-medium", className)}>{f.label}</div> : <Label htmlFor={`${node.id}-${f.id}`} className={className}>{f.label}</Label>;
@@ -2413,6 +2756,34 @@ const cardTone: Record<Tone, string> = {
 
 function CardNode({ node, emit }: { node: Extract<Node, { type: "card" }>; emit: Emit }) {
 	const { run, dialog } = useConfirm(emit);
+	// In a drawer, a card is a titled section, not a box.
+	if (useContext(PaneRow) !== undefined)
+		return (
+			<section className="space-y-2" data-pane-id={node.id}>
+				{(node.title || node.actions?.length) && (
+					<div className="flex min-h-6 items-center gap-2">
+						{node.title && <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{node.title}</h3>}
+						{node.description && <span className="truncate text-xs text-muted-foreground">{node.description}</span>}
+						<div className="ml-auto flex items-center gap-0.5">
+							{node.actions?.map((a) => (
+								<Tooltip key={a.id}>
+									<TooltipTrigger asChild>
+										<Button variant="ghost" size="icon-xs" aria-label={a.label} disabled={a.disabled} className="text-muted-foreground hover:text-foreground" onClick={() => run(a)}>
+											<Icon name={a.icon ?? "circle"} />
+										</Button>
+									</TooltipTrigger>
+									<TooltipContent>{a.label}</TooltipContent>
+								</Tooltip>
+							))}
+						</div>
+					</div>
+				)}
+				{node.children.map((c, i) => (
+					<Render key={(c as { id?: string }).id ?? `${c.type}${i}`} node={c} emit={emit} />
+				))}
+				{dialog}
+			</section>
+		);
 	const hasHeader = node.title || node.description || node.actions?.length;
 	return (
 		<Card className={cn("gap-3 py-4", cardTone[node.tone ?? "default"])}>

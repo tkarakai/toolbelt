@@ -190,6 +190,18 @@ export type Action = {
 	 * Needs the `ui.split-action` capability; older hosts show only the main button.
 	 */
 	menu?: Action[];
+	/**
+	 * With a row `pane` (capability `ui.row-pane`): instead of sending the action, move the
+	 * keyboard into the details drawer at the pane element with this id (a composer's, or a field
+	 * of a pane form), opening the drawer. Sent as usual when the drawer can't show.
+	 */
+	focus?: string;
+	/**
+	 * Ask for text before sending (capability `ui.composer`): a line under the list item, or a
+	 * small editor elsewhere. The action's event carries `text`. ↵ (⌘↵ in an editor) sends, Esc
+	 * cancels.
+	 */
+	input?: { placeholder?: string };
 };
 
 /**
@@ -239,6 +251,13 @@ export type Row = {
 	targets?: Record<string, Target[]>;
 	/** Something happened since the person last looked: a bold title and a dot. */
 	unread?: boolean;
+	/**
+	 * What the details drawer shows for this row, in place of its `details` and `stats`
+	 * (capability `ui.row-pane`): forms with `appearance: "inline"` to edit it in place, a
+	 * `composer`, a `timeline`, `card`s as titled sections. A slim bar of the row's actions sits
+	 * above it. Events from inside carry the row's id as `rowId`. Esc goes back to the table.
+	 */
+	pane?: Node[];
 };
 
 /**
@@ -315,7 +334,8 @@ export type Field = (
 	| { type: "environment"; id: string; label: string; value: EnvironmentEntry[]; description?: string }
 	| { type: "select"; id: string; label: string; value: string; options: { value: string; label: string }[]; description?: string }
 	| { type: "switch"; id: string; label: string; value: boolean; description?: string }
-	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean }
+	/** `heading`: the title of what's edited, drawn large (inline forms). */
+	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean; heading?: boolean }
 	// The fields below need the `ui.rich-fields` capability.
 	/** Several lines; with `markdown`, an editor that styles Markdown as it's typed. Sent on blur and ⌘↵. */
 	| { type: "textarea"; id: string; label: string; value: string; placeholder?: string; description?: string; markdown?: boolean; rows?: number }
@@ -437,6 +457,11 @@ export type Node =
 			 */
 			selectEvents?: boolean;
 			/**
+			 * The id of the row action ↵ runs (capability `ui.row-pane`), instead of the first
+			 * inline one. With the action's `focus`, ↵ goes into the drawer.
+			 */
+			enter?: string;
+			/**
 			 * `"document"`: no lines between rows and no tinted section headers; the table sits on
 			 * one background like a page of notes, and hovered and selected rows are rounded.
 			 * Column headers, grouping, expanding and the details drawer work as usual. Default
@@ -453,7 +478,13 @@ export type Node =
 	  }
 	/** `at` shows a moment (epoch ms) relative to now instead of `value`. */
 	| { type: "stats"; items: { label: string; value: string; at?: number; hint?: string; tone?: Tone }[] }
-	| { type: "form"; id: string; title?: string; description?: string; fields: Field[] }
+	/**
+	 * `appearance: "inline"` (capability `ui.row-pane`): a dense property sheet for a details
+	 * drawer. Labels sit in a narrow column, controls look like text until hovered or focused,
+	 * and each field commits on its own. A field with an empty label spans the width; a Markdown
+	 * `textarea` shows the formatted text and turns into an editor on click or ↵.
+	 */
+	| { type: "form"; id: string; title?: string; description?: string; fields: Field[]; appearance?: "inline" }
 	| { type: "empty"; title: string; description?: string; icon?: string }
 	| { type: "text"; text: string; tone?: Tone; mono?: boolean }
 	/** A titled box. Its actions arrive with `{ rowId: id }`. */
@@ -476,7 +507,27 @@ export type Node =
 	 * entry; ↵ runs the entry's first action. Actions arrive with `{ timeline: id, entryId }`.
 	 * `selected` marks an entry (the one being edited) and scrolls it into view.
 	 */
-	| { type: "timeline"; id: string; entries: TimelineEntry[]; actions?: Action[]; selected?: string; empty?: { title: string; description?: string; icon?: string } }
+	| {
+			type: "timeline";
+			id: string;
+			entries: TimelineEntry[];
+			actions?: Action[];
+			selected?: string;
+			empty?: { title: string; description?: string; icon?: string };
+			/**
+			 * Edit an entry's text in place (capability `ui.composer`): this action (its key, its
+			 * button, or a double-click) turns the entry into an editor; ⌘↵ or leaving it saves
+			 * and sends the action with `{ timeline, entryId, text }`, Esc cancels.
+			 */
+			edit?: Action;
+	  }
+	/**
+	 * A box to write something new: an update, a comment, a quick task (capability
+	 * `ui.composer`). Sending runs `action` with `{ composer: id, text }` and empties the box;
+	 * an unsent draft is kept while the window is open. Markdown on several lines, sent with ⌘↵;
+	 * with `single`, one line sent with ↵. `key` focuses it from the rest of the surface.
+	 */
+	| { type: "composer"; id: string; action: Action; placeholder?: string; single?: boolean; key?: string }
 	/** One choice of a few, as a segmented control; changes arrive as `field` events. */
 	| { type: "segmented"; id: string; value: string; label?: string; options: { value: string; label: string; icon?: string; tooltip?: string }[] }
 	/** `value` from 0 to 1; without one, "working…". `at`: when it started (shows elapsed time). */
@@ -523,6 +574,10 @@ export type EventPayloads = {
 		/** A `timeline` entry's action: the timeline's id and the entry's. */
 		timeline?: string;
 		entryId?: string;
+		/** A `composer`'s id; the text comes in `text`. */
+		composer?: string;
+		/** What was written: a composer, a timeline entry edited in place, an action's `input`. */
+		text?: string;
 	};
 	/** The person closed a dialog (Esc, close button, Cancel). */
 	"dialog-close": { dialog: string };
@@ -530,7 +585,8 @@ export type EventPayloads = {
 	/** A sortable column header was clicked: sort `table` by `key`. */
 	sort: { table: string; key: string; desc: boolean };
 	/** A form field changed. */
-	field: { form: string; field: string; value: string | boolean | EnvironmentEntry[] | TagValue[] };
+	/** `rowId`: the row whose `pane` holds the form. */
+	field: { form: string; field: string; value: string | boolean | EnvironmentEntry[] | TagValue[]; rowId?: string };
 	/** A filter's checked options changed. */
 	filter: { filter: string; values: string[] };
 	/** The selection rested on a row (`selectEvents` tables); null when cleared. */

@@ -121,7 +121,7 @@ explicit targets such as `darwin-arm64` or `darwin-x64`; ship every required bin
 
 Capabilities are `ui.core`, `ui.action-key`, `ui.terminal`, `ui.conversation`, `assets`,
 `lifecycle`, `native.handoff`, `ui.split-action`, `navigate`, `ui.rich-fields`, `ui.row-select`,
-`ui.row-reorder`, `ui.modifier-keys` and `ui.timeline`. Require what cannot be omitted. For optional features, test
+`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane` and `ui.composer`. Require what cannot be omitted. For optional features, test
 `context.capabilities.has(name)` and render a working fallback. Unknown required features
 prevent activation; declaring a feature optional does not implement its fallback.
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing
@@ -430,6 +430,57 @@ and Home/End move, Return runs the entry's first action, an action's `key` runs 
 Delete runs its destructive action. Double-clicking an entry runs its first action. `selected`
 marks an entry (the one being edited) and scrolls it into view. `empty` is shown with no
 entries. Older hosts reject the node, so require the capability.
+
+### Row panes: editing in the details drawer
+
+With `ui.row-pane`, `Row.pane` (a list of nodes) replaces the row's `details` and `stats` in the
+details drawer, so the row can be edited where it's shown instead of in a dialog. Above it, a
+slim bar shows the row's first action group as icon buttons (with their keys in the tooltips)
+and every action in a ⋯ menu. Events from nodes in the pane carry the row's id as `rowId`,
+including `field` events, so a form can keep a stable id. A `card` in a pane is drawn as a
+titled section without a box; its actions also carry the row's id. Key nodes by `id`: a node
+that keeps its id keeps its state (and focus) across renders even when nodes before it come
+and go.
+
+A form with `appearance: "inline"` is a dense property sheet: labels in a narrow column, controls
+that read as text until hovered or focused, and each field committing on its own (one-line text
+on ↵ or leaving, pickers on a pick). A field with an empty `label` spans the width. A `text`
+field with `heading: true` is drawn as the title, large and wrapping; Esc puts it back. A
+Markdown `textarea` shows the formatted text (or its placeholder) and turns into an editor on
+click, ↵ or Space; leaving it or ⌘↵ commits, Esc puts the text back.
+
+Keyboard: → on a row with a pane moves the keyboard into the drawer (its first control),
+opening the drawer when it's closed. Esc anywhere in the drawer goes back to the table, unless a
+control used it first (an editor putting its text back). `Action.focus` names a pane element (a
+composer's id, or a field of a pane form): running the action from its key, the row menu or the
+drawer bar focuses that element instead of sending the action. When the drawer can't show (the
+window is too narrow), the action is sent as usual, so keep a dialog for that case. The table's
+`enter` names the row action ↵ runs instead of the first inline one; with its `focus`, ↵ goes
+into the drawer.
+
+Moving through rows with the arrow keys, Home or End always brings the keyboard into the table,
+so ←/→ and Tab carry on in the table even if focus was on a screen tab or a toolbar button.
+Older hosts ignore `pane`, `focus` and `enter`, and draw an inline form as a boxed one; require
+the capability when the pane is the only way to edit.
+
+### Composers and writing in place
+
+With `ui.composer`, a `composer` node is a box for writing something new: an update, a comment,
+a quick task. Sending runs its `action` as an event named by the action id with
+`{composer, text}` (plus `rowId` in a row pane) and empties the box; an unsent draft is kept,
+per row, while the window is open. By default it's a Markdown editor that grows when focused
+and sends with ⌘↵. With `single: true` it's one line sent with ↵, which suits quick views (the
+menu-bar popover keeps ⌘↵ for itself). `key` (one letter or digit) focuses it from the rest of
+the surface when nothing is being typed. Esc, or ↓ in a one-line composer, goes back to the list
+or table.
+
+A `timeline` with `edit` (an action) lets people edit an entry's text in place: the action's key,
+its button, ↵ or a double-click turns the entry into an editor; ⌘↵ or leaving saves and sends the
+action with `{timeline, entryId, text}` (only when the text changed), and Esc cancels.
+
+`Action.input` asks for text before the action is sent; its event carries `text`. In a list (a
+quick view) a line opens under the item: ↵ sends, Esc cancels. Elsewhere a small Markdown editor
+asks, sent with ⌘↵. `input.placeholder` prompts what to write. `confirm` still applies after.
 
 ### Markdown and targeted details
 
