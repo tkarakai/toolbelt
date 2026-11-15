@@ -13,7 +13,6 @@ import { tags as t } from "@lezer/highlight";
 import { HUES, type Field, type Hue, type TagKey, type TagValue } from "../../shared/protocol";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -123,27 +122,6 @@ function MarkdownEditor({ id, field, onChange }: { id: string; field: Of<"textar
 			style={{ minHeight: `${(field.rows ?? 6) * 1.55 + 1}rem` }}
 			className="cursor-text rounded-lg border border-input transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30"
 		/>
-	);
-}
-
-// ── date and time ───────────────────────────────────────────────────────
-
-export function DateTimeField({ id, field, onChange }: { id: string; field: Of<"datetime">; onChange: (v: string) => void }) {
-	const [date, time = ""] = field.value.split("T") as [string, string?];
-	const withTime = field.time !== false;
-	const send = (d: string, tm: string) => {
-		const next = d ? (tm && withTime ? `${d}T${tm}` : d) : "";
-		if (next !== field.value) onChange(next);
-	};
-	const native = "w-auto tabular-nums dark:[color-scheme:dark]";
-	return (
-		<div className="flex items-center gap-2">
-			<Input id={id} type="date" aria-label={`${field.label} date`} className={native} value={date} onChange={(e) => send(e.target.value, time)} />
-			{withTime && <Input type="time" aria-label={`${field.label} time`} className={native} value={time} disabled={!date} onChange={(e) => send(date, e.target.value)} />}
-			<Button type="button" variant="ghost" size="icon-sm" aria-label={`Clear ${field.label}`} disabled={!field.value} onClick={() => send("", "")} className="text-muted-foreground">
-				<X />
-			</Button>
-		</div>
 	);
 }
 

@@ -17,6 +17,7 @@ export const CAPABILITIES = [
   "ui.row-select",
   "ui.row-reorder",
   "ui.modifier-keys",
+  "ui.timeline",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

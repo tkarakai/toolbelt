@@ -1,6 +1,10 @@
 # SDK changelog
 
 ## Unreleased
+- Add the `timeline` node and `TimelineEntry` type behind the new `ui.timeline` capability: dated Markdown notes (status updates, comments) with entry actions that arrive with `{timeline, entryId}`, keyboard navigation and a `selected` entry.
+- `datetime` fields take `placeholder` (shown while empty) and `presets` (the picker's quick picks). Older hosts ignore them.
+- Any form field can set `autofocus` to take focus when its dialog opens or when it replaces another form. Older hosts ignore it.
+- `DetailItem.markdown` draws a detail's value as Markdown; `DetailItem.target` is sent as the `target` of the item's actions. Older hosts ignore them.
 
 ## 0.3.6 — 2026-11-15
 - Add table `appearance` (`"grid"` or `"document"`): a document table has no row lines or tinted section headers, and rounded hovered and selected rows. Older hosts ignore it.

@@ -280,6 +280,27 @@ export type DetailItem = {
 	actions?: Action[];
 	/** The row the item's `actions` apply to (another process than the selected one). */
 	actionRow?: string;
+	/** Sent as the `target` of the item's `actions`: which of the row's things it acts on (a note's id). */
+	target?: string;
+	/** Draw `value` as Markdown (headings, lists, emphasis, code, links). Older hosts show the text. */
+	markdown?: boolean;
+};
+
+/**
+ * A dated note in a `timeline`: a status update, a comment, a log entry. `text` is Markdown.
+ * `edited` (epoch ms) is shown as "edited …" when it's later than `at`.
+ */
+export type TimelineEntry = {
+	id: string;
+	at: number;
+	text: string;
+	edited?: number;
+	/** Who wrote it ("you", "claude"). */
+	author?: string;
+	/** A short line above the text ("Moved to Working"). */
+	title?: string;
+	/** Ids from the timeline's `actions`; defaults to all of them. */
+	actions?: string[];
 };
 
 /**
@@ -290,16 +311,21 @@ export type Filter = { id: string; label: string; icon?: string; options: { valu
 
 export type EnvironmentEntry = { key: string; value: string; selected: boolean; secret: boolean };
 
-export type Field =
-    | { type: "environment"; id: string; label: string; value: EnvironmentEntry[]; description?: string }
+export type Field = (
+	| { type: "environment"; id: string; label: string; value: EnvironmentEntry[]; description?: string }
 	| { type: "select"; id: string; label: string; value: string; options: { value: string; label: string }[]; description?: string }
 	| { type: "switch"; id: string; label: string; value: boolean; description?: string }
 	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean }
 	// The fields below need the `ui.rich-fields` capability.
 	/** Several lines; with `markdown`, an editor that styles Markdown as it's typed. Sent on blur and ⌘↵. */
 	| { type: "textarea"; id: string; label: string; value: string; placeholder?: string; description?: string; markdown?: boolean; rows?: number }
-	/** A local date (`YYYY-MM-DD`), with an optional time (`YYYY-MM-DDTHH:MM`) unless `time: false`; "" when cleared. */
-	| { type: "datetime"; id: string; label: string; value: string; time?: boolean; description?: string }
+	/**
+	 * A local date (`YYYY-MM-DD`), with an optional time (`YYYY-MM-DDTHH:MM`) unless `time: false`;
+	 * "" when cleared. `placeholder` is shown while there is no value ("No due date"). `presets`
+	 * replace the picker's quick picks (Today, Tomorrow, Next Monday, In a week); a preset with a
+	 * time sets both, a date-only preset keeps the time already chosen.
+	 */
+	| { type: "datetime"; id: string; label: string; value: string; time?: boolean; description?: string; placeholder?: string; presets?: { label: string; value: string }[] }
 	/** One of the theme's named colors, as swatches. */
 	| { type: "color"; id: string; label: string; value: Hue; description?: string }
 	/** A searchable choice; with `freeform`, any typed text is accepted too. */
@@ -308,7 +334,14 @@ export type Field =
 	 * Key/value pills, at most one per key. A key with `flag` has no value; with `values`, its
 	 * value is picked from them (any text too with `freeform`); otherwise it's free text.
 	 */
-	| { type: "tags"; id: string; label: string; value: TagValue[]; keys: TagKey[]; description?: string };
+	| { type: "tags"; id: string; label: string; value: TagValue[]; keys: TagKey[]; description?: string }
+) & {
+	/**
+	 * Focus this field when it appears in an open dialog (also when the plugin swaps one form for
+	 * another), instead of the dialog's first field. Older hosts ignore it.
+	 */
+	autofocus?: boolean;
+};
 
 /** `shades` gives values a `Tag.shade` (value → 0…1), used for their pills and in the picker. */
 export type TagKey = { key: string; label: string; color?: Tone | Hue; values?: string[]; freeform?: boolean; flag?: boolean; shades?: Record<string, number> };
@@ -437,6 +470,13 @@ export type Node =
 	| { type: "terminal"; id: string; lines: string[]; follow?: boolean; empty?: string }
 	/** A chat between a person and an agent: messages as bubbles, tool calls as compact rows. */
 	| { type: "conversation"; id: string; messages: Message[]; empty?: string }
+	/**
+	 * Dated Markdown notes in the order given, with a rail down the side (capability
+	 * `ui.timeline`). ↑/↓ move between entries and an action's `key` runs it on the focused
+	 * entry; ↵ runs the entry's first action. Actions arrive with `{ timeline: id, entryId }`.
+	 * `selected` marks an entry (the one being edited) and scrolls it into view.
+	 */
+	| { type: "timeline"; id: string; entries: TimelineEntry[]; actions?: Action[]; selected?: string; empty?: { title: string; description?: string; icon?: string } }
 	/** One choice of a few, as a segmented control; changes arrive as `field` events. */
 	| { type: "segmented"; id: string; value: string; label?: string; options: { value: string; label: string; icon?: string; tooltip?: string }[] }
 	/** `value` from 0 to 1; without one, "working…". `at`: when it started (shows elapsed time). */
@@ -474,7 +514,16 @@ export type PluginMessage =
 /** Events Toolbelt sends, by `name`. */
 export type EventPayloads = {
 	/** A table/list/card/dialog action: `name` is the action id. */
-	action: { rowId?: string; rowIds?: string[]; dialog?: string; /** the `Target` the person picked */ target?: string };
+	action: {
+		rowId?: string;
+		rowIds?: string[];
+		dialog?: string;
+		/** the `Target` the person picked, or the detail item's `target` */
+		target?: string;
+		/** A `timeline` entry's action: the timeline's id and the entry's. */
+		timeline?: string;
+		entryId?: string;
+	};
 	/** The person closed a dialog (Esc, close button, Cancel). */
 	"dialog-close": { dialog: string };
 	search: { query: string };

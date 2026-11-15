@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- A new date and time picker for plugin forms. The field reads its value in words (“Fri, Nov 20 · 2:30 PM”, “in 5 days”) and shows “No date” when there is none, instead of a placeholder that looked like a date. Type dates the way you say them (“fri 5pm”, “+3d”, “next mon”, “nov 20”), pick a quick choice, move through the month with the arrow and Page keys, and type a time as “930”, “2pm” or “14:00” (↑/↓ change it by 15 minutes). ⌫ clears it.
+- Plugins can show timelines: dated notes in Markdown, such as a task's status updates. Move through them with ↑/↓, edit with the plugin's key, and delete with ⌫ (after confirming).
+- The details drawer can show Markdown, for example a task's description and updates, with their own edit and delete buttons.
+- Dialogs can focus a chosen field when they open or when the plugin switches forms, so you can type at once.
+- Fixed: Return in a confirmation (such as “Delete this task?”) confirms, as its key hint says; focus used to start on Cancel.
 
 ## 0.3.10 — 2026-11-15
 - Plugin tables can look like a document: one background, no lines between rows or tinted section headers, and rounded hovered and selected rows. Sections, nesting, the keyboard, dragging and the details drawer work as before.

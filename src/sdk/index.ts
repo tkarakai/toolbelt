@@ -47,6 +47,7 @@ export type {
   LogLine,
   Message,
   DetailItem,
+  TimelineEntry,
   Manifest,
   HostMessage,
   PluginMessage,

@@ -3,7 +3,9 @@ import { SelectionHandoffContext, SelectionRequestContext } from "@/lib/selectio
 import { PaneActionsContext } from "@/lib/pane-actions";
 import { ownsCollectionKeyboard, focusPopoverCollection, canHoverNavigate, pointerTracker } from "@/lib/pane-navigation";
 import { EnvironmentEditor } from "./EnvironmentEditor";
-import { ColorField, ComboboxField, DateTimeField, TagsField, TextAreaField, WIDE_FIELDS } from "./fields";
+import { ColorField, ComboboxField, TagsField, TextAreaField, WIDE_FIELDS } from "./fields";
+import { DateTimeField } from "./DateTimeField";
+import { Timeline } from "./Timeline";
 // Turns a plugin's UI tree into shadcn/ui components. Every node type in shared/protocol.ts
 // has one renderer here; plugins never ship their own components.
 //
@@ -295,6 +297,8 @@ export function Render({ node, emit }: { node: Node; emit: Emit }): ReactNode {
 			return <TerminalView node={node} />;
 		case "conversation":
 			return <ConversationView node={node} />;
+		case "timeline":
+			return <Timeline node={node} emit={emit} />;
 		case "segmented":
 			return <Segmented node={node} emit={emit} />;
 		default:
@@ -563,7 +567,7 @@ function DialogBody({ d, emit, close, className, style, header, children }: { d:
 			onOpenAutoFocus={(e) => {
 				e.preventDefault();
 				const content = e.currentTarget as HTMLElement | null;
-				const field = content?.querySelector<HTMLElement>(`[data-form-fields] :is(${FIRST_FIELD})`);
+				const field = content?.querySelector<HTMLElement>(`[data-autofocus] :is(${FIRST_FIELD})`) ?? content?.querySelector<HTMLElement>(`[data-form-fields] :is(${FIRST_FIELD})`);
 				(field ?? content)?.focus();
 			}}
 		>
@@ -736,7 +740,7 @@ function Spark({ values, tone, fill }: { values: number[]; tone?: Tone; fill?: b
 
 type Confirm = { action: Action; payload?: Record<string, unknown> } | null;
 
-function useConfirm(emit: Emit) {
+export function useConfirm(emit: Emit) {
 	const [pending, setPending] = useState<Confirm>(null);
 	const run = useCallback(
 		(action: Action, rowId?: string, extra?: Record<string, unknown>) => {
@@ -746,9 +750,17 @@ function useConfirm(emit: Emit) {
 		},
 		[emit],
 	);
+	const confirmButton = useRef<HTMLButtonElement>(null);
 	const dialog = (
 		<Dialog open={!!pending} onOpenChange={(o) => !o && setPending(null)}>
-			<DialogContent className="sm:max-w-sm">
+			<DialogContent
+				className="sm:max-w-sm"
+				// ↵ confirms, as its hint says: focus the confirming button, not the first one.
+				onOpenAutoFocus={(e) => {
+					e.preventDefault();
+					confirmButton.current?.focus();
+				}}
+			>
 				<DialogHeader>
 					<DialogTitle>{pending?.action.label}</DialogTitle>
 					<DialogDescription>{pending?.action.confirm}</DialogDescription>
@@ -759,8 +771,8 @@ function useConfirm(emit: Emit) {
 						<KeyHint keys="esc" />
 					</Button>
 					<Button
+						ref={confirmButton}
 						variant={pending?.action.tone === "destructive" ? "destructive" : "default"}
-						autoFocus
 						onClick={() => {
 							if (pending) emit(pending.action.id, pending.payload);
 							setPending(null);
@@ -2009,7 +2021,7 @@ function RowDetails({ row, actions, run }: { row: Row; actions: Action[]; run: R
 						{s.title && <h3 className="px-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{s.title}</h3>}
 						<dl className="divide-y overflow-hidden rounded-lg border bg-background">
 							{s.items.map((d) => (
-								<DetailRow key={d.label + (d.actionRow ?? "")} d={d} run={(a) => run(a, d.actionRow ?? row.id)} />
+								<DetailRow key={d.label + (d.actionRow ?? "") + (d.target ?? "")} d={d} run={(a) => run(a, d.actionRow ?? row.id, d.target !== undefined ? { target: d.target } : undefined)} />
 							))}
 						</dl>
 					</section>
@@ -2087,13 +2099,15 @@ function DetailRow({ d, run }: { d: DetailItem; run: (a: Action) => void }) {
 	const [all, setAll] = useState(false);
 	const acts = d.actions ?? [];
 	const canCopy = !acts.length && (d.copy ?? d.mono);
-	const long = d.value.length > 200;
+	const long = d.markdown ? d.value.length > 600 || d.value.split("\n").length > 12 : d.value.length > 200;
 	return (
 		<div className="group/detail relative px-3 py-2">
-			<dt className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-				{d.dot && <Dot dot={d.dot} className="size-1.5" />}
-				{d.label}
-			</dt>
+			{(d.label || d.dot) && (
+				<dt className={cn("flex items-center gap-1.5 text-[11px] text-muted-foreground", acts.length > 0 && (acts.length > 1 ? "pr-14" : "pr-6"))}>
+					{d.dot && <Dot dot={d.dot} className="size-1.5" />}
+					{d.label}
+				</dt>
+			)}
 			{acts.length > 0 && (
 				// The item's own actions (Peek or open one of the processes listed here).
 				<div className="absolute top-1.5 right-1.5 flex items-center gap-0.5">
@@ -2109,9 +2123,15 @@ function DetailRow({ d, run }: { d: DetailItem; run: (a: Action) => void }) {
 					))}
 				</div>
 			)}
-			<dd className={cn(acts.length > 1 ? "pr-14" : "pr-6", "text-sm break-words select-text", d.mono && "font-mono text-[0.8rem]", long && !all && "line-clamp-4", textClass(d.tone ?? "default"))}>
-				<Hl text={d.value} />
-			</dd>
+			{d.markdown ? (
+				<dd className={cn(!d.label && acts.length > 0 && (acts.length > 1 ? "pr-14" : "pr-6"), "relative mt-0.5", long && !all && "max-h-48 overflow-hidden mask-b-from-70%")}>
+					<Markdown text={d.value} className="space-y-2" />
+				</dd>
+			) : (
+				<dd className={cn(acts.length > 1 ? "pr-14" : "pr-6", "text-sm break-words select-text", d.mono && "font-mono text-[0.8rem]", long && !all && "line-clamp-4", textClass(d.tone ?? "default"))}>
+					<Hl text={d.value} />
+				</dd>
+			)}
 			{long && (
 				<button onClick={() => setAll((a) => !a)} className="mt-0.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
 					{all ? "Show less" : "Show all"}
@@ -2281,12 +2301,12 @@ function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emi
 						) : (
 							<div key={f.id} className="contents">
 								{label(f, cn("sm:flex sm:min-h-8 sm:items-center sm:self-start", f.type === "textarea" && "sm:items-start sm:pt-2"))}
-								<div className="min-w-0 space-y-1.5">
+								<AutoFocus on={!!f.autofocus} className="min-w-0 space-y-1.5">
 									<div className={cn("flex min-h-8 items-center *:max-w-full", f.type === "textarea" && "*:w-full", (f.type === "tags" || f.type === "color") && "py-1")}>
 										<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} fill />
 									</div>
 									{f.description && <p className="text-xs text-muted-foreground">{f.description}</p>}
-								</div>
+								</AutoFocus>
 							</div>
 						),
 					)}
@@ -2313,6 +2333,26 @@ function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emi
 				))}
 			</CardContent>
 		</Card>
+	);
+}
+
+/**
+ * A field's box. With `on`, its control takes focus when it appears in an open dialog: the
+ * dialog opening prefers it to the first field, and a form the plugin swaps in focuses it.
+ */
+function AutoFocus({ on, className, children }: { on: boolean; className?: string; children: ReactNode }) {
+	const box = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (!on) return;
+		// Children's effects ran first, so an editor control exists by now. When the dialog is
+		// just opening, its own open focus comes after this and prefers this field too.
+		const el = box.current?.querySelector<HTMLElement>(FIRST_FIELD);
+		if (el && box.current?.closest("[role=dialog]")) el.focus();
+	}, [on]);
+	return (
+		<div ref={box} data-autofocus={on || undefined} className={className}>
+			{children}
+		</div>
 	);
 }
 
@@ -2463,9 +2503,9 @@ function ProgressNode({ node }: { node: Extract<Node, { type: "progress" }> }) {
 }
 
 // ── markdown ─────────────────────────────────────────────────────────────
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, className }: { text: string; className?: string }) {
 	const blocks = useMemo(() => parseMarkdown(text), [text]);
-	return <div className="space-y-3 text-sm leading-relaxed break-words select-text">{blocks.map((b, i) => <MdBlock key={i} b={b} />)}</div>;
+	return <div className={cn("space-y-3 text-sm leading-relaxed break-words select-text", className)}>{blocks.map((b, i) => <MdBlock key={i} b={b} />)}</div>;
 }
 
 const headingSize = ["", "text-lg font-semibold", "text-base font-semibold", "text-sm font-semibold", "text-sm font-medium", "text-sm font-medium", "text-xs font-medium uppercase text-muted-foreground"];

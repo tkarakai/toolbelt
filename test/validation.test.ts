@@ -134,6 +134,7 @@ test("rich fields check their values", () => {
     { type: "datetime", id: "w", label: "W", value: "" },
     { type: "datetime", id: "w", label: "W", value: "2026-02-28" },
     { type: "datetime", id: "w", label: "W", value: "2026-11-20T09:05" },
+    { type: "datetime", id: "w", label: "W", value: "", placeholder: "No due date", autofocus: true, presets: [{ label: "Later", value: "2026-11-20T18:00" }, { label: "Friday", value: "2026-11-20" }] },
     { type: "color", id: "c", label: "C", value: "teal" },
     { type: "combobox", id: "t", label: "T", value: "x", options: [{ value: "1", label: "One", sub: "#1" }], freeform: true },
     { type: "tags", id: "l", label: "L", value: [{ key: "p", value: "High" }, { key: "f" }], keys: [{ key: "p", label: "Priority", color: "orange", values: ["High"] }, { key: "f", label: "Flag", flag: true }] },
@@ -144,6 +145,10 @@ test("rich fields check their values", () => {
     { type: "datetime", id: "w", label: "W", value: "2026-02-30" },
     { type: "datetime", id: "w", label: "W", value: "2026-11-20T24:00" },
     { type: "datetime", id: "w", label: "W", value: "2026-11-20T10:00", time: false },
+    { type: "datetime", id: "w", label: "W", value: "", presets: [{ label: "Never", value: "" }] },
+    { type: "datetime", id: "w", label: "W", value: "", time: false, presets: [{ label: "Later", value: "2026-11-20T18:00" }] },
+    { type: "datetime", id: "w", label: "W", value: "", presets: [{ label: "Bad", value: "2026-02-30" }] },
+    { type: "text", id: "w", label: "W", value: "", autofocus: "yes" },
     { type: "color", id: "c", label: "C", value: "magenta" },
     { type: "combobox", id: "t", label: "T", value: "x", options: [{ value: 1, label: "One" }] },
     { type: "tags", id: "l", label: "L", value: [{ key: "zzz" }], keys: [{ key: "p", label: "P" }] },
@@ -151,6 +156,30 @@ test("rich fields check their values", () => {
     { type: "tags", id: "l", label: "L", value: [], keys: [{ key: "p", label: "P" }, { key: "p", label: "Q" }] },
   ];
   for (const f of bad) expect(() => validateTree(form(f))).toThrow();
+});
+test("timelines check their entries", () => {
+  const tree = {
+    type: "timeline",
+    id: "updates",
+    entries: [
+      { id: "1", at: 1_700_000_000_000, text: "**Started**", edited: 1_700_000_100_000, author: "you", title: "Kickoff", actions: ["edit"] },
+      { id: "2", at: 1_700_000_200_000, text: "Done" },
+    ],
+    actions: [{ id: "edit", label: "Edit", key: "e" }, { id: "delete", label: "Delete", tone: "destructive", confirm: "Delete?" }],
+    selected: "1",
+    empty: { title: "No updates" },
+  };
+  expect(() => validateTree(tree)).not.toThrow();
+  expect(() => validateTree({ ...tree, entries: [] })).not.toThrow();
+  expect(() => validateTree({ ...tree, entries: [tree.entries[0], tree.entries[0]] })).toThrow();
+  expect(() => validateTree({ ...tree, entries: [{ id: "1", text: "no time" }] })).toThrow();
+  expect(() => validateTree({ ...tree, entries: [{ id: "1", at: 1, text: 5 }] })).toThrow();
+});
+test("detail items can be Markdown and carry a target", () => {
+  const table = (details: unknown[]) => ({ type: "table", id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "a", cells: { x: "A" }, details }] });
+  expect(() => validateTree(table([{ label: "", value: "# Hi", markdown: true, target: "u1", actions: [{ id: "edit", label: "Edit" }] }]))).not.toThrow();
+  expect(() => validateTree(table([{ label: "x", value: "y", markdown: "yes" }]))).toThrow();
+  expect(() => validateTree(table([{ label: "x", value: "y", target: 1 }]))).toThrow();
 });
 test("tables accept sections, reorder, select events and unread rows", () => {
   const tree = {
