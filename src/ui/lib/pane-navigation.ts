@@ -29,6 +29,19 @@ export function restorePaneFocus(pane: HTMLElement, bookmark?: PaneBookmark) {
   target.focus({ preventScroll: true });
 }
 
+/** Hover moves the highlight only when the pointer itself moved. WebKit also sends
+ * mouseenter/mousemove when content moves under a still pointer (a list re-sorting, a panel
+ * resizing): those repeat the coordinates of the last real move and must not select. Keep
+ * one tracker per collection. */
+export function pointerTracker() {
+  let last: { x: number; y: number } | null = null;
+  return (e: { screenX: number; screenY: number }) => {
+    const moved = !last || last.x !== e.screenX || last.y !== e.screenY;
+    last = { x: e.screenX, y: e.screenY };
+    return moved;
+  };
+}
+
 /** Layout/scroll changes under a stationary pointer must not override keyboard selection. */
 export function canHoverNavigate(element: HTMLElement | null): boolean {
   return element?.closest<HTMLElement>("[data-pointer-navigation]")?.dataset.pointerNavigation !== "false";

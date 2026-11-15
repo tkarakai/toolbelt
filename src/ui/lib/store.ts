@@ -37,7 +37,7 @@ const shownListeners = new Set<() => void>();
 const hidingListeners = new Set<() => void>();
 const settingsListeners = new Set<() => void>();
 const commandListeners = new Set<(name: string) => void>();
-export const selectionListeners = new Set<(payload: { plugin: string; selection: NavigationSelection | null }) => void>();
+export const selectionListeners = new Set<(payload: { plugin: string; selection: NavigationSelection | null; at?: number }) => void>();
 /** Pushed update states (src/ui/Updates.tsx subscribes). */
 export const updateListeners = new Set<(s: UpdateState) => void>();
 

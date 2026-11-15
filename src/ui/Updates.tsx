@@ -3,6 +3,7 @@ import { UpdateRecovery, useRecoveryClock } from "./components/update-recovery";
 import { ManualUpdate } from "./components/manual-update";
 import { RepositoryLink } from "./components/repository-link";
 import { buildInfo } from "./build-info";
+import { toast } from "sonner";
 // Updates, in the UI: the card on ToolBelt's page (version, channel, last check, what's new),
 // the dialog that walks through an update (download → verify → install → restart), the red dot
 // for the sidebar and the popover's "Update available" row. The work happens in the main
@@ -124,13 +125,30 @@ let openDialog: () => void = () => {};
 export function UpdatesCard() {
   const s = useUpdateState();
   const now = useRecoveryClock();
+  // A check the person asked for says what it found, including "nothing new".
+  const manual = useRef<{ at: number; lastChecked: number | null; sawChecking: boolean } | null>(null);
+  useEffect(() => {
+    const m = manual.current;
+    if (!m || !s) return;
+    if (s.checking) { m.sawChecking = true; return; }
+    const failed = (s.failure?.at ?? 0) >= m.at;
+    if (!m.sawChecking && s.lastChecked === m.lastChecked && !failed) return;
+    manual.current = null;
+    if (failed) toast.error("Couldn’t check for ToolBelt updates", { description: s.failure?.message });
+    else if (s.available) toast.info(`ToolBelt ${s.available.version} is available`, { description: s.enabled ? "Review and update below." : undefined });
+    else toast.success("ToolBelt is up to date", { description: `Version ${s.version} is the latest ${s.channel === "dev" ? "release" : `${s.channel} release`}.` });
+  }, [s?.checking, s?.lastChecked, s?.failure?.at, s?.available?.version]);
+  const check = () => {
+    manual.current = { at: Date.now(), lastChecked: s?.lastChecked ?? null, sawChecking: false };
+    updateAction("checkForUpdates");
+  };
   useEffect(() => {
     if (s && location.hash === "#/toolbelt/updates") document.getElementById("updates")?.scrollIntoView({ block: "start" });
   }, [!!s]);
   if (!s) return null;
   const r = s.available;
   return (
-    <div id="updates"><SettingsGroup title="App" notice={(s.failure || s.lastError) && <UpdateRecovery failure={s.failure ?? {kind:"invalid", message:s.lastError!}} checkedAt={s.lastChecked} history={s.githubHistory}/>} description="ToolBelt · Copyright NetSense LLC." actions={<GitHubButton retryAt={s.retryAt} hint={`Last checked: ${s.lastChecked ? new Date(s.lastChecked).toLocaleString() : "Not yet checked"}`} variant="outline" size="sm" className="h-6 text-xs" disabled={s.checking || s.phase.kind !== "idle" || (s.retryAt ?? 0) > now} onClick={() => updateAction("checkForUpdates")}><RotateCw className={cn(s.checking && "animate-spin")}/>{s.checking ? "Checking…" : "Check for updates"}</GitHubButton>}>
+    <div id="updates"><SettingsGroup title="App" notice={(s.failure || s.lastError) && <UpdateRecovery failure={s.failure ?? {kind:"invalid", message:s.lastError!}} checkedAt={s.lastChecked} history={s.githubHistory}/>} description="ToolBelt · Copyright NetSense LLC." actions={<GitHubButton retryAt={s.retryAt} hint={`Last checked: ${s.lastChecked ? new Date(s.lastChecked).toLocaleString() : "Not yet checked"}`} variant="outline" size="sm" className="h-6 text-xs" disabled={s.checking || s.phase.kind !== "idle" || (s.retryAt ?? 0) > now} onClick={check}><RotateCw className={cn(s.checking && "animate-spin")}/>{s.checking ? "Checking…" : "Check for updates"}</GitHubButton>}>
       <article aria-label="ToolBelt" className="min-w-0 space-y-4 p-5">
         <div className="flex flex-wrap items-start gap-3">
           <img src={s.channel === "dev" ? devAppIcon : appIcon} alt="ToolBelt app icon" className="size-10 shrink-0 object-contain"/>

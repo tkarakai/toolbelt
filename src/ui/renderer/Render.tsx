@@ -1,6 +1,7 @@
 import { useCollectionSelection, LocalSelectionProvider } from "@/lib/shared-selection";
 import { SelectionHandoffContext, SelectionRequestContext } from "@/lib/selection-handoff";
-import { ownsCollectionKeyboard, focusPopoverCollection, canHoverNavigate } from "@/lib/pane-navigation";
+import { PaneActionsContext } from "@/lib/pane-actions";
+import { ownsCollectionKeyboard, focusPopoverCollection, canHoverNavigate, pointerTracker } from "@/lib/pane-navigation";
 import { EnvironmentEditor } from "./EnvironmentEditor";
 // Turns a plugin's UI tree into shadcn/ui components. Every node type in shared/protocol.ts
 // has one renderer here; plugins never ship their own components.
@@ -10,16 +11,16 @@ import { EnvironmentEditor } from "./EnvironmentEditor";
 // keyboard's home: menus hand focus back to it when they close. Pages: ⌘F or / to filter, esc
 // back to the list.
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
 import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Tag, Target, Tone } from "../../shared/protocol";
 import { dotClass, dotSpec, pillClass, textClass } from "./colors";
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { cn } from "@/lib/utils";
 import { Icon, isFileIcon } from "@/lib/icon";
-import { openUrl } from "@/lib/store";
+import { openUrl, useCommand } from "@/lib/store";
 import { isTyping, SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { TerminalView } from "./Terminal";
-import { detailSections, groupActions, groupSummaryLayout, growOf, isReorderable, isResizable, layoutColumns, maxOf, minOf, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
+import { detailSections, dragBoundary, groupActions, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
 import { parseMarkdown, safeHref, type Block, type Inline } from "./markdown";
@@ -36,6 +37,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { KeyHint } from "@/components/key-hint";
+import { ShortcutTooltip } from "@/components/shortcut-tooltip";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -566,11 +568,14 @@ function CellView({ cell, col, measure }: { cell: Cell | undefined; col: Column;
 	if (cell === undefined || cell === null) return <span className="text-muted-foreground/50 tb-tone-muted">—</span>;
 	if (typeof cell !== "object") return <span className={cn(col.mono && "font-mono text-[0.8rem] tabular-nums")}><Hl text={String(cell)} /></span>;
 	const mono = cell.mono ?? col.mono;
+	const spark = cell.spark && cell.spark.length > 1 && <span className={cn("shrink-0", measure ? "inline-flex" : "tb-cell-extra")}><Spark values={cell.spark} tone={cell.tone} /></span>;
 	return (
-		<div className={cn("flex items-center gap-2.5", measure ? "w-max" : "@container/cell w-full min-w-0")}>
+		<div className={cn("flex items-center gap-2.5", measure ? "w-max" : "@container/cell w-full min-w-0", spark && col.align === "right" && "justify-end")}>
 			{cell.dot && <Dot dot={cell.dot} />}
 			{cell.icon && <Icon name={cell.icon} className={cn("shrink-0", isFileIcon(cell.icon) ? "size-6" : "size-4 text-muted-foreground")} />}
-			<div className={measure ? "shrink-0" : "min-w-0 flex-1"} title={[cell.text, cell.sub].filter(Boolean).join("\n")}>
+			{/* The trend ends where it meets its value: newest sample on the right, beside the number. */}
+			{spark}
+			<div className={measure ? "shrink-0" : spark ? "min-w-0" : "min-w-0 flex-1"} title={[cell.text, cell.sub].filter(Boolean).join("\n")}>
 				{cell.at !== undefined ? (
 					<When at={cell.at} className={cn("block truncate", mono && "font-mono text-[0.8rem] tabular-nums", textClass(cell.tone ?? "default"))} />
 				) : cell.text &&
@@ -591,7 +596,6 @@ function CellView({ cell, col, measure }: { cell: Cell | undefined; col: Column;
 					</div>
 				)}
 			</div>
-			{cell.spark && cell.spark.length > 1 && <span className={cn("shrink-0", measure ? "inline-flex" : "tb-cell-extra")}><Spark values={cell.spark} tone={cell.tone} /></span>}
 			{cell.chips && cell.chips.length > 0 && (
 				<div className={cn("shrink-0 flex-nowrap gap-1", measure ? "inline-flex" : "tb-cell-extra")}>
 					{cell.chips.slice(0, 1).map((c) => (
@@ -978,32 +982,23 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		document.body.style.cursor = cursor;
 		document.body.style.userSelect = "";
 	};
-	/** The column a growing column's edge resizes: its right-hand neighbour, the other way. */
-	const resizeSubject = (c: Column): { col: Column; sign: 1 | -1 } | null => {
-		const next = columns[columns.indexOf(c) + 1];
-		const subject = growOf(c) ? next : c;
-		if (!subject || growOf(subject) || !isResizable(subject)) return null;
-		return { col: subject, sign: subject === c ? 1 : -1 };
-	};
+	// A column's right edge is the boundary with the next one: dragging it keeps the edge under
+	// the pointer, the columns to its right pay for it, and nothing to its left moves.
+	const boundary = (c: Column) => hasBoundary(columns, columns.indexOf(c));
 	const startResize = (e: React.PointerEvent, c: Column) => {
-		const target = resizeSubject(c);
-		if (e.button !== 0 || !target) return;
+		const index = columns.indexOf(c);
+		if (e.button !== 0 || !boundary(c)) return;
 		e.preventDefault();
 		e.stopPropagation();
-		const { col, sign } = target;
-		const start = layout.widths[col.key];
+		const start = { ...layout.widths };
+		const spare = overflow === "scroll" && !columns.some((x) => growOf(x)) ? Infinity : Math.max(0, available - layout.total);
 		const x0 = e.clientX;
-		// Growing columns (and spare room) pay for a wider column, down to their minimum, so
-		// nothing hides mid-drag. A scrolling table without growing columns just gets wider.
-		const growers = columns.filter((x) => x !== col && growOf(x));
-		const slack = overflow === "scroll" && !growers.length ? Infinity : growers.reduce((t, x) => t + layout.widths[x.key] - minOf(x), 0) + Math.max(0, available - layout.total);
-		const widthAt = (x: number) => Math.round(Math.min(maxOf(col), Math.max(minOf(col), Math.min(start + slack, start + sign * (x - x0)))));
-		let last = start;
+		let last: Record<string, number> = {};
 		document.body.style.cursor = "col-resize";
 		document.body.style.userSelect = "none";
 		const move = (ev: PointerEvent) => {
-			last = widthAt(ev.clientX);
-			setLiveWidths({ ...saved.widths, [col.key]: last });
+			last = dragBoundary(columns, start, index, ev.clientX - x0, spare);
+			setLiveWidths({ ...saved.widths, ...last });
 		};
 		const up = () => {
 			window.removeEventListener("pointermove", move);
@@ -1011,17 +1006,18 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 			window.removeEventListener("pointercancel", up);
 			endDrag("");
 			setLiveWidths(null);
-			if (last !== start) saveLayout({ widths: { ...saved.widths, [col.key]: last } });
+			if (Object.keys(last).length) saveLayout({ widths: { ...saved.widths, ...last } });
 		};
 		window.addEventListener("pointermove", move);
 		window.addEventListener("pointerup", up);
 		window.addEventListener("pointercancel", up);
 	};
+	/** Double-click an edge: the columns on both sides go back to their own widths. */
 	const resetWidth = (c: Column) => {
-		const target = resizeSubject(c);
-		if (!target || !Object.hasOwn(saved.widths, target.col.key)) return;
-		const { [target.col.key]: _, ...rest } = saved.widths;
-		saveLayout({ widths: rest });
+		const index = columns.indexOf(c);
+		const keys = [c, columns[index + 1]].filter((x): x is Column => !!x).map((x) => x.key);
+		if (!keys.some((k) => Object.hasOwn(saved.widths, k))) return;
+		saveLayout({ widths: Object.fromEntries(Object.entries(saved.widths).filter(([k]) => !keys.includes(k))) });
 	};
 	const dropAt = (x: number, key: string) => {
 		for (const th of headRow.current?.querySelectorAll<HTMLElement>("th[data-col]") ?? []) {
@@ -1241,6 +1237,29 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
         });
     }, [handoff, node.id, setOverrides, setCollapsedGroups, setSelected]);
 
+	// The details drawer: open or closed per plugin, whatever is selected. It only fits a wide
+	// table (`@3xl`, 48rem); narrower, neither the drawer nor its toggle shows.
+	const [drawerOpen, setDrawerOpen] = usePersisted(`toolbelt.inspector.${surface.split("/")[0]}`, true);
+	const paneActions = useContext(PaneActionsContext);
+	const drawerUseful = useMemo(() => {
+		const any = (rows: Row[]): boolean => rows.some((r) => r.details?.length || r.group !== undefined || (r.children && any(r.children)));
+		return any(node.rows);
+	}, [node.rows]);
+	const outer = useRef<HTMLDivElement>(null);
+	const [drawerFits, setDrawerFits] = useState(true);
+	const toggleDrawer = useCallback(() => setDrawerOpen(!drawerOpen), [drawerOpen, setDrawerOpen]);
+	// ⌥⌘B (View → Toggle Details), where the toggle is showing.
+	useCommand(useCallback((name: string) => { if (name === "toggleDetails" && drawerUseful && paneActions && drawerFits) toggleDrawer(); }, [drawerUseful, paneActions, drawerFits, toggleDrawer]));
+	useLayoutEffect(() => {
+		const el = outer.current;
+		if (!el) return;
+		const check = () => setDrawerFits(el.clientWidth >= 48 * parseFloat(getComputedStyle(document.documentElement).fontSize || "16"));
+		const ro = new ResizeObserver(check);
+		ro.observe(el);
+		check();
+		return () => ro.disconnect();
+	}, [node.rows.length > 0]);
+
 	// The table takes the keyboard when it appears, unless something else already has it.
 	useEffect(() => {
 		if (document.activeElement === document.body) wrap.current?.focus({ preventScroll: true });
@@ -1254,7 +1273,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	};
 
 	return (
-		<div className="@container flex min-h-0 min-w-0 w-full flex-1">
+		<div ref={outer} className="@container flex min-h-0 min-w-0 w-full flex-1">
 			<div className="flex min-w-0 flex-1 flex-col">
 				{checked.size > 0 && (
 					<div className="flex shrink-0 items-center gap-2 border-b bg-muted/40 px-4 py-2 animate-in fade-in-0 slide-in-from-top-1 duration-200">
@@ -1320,17 +1339,17 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 											) : (
 													c.title
 												)}
-												{resizeSubject(c) && (
+												{boundary(c) && (
 													<span
 														role="separator"
 														aria-orientation="vertical"
-														aria-label={`Resize ${resizeSubject(c)!.col.title}`}
+														aria-label={`Resize ${c.title}`}
 														title="Drag to resize · double-click to reset"
 														onPointerDown={(e) => startResize(e, c)}
 														onDoubleClick={(e) => (e.stopPropagation(), resetWidth(c))}
 														className="group/resize absolute top-0 right-0 z-10 flex h-full w-2 cursor-col-resize justify-center"
 													>
-														<span className="my-2 w-px bg-border opacity-0 transition-opacity duration-200 group-hover/resize:opacity-100" />
+														<span className="my-2 w-px bg-border transition-colors duration-200 group-hover/resize:bg-ring/70" />
 													</span>
 												)}
 											</th>
@@ -1404,13 +1423,24 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 					</>,
 					document.body,
 				)}
-			<Inspector
-				item={current?.kind === "row" && current.v.row.details ? current : current?.kind === "header" ? current : null}
-				actions={current?.kind === "row" ? actionsFor(current.v.row) : []}
-				run={run}
-				onToggleGroup={toggleGroup}
-				onClose={() => setSelected(null)}
-			/>
+			{drawerUseful && (
+				<Inspector
+					open={drawerOpen}
+					selected={!!current}
+					item={current?.kind === "row" && current.v.row.details ? current : current?.kind === "header" ? current : null}
+					actions={current?.kind === "row" ? actionsFor(current.v.row) : []}
+					run={run}
+					onToggleGroup={toggleGroup}
+				/>
+			)}
+			{drawerUseful && paneActions && drawerFits && createPortal(
+				<ShortcutTooltip label={drawerOpen ? "Hide details" : "Show details"} keys="⌥⌘B" align="end">
+					<Button variant="ghost" size="icon-sm" aria-pressed={drawerOpen} aria-label={drawerOpen ? "Hide details" : "Show details"} aria-keyshortcuts="Alt+Meta+B" onClick={toggleDrawer} className="text-muted-foreground">
+						{drawerOpen ? <PanelRightClose /> : <PanelRightOpen />}
+					</Button>
+				</ShortcutTooltip>,
+				paneActions,
+			)}
 			{dialog}
 		</div>
 	);
@@ -1447,9 +1477,16 @@ function GroupHeader({ item, columns, bulk, selected, onSelect, onToggle }: { it
 						<ChevronRight className={cn("size-3.5 transition-transform duration-200", !collapsed && "rotate-90")} />
 					</button>
 					{g.icon && <Icon name={g.icon} className={cn("shrink-0 text-muted-foreground", isFileIcon(g.icon) ? (top ? "size-7" : "size-5") : top ? "size-5" : "size-4")} />}
-					<span className={cn("truncate", top ? "font-semibold" : "font-mono font-medium", selected ? "text-selected-foreground" : "text-group")}>
-						<Strong text={g.label} strong={g.strong} />
-					</span>
+					{top ? (
+						<span className={cn("truncate font-semibold", selected ? "text-selected-foreground" : "text-group")}>
+							<Strong text={g.label} strong={g.strong} />
+						</span>
+					) : (
+						// A group inside a section (a folder): a blue pill, beside its violet branch pill.
+						<span className={cn("min-w-0 truncate rounded-md px-1.5 py-0.5 font-mono text-[11px] font-medium", pillClass("blue"))}>
+							<Strong text={g.label} strong={g.strong} />
+						</span>
+					)}
 					{g.sub && (
 						// The branch: a violet pill, so it stands out from the path next to it.
 						<span className={cn("tb-pill-violet flex min-w-0 shrink-[2] items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-medium", selected ? "bg-selected-foreground/15 text-selected-foreground" : "bg-violet-500/12 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300")}>
@@ -1464,7 +1501,7 @@ function GroupHeader({ item, columns, bulk, selected, onSelect, onToggle }: { it
 							{g.tag}
 						</Badge>
 					)}
-					<span className="shrink-0 text-xs text-muted-foreground tabular-nums">{count}</span>
+					<span aria-label={`${count} ${count === 1 ? "item" : "items"}`} className={cn("shrink-0 rounded-md px-1.5 py-0.5 text-[11px] leading-none font-medium tabular-nums", selected ? "bg-selected-foreground/15 text-selected-foreground" : "bg-muted text-muted-foreground")}>{count}</span>
                     {(g.summary?.column === undefined || index === 0) && <span className="ml-auto">{summary}</span>}
 				</div>
 			</td>
@@ -1477,18 +1514,15 @@ function GroupHeader({ item, columns, bulk, selected, onSelect, onToggle }: { it
 type InspectorItem = Extract<Item, { kind: "row" }> | Extract<Item, { kind: "header" }>;
 
 /**
- * The details drawer on the right: slides open when something is selected, closed when not;
- * drag its left edge to resize (remembered). A row shows its title, figures, sectioned details
- * and grouped actions; a group header shows what it holds and collapse / expand.
+ * The details drawer on the right. Open or closed is the person's choice for the plugin (the
+ * toggle in the pane header), not the selection's: it stays as they left it while they move
+ * through rows. Drag its left edge to resize (remembered). A row shows its title, figures,
+ * sectioned details and grouped actions; a group header shows what it holds and collapse /
+ * expand; with nothing to show it says so.
  */
-function Inspector({ item, actions, run, onToggleGroup, onClose }: { item: InspectorItem | null; actions: Action[]; run: Run; onToggleGroup: (key: string) => void; onClose: () => void }) {
+function Inspector({ open, item, selected, actions, run, onToggleGroup }: { open: boolean; item: InspectorItem | null; selected: boolean; actions: Action[]; run: Run; onToggleGroup: (key: string) => void }) {
 	const [width, setWidth] = usePersisted("toolbelt.inspectorWidth", 340);
 	const [dragging, setDragging] = useState(false);
-	// Keep the last item while the drawer slides closed.
-	const last = useRef<{ item: InspectorItem; actions: Action[] } | null>(null);
-	if (item) last.current = { item, actions };
-	const shown = item ? { item, actions } : last.current;
-	const open = !!item;
 	const onPointerDown = (e: React.PointerEvent) => {
 		e.preventDefault();
 		const el = e.currentTarget as HTMLElement;
@@ -1514,16 +1548,23 @@ function Inspector({ item, actions, run, onToggleGroup, onClose }: { item: Inspe
 			style={{ width: open ? width : 0 }}
 		>
 			{open && <div onPointerDown={onPointerDown} onDoubleClick={() => setWidth(340)} className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize after:absolute after:inset-y-0 after:left-0 after:w-px after:transition-colors after:duration-200 hover:after:bg-ring/60" />}
-			{shown && (
-				<div className={cn("flex h-full shrink-0 flex-col transition-opacity duration-200", open ? "opacity-100" : "opacity-0")} style={{ width }}>
-					{shown.item.kind === "header" ? <GroupSummary item={shown.item} onToggle={() => onToggleGroup((shown.item as Extract<Item, { kind: "header" }>).key)} onClose={onClose} /> : <RowDetails row={shown.item.v.row} actions={shown.actions} run={run} onClose={onClose} />}
-				</div>
-			)}
+			<div className={cn("flex h-full shrink-0 flex-col transition-opacity duration-200", open ? "opacity-100" : "opacity-0")} style={{ width }}>
+				{!item ? (
+					<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+						<PanelRight className="size-5 opacity-60" />
+						{selected ? "No details for this row." : "Select a row to see its details."}
+					</div>
+				) : item.kind === "header" ? (
+					<GroupSummary item={item} onToggle={() => onToggleGroup(item.key)} />
+				) : (
+					<RowDetails row={item.v.row} actions={actions} run={run} />
+				)}
+			</div>
 		</aside>
 	);
 }
 
-function DrawerHeader({ icon, dot, title, sub, onClose, children }: { icon?: string; dot?: DotNode; title: string; sub?: string; onClose: () => void; children?: ReactNode }) {
+function DrawerHeader({ icon, dot, title, sub, children }: { icon?: string; dot?: DotNode; title: string; sub?: string; children?: ReactNode }) {
 	return (
 		<div className="flex items-start gap-3 border-b px-4 py-3.5">
 			{icon ? (
@@ -1540,19 +1581,15 @@ function DrawerHeader({ icon, dot, title, sub, onClose, children }: { icon?: str
 				{sub && <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{sub}</div>}
 				{children}
 			</div>
-			<Button variant="ghost" size="sm" className="-mt-0.5 -mr-1.5 shrink-0 gap-1 px-1.5 text-muted-foreground" onClick={onClose} aria-label="Close details">
-				<X />
-				<KeyHint keys="esc" />
-			</Button>
 		</div>
 	);
 }
 
-function GroupSummary({ item, onToggle, onClose }: { item: Extract<Item, { kind: "header" }>; onToggle: () => void; onClose: () => void }) {
+function GroupSummary({ item, onToggle }: { item: Extract<Item, { kind: "header" }>; onToggle: () => void }) {
 	const g = item.group;
 	return (
 		<>
-			<DrawerHeader icon={g.icon ?? "folder"} title={g.label} sub={item.level === 0 ? "Section" : "Group"} onClose={onClose}>
+			<DrawerHeader icon={g.icon ?? "folder"} title={g.label} sub={item.level === 0 ? "Section" : "Group"}>
 				{(g.sub || g.tag) && (
 					<div className="mt-2 flex flex-wrap items-center gap-1.5">
 						{g.sub && (
@@ -1594,7 +1631,7 @@ function StatTile({ label, value, spark, tone }: { label: string; value: string;
 	);
 }
 
-function RowDetails({ row, actions, run, onClose }: { row: Row; actions: Action[]; run: Run; onClose: () => void }) {
+function RowDetails({ row, actions, run }: { row: Row; actions: Action[]; run: Run }) {
 	const first = row.cells[Object.keys(row.cells)[0]];
 	const title = first && typeof first === "object" ? first.text : String(first ?? row.id);
 	const sub = first && typeof first === "object" ? first.sub : undefined;
@@ -1606,7 +1643,7 @@ function RowDetails({ row, actions, run, onClose }: { row: Row; actions: Action[
 	const main = actions.find((a) => a.inline);
 	return (
 		<>
-			<DrawerHeader icon={icon} dot={dot} title={title.replace(/^⤷ /, "")} sub={sub} onClose={onClose}>
+			<DrawerHeader icon={icon} dot={dot} title={title.replace(/^⤷ /, "")} sub={sub}>
 				{(chips.length > 0 || tags.length > 0) && (
 					<div className="mt-2 flex flex-wrap items-center gap-1">
 						{tags.map((t) => (
@@ -1766,6 +1803,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 	const { run, dialog } = useConfirm(emit);
     const self = useRef<HTMLDivElement>(null);
 	const [active, setActive, sharedTarget] = useCollectionSelection(`${node.id}:active`, `list:${node.id}`);
+	const [pointerMoved] = useState(pointerTracker);
 	useEffect(() => {
 		if (!keyboard) return;
 		const onKey = (e: KeyboardEvent) => {
@@ -1813,8 +1851,8 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 		<div ref={self} tabIndex={keyboard ? 0 : undefined} data-navigation-collection={keyboard ? `list:${node.id}` : undefined}
             onFocusCapture={restoreSelection} className="flex flex-col outline-none">
 			{node.items.map((it) => (
-				<div key={it.id} data-item-id={it.id} data-active={it.id === active} onMouseEnter={() => { if (canHoverNavigate(self.current)) { focusPopoverCollection(self.current); setActive(it.id); } }}
-                    onMouseMove={() => { if (canHoverNavigate(self.current) && (active !== it.id || !self.current?.contains(document.activeElement))) { focusPopoverCollection(self.current); setActive(it.id); } }}
+				<div key={it.id} data-item-id={it.id} data-active={it.id === active} onMouseEnter={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e)) { focusPopoverCollection(self.current); setActive(it.id); } }}
+                    onMouseMove={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e) && (active !== it.id || !self.current?.contains(document.activeElement))) { focusPopoverCollection(self.current); setActive(it.id); } }}
                     onPointerDown={() => { focusPopoverCollection(self.current); setActive(it.id); }} className="group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground">
 					{it.dot && <Dot dot={it.dot} />}
                     {it.icon && <Icon name={it.icon} className="size-4 shrink-0" />}

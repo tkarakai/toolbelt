@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Show or hide the details drawer with ⌥⌘B (View → Toggle Details).
+- The sidebar, details drawer and Settings icon buttons in the window no longer show a permanent shortcut hint. Hovering or focusing them shows a card with what clicking will do now ("Collapse sidebar", "Show details", "Open settings") and its keys.
+- Column dividers in table headers are always visible, so it's clear where to drag.
+- A manual "Check for updates" (app or plugins) now always reports the result, including when everything is up to date.
+- Development builds keep their orange menu-bar icon when the update badge shows.
+- Dragging a column's edge now moves only that edge, under the pointer: the columns to its right give up or take the width, and nothing to its left shifts. Double-clicking an edge restores both neighbouring columns.
+- Table sparklines sit before their value, so the newest point is next to the number it matches.
+- Folder group headers show the directory as a blue pill beside the violet branch pill, and group item counts are pills too.
+- The details drawer stays open or closed as you leave it for each plugin, whatever you select. Toggle it from the panel button at the top right of the pane. The drawer no longer has its own close button.
+- Selection shared between the window and the menu-bar quick view no longer jumps back when copies of an earlier change arrive late, and quick-view hover no longer selects items that move under a still pointer.
 
 ## 0.3.5 — 2026-11-14
 - Tables size columns from declared widths: only growing columns follow the window, and other columns hide by priority once those reach their minimum. Drag a header edge to resize a column (double-click restores its default) or drag a header to reorder columns; ToolBelt remembers both per plugin table. Sparklines and port chips show again whenever their cells have room.

@@ -1,6 +1,7 @@
 import { SharedSelectionProvider, writeSharedSelection } from "./lib/shared-selection";
 import { findSelectionTarget, settingsReturnHash, type NavigationSelection } from "../shared/navigation";
 import { SelectionHandoffContext, SelectionRequestContext } from "./lib/selection-handoff";
+import { PaneActionsContext } from "./lib/pane-actions";
 import { usePluginDrag } from "./lib/use-plugin-drag";
 import { PluginManager } from "./PluginManager";
 // The main window: the app sidebar (resizable, collapses to an icon rail) and the selected
@@ -26,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { KeyHint } from "@/components/key-hint";
+import { ShortcutTooltip } from "@/components/shortcut-tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HeaderTab } from "./components/header-tab";
 import { Tabs, TabsList } from "@/components/ui/tabs";
@@ -230,10 +232,11 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 				<SidebarMenu>
 					<SidebarMenuItem>
 						{/* ToolBelt's settings: just the cog and its shortcut. */}
-						<SidebarMenuButton isActive={current === TOOLBELT} tooltip="Settings" title="Settings" aria-label="ToolBelt settings" onClick={() => go(TOOLBELT)} className={cn("relative w-full", ACTIVE)}>
-							<span className="relative inline-flex size-4 shrink-0"><Settings className="size-4"/>{update && <UpdateIndicator className="absolute -right-1 -top-1" />}</span>
-							<KeyHint keys="⌘," className="group-data-[collapsible=icon]:hidden" />
-						</SidebarMenuButton>
+						<ShortcutTooltip label={current === TOOLBELT ? "Settings" : "Open settings"} detail={update ? "Updates available" : undefined} keys="⌘," side={state === "collapsed" ? "right" : "top"} align={state === "collapsed" ? "center" : "start"}>
+							<SidebarMenuButton isActive={current === TOOLBELT} aria-label={update ? "ToolBelt settings, updates available" : "ToolBelt settings"} aria-keyshortcuts="Meta+," onClick={() => go(TOOLBELT)} className={cn("relative w-full", ACTIVE)}>
+								<span className="relative inline-flex size-4 shrink-0"><Settings className="size-4"/>{update && <UpdateIndicator className="absolute -right-1 -top-1" />}</span>
+							</SidebarMenuButton>
+						</ShortcutTooltip>
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>
@@ -245,10 +248,11 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 function CollapseButton() {
 	const { toggleSidebar, state } = useSidebar();
 	return (
-		<Button variant="ghost" size="sm" className="electrobun-webkit-app-region-no-drag gap-1 px-1.5 text-muted-foreground" onClick={toggleSidebar} aria-label={state === "expanded" ? "Collapse sidebar (⌘B)" : "Expand sidebar (⌘B)"} title={state === "expanded" ? "Collapse sidebar  ⌘B" : "Expand sidebar  ⌘B"}>
-			<PanelLeft />
-			<KeyHint keys="⌘B" />
-		</Button>
+		<ShortcutTooltip label={state === "expanded" ? "Collapse sidebar" : "Expand sidebar"} keys="⌘B" align="start">
+			<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag text-muted-foreground" onClick={toggleSidebar} aria-label={state === "expanded" ? "Collapse sidebar" : "Expand sidebar"} aria-keyshortcuts="Meta+B">
+				<PanelLeft />
+			</Button>
+		</ShortcutTooltip>
 	);
 }
 
@@ -310,6 +314,7 @@ function PaneHeader({ manifest, children }: { manifest: Pick<Manifest, "name" | 
 function PluginPane({ info, screen, go, handoff, onHandoffApplied }: { info: PluginInfo; screen: string; go: (p: string, s?: string) => void; handoff: { selection: NavigationSelection; token: number } | null; onHandoffApplied: () => void }) {
 	const m = info.manifest;
     const development = useUpdateState()?.channel === "dev";
+    const [actions, setActions] = useState<HTMLElement | null>(null);
 	return (
 		<div className="flex h-svh min-h-0 flex-col animate-in fade-in-0 duration-200">
 			<PaneHeader manifest={m}>
@@ -329,8 +334,9 @@ function PluginPane({ info, screen, go, handoff, onHandoffApplied }: { info: Plu
 						{info.state}
 					</Badge>
 				)}
+				<div ref={setActions} className="electrobun-webkit-app-region-no-drag -mr-2 flex shrink-0 items-center gap-1 empty:hidden" />
 			</PaneHeader>
-			<div data-plugin-pane tabIndex={0} role="region" aria-label={`${m.name} content`} className="min-h-0 flex-1 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring">{info.state === "crashed" ? <Crashed info={info} /> : <Screen key={screen} plugin={m.id} surface={`screen:${screen}`} handoff={handoff} onHandoffApplied={onHandoffApplied} />}</div>
+			<div data-plugin-pane tabIndex={0} role="region" aria-label={`${m.name} content`} className="min-h-0 flex-1 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring">{info.state === "crashed" ? <Crashed info={info} /> : <PaneActionsContext.Provider value={actions}><Screen key={screen} plugin={m.id} surface={`screen:${screen}`} handoff={handoff} onHandoffApplied={onHandoffApplied} /></PaneActionsContext.Provider>}</div>
 		</div>
 	);
 }
@@ -453,6 +459,7 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
 							<Shortcut label="Switch between tabs and pane content" keys={["F6"]} />
                             <Shortcut label="Next / previous tab" keys={["⌃⇥", "⌃⇧⇥"]} />
 							<Shortcut label="Collapse or expand the sidebar" keys={["⌘B"]} />
+							<Shortcut label="Show or hide the details drawer" keys={["⌥⌘B"]} />
 							<Shortcut label="Filter" keys={["⌘F", "/"]} />
 							<Shortcut label="Move through rows · expand / collapse" keys={["↑", "↓", "→", "←"]} />
 							<Shortcut label="Row: main action · all actions · deselect" keys={["↵", ".", "esc"]} />

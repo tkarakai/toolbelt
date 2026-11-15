@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Action, Column } from "../src/shared/protocol";
-import { groupSummaryLayout, continuation, detailSections, groupActions, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
+import { groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -86,6 +86,52 @@ describe("layoutColumns: widths", () => {
 		const c = set(sized, "cpu", { width: "content" });
 		expect(layoutColumns(c, 1000, { content: (x) => (x.key === "cpu" ? 90 : undefined) }).widths.cpu).toBe(90);
 		expect(layoutColumns(c, 1000).widths.cpu).toBe(96);
+	});
+});
+
+describe("dragging a column edge", () => {
+	// Process grows on the left; the table fills its width (no spare room).
+	const widths = { name: 500, ports: 100, cpu: 100, mem: 100, up: 100 };
+	const at = (key: string) => cols.findIndex((c) => c.key === key);
+	const total = (w: Record<string, number>) => Object.values(w).reduce((t, x) => t + x, 0);
+
+	test("widening a column takes from its right-hand neighbour, so the edge follows the pointer", () => {
+		const saved = dragBoundary(cols, widths, at("cpu"), 30);
+		expect(saved).toEqual({ cpu: 130, mem: 70 });
+		// Nothing to the left changes: the grower keeps its width when the layout is redone.
+		const layout = layoutColumns(cols, total(widths) + 40, { saved: { ...widths, ...saved }, fixed: 40 });
+		expect(layout.widths.name).toBe(500);
+		expect(layout.widths.ports).toBe(100);
+	});
+
+	test("a neighbour at its minimum passes the cost to the next column", () => {
+		expect(dragBoundary(cols, widths, at("ports"), 90)).toEqual({ ports: 190, cpu: 40, mem: 70 });
+	});
+
+	test("narrowing gives the room to the right-hand neighbour", () => {
+		expect(dragBoundary(cols, widths, at("cpu"), -30)).toEqual({ cpu: 70, mem: 130 });
+		expect(dragBoundary(cols, widths, at("cpu"), -90)).toEqual({ cpu: 40, mem: 160 });
+	});
+
+	test("a growing column's edge moves its neighbour; the grower takes what's left", () => {
+		expect(dragBoundary(cols, widths, at("name"), 20)).toEqual({ ports: 80 });
+		expect(dragBoundary(cols, widths, at("name"), -50)).toEqual({ ports: 150 });
+		// Never below the grower's own minimum.
+		expect(dragBoundary(cols, widths, at("name"), -400)).toEqual({ ports: 340 });
+	});
+
+	test("spare room after the last column is used before squeezing neighbours", () => {
+		expect(dragBoundary(cols, widths, at("cpu"), 30, 20)).toEqual({ cpu: 130, mem: 90 });
+		expect(dragBoundary(cols, widths, at("up"), 30, Infinity)).toEqual({ up: 130 });
+	});
+
+	test("the table's own edge is not a handle when a column grows to fill it", () => {
+		expect(hasBoundary(cols, at("up"))).toBe(false);
+		const fixed = cols.slice(1);
+		expect(hasBoundary(fixed, fixed.length - 1)).toBe(true);
+		expect(hasBoundary(cols, at("name"))).toBe(true);
+		expect(hasBoundary(cols, at("cpu"))).toBe(true);
+		expect(hasBoundary([{ key: "a", title: "A", resizable: false }, { key: "b", title: "B", resizable: false }], 0)).toBe(false);
 	});
 });
 

@@ -160,6 +160,60 @@ export function layoutColumns(
 	return { ...result, hidden };
 }
 
+/**
+ * Can the edge after `columns[index]` be dragged? Between two columns it can when either side
+ * can change width. After the last column only when nothing grows to fill the table: otherwise
+ * that edge is the table's own edge.
+ */
+export function hasBoundary(columns: Column[], index: number): boolean {
+	const left = columns[index];
+	if (!left) return false;
+	const flexible = (c: Column) => growOf(c) > 0 || isResizable(c);
+	if (index === columns.length - 1) return isResizable(left) && !columns.some((c) => growOf(c));
+	return flexible(left) && columns.slice(index + 1).some(flexible) && (isResizable(left) || columns.slice(index + 1).some((c) => !growOf(c) && isResizable(c)));
+}
+
+/**
+ * Drag the edge after `columns[index]` by `delta` px from `widths` (the layout when the drag
+ * began), so the edge stays under the pointer. Widening the left column takes the room after
+ * the last column first (`spare`; Infinity when the table scrolls), then from the columns to the
+ * right, nearest first, each down to its minimum. Narrowing it gives the room to the nearest
+ * column on the right (up to its maximum), else to the space after the last column. Columns to
+ * the left never move. Growing columns are not saved: the layout hands them what's left.
+ * Returns the widths to save.
+ */
+export function dragBoundary(columns: Column[], widths: Record<string, number>, index: number, delta: number, spare = 0): Record<string, number> {
+	const left = columns[index];
+	const out: Record<string, number> = {};
+	if (!left || !delta) return out;
+	const right = columns.slice(index + 1).filter((c) => growOf(c) > 0 || isResizable(c));
+	const w = (c: Column) => widths[c.key] ?? minOf(c);
+	const saves = (c: Column) => !growOf(c) && isResizable(c);
+	if (delta > 0) {
+		const want = saves(left) ? Math.min(delta, maxOf(left) - w(left)) : growOf(left) ? delta : 0;
+		let taken = Math.min(want, Math.max(0, spare));
+		for (const c of right) {
+			if (taken >= want) break;
+			const give = Math.min(Math.max(0, w(c) - minOf(c)), want - taken);
+			if (saves(c) && give) out[c.key] = Math.round(w(c) - give);
+			taken += give;
+		}
+		if (saves(left) && taken) out[left.key] = Math.round(w(left) + taken);
+	} else {
+		const want = Math.max(0, Math.min(-delta, w(left) - minOf(left)));
+		const next = right[0];
+		let given = 0;
+		if (next) {
+			given = Math.min(want, growOf(next) ? want : maxOf(next) - w(next));
+			if (saves(next) && given) out[next.key] = Math.round(w(next) + given);
+		}
+		// Nothing on the right can take it: the space after the last column does.
+		if (saves(left)) given = want;
+		if (saves(left) && given) out[left.key] = Math.round(w(left) - given);
+	}
+	return out;
+}
+
 /** What a person chose for a table: widths of the columns they resized, and their order. */
 export type SavedLayout = { widths: Record<string, number>; order: string[] };
 
