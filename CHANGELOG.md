@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.9 — 2026-11-15
 - Plugins can show more kinds of form fields: several lines of text, a Markdown editor that styles what you type as you type it, a date with an optional time, color swatches, a searchable list, and colored label pills you add, change and remove in place.
 - Plugin tables can have fixed sections that show even when empty, mark rows unread (a bold title and a blue dot), and let you drag rows to reorder them or move them between sections. While you drag, a line shows where the row will land and a label says what the drop does (for example “Settle”); Escape cancels.
 - Plugin shortcuts can use ⌥ and ⇧, for example ⌥↑ to move a row up.
