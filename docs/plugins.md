@@ -121,7 +121,7 @@ explicit targets such as `darwin-arm64` or `darwin-x64`; ship every required bin
 
 Capabilities are `ui.core`, `ui.action-key`, `ui.terminal`, `ui.conversation`, `assets`,
 `lifecycle`, `native.handoff`, `ui.split-action`, `navigate`, `ui.rich-fields`, `ui.row-select`,
-`ui.row-reorder` and `ui.modifier-keys`. Require what cannot be omitted. For optional features, test
+`ui.row-reorder`, `ui.modifier-keys` and `ui.timeline`. Require what cannot be omitted. For optional features, test
 `context.capabilities.has(name)` and render a working fallback. Unknown required features
 prevent activation; declaring a feature optional does not implement its fallback.
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing
@@ -352,13 +352,38 @@ With `ui.rich-fields`, forms accept five more field types. Each sends `field` wi
 | Type | Value | Notes |
 | --- | --- | --- |
 | `textarea` | text | Several lines; `rows` sets the height. With `markdown: true`, an editor styles Markdown as it's typed (headings, emphasis, code, links) and keeps the source unchanged. Commits on blur and ⌘↵. |
-| `datetime` | `""`, `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` | Local wall-clock date with an optional time and a clear button. `time: false` allows dates only. |
+| `datetime` | `""`, `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` | Local wall-clock date with an optional time. See [Date and time picker](#date-and-time-picker). `time: false` allows dates only. |
 | `color` | a hue | Swatches of the named theme colors, which stay legible in every theme. Arrow keys move the choice. |
 | `combobox` | text | A searchable list of `{value, label, sub?}`. `freeform: true` also offers “Use …” for typed text. |
 | `tags` | `[{key, value?}]` | Pills, at most one per key, drawn in the key's `color`. `keys` declares each key: `flag` keys have no value, `values` keys pick from a list (any text too with `freeform`), others take free text. Add, change and remove all send the whole array. |
 
 `textarea`, `tags` and `color` take the form's full width under their label. Hosts without the
 capability reject these field types, so require it.
+
+Any field can set `autofocus: true`: it takes focus when the dialog opens instead of the first
+field, and when the plugin swaps one form for another in an open dialog (an "edit this note"
+form replacing a composer). Give swapped-in fields ids of their own so they mount fresh. Older
+hosts ignore it.
+
+### Date and time picker
+
+The `datetime` field reads its value in words on a button ("Fri, Nov 20 · 2:30 PM", with
+"in 5 days" beside it) and shows `placeholder` ("No due date"; default "No date") when it has
+none. ⌫ on the button clears it; ↓, Space, Return or typing opens the picker:
+
+- a box that reads typed dates: `today`, `tomorrow`, weekdays (`fri`, `next fri`), offsets
+  (`+3d`, `in 2 weeks`, `+1m`), `nov 20`, `11/20`, `2026-11-20`, a day of the month (`20`),
+  each with an optional time (`fri 5pm`, `tomorrow at 9:30`); a time alone means today.
+  Return takes what it reads, shown under the box; ↓ moves to the calendar;
+- quick picks: `presets` (`{label, value}`, values like the field's) or Today, Tomorrow, Next
+  Monday and In a week. A preset with a time sets both; a date-only preset keeps the time;
+- a month in the locale's week order: arrows move by day and week, Page Up/Down by month (with
+  ⇧, by year), Home/End to the week's ends, T to today, Return or a click picks;
+- with a time, a box that reads `930`, `2pm`, `14:00` or `noon` (↑/↓ step 15 minutes),
+  9:00 · 12:00 · 17:00 and No time. Picking a day moves there; Return finishes.
+
+Every pick is sent as a `field` event at once. Esc closes the picker without closing the
+dialog.
 
 ### Sections, unread rows, selection and drag-to-reorder
 
@@ -392,6 +417,26 @@ and are shown as ⌥↑ and ⇧S. Plain keys behave as before. Older hosts rejec
 the button. It runs while the page has the keyboard and no field, menu or dialog does. A selected
 row's action with the same key comes first. Older hosts show the button without the hint and
 ignore the key.
+
+### Timelines
+
+With `ui.timeline`, a `timeline` node shows dated Markdown notes in the order given (put the
+newest first for status updates), down a rail: each `TimelineEntry` has `id`, `at` (epoch ms)
+and `text`, and optionally `edited` (shown as "edited …" when later than `at`), `author`,
+`title` and `actions` (ids from the timeline's `actions`; default all). Entry actions show as
+icon buttons on hover and focus and arrive as events named by the action id with
+`{timeline, entryId}`; `confirm` is honored. Keyboard: Tab enters on one entry, ↑/↓ (or J/K)
+and Home/End move, Return runs the entry's first action, an action's `key` runs it and ⌫ or
+Delete runs its destructive action. Double-clicking an entry runs its first action. `selected`
+marks an entry (the one being edited) and scrolls it into view. `empty` is shown with no
+entries. Older hosts reject the node, so require the capability.
+
+### Markdown and targeted details
+
+A `DetailItem` with `markdown: true` draws its value as Markdown in the details drawer; long
+values fold with Show all. An empty `label` draws no label line. `target` is sent as the
+`target` of the item's `actions` (`{rowId, target}`), so an item can stand for one of the row's
+things, such as a note to edit. Older hosts show the text and send no target.
 
 ### Document tables
 

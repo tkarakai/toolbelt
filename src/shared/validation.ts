@@ -183,6 +183,8 @@ const detail = object({
   dot: optional(dot),
   actions,
   actionRow: optional(text),
+  target: optional(text),
+  markdown: optional(bool),
 });
 const stat = object({
   label: text,
@@ -276,7 +278,7 @@ const localDateTime: Schema = (v, p) => {
   if (date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) fail(p);
 };
 const field: Schema = (v, p) => {
-  const base = { id: text, label: text, description: optional(text) };
+  const base = { id: text, label: text, description: optional(text), autofocus: optional(bool) };
   switch ((v as any)?.type) {
     case "environment":
       object({
@@ -316,8 +318,18 @@ const field: Schema = (v, p) => {
       })(v, p);
       break;
     case "datetime":
-      object({ ...base, type: literal("datetime"), value: localDateTime, time: optional(bool) })(v, p);
+      object({
+        ...base,
+        type: literal("datetime"),
+        value: localDateTime,
+        time: optional(bool),
+        placeholder: optional(text),
+        presets: optional(array(object({ label: text, value: localDateTime }))),
+      })(v, p);
       if ((v as any).time === false && (v as any).value.includes("T")) fail(`${p}.value`);
+      ((v as any).presets ?? []).forEach((x: { value: string }, i: number) => {
+        if (x.value === "" || ((v as any).time === false && x.value.includes("T"))) fail(`${p}.presets[${i}].value`);
+      });
       break;
     case "color":
       object({ ...base, type: literal("color"), value: hue })(v, p);
@@ -518,6 +530,28 @@ const node: Schema = (v, p) => {
       ),
       empty: optional(text),
     }),
+    timeline: (v, p) => {
+      object({
+        ...base,
+        id: text,
+        entries: array(
+          object({
+            id: text,
+            at: timestamp,
+            text,
+            edited: optional(timestamp),
+            author: optional(text),
+            title: optional(text),
+            actions: optional(array(text)),
+          }),
+        ),
+        actions,
+        selected: optional(text),
+        empty: optional(empty),
+      })(v, p);
+      const ids = (v as any).entries.map((e: { id: string }) => e.id);
+      if (new Set(ids).size !== ids.length) fail(`${p}.entries`);
+    },
     segmented,
     progress: object({
       ...base,

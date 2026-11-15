@@ -103,7 +103,10 @@ Actions with `menu` render as split buttons. Their alternatives also appear in r
 answer row shortcut keys. Pages can place segmented controls beside search; options support hover/focus explanations,
 and selection is immediate in the renderer before the field event reaches the plugin.
 Forms add `textarea` (with a CodeMirror editor that styles Markdown as typed), `datetime`,
-`color`, `combobox` and `tags` fields in `renderer/fields.tsx`; values commit on blur or pick.
+`color`, `combobox` and `tags` fields in `renderer/fields.tsx` and `renderer/DateTimeField.tsx`;
+values commit on blur or pick. The date picker's reading of typed dates and times, month grid
+and wording are pure code in `renderer/datetime.ts`. `renderer/Timeline.tsx` draws `timeline`
+nodes with roving focus.
 Tables can declare `sections`, mark rows `unread`, send `select` once the selection rests 400 ms,
 and let people drag rows between sections. The drag logic (where a drop lands, which drops
 change nothing, the optimistic move shown until the next tree) is pure code in `renderer/pure.ts`.
