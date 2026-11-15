@@ -212,3 +212,51 @@ test("tables accept the document appearance, and tags a shade from 0 to 1", () =
   expect(() => validateTree(tags({ High: 1, Low: 0 }))).not.toThrow();
   expect(() => validateTree(tags({ High: 2 }))).toThrow();
 });
+test("rows can carry a pane of inline forms, composers and editable timelines", () => {
+  const pane = [
+    {
+      type: "form",
+      id: "task",
+      appearance: "inline",
+      fields: [
+        { type: "text", id: "name", label: "", value: "Ship it", heading: true },
+        { type: "datetime", id: "due", label: "Due", value: "", placeholder: "No due date" },
+        { type: "textarea", id: "desc", label: "", value: "", markdown: true, placeholder: "Add a description…" },
+      ],
+    },
+    {
+      type: "card",
+      id: "updates",
+      title: "Updates",
+      children: [
+        { type: "composer", id: "update", placeholder: "What changed?", action: { id: "add-update", label: "Add update", icon: "send" } },
+        { type: "timeline", id: "u", entries: [{ id: "1", at: 1_700_000_000_000, text: "Hi" }], edit: { id: "edit-text", label: "Edit", key: "e" } },
+      ],
+    },
+  ];
+  const tree = (row: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    type: "table",
+    id: "t",
+    columns: [{ key: "x", title: "X" }],
+    rows: [{ id: "a", cells: { x: "A" }, ...row }],
+    actions: [{ id: "add-update", label: "Add update", focus: "update" }, { id: "note", label: "Note", input: { placeholder: "Say something" } }],
+    ...extra,
+  });
+  expect(() => validateTree(tree({ pane }, { enter: "add-update" }))).not.toThrow();
+  expect(() => validateTree(tree({ pane: [] }))).not.toThrow();
+  expect(() => validateTree(tree({ pane: [{ type: "nope" }] }))).toThrow();
+  expect(() => validateTree(tree({ pane }, { enter: 1 }))).toThrow();
+  expect(() => validateTree({ type: "form", id: "f", appearance: "boxed", fields: [] })).toThrow();
+  expect(() => validateTree({ type: "form", id: "f", fields: [{ type: "text", id: "n", label: "N", value: "", heading: "yes" }] })).toThrow();
+  expect(() => validateTree({ type: "list", id: "l", items: [{ id: "1", title: "T", actions: [{ id: "a", label: "A", input: { placeholder: 1 } }] }] })).toThrow();
+  expect(() => validateTree({ type: "list", id: "l", items: [{ id: "1", title: "T", actions: [{ id: "a", label: "A", focus: 3 }] }] })).toThrow();
+});
+test("composers check their action, line mode and key", () => {
+  const composer = { type: "composer", id: "new", action: { id: "add", label: "Add task" }, placeholder: "New task", single: true, key: "n" };
+  expect(() => validateTree(composer)).not.toThrow();
+  expect(() => validateTree({ type: "composer", id: "new", action: { id: "add", label: "Add" } })).not.toThrow();
+  expect(() => validateTree({ ...composer, action: undefined })).toThrow();
+  expect(() => validateTree({ ...composer, key: "shift+n" })).toThrow();
+  expect(() => validateTree({ ...composer, single: "yes" })).toThrow();
+  expect(() => validateTree({ type: "timeline", id: "u", entries: [], edit: { id: 1, label: "Edit" } })).toThrow();
+});

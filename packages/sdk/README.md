@@ -40,6 +40,9 @@ lets people drag rows within and between sections, sending `reorder` (`ui.row-re
 `ui.timeline` adds the `timeline` node: dated Markdown entries with keyboard-driven actions.
 `datetime` fields take `placeholder` and `presets`, any field can `autofocus`, and
 `DetailItem` takes `markdown` and `target`; older hosts ignore those.
+`ui.row-pane` adds `Row.pane`, nodes the details drawer shows to edit the row in place (forms
+with `appearance: "inline"`, `text` fields with `heading`), `Action.focus` and table `enter`.
+`ui.composer` adds the `composer` node, `timeline` `edit` and `Action.input`.
 Tables with `appearance: "document"` drop row lines and tinted section headers; `Tag.shade`
 (0–1) and `TagKey.shades` draw tags as steps of their color's intensity. Older hosts ignore
 both. Page toolbar actions can have a `key` too.

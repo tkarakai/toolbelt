@@ -376,3 +376,37 @@ mark.hit {
 @container cell (min-width: 6.5rem) { .tb-cell-extra { display: inline-flex; } }
 /* Content-sized columns measured them in: they fit at any width. */
 .tb-cell-roomy .tb-cell-extra { display: inline-flex; }
+
+/* A drawer's inline form (`appearance: "inline"`): controls read as text until hovered or
+   focused, so the sheet stays quiet and dense. Focus keeps the usual ring. */
+[data-inline-form] [data-slot="input"],
+[data-inline-form] [data-slot="select-trigger"],
+[data-inline-form] button[role="combobox"] {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  /* Text lines up with the labels' column edge rather than the box's. */
+  margin-inline-start: calc(var(--spacing) * -2.5);
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+[data-inline-form] [data-slot="input"],
+[data-inline-form] [data-slot="select-trigger"] {
+  width: calc(100% + var(--spacing) * 2.5);
+  max-width: none;
+}
+[data-inline-form] [data-slot="input"]:hover,
+[data-inline-form] [data-slot="select-trigger"]:hover,
+[data-inline-form] button[role="combobox"]:hover {
+  background: color-mix(in oklab, var(--accent) 60%, transparent);
+}
+[data-inline-form] [data-slot="input"]:focus-visible,
+[data-inline-form] [data-slot="select-trigger"]:focus-visible,
+[data-inline-form] button[role="combobox"]:focus-visible,
+[data-inline-form] [data-slot="select-trigger"][data-state="open"],
+[data-inline-form] button[role="combobox"][aria-expanded="true"] {
+  border-color: var(--ring);
+  background: var(--background);
+}
+[data-inline-form] [data-slot="select-trigger"] svg { opacity: 0; transition: opacity 150ms ease; }
+[data-inline-form] [data-slot="select-trigger"]:hover svg,
+[data-inline-form] [data-slot="select-trigger"]:focus-visible svg { opacity: 0.5; }

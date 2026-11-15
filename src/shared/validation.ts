@@ -117,6 +117,8 @@ const actionFields = {
     text(v, p);
     if (!ACTION_KEY.test(v as string)) fail(p);
   }),
+  focus: optional(text),
+  input: optional(object({ placeholder: optional(text) })),
 };
 /** A split button's alternatives: plain actions, one level deep. */
 const alternative = object({
@@ -219,6 +221,7 @@ const row: Schema = (v, p) =>
     children: optional(array(row)),
     targets: optional(record(array(target))),
     unread: optional(bool),
+    pane: optional(array(node)),
   })(v, p);
 const pixels: Schema = (v, p) => {
   number(v, p);
@@ -305,6 +308,7 @@ const field: Schema = (v, p) => {
         value: text,
         placeholder: optional(text),
         sensitive: optional(bool),
+        heading: optional(bool),
       })(v, p);
       break;
     case "textarea":
@@ -434,6 +438,7 @@ const node: Schema = (v, p) => {
       sections: optional(array(section)),
       reorder: optional(bool),
       selectEvents: optional(bool),
+      enter: optional(text),
       appearance: optional(enumeration("grid", "document")),
     }),
     list: object({
@@ -472,6 +477,7 @@ const node: Schema = (v, p) => {
       title: optional(text),
       description: optional(text),
       fields: array(field),
+      appearance: optional(literal("inline")),
     }),
     empty: object({
       ...base,
@@ -548,10 +554,22 @@ const node: Schema = (v, p) => {
         actions,
         selected: optional(text),
         empty: optional(empty),
+        edit: optional(action),
       })(v, p);
       const ids = (v as any).entries.map((e: { id: string }) => e.id);
       if (new Set(ids).size !== ids.length) fail(`${p}.entries`);
     },
+    composer: object({
+      ...base,
+      id: text,
+      action,
+      placeholder: optional(text),
+      single: optional(bool),
+      key: optional((v: unknown, p: string) => {
+        text(v, p);
+        if (!/^[a-z0-9]$/.test(v as string)) fail(p);
+      }),
+    }),
     segmented,
     progress: object({
       ...base,

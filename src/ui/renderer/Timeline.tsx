@@ -1,14 +1,17 @@
 // The `timeline` node (capability `ui.timeline`): dated Markdown notes down a rail, such as a
 // task's status updates. Keyboard: ↑/↓ (or J/K) move between entries, Home/End to the ends,
 // ↵ runs the entry's first action, an action's own key runs it, ⌫/Delete runs its destructive
-// action (after its confirmation). Focus is roving: Tab enters on the selected entry.
-import { useEffect, useRef, useState } from "react";
+// action (after its confirmation). Focus is roving: Tab enters on the selected entry. With `edit`
+// (capability `ui.composer`), that action edits the entry's text in place: ⌘↵ or leaving saves,
+// Esc cancels.
+import { useContext, useEffect, useRef, useState } from "react";
 import type { Action, Node, TimelineEntry } from "../../shared/protocol";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/icon";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EmptyState, Markdown, When, useConfirm, type Emit } from "./Render";
+import { MarkdownBox, PaneRow } from "./compose";
 import { actionForEvent, formatKey } from "./pure";
 
 type TimelineNode = Extract<Node, { type: "timeline" }>;
@@ -20,13 +23,15 @@ const stamp = (at: number) => {
 	return d.toLocaleString(undefined, { month: "short", day: "numeric", ...(!sameYear && { year: "numeric" }), hour: "numeric", minute: "2-digit" });
 };
 
+/** The entry's actions; editing in place comes first (↵, double-click). */
 const entryActions = (node: TimelineNode, e: TimelineEntry): Action[] => {
-	const all = node.actions ?? [];
-	return e.actions ? all.filter((a) => e.actions!.includes(a.id)) : all;
+	const all = [...(node.edit ? [node.edit] : []), ...(node.actions ?? [])];
+	return e.actions ? all.filter((a) => a === node.edit || e.actions!.includes(a.id)) : all;
 };
 
 export function Timeline({ node, emit }: { node: TimelineNode; emit: Emit }) {
 	const { run, dialog } = useConfirm(emit);
+	const inPane = useContext(PaneRow) !== undefined;
 	const list = useRef<HTMLOListElement>(null);
 	const ids = node.entries.map((e) => e.id);
 	const [active, setActive] = useState<string | undefined>(node.selected ?? ids[0]);
@@ -38,14 +43,24 @@ export function Timeline({ node, emit }: { node: TimelineNode; emit: Emit }) {
 		list.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(node.selected)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
 	}, [node.selected]);
 
-	const runOn = (a: Action, e: TimelineEntry) => run(a, undefined, { timeline: node.id, entryId: e.id });
+	const [editing, setEditing] = useState<string | null>(null);
+	const runOn = (a: Action, e: TimelineEntry) => (a === node.edit ? (setActive(e.id), setEditing(e.id)) : run(a, undefined, { timeline: node.id, entryId: e.id }));
 	const focusEntry = (id: string) => {
 		setActive(id);
 		list.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(id)}"]`)?.focus();
 	};
+	/** Leave the editor: send the text when it changed (`null`: cancelled). */
+	const finishEdit = (e: TimelineEntry, text: string | null, refocus: boolean) => {
+		if (editing !== e.id) return;
+		setEditing(null);
+		if (text !== null && text.trim() && text !== e.text && node.edit) emit(node.edit.id, { timeline: node.id, entryId: e.id, text: text.trim() });
+		if (refocus) setTimeout(() => focusEntry(e.id));
+	};
 
 	if (!node.entries.length) {
 		const empty = node.empty ?? { title: "Nothing here yet" };
+		// In a drawer, one quiet line instead of a big empty state.
+		if (inPane) return <p className="px-1 text-xs text-muted-foreground">{empty.description ?? empty.title}</p>;
 		return <EmptyState title={empty.title} description={empty.description} icon={empty.icon ?? "history"} />;
 	}
 	return (
@@ -95,7 +110,7 @@ export function Timeline({ node, emit }: { node: TimelineNode; emit: Emit }) {
 							aria-current={selected || undefined}
 							aria-keyshortcuts={acts.map((a) => a.key).filter(Boolean).join(" ") || undefined}
 							onFocus={(ev) => ev.target === ev.currentTarget && setActive(e.id)}
-							onDoubleClick={(ev) => !(ev.target as HTMLElement).closest("a, button") && acts[0] && !acts[0].disabled && runOn(acts[0], e)}
+							onDoubleClick={(ev) => editing !== e.id && !(ev.target as HTMLElement).closest("a, button, [contenteditable]") && acts[0] && !acts[0].disabled && runOn(acts[0], e)}
 							className={cn(
 								"group/entry relative rounded-lg py-2.5 pr-2 pl-7 outline-none transition-colors duration-200 focus-visible:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50",
 								selected && "bg-primary/5 ring-1 ring-primary/30",
@@ -146,7 +161,20 @@ export function Timeline({ node, emit }: { node: TimelineNode; emit: Emit }) {
 								)}
 							</div>
 							{e.title && <div className="mt-0.5 text-sm font-medium">{e.title}</div>}
-							<Markdown text={e.text} className="mt-1 space-y-2" />
+							{editing === e.id ? (
+								<MarkdownBox
+									value={e.text}
+									label="Entry text"
+									rows={3}
+									autoFocus
+									className="mt-1.5"
+									onSubmit={(t) => finishEdit(e, t, true)}
+									onCancel={() => finishEdit(e, null, true)}
+									onBlur={(t) => finishEdit(e, t, false)}
+								/>
+							) : (
+								<Markdown text={e.text} className="mt-1 space-y-2" />
+							)}
 						</li>
 					);
 				})}
