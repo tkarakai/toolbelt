@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.13 — 2026-11-22
 - Grouped tables line up: a section's or group's tasks now start exactly where its title does (the unread dot sits just before them), and a group inside it has its open/close arrow under the title too, instead of fixed steps that lined up with nothing.
 - Plugins can give a toast's button a ⌘ shortcut, such as ⌘Z for Undo. The button shows the key, and pressing it while the toast is up works like clicking. In a text field ⌘Z still undoes your typing.
 - Plugin development mode: test unreleased plugin archives in ToolBelt itself. Settings → Plugins → Plugin development relaunches ToolBelt with a separate, named development profile where you open a built `.tar.gz`, optionally have rebuilds install automatically (switch it per plugin under Installed Plugins; the same version can be rebuilt there, and the choice is remembered), and read diagnostics. Released plugins don't run while you're in development mode, nothing carries over to your normal plugins, and quitting always brings ToolBelt back in normal mode. This replaces the standalone Plugin Tester app, which is no longer built or published.
