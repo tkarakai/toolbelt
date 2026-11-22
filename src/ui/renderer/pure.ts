@@ -71,6 +71,36 @@ const KEY_SYMBOLS: Record<string, string> = { alt: "⌥", shift: "⇧", up: "↑
 export const formatKey = (key: string): string =>
 	key.length === 1 ? key.toUpperCase() : key.split("+").map((part) => KEY_SYMBOLS[part] ?? part.toUpperCase()).join("");
 
+// ── tree layout: everything lines up with its parent's title ─────────────
+
+/** A group header's chevron (20px) and the gap after it. */
+const HEADER_CHEVRON = 28;
+/** A row's chevron or unread slot (20px) and the margin after it: the row's text starts here. */
+export const ROW_SLOT = 24;
+/** How much further in an expanded row's children start than the row itself. */
+export const ROW_STEP = 20;
+
+/**
+ * Where a group header's title starts, given where its chevron starts: after the chevron and its
+ * icon (with their gaps). Sections and sub-sections (`top`) draw larger icons than folders, and a
+ * macOS file icon larger still. Its sub-groups' chevrons and its rows' text line up here.
+ */
+export function groupTitleOffset(start: number, icon: string | undefined, top: boolean): number {
+	if (!icon) return start + HEADER_CHEVRON;
+	const file = /^(app|file):/.test(icon);
+	return start + HEADER_CHEVRON + (file ? (top ? 28 : 20) : top ? 20 : 16) + 8;
+}
+
+/**
+ * Where a top-level row's chevron or unread slot starts. Under a group, its text lines up with the
+ * group's title, the unread dot hanging in the margin before it; a row with children is a group
+ * of its own, so its chevron lines up there instead. Without groups, rows start at the edge.
+ */
+export function rowOffset(groupTitle: number | undefined, hasChildren: boolean): number {
+	if (groupTitle === undefined) return 0;
+	return hasChildren ? groupTitle : groupTitle - ROW_SLOT;
+}
+
 // ── table columns: width, order, what fits ──────────────────────────────
 
 /** The narrowest a growing column gets before other columns hide (when it sets no `minWidth`). */
