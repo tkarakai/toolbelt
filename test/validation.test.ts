@@ -271,3 +271,10 @@ test("composers check their action, line mode and key", () => {
   expect(() => validateTree({ ...composer, single: "yes" })).toThrow();
   expect(() => validateTree({ type: "timeline", id: "u", entries: [], edit: { id: 1, label: "Edit" } })).toThrow();
 });
+
+test("a toast button may carry a ⌘ shortcut the host doesn't own", () => {
+  const toast = (key: unknown) => ({ type: "toast", text: "Settled #3", action: { id: "undo", label: "Undo", ...(key === undefined ? {} : { key }) } });
+  for (const key of ["cmd+z", "cmd+shift+z", "cmd+u", undefined]) expect(() => validateMessage(toast(key))).not.toThrow();
+  for (const key of ["z", "alt+z", "cmd+", "cmd+1", "cmd+alt+z", "shift+cmd+z", "cmd+zz", "cmd+Z", "cmd+c", "cmd+v", "cmd+q", "cmd+w", 3])
+    expect(() => validateMessage(toast(key))).toThrow();
+});

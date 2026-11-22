@@ -8,6 +8,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { setTheme } from "@/lib/theme";
 import { useSettings } from "@/lib/store";
+import { installToastKeys } from "@/lib/plugin-toast";
 
 /** Keeps this view's colors in step with ToolBelt's appearance settings. */
 function ThemeSync() {
@@ -20,6 +21,7 @@ function ThemeSync() {
 
 const isPopover = location.hash === "#popover";
 document.documentElement.dataset.surface = isPopover ? "popover" : "window";
+if (!isPopover) installToastKeys();
 
 // No web-page right-click menu (Back, Reload, Inspect Element) — this is an app. It stays where
 // it's useful: in text fields (cut, copy, paste) and on selected text (copy, look up).

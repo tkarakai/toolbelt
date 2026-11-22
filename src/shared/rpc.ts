@@ -61,7 +61,7 @@ export type ToolbeltRPC = {
             selectionChanged: { plugin: string; selection: import("./navigation").NavigationSelection | null; at?: number };
             pluginManagerState:ReturnType<import("../bun/plugin-manager-service").PluginManagerService["read"]>;
 			tree: Surface & { tree: Node };
-			toast: { plugin: string; text: string; tone?: "default" | "success" | "error"; action?: { id: string; label: string; payload?: unknown } };
+			toast: { plugin: string; text: string; tone?: "default" | "success" | "error"; action?: import("./protocol").ToastAction };
 			/** Ask before quitting (⌘Q, Quit buttons): this view shows the confirmation. */
 			confirmQuit: {};
 			/** Main window: switch to this plugin/screen. */

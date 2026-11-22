@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Action, Column } from "../src/shared/protocol";
-import { actionForEvent, groupTitleOffset, rowOffset, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
+import { actionForEvent, groupTitleOffset, rowOffset, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -270,6 +270,8 @@ describe("modifier shortcuts", () => {
 		expect(formatKey("alt+shift+down")).toBe("⌥⇧↓");
 		expect(formatKey("shift+s")).toBe("⇧S");
 		expect(formatKey("j")).toBe("J");
+		expect(formatKey("cmd+z")).toBe("⌘Z");
+		expect(formatKey("cmd+shift+z")).toBe("⇧⌘Z");
 	});
 });
 
@@ -406,4 +408,17 @@ test("everything in a tree lines up with its parent's title", () => {
 	expect(rowOffset(section, true)).toBe(section);
 	expect(rowOffset(undefined, false)).toBe(0);
 	expect(rowOffset(undefined, true)).toBe(0);
+});
+
+test("a toast button's ⌘ shortcut matches only its exact key press", () => {
+	expect(isToastKey("cmd+z", { key: "z", code: "KeyZ", metaKey: true })).toBe(true);
+	// The physical key, whatever the layout or ⌥ types.
+	expect(isToastKey("cmd+z", { key: "y", code: "KeyZ", metaKey: true })).toBe(true);
+	expect(isToastKey("cmd+z", { key: "z", code: "KeyZ" })).toBe(false);
+	expect(isToastKey("cmd+z", { key: "z", code: "KeyZ", metaKey: true, shiftKey: true })).toBe(false);
+	expect(isToastKey("cmd+z", { key: "z", code: "KeyZ", metaKey: true, altKey: true })).toBe(false);
+	expect(isToastKey("cmd+z", { key: "z", code: "KeyZ", metaKey: true, ctrlKey: true })).toBe(false);
+	expect(isToastKey("cmd+z", { key: "z", code: "KeyZ", metaKey: true, repeat: true })).toBe(false);
+	expect(isToastKey("cmd+shift+z", { key: "Z", code: "KeyZ", metaKey: true, shiftKey: true })).toBe(true);
+	expect(isToastKey("z", { key: "z", code: "KeyZ", metaKey: true })).toBe(false);
 });

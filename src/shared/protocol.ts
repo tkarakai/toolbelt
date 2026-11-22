@@ -107,6 +107,14 @@ export type Cell =
 			icon?: string;
 	  };
 
+/**
+ * A button on a toast. Clicking it sends this event with surface "toast".
+ * With `ui.toast-key`, `key` is a ⌘ shortcut for the button while the toast shows, such as
+ * `"cmd+z"`: `cmd+`, optionally `shift+`, then a letter. The main window shows it on the button
+ * (Undo ⌘Z) and leaves it to text fields and dialogs that have focus. Older hosts ignore `key`.
+ */
+export type ToastAction = { id: string; label: string; payload?: unknown; key?: string };
+
 export type Column = {
 	key: string;
 	title: string;
@@ -561,7 +569,7 @@ export type PluginMessage =
 	| { type: "prepared"; requestId: string; ready: boolean; reason?: string }
 	| { type: "render"; surface: string; tree: Node }
 	| { type: "badge"; value: number | string | null }
-	| { type: "toast"; text: string; tone?: "default" | "success" | "error"; /** a button on the toast; clicking sends this event, surface "toast" */ action?: { id: string; label: string; payload?: unknown } }
+	| { type: "toast"; text: string; tone?: "default" | "success" | "error"; action?: ToastAction }
 	/** Put text on the clipboard. */
 	| { type: "clipboard"; text: string }
 	/**

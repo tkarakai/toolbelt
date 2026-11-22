@@ -5,7 +5,7 @@ import { useOrderedPlugins } from "./plugin-order";
 // it sent (plugins, UI trees) that React reads with useSyncExternalStore.
 import { Electroview } from "electrobun/view";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { toast } from "sonner";
+import { showPluginToast } from "./plugin-toast";
 import type { Node } from "../../shared/protocol";
 import type { PluginInfo, ToolbeltRPC, UpdateState } from "../../shared/rpc";
 import {
@@ -85,23 +85,9 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
     const name =
       state.plugins.find((p) => p.manifest.id === plugin)?.manifest.name ??
       plugin;
-    (tone === "error"
-      ? toast.error
-      : tone === "success"
-        ? toast.success
-        : toast)(text, {
-      description: name,
-      ...(action
-        ? {
-            action: {
-              label: action.label,
-              onClick: () =>
-                sendEvent(plugin, "toast", action.id, action.payload),
-            },
-            duration: 8000,
-          }
-        : {}),
-    });
+    showPluginToast(name, text, tone, action, (a) =>
+      sendEvent(plugin, "toast", a.id, a.payload),
+    );
   },
   navigate: ({ plugin, screen, selection }) =>
     navListeners.forEach((l) => l(plugin, screen, selection)),

@@ -21,6 +21,7 @@ export const CAPABILITIES = [
   "ui.row-pane",
   "ui.composer",
   "ui.sub-sections",
+  "ui.toast-key",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,
