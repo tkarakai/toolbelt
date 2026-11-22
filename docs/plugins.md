@@ -429,8 +429,13 @@ A row joins a sub-section with `group: "snoozed"`, or a path starting with it
 (`["snoozed", "Folder"]`) for groups inside it; `["progressing", "snoozed"]` means the same.
 Rows can still join the parent with `group: "progressing"`; they come first, then the
 sub-sections in order, then any other groups in the parent. A sub-section header looks like a
-section header, indented one level under its parent, with its icon, label and row count; its
-rows indent one level deeper than the parent's own. It shows even with no rows, with its
+section header, with its icon, label and row count.
+
+Tables indent by lining things up with the title above them. A group's rows have their text
+start where the group's title does, with the unread dot in the margin before it; a sub-section's
+or folder's chevron, and the chevron of a row with children, starts there too. So the indent
+follows the parent's icon: a group without one indents its children less. Children of an
+expanded row indent 20 px further than the row. Rows outside any group start at the edge. It shows even with no rows, with its
 `empty` text, and can start `collapsed` (the person's choice is remembered as for sections).
 Collapsing the parent hides its sub-sections. The keyboard moves through sub-sections like
 any group and skips collapsed ones, and the selection handoff opens a collapsed parent and

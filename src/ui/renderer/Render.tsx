@@ -27,7 +27,7 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
 import { isTyping, SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { TerminalView } from "./Terminal";
-import { actionForEvent, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
+import { actionForEvent, groupTitleOffset, rowOffset, ROW_SLOT, ROW_STEP, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
 import { parseMarkdown, safeHref, type Block, type Inline } from "./markdown";
@@ -964,7 +964,7 @@ function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setCho
 
 /** A row as displayed: flattened from the tree, with its depth, parent, and how many group
  *  headers it sits under (for indentation). */
-type Visible = { row: Row; depth: number; parent?: string; indent: number; group?: string };
+type Visible = { row: Row; depth: number; parent?: string; /** where its chevron/unread slot starts (`rowOffset`) */ offset: number; group?: string };
 
 type GroupLevel = { summary?: { label: string; value: string; description?: string; column?: string }; key: string; label: string; strong?: string; sub?: string; tag?: string; muted?: boolean; icon?: string };
 const groupPath = (g: Row["group"]): GroupLevel[] =>
@@ -1004,7 +1004,7 @@ const headerId = (key: string) => HEADER + key;
 
 /** What a table body shows, in order: group headers and rows. */
 type Item =
-	| { kind: "header"; id: string; level: number; group: GroupLevel; count: number; key: string; muted: boolean; parent?: string; collapsed: boolean; firstChild?: string; section?: Section }
+	| { kind: "header"; id: string; level: number; group: GroupLevel; count: number; key: string; muted: boolean; parent?: string; collapsed: boolean; firstChild?: string; section?: Section; /** where its chevron starts: its parent header's title */ offset: number }
 	| { kind: "row"; id: string; v: Visible; muted: boolean };
 
 const TableRow = memo(
@@ -1042,7 +1042,7 @@ const TableRow = memo(
 				{columns.map((c, i) => (
 					<td key={c.key} className={cn("h-12 overflow-hidden px-3 align-middle text-sm", i === 0 && "pl-3", c.align === "right" && "text-right", !growOf(c) && "whitespace-nowrap", roomy.split(",").includes(c.key) && "tb-cell-roomy")}>
 						{i === 0 ? (
-							<div className="flex min-w-0 items-center" style={{ paddingLeft: v.indent * 16 + depth * 20 }}>
+							<div className="flex min-w-0 items-center" style={{ paddingLeft: v.offset }}>
 								{hasChildren ? (
 									<button
 										tabIndex={-1}
@@ -1320,7 +1320,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const [pending, setPending] = useState<{ rows: Row[]; move: RowMove } | null>(null);
 	const rows = useMemo(() => (pending && pending.rows === node.rows ? applyMove(node.rows, pending.move, sections) : node.rows), [node.rows, pending, sections]);
 	const items = useMemo(() => {
-		type GNode = { group: GroupLevel; key: string; level: number; rows: Row[]; kids: Map<string, GNode>; order: GNode[]; muted: boolean; parent?: GNode; section?: Section };
+		type GNode = { group: GroupLevel; key: string; level: number; rows: Row[]; kids: Map<string, GNode>; order: GNode[]; muted: boolean; parent?: GNode; section?: Section; title?: number };
 		const root: GNode = { group: { key: "", label: "" }, key: "", level: -1, rows: [], kids: new Map(), order: [], muted: false };
 		// Declared sections come first, in order, even without rows; so do their sub-sections
 		// inside them.
@@ -1353,17 +1353,19 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		const add = (n: GNode) => {
 			const collapsed = n.level >= 0 && isCollapsed(n.key);
 			if (n.level >= 0) {
+				// A header starts under its parent's title, and its own title is where its children line up.
+				const offset = n.parent?.title ?? 0;
+				n.title = groupTitleOffset(offset, n.group.icon, n.level === 0 || !!n.section);
 				const firstChild = n.rows[0]?.id ?? (n.order[0] ? headerId(n.order[0].key) : undefined);
-				out.push({ kind: "header", id: headerId(n.key), level: n.level, group: n.group, count: count(n), key: n.key, muted: n.muted, parent: n.parent && n.parent.level >= 0 ? headerId(n.parent.key) : undefined, collapsed, firstChild, section: n.section });
+				out.push({ kind: "header", id: headerId(n.key), level: n.level, group: n.group, count: count(n), key: n.key, muted: n.muted, parent: n.parent && n.parent.level >= 0 ? headerId(n.parent.key) : undefined, collapsed, firstChild, section: n.section, offset });
 				if (collapsed) return;
 			}
-			const indent = n.level + 1;
 			const groupId = n.level >= 0 ? headerId(n.key) : undefined;
-			const walk = (r: Row, depth: number, parent?: string) => {
-				out.push({ kind: "row", id: r.id, v: { row: r, depth, parent, indent, group: groupId }, muted: n.muted });
-				if (r.children && expanded.has(r.id)) for (const c of r.children) walk(c, depth + 1, r.id);
+			const walk = (r: Row, depth: number, offset: number, parent?: string) => {
+				out.push({ kind: "row", id: r.id, v: { row: r, depth, parent, offset, group: groupId }, muted: n.muted });
+				if (r.children && expanded.has(r.id)) for (const c of r.children) walk(c, depth + 1, offset + ROW_STEP, r.id);
 			};
-			for (const r of n.rows) walk(r, 0);
+			for (const r of n.rows) walk(r, 0, rowOffset(n.title, !!r.children?.length));
 			for (const k of n.order) add(k);
 		};
 		add(root);
@@ -1811,7 +1813,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 										leaving={it.leaving}
 										doc={doc}
 										muted={it.muted}
-										sig={JSON.stringify(it.v.row) + it.v.depth + it.v.indent}
+										sig={JSON.stringify(it.v.row) + it.v.depth + it.v.offset}
 											columns={columns}
 											roomy={roomy}
 											actions={actionsFor(it.v.row)}
@@ -1848,7 +1850,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 									{c.sortable && <span className="inline-block w-4" />}
 								</div>
 								{measureRows(items).map((v) => (
-									<div key={v.row.id} className="w-max px-3 text-sm whitespace-nowrap" style={first ? { paddingLeft: 12 + 24 + v.indent * 16 + v.depth * 20 } : undefined}>
+									<div key={v.row.id} className="w-max px-3 text-sm whitespace-nowrap" style={first ? { paddingLeft: 12 + ROW_SLOT + v.offset } : undefined}>
 										<CellView cell={owned(v.row.cells, c.key)} col={c} measure />
 									</div>
 								))}
@@ -1929,7 +1931,7 @@ function GroupHeader({ item, doc, columns, bulk, selected, leaving, onSelect, on
                     background,
 					top ? "py-2" : "py-1",
 				)}
-				style={{ paddingLeft: 12 + level * 16, paddingRight: index === 0 ? 12 : 24 }}
+				style={{ paddingLeft: 12 + item.offset, paddingRight: index === 0 ? 12 : 24 }}
 			>
 				{/* w-0 + min-w-full: the header never makes the table wider than the window; long
 				    labels truncate instead. */}
