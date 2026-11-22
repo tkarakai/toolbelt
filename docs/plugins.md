@@ -121,7 +121,7 @@ explicit targets such as `darwin-arm64` or `darwin-x64`; ship every required bin
 
 Capabilities are `ui.core`, `ui.action-key`, `ui.terminal`, `ui.conversation`, `assets`,
 `lifecycle`, `native.handoff`, `ui.split-action`, `navigate`, `ui.rich-fields`, `ui.row-select`,
-`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane` and `ui.composer`. Require what cannot be omitted. For optional features, test
+`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane`, `ui.composer` and `ui.sub-sections`. Require what cannot be omitted. For optional features, test
 `context.capabilities.has(name)` and render a working fallback. Unknown required features
 prevent activation; declaring a feature optional does not implement its fallback.
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing
@@ -303,9 +303,9 @@ the group inspector retains it. Omit `column` to keep a trailing, full-width sum
 
 ### Group headers and the details drawer
 
-Section headers (the first group level) show their label as text. Deeper group levels, such as
-folders, show their label as a blue pill, `sub` as a violet branch pill and the item count as
-a neutral pill. Tables whose rows have `details` or groups get a details drawer on the right.
+Section headers (the first group level) and declared sub-section headers show their label as
+text. Deeper group levels, such as folders, show their label as a blue pill, `sub` as a violet
+branch pill and the item count as a neutral pill. Tables whose rows have `details` or groups get a details drawer on the right.
 Whether it is open is the person's choice per plugin, set with the panel toggle at the right
 end of the pane header (or ⌥⌘B) and remembered across selections and restarts. The drawer has no close
 button, and Escape clears the selection without closing it. While open, it shows the selected
@@ -406,6 +406,47 @@ with the plugin choosing the position (a section sorted by time), `false` not at
 `dropLabel` and `dropIcon` name what a drop from another section does ("Settle"); the chip
 under the pointer shows it. The renderer shows the row in its new place until the next tree,
 so apply the move or re-render to undo it. Escape cancels a drag.
+
+### Sub-sections
+
+With `ui.sub-sections`, a declared section can have `sections` of its own: sub-sections, one
+level deep (a sub-section can't declare more). Every section and sub-section id is unique in
+the table; validation rejects deeper nesting and repeated ids.
+
+```ts
+sections: [
+  { id: "inbox", label: "Inbox" },
+  { id: "progressing", label: "Progressing", sections: [
+    { id: "working", label: "Working" },
+    { id: "snoozed", label: "Snoozed", empty: "Nothing snoozed", collapsed: true, dropLabel: "Snooze" },
+    { id: "watching", label: "Watching" },
+  ] },
+  { id: "settled", label: "Settled", order: "fixed" },
+]
+```
+
+A row joins a sub-section with `group: "snoozed"`, or a path starting with it
+(`["snoozed", "Folder"]`) for groups inside it; `["progressing", "snoozed"]` means the same.
+Rows can still join the parent with `group: "progressing"`; they come first, then the
+sub-sections in order, then any other groups in the parent. A sub-section header looks like a
+section header, indented one level under its parent, with its icon, label and row count; its
+rows indent one level deeper than the parent's own. It shows even with no rows, with its
+`empty` text, and can start `collapsed` (the person's choice is remembered as for sections).
+Collapsing the parent hides its sub-sections. The keyboard moves through sub-sections like
+any group and skips collapsed ones, and the selection handoff opens a collapsed parent and
+sub-section to show the selected row.
+
+With `reorder`, a sub-section takes drops by its own `order`, `dropLabel` and `dropIcon`. A drop
+on its header or among its rows sends `reorder` with the sub-section's id as `section`, and
+`before` the next row in that sub-section (null at its end). A drop on the parent's header or
+among the parent's own rows sends the parent's id.
+
+Hosts without the capability ignore `Section.sections`: a row whose group is a sub-section id
+becomes an undeclared top-level group after the declared sections, and drops report only
+top-level sections. Require the capability, or when it is absent send a flat layout: either
+promote the sub-sections to top-level sections, or keep the rows in the parent with a nested
+group path such as `["progressing", { id: "snoozed", label: "Snoozed" }]` (shown as a folder
+pill, never when empty, with drops reported as the parent).
 
 ### Modifier shortcuts
 

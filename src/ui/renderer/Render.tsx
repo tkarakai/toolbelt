@@ -20,6 +20,7 @@ import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as Dial
 import { dotClass, dotSpec, pillClass, shadeStyle, textClass } from "./colors";
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { selectionKey } from "../../shared/navigation";
+import { flatSections, sectionGroup, subSectionParents } from "../../shared/sections";
 import { EXIT_MS, useRowMotion } from "./row-motion";
 import { cn } from "@/lib/utils";
 import { Icon, isFileIcon } from "@/lib/icon";
@@ -974,8 +975,9 @@ const DOC_ROW = "*:first:rounded-l-md *:last:rounded-r-md";
 const LEAVING = "pointer-events-none animate-out fade-out-0 fill-mode-forwards";
 const leavingProps = { "aria-hidden": true, "data-leaving": "", style: { animationDuration: `${EXIT_MS}ms` } } as const;
 
-/** A declared section's group key (top-level groups are keyed under the root's empty key). */
-const sectionKey = (id: string) => `\u0000${id}`;
+/** A declared section's group key (top-level groups are keyed under the root's empty key; a
+ *  sub-section under its parent's). */
+const sectionKey = (id: string, parent?: Section) => `${parent ? `\u0000${parent.id}` : ""}\u0000${id}`;
 /** How soon after an action its refresh counts as the action's result (see `lastAction`). */
 const ACTION_REFRESH_MS = 3_000;
 /** How long the selection rests on a row before a `select` event (arrowing past doesn't count). */
@@ -1115,9 +1117,19 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	);
 	const toggle = useCallback((id: string) => setOverrides((o) => ({ ...o, [id]: !openIds.has(id) })), [setOverrides, openIds]);
 	const sections = useMemo(() => node.sections ?? [], [JSON.stringify(node.sections ?? [])]);
+	// Sub-sections (`Section.sections`): which section each belongs to, and every declared
+	// section's group key.
+	const parents = useMemo(() => subSectionParents(sections), [sections]);
+	const declaredKeys = useMemo(() => new Map(flatSections(sections).map((sec) => [sec.id, sectionKey(sec.id, parents.get(sec.id))])), [sections, parents]);
+	const startsCollapsed = useMemo(() => new Set(flatSections(sections).filter((sec) => sec.collapsed).map((sec) => declaredKeys.get(sec.id)!)), [sections, declaredKeys]);
 	// A section can start collapsed; the person's choice wins once they make one.
-	const isCollapsed = useCallback((key: string) => owned(collapsedGroups, key) ?? sections.some((sec) => sectionKey(sec.id) === key && sec.collapsed), [collapsedGroups, sections]);
-	const toggleGroup = useCallback((key: string) => setCollapsedGroups((c) => ({ ...c, [key]: !(owned(c, key) ?? sections.some((sec) => sectionKey(sec.id) === key && sec.collapsed)) })), [setCollapsedGroups, sections]);
+	const isCollapsed = useCallback((key: string) => owned(collapsedGroups, key) ?? startsCollapsed.has(key), [collapsedGroups, startsCollapsed]);
+	const toggleGroup = useCallback((key: string) => setCollapsedGroups((c) => ({ ...c, [key]: !(owned(c, key) ?? startsCollapsed.has(key)) })), [setCollapsedGroups, startsCollapsed]);
+	/** A drop into this section (or sub-section) leaves the row out of sight. */
+	const hidesDrops = useCallback((id: string) => {
+		const parent = parents.get(id);
+		return isCollapsed(declaredKeys.get(id) ?? sectionKey(id)) || (!!parent && isCollapsed(sectionKey(parent.id)));
+	}, [parents, declaredKeys, isCollapsed]);
 
 	// Checked rows (tables with bulk actions): only top-level rows that still exist count.
 	const bulk = useMemo(() => node.bulkActions ?? [], [JSON.stringify(node.bulkActions ?? [])]);
@@ -1291,19 +1303,26 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	// Rows of one group needn't be adjacent in `rows`: they're gathered under the first header.
 	// A dropped row shows in its new place until the plugin's next tree arrives.
 	const [pending, setPending] = useState<{ rows: Row[]; move: RowMove } | null>(null);
-	const rows = useMemo(() => (pending && pending.rows === node.rows ? applyMove(node.rows, pending.move) : node.rows), [node.rows, pending]);
+	const rows = useMemo(() => (pending && pending.rows === node.rows ? applyMove(node.rows, pending.move, sections) : node.rows), [node.rows, pending, sections]);
 	const items = useMemo(() => {
 		type GNode = { group: GroupLevel; key: string; level: number; rows: Row[]; kids: Map<string, GNode>; order: GNode[]; muted: boolean; parent?: GNode; section?: Section };
 		const root: GNode = { group: { key: "", label: "" }, key: "", level: -1, rows: [], kids: new Map(), order: [], muted: false };
-		// Declared sections come first, in order, even without rows.
+		// Declared sections come first, in order, even without rows; so do their sub-sections
+		// inside them.
+		const declare = (sec: Section, parent: GNode) => {
+			const n: GNode = { group: { key: sec.id, label: sec.label, icon: sec.icon }, key: `${parent.key}\u0000${sec.id}`, level: parent.level + 1, rows: [], kids: new Map(), order: [], muted: false, parent, section: sec };
+			parent.kids.set(sec.id, n);
+			parent.order.push(n);
+			return n;
+		};
 		for (const sec of sections) {
-			const n: GNode = { group: { key: sec.id, label: sec.label, icon: sec.icon }, key: sectionKey(sec.id), level: 0, rows: [], kids: new Map(), order: [], muted: false, parent: root, section: sec };
-			root.kids.set(sec.id, n);
-			root.order.push(n);
+			const n = declare(sec, root);
+			for (const sub of sec.sections ?? []) declare(sub, n);
 		}
 		for (const r of rows) {
 			let at = root;
-			for (const [i, g] of groupPath(r.group).entries()) {
+			// A row in a sub-section goes under its parent too.
+			for (const [i, g] of groupPath(sectionGroup(r.group, parents)).entries()) {
 				let next = at.kids.get(g.key);
 				if (!next) {
 					next = { group: g, key: `${at.key}\u0000${g.key}`, level: i, rows: [], kids: new Map(), order: [], muted: at.muted || !!g.muted, parent: at };
@@ -1334,7 +1353,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		};
 		add(root);
 		return out;
-	}, [rows, sections, expanded, isCollapsed]);
+	}, [rows, sections, parents, expanded, isCollapsed]);
 	useEffect(() => setPending((p) => (p && p.rows !== node.rows ? null : p)), [node.rows]);
 
 	const current = items.find((it) => it.id === selected) ?? null;
@@ -1377,8 +1396,8 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	// ── dragging rows within and between sections (`reorder`) ──
 	type RowDropTarget = (Omit<RowMove, "rowId"> & { whole: boolean }) | null;
 	const [rowDrag, setRowDrag] = useState<{ rowId: string; title: string; x: number; y: number; target?: RowDropTarget; label?: string; mark?: { top: number; left: number; width: number; height: number } } | null>(null);
-	const live = useRef({ items, rows, nodeRows: node.rows, sections, columns: allColumns, isCollapsed });
-	live.current = { items, rows, nodeRows: node.rows, sections, columns: allColumns, isCollapsed };
+	const live = useRef({ items, rows, nodeRows: node.rows, sections, columns: allColumns, hidesDrops });
+	live.current = { items, rows, nodeRows: node.rows, sections, columns: allColumns, hidesDrops };
 	const suppressRowClick = useRef(false);
 	const startRowDrag = useCallback(
 		(e: React.PointerEvent, row: Row) => {
@@ -1389,15 +1408,16 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 			const firstKey = live.current.columns[0]?.key;
 			const firstCell = firstKey ? owned(row.cells, firstKey) : undefined;
 			const title = typeof firstCell === "object" && firstCell ? firstCell.text : String(firstCell ?? row.id);
-			const from = rowSection(row);
+			const from = rowSection(row, live.current.sections);
 			const elements = () => [...(body.current?.querySelectorAll<HTMLElement>(":scope > tr[data-row-id]") ?? [])].filter((el) => !el.hasAttribute("data-leaving"));
 			const update = () => {
 				const els = elements();
 				const byId = new Map(live.current.items.map((it) => [it.id, it]));
 				const slots: DropSlot[] = els.map((el) => {
 					const it = byId.get(el.dataset.rowId!);
-					if (it?.kind === "header") return it.level === 0 ? { kind: "header", section: it.group.key } : { kind: "other" };
-					if (it?.kind === "row" && it.v.depth === 0) return { kind: "row", id: it.v.row.id, section: rowSection(it.v.row) };
+					// Sections and sub-sections take drops; groups inside them don't.
+					if (it?.kind === "header") return it.section ? { kind: "header", section: it.section.id } : it.level === 0 ? { kind: "header", section: it.group.key } : { kind: "other" };
+					if (it?.kind === "row" && it.v.depth === 0) return { kind: "row", id: it.v.row.id, section: rowSection(it.v.row, live.current.sections) };
 					return { kind: "other" };
 				});
 				let index = els.findIndex((el) => {
@@ -1430,7 +1450,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						if (lineY !== undefined) mark = { top: lineY - 1, left: box.left, width: box.width, height: 2 };
 					}
 				}
-				const sec = target ? live.current.sections.find((s) => s.id === target!.section) : undefined;
+				const sec = target ? flatSections(live.current.sections).find((s) => s.id === target!.section) : undefined;
 				const label = target === null ? "Can't drop here" : target && target.section !== from ? (sec?.dropLabel ?? `Move to ${sec?.label ?? target.section}`) : undefined;
 				setRowDrag({ rowId: row.id, title, x, y, target, label, mark });
 			};
@@ -1469,10 +1489,10 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				setRowDrag(null);
 				if (!commit || !target) return;
 				const m: RowMove = { rowId: row.id, section: target.section, before: target.before };
-				if (isNoopMove(live.current.rows, m)) return;
+				if (isNoopMove(live.current.rows, m, live.current.sections)) return;
 				setPending({ rows: live.current.nodeRows, move: m });
 				// Into a collapsed section, the row goes out of sight: don't select what can't be seen.
-				if (!live.current.isCollapsed(sectionKey(m.section))) setSelected(row.id);
+				if (!live.current.hidesDrops(m.section)) setSelected(row.id);
 				emit("reorder", { table: node.id, rowId: m.rowId, section: m.section, before: m.before });
 			};
 			const up = () => finish(true);
@@ -1600,10 +1620,11 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
         if (!sharedTarget) return;
         if (sharedTarget.ancestors.some(id => !openIds.has(id)))
             setOverrides(previous => ({ ...previous, ...Object.fromEntries(sharedTarget.ancestors.map(id => [id, true])) }));
-        if (sharedTarget.groups.some(key => collapsedGroups[key]))
+        // Sections that start collapsed count as collapsed too.
+        if (sharedTarget.groups.some(isCollapsed))
             setCollapsedGroups(previous => ({ ...previous, ...Object.fromEntries(sharedTarget.groups.map(key => [key, false])) }));
         requestAnimationFrame(() => rowElement(wrap.current, sharedTarget.item)?.scrollIntoView({ block: "nearest" }));
-    }, [sharedTarget, openIds, collapsedGroups, setOverrides, setCollapsedGroups]);
+    }, [sharedTarget, openIds, isCollapsed, setOverrides, setCollapsedGroups]);
 
     const handoff = useContext(SelectionHandoffContext);
     const appliedHandoff = useRef<number | null>(null);
@@ -1841,7 +1862,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 							<span className="truncate">{rowDrag.title}</span>
 							{rowDrag.label && (
 								<span className={cn("flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5", rowDrag.target === null ? "bg-destructive/15 text-destructive" : "bg-primary text-primary-foreground")}>
-									{rowDrag.target && (() => { const icon = sections.find((sec) => sec.id === rowDrag.target!.section)?.dropIcon; return icon ? <Icon name={icon} className="size-3" /> : null; })()}
+									{rowDrag.target && (() => { const icon = flatSections(sections).find((sec) => sec.id === rowDrag.target!.section)?.dropIcon; return icon ? <Icon name={icon} className="size-3" /> : null; })()}
 									{rowDrag.label}
 								</span>
 							)}
@@ -1874,11 +1895,12 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	);
 }
 
-/** A group header: a section (level 0: where jobs run) or a group inside it (a folder). It can be
- *  selected (and moved through with the keyboard) and collapsed. */
+/** A group header: a section (level 0: where jobs run), a declared sub-section (drawn like a
+ *  section, indented under it) or a group inside them (a folder). It can be selected (and moved
+ *  through with the keyboard) and collapsed. */
 function GroupHeader({ item, doc, columns, bulk, selected, leaving, onSelect, onToggle }: { item: Extract<Item, { kind: "header" }>; doc?: boolean; columns: Column[]; bulk: boolean; selected: boolean; leaving?: boolean; onSelect: () => void; onToggle: () => void }) {
 	const { group: g, level, count, muted, collapsed } = item;
-	const top = level === 0;
+	const top = level === 0 || !!item.section;
 	const { index, labelSpan: colSpan } = groupSummaryLayout(columns, g.summary?.column, bulk);
 	// In a document, headers sit on the page like headings: no tint, no line under them.
 	const background = cn(selected ? "bg-selected text-selected-foreground" : doc ? "group-hover/row:bg-accent" : top ? "bg-muted/60 group-hover/row:bg-accent" : "bg-background group-hover/row:bg-accent", !doc && "border-b");
@@ -2029,7 +2051,7 @@ function GroupSummary({ item, onToggle }: { item: Extract<Item, { kind: "header"
 	const g = item.group;
 	return (
 		<>
-			<DrawerHeader icon={g.icon ?? "folder"} title={g.label} sub={item.level === 0 ? "Section" : "Group"}>
+			<DrawerHeader icon={g.icon ?? "folder"} title={g.label} sub={item.level === 0 ? "Section" : item.section ? "Sub-section" : "Group"}>
 				{(g.sub || g.tag) && (
 					<div className="mt-2 flex flex-wrap items-center gap-1.5">
 						{g.sub && (

@@ -2,6 +2,8 @@
 
 ## Unreleased
 - Plugin development mode: test unreleased plugin archives in ToolBelt itself. Settings → Plugins → Plugin development relaunches ToolBelt with a separate, named development profile where you open a built `.tar.gz`, optionally have rebuilds install automatically (switch it per plugin under Installed Plugins; the same version can be rebuilt there, and the choice is remembered), and read diagnostics. Released plugins don't run while you're in development mode, nothing carries over to your normal plugins, and quitting always brings ToolBelt back in normal mode. This replaces the standalone Plugin Tester app, which is no longer built or published.
+- Plugin tables can have sub-sections inside a section, such as Working, Snoozed and Watching under Progressing. They look like sections, indented under their parent, show even when empty (for example “Nothing snoozed”), collapse on their own and remember it, and take rows you drag into them. Collapsing the parent hides them.
+- Fixed: a row you select in the menu-bar quick view is now revealed in the main window even inside a section that starts collapsed.
 
 ## 0.3.12 — 2026-11-15
 - Plugins can let you edit a row right in the details drawer: a title you click to rename, properties that look like text until you hover them, a description that turns into an editor when you click it, and a box to write updates. A slim bar above shows the row's actions as icons, with everything in a ⋯ menu.
