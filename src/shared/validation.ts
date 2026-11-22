@@ -244,7 +244,7 @@ const column = object({
   sortable: optional(bool),
   sortDesc: optional(bool),
 });
-const section = object({
+const sectionFields = {
   id: text,
   label: text,
   icon: optional(text),
@@ -253,7 +253,25 @@ const section = object({
   order: optional(enumeration("manual", "fixed", false)),
   dropLabel: optional(text),
   dropIcon: optional(text),
-});
+};
+/** Sub-sections are one level deep: they can't declare their own. */
+const nothing: Schema = (v, p) => {
+  if (v !== undefined) fail(p);
+};
+const subSection = object({ ...sectionFields, sections: nothing });
+const section = object({ ...sectionFields, sections: optional(array(subSection)) });
+/** A table's sections: every section and sub-section id appears once. */
+const sections: Schema = (v, p) => {
+  array(section)(v, p);
+  const seen = new Set<string>();
+  (v as { id: string; sections?: { id: string }[] }[]).forEach((s, i) => {
+    const ids = [[`${p}[${i}].id`, s.id], ...(s.sections ?? []).map((sub, j) => [`${p}[${i}].sections[${j}].id`, sub.id])];
+    for (const [path, id] of ids) {
+      if (seen.has(id!)) fail(path!);
+      seen.add(id!);
+    }
+  });
+};
 const empty = object({
   title: text,
   description: optional(text),
@@ -435,7 +453,7 @@ const node: Schema = (v, p) => {
       sort: optional(object({ key: text, desc: bool })),
       overflow: optional(enumeration("hide", "scroll")),
       layoutVersion: optional(number),
-      sections: optional(array(section)),
+      sections: optional(sections),
       reorder: optional(bool),
       selectEvents: optional(bool),
       enter: optional(text),

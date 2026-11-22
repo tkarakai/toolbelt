@@ -20,6 +20,7 @@ export const CAPABILITIES = [
   "ui.timeline",
   "ui.row-pane",
   "ui.composer",
+  "ui.sub-sections",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

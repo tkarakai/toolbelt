@@ -1,6 +1,7 @@
 # SDK changelog
 
 ## Unreleased
+- Add `Section.sections` behind the new `ui.sub-sections` capability: declared sub-sections, one level deep, drawn like sections and indented under their parent. Each shows even when empty (with its `empty` text), can start `collapsed` and takes drops by its own `order`, `dropLabel` and `dropIcon`. Rows join one with `group: "<sub id>"` (or a path starting with it); a drop into one sends `reorder` with the sub-section's id as `section`. Validation rejects deeper nesting and section or sub-section ids used twice in a table.
 
 ## 0.3.8 — 2026-11-15
 - Add `Row.pane` behind the new `ui.row-pane` capability: nodes the details drawer shows instead of `details`, with the row's actions in a slim bar above. Events from inside carry `rowId` (also on `field` events). Forms take `appearance: "inline"` (a property sheet that edits in place) and `text` fields take `heading`. `Action.focus` moves the keyboard to a pane element instead of sending the action, and table `enter` picks the row action ↵ runs.

@@ -115,9 +115,11 @@ that sends on ⌘↵ and cancels on Esc, the `composer` node and the inline Mark
 `rowId` to its events and draws cards as sections; inline forms get their text-like controls
 from `[data-inline-form]` rules in `index.css`. The table ignores keys from inside the drawer
 (`[data-inspector]`), whose Esc hands the keyboard back to the table.
-Tables can declare `sections`, mark rows `unread`, send `select` once the selection rests 400 ms,
-and let people drag rows between sections. The drag logic (where a drop lands, which drops
-change nothing, the optimistic move shown until the next tree) is pure code in `renderer/pure.ts`.
+Tables can declare `sections` (and sub-sections inside them), mark rows `unread`, send `select`
+once the selection rests 400 ms, and let people drag rows between sections. `shared/sections.ts`
+places a row whose group names a sub-section under its parent (`[parent, sub, …]`), for both the
+renderer and the selection handoff. The drag logic (where a drop lands, which drops change
+nothing, the optimistic move shown until the next tree) is pure code in `renderer/pure.ts`.
 Action keys may carry `alt+`/`shift+`; `keyNames` reads the physical key because ⌥ changes the
 typed character on macOS.
 Tables lay out declared column widths with fixed table layout; people resize and reorder

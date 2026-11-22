@@ -39,3 +39,16 @@ test("an empty declared section's header can be selected", () => {
   });
   expect(findSelectionTarget(tree, { item: "\u0001group:\0missing" })).toBeNull();
 });
+
+test("rows and empty headers in sub-sections open their parent section", () => {
+  const tree: Node = { type: "table", id: "tasks", columns: [], sections: [{ id: "progressing", label: "Progressing", sections: [{ id: "working", label: "Working" }, { id: "snoozed", label: "Snoozed" }] }], rows: [
+    { id: "1", cells: {}, group: "working" },
+    { id: "2", cells: {}, group: ["working", "Folder"] },
+  ] };
+  expect(findSelectionTarget(tree, { item: "1" })?.groups).toEqual(["\0progressing", "\0progressing\0working"]);
+  expect(findSelectionTarget(tree, { item: "2" })?.groups).toEqual(["\0progressing", "\0progressing\0working", "\0progressing\0working\0Folder"]);
+  expect(findSelectionTarget(tree, { item: "\u0001group:\0progressing\0snoozed" })).toEqual({
+    item: "\u0001group:\0progressing\0snoozed", collection: "table:tasks", ancestors: [], groups: ["\0progressing"],
+  });
+  expect(findSelectionTarget(tree, { item: "\u0001group:\0snoozed" })).toBeNull();
+});

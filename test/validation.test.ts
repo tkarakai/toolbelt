@@ -196,6 +196,17 @@ test("tables accept sections, reorder, select events and unread rows", () => {
   expect(() => validateTree({ ...tree, rows: [{ id: "a", cells: { x: "A" }, unread: "yes" }] })).toThrow();
   expect(() => validateTree({ type: "list", id: "l", items: [{ id: "1", title: "T", unread: true }] })).not.toThrow();
 });
+test("sections take sub-sections one level deep, with ids unique in the table", () => {
+  const table = (sections: unknown) => ({ type: "table", id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "a", cells: { x: "A" }, group: "snoozed" }], sections });
+  const sub = { id: "snoozed", label: "Snoozed", empty: "Nothing snoozed", collapsed: true, order: "fixed", dropLabel: "Snooze", dropIcon: "alarm-clock" };
+  expect(() => validateTree(table([{ id: "progressing", label: "Progressing", sections: [{ id: "working", label: "Working" }, sub] }, { id: "settled", label: "Settled", sections: [] }]))).not.toThrow();
+  expect(() => validateTree(table([{ id: "progressing", label: "Progressing", sections: [{ ...sub, sections: [{ id: "deeper", label: "Deeper" }] }] }]))).toThrow("sections[0].sections[0].sections");
+  expect(() => validateTree(table([{ id: "progressing", label: "Progressing", sections: [{ ...sub, order: "random" }] }]))).toThrow();
+  expect(() => validateTree(table([{ id: "progressing", label: "Progressing", sections: { id: "x", label: "X" } }]))).toThrow();
+  expect(() => validateTree(table([{ id: "snoozed", label: "Snoozed" }, { id: "progressing", label: "Progressing", sections: [sub] }]))).toThrow("sections[1].sections[0].id");
+  expect(() => validateTree(table([{ id: "progressing", label: "Progressing", sections: [sub, sub] }]))).toThrow();
+  expect(() => validateTree(table([{ id: "inbox", label: "Inbox" }, { id: "inbox", label: "Inbox again" }]))).toThrow("sections[1].id");
+});
 test("action keys are one key, or alt/shift before a key or arrow", () => {
   const withKey = (key: string) => ({ type: "page", actions: [{ id: "a", label: "A", key }], children: [] });
   for (const key of ["j", "alt+up", "alt+shift+down", "shift+s", "alt+1"]) expect(() => validateTree(withKey(key))).not.toThrow();

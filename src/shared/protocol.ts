@@ -263,6 +263,12 @@ export type Row = {
 /**
  * A top-level group declared by the table (`sections`): it keeps its place and shows even with
  * no rows. Rows join it with `group: id` (or a path starting with it).
+ *
+ * A section can declare `sections` of its own (capability `ui.sub-sections`): sub-sections, one
+ * level deep, drawn like sections and indented under it, after its own rows. Rows join a
+ * sub-section with `group: "<sub id>"` (or a path starting with it). Each sub-section shows even
+ * when empty, collapses on its own and takes drops by its own `order`. Every section and
+ * sub-section id is unique in the table.
  */
 export type Section = {
 	id: string;
@@ -280,6 +286,8 @@ export type Section = {
 	order?: "manual" | "fixed" | false;
 	dropLabel?: string;
 	dropIcon?: string;
+	/** Sub-sections (capability `ui.sub-sections`); a sub-section can't have its own. */
+	sections?: Section[];
 };
 
 /**
@@ -443,12 +451,13 @@ export type Node =
 			 * chose for this table (default 0).
 			 */
 			layoutVersion?: number;
-			/** Top-level groups in order, shown even when empty (see `Section`). */
+			/** Top-level groups in order, shown even when empty, with optional sub-sections (see `Section`). */
 			sections?: Section[];
 			/**
 			 * People can drag rows within and between sections (capability `ui.row-reorder`).
 			 * A drop sends `reorder` with `{ table, rowId, section, before }`; Toolbelt keeps the
-			 * order it shows until the plugin sends the next tree.
+			 * order it shows until the plugin sends the next tree. `section` is the sub-section's
+			 * id for a drop into a sub-section, and `before` the next row in it (null: its end).
 			 */
 			reorder?: boolean;
 			/**
@@ -593,7 +602,8 @@ export type EventPayloads = {
 	select: { table: string; rowId: string | null };
 	/**
 	 * A row was dragged (`reorder` tables) into `section`, before the row `before` (null: at the
-	 * end, or anywhere in a `"fixed"` section).
+	 * end, or anywhere in a `"fixed"` section). `section` is a sub-section's id for a drop into
+	 * that sub-section, and `before` then a row in it.
 	 */
 	reorder: { table: string; rowId: string; section: string; before: string | null };
 };

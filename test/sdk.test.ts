@@ -109,19 +109,19 @@ test("navigate is sent only when the host offers it", async () => {
 	expect(h.out).toEqual([{ type: "navigate", screen: "main", select: "row-1" }, { type: "navigate", screen: "other" }]);
 });
 
-test("SDK carries sections, reorder, rich fields and their events through the fake host", async () => {
+test("SDK carries sections, sub-sections, reorder, rich fields and their events through the fake host", async () => {
 	const h = harness();
 	const events: [string, unknown][] = [];
 	const tree = {
 		type: "page" as const,
-		children: [{ type: "table" as const, id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "a", cells: { x: "A" }, group: "inbox", unread: true }], sections: [{ id: "inbox", label: "Inbox" }, { id: "settled", label: "Settled", order: "fixed" as const, dropLabel: "Settle" }], reorder: true, selectEvents: true, actions: [{ id: "up", label: "Up", key: "alt+up" }] }],
+		children: [{ type: "table" as const, id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "a", cells: { x: "A" }, group: "inbox", unread: true }], sections: [{ id: "inbox", label: "Inbox" }, { id: "progressing", label: "Progressing", sections: [{ id: "snoozed", label: "Snoozed", empty: "Nothing snoozed", collapsed: true }] }, { id: "settled", label: "Settled", order: "fixed" as const, dropLabel: "Settle" }], reorder: true, selectEvents: true, actions: [{ id: "up", label: "Up", key: "alt+up" }] }],
 		dialog: { id: "d", title: "Edit", children: [{ type: "form" as const, id: "f", fields: [{ type: "textarea" as const, id: "desc", label: "Description", value: "# Hi", markdown: true }, { type: "tags" as const, id: "l", label: "Labels", value: [{ key: "p", value: "High" }], keys: [{ key: "p", label: "Priority", color: "orange" as const, values: ["High"] }] }] }] },
 	};
 	definePlugin({ render: { "screen:a": () => tree }, onEvent: (_s, name, payload) => { events.push([name, payload]); } }, { write: h.write, input: h.input });
 	await tick();
-	h.send({ type: "hello", protocol: 1, capabilities: ["ui.core", "ui.rich-fields", "ui.row-select", "ui.row-reorder", "ui.modifier-keys"], plugin: { id: "t" }, host: { name: "test", version: "0.3.9" } });
+	h.send({ type: "hello", protocol: 1, capabilities: ["ui.core", "ui.rich-fields", "ui.row-select", "ui.row-reorder", "ui.modifier-keys", "ui.sub-sections"], plugin: { id: "t" }, host: { name: "test", version: "0.3.9" } });
 	h.send({ type: "open", surface: "screen:a" });
-	h.send({ type: "event", surface: "screen:a", name: "reorder", payload: { table: "t", rowId: "a", section: "settled", before: null } });
+	h.send({ type: "event", surface: "screen:a", name: "reorder", payload: { table: "t", rowId: "a", section: "snoozed", before: null } });
 	h.send({ type: "event", surface: "screen:a", name: "select", payload: { table: "t", rowId: "a" } });
 	h.send({ type: "event", surface: "screen:a", name: "field", payload: { form: "f", field: "l", value: [{ key: "p", value: "High" }] } });
 	await tick();

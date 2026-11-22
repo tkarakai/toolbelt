@@ -282,7 +282,7 @@ describe("dragging rows between sections", () => {
 		{ kind: "row", id: "d", section: "settled" },
 	];
 	test("rows know their section", () => {
-		expect(rows.map(rowSection)).toEqual(["inbox", "inbox", "working", "settled"]);
+		expect(rows.map((r) => rowSection(r))).toEqual(["inbox", "inbox", "working", "settled"]);
 		expect(rowSection({ id: "x", cells: {} })).toBe("");
 	});
 	test("a drop lands before a row, after it, or at the top of a section", () => {
@@ -309,5 +309,67 @@ describe("dragging rows between sections", () => {
 		expect(isNoopMove(rows, { rowId: "b", section: "inbox", before: null })).toBe(true);
 		expect(isNoopMove(rows, { rowId: "b", section: "inbox", before: "a" })).toBe(false);
 		expect(isNoopMove(rows, { rowId: "a", section: "working", before: null })).toBe(false);
+	});
+});
+
+describe("dragging rows into sub-sections", () => {
+	const sections = [
+		{ id: "inbox", label: "Inbox" },
+		{ id: "progressing", label: "Progressing", sections: [
+			{ id: "working", label: "Working" },
+			{ id: "snoozed", label: "Snoozed", order: "fixed" as const, dropLabel: "Snooze" },
+			{ id: "watching", label: "Watching", order: false as const },
+		] },
+		{ id: "settled", label: "Settled" },
+	];
+	const rows = [
+		{ id: "a", cells: {}, group: "inbox" },
+		{ id: "p", cells: {}, group: "progressing" },
+		{ id: "w1", cells: {}, group: "working" },
+		{ id: "w2", cells: {}, group: ["working", "Folder"] },
+		{ id: "s", cells: {}, group: ["progressing", { id: "snoozed", label: "Snoozed" }] },
+	];
+	const slots: DropSlot[] = [
+		{ kind: "header", section: "inbox" },
+		{ kind: "row", id: "a", section: "inbox" },
+		{ kind: "header", section: "progressing" },
+		{ kind: "row", id: "p", section: "progressing" },
+		{ kind: "header", section: "working" },
+		{ kind: "row", id: "w1", section: "working" },
+		{ kind: "other" },
+		{ kind: "row", id: "w2", section: "working" },
+		{ kind: "header", section: "snoozed" },
+		{ kind: "row", id: "s", section: "snoozed" },
+		{ kind: "header", section: "watching" },
+		{ kind: "header", section: "settled" },
+	];
+	test("rows in a sub-section belong to it, by its id or a path through the parent", () => {
+		expect(rows.map((r) => rowSection(r, sections))).toEqual(["inbox", "progressing", "working", "working", "snoozed"]);
+		// Without the declaration, a group is only its top level.
+		expect(rowSection(rows[2]!)).toBe("working");
+		expect(rowSection(rows[4]!)).toBe("progressing");
+	});
+	test("drops name the sub-section, with the next row inside it", () => {
+		expect(resolveDrop(slots, 4, false, sections, "a")).toEqual({ section: "working", before: "w1", whole: false });
+		expect(resolveDrop(slots, 5, false, sections, "a")).toEqual({ section: "working", before: "w1", whole: false });
+		expect(resolveDrop(slots, 7, true, sections, "a")).toEqual({ section: "working", before: null, whole: false });
+		// The parent's own header and rows end before its first sub-section.
+		expect(resolveDrop(slots, 2, false, sections, "a")).toEqual({ section: "progressing", before: "p", whole: false });
+		expect(resolveDrop(slots, 3, true, sections, "a")).toEqual({ section: "progressing", before: null, whole: false });
+		// Each sub-section takes drops by its own order.
+		expect(resolveDrop(slots, 8, false, sections, "a")).toEqual({ section: "snoozed", before: null, whole: true });
+		expect(resolveDrop(slots, 10, false, sections, "a")).toBeNull();
+	});
+	test("a move into a sub-section shows the row there until the plugin answers", () => {
+		const moved = applyMove(rows, { rowId: "a", section: "working", before: "w2" }, sections);
+		expect(moved.map((r) => [r.id, rowSection(r, sections)])).toEqual([["p", "progressing"], ["w1", "working"], ["a", "working"], ["w2", "working"], ["s", "snoozed"]]);
+		expect(moved.find((r) => r.id === "a")!.group).toBe("working");
+		// Groups inside the section move along; the section part changes.
+		expect(applyMove(rows, { rowId: "w2", section: "snoozed", before: null }, sections).find((r) => r.id === "w2")!.group).toEqual(["snoozed", "Folder"]);
+		expect(applyMove(rows, { rowId: "s", section: "progressing", before: null }, sections).map((r) => r.id)).toEqual(["a", "p", "s", "w1", "w2"]);
+		expect(applyMove(rows, { rowId: "a", section: "watching", before: null }, sections).find((r) => r.id === "a")!.group).toBe("watching");
+		expect(isNoopMove(rows, { rowId: "w1", section: "working", before: "w2" }, sections)).toBe(true);
+		expect(isNoopMove(rows, { rowId: "w1", section: "progressing", before: null }, sections)).toBe(false);
+		expect(isNoopMove(rows, { rowId: "s", section: "snoozed", before: null }, sections)).toBe(true);
 	});
 });

@@ -1,6 +1,7 @@
 // The renderer's pure parts — layout decisions and text helpers — kept free of React and the
 // web view, so the tests can import them.
 import type { Action, Column, DetailItem, Row, Section } from "../../shared/protocol";
+import { flatSections, groupKey, sectionDepth, sectionGroup, subSectionParents } from "../../shared/sections";
 
 /**
  * Actions in their groups (`Action.group`), groups in order of first appearance. Without any
@@ -324,45 +325,55 @@ export function groupSummaryLayout(columns: Column[], column: string | undefined
 
 // ── dragging rows between sections (`reorder` tables) ───────────────────
 
-/** Where a dragged row goes: into `section`, before row `before` (null: the end, or the plugin's choice). */
+/** Where a dragged row goes: into `section` (a section or sub-section id), before row `before` (null: the end, or the plugin's choice). */
 export type RowMove = { rowId: string; section: string; before: string | null };
 
-/** A row's top-level group key ("" without a group): the section it belongs to. */
-export function rowSection(row: Row): string {
-	const first = typeof row.group === "string" ? row.group : row.group?.[0];
-	if (first === undefined) return "";
-	return typeof first === "string" ? first : (first.id ?? first.label);
+/**
+ * The section a row is in, as drops name it ("" without a group): its sub-section's id inside
+ * one of the table's declared `sections`, else its top-level group key.
+ */
+export function rowSection(row: Row, sections?: Section[]): string {
+	const parents = subSectionParents(sections);
+	const path = sectionGroup(row.group, parents);
+	const depth = sectionDepth(path, parents);
+	return depth ? groupKey(path[depth - 1]!) : "";
 }
 
-const withSection = (group: Row["group"], section: string): Row["group"] =>
-	section === "" ? undefined : Array.isArray(group) && group.length > 1 ? [section, ...group.slice(1)] : section;
+/** The group a row gets when it moves into `section`, keeping any groups it has inside its section. */
+function withSection(group: Row["group"], section: string, sections: Section[]): Row["group"] {
+	if (section === "") return undefined;
+	const parents = subSectionParents(sections);
+	const path = sectionGroup(group, parents);
+	const inner = path.slice(sectionDepth(path, parents));
+	return inner.length ? [section, ...inner] : section;
+}
 
 /** The rows with one moved, as the renderer shows them until the plugin answers. */
-export function applyMove(rows: Row[], move: RowMove): Row[] {
+export function applyMove(rows: Row[], move: RowMove, sections: Section[] = []): Row[] {
 	const moving = rows.find((r) => r.id === move.rowId);
 	if (!moving) return rows;
 	const rest = rows.filter((r) => r !== moving);
-	const moved = rowSection(moving) === move.section ? moving : { ...moving, group: withSection(moving.group, move.section) };
+	const moved = rowSection(moving, sections) === move.section ? moving : { ...moving, group: withSection(moving.group, move.section, sections) };
 	let at = move.before === null ? -1 : rest.findIndex((r) => r.id === move.before);
 	if (at < 0) {
-		const last = rest.map(rowSection).lastIndexOf(move.section);
+		const last = rest.map((r) => rowSection(r, sections)).lastIndexOf(move.section);
 		at = last < 0 ? rest.length : last + 1;
 	}
 	return [...rest.slice(0, at), moved, ...rest.slice(at)];
 }
 
 /** A drop that leaves the row where it is. */
-export function isNoopMove(rows: Row[], move: RowMove): boolean {
+export function isNoopMove(rows: Row[], move: RowMove, sections: Section[] = []): boolean {
 	const i = rows.findIndex((r) => r.id === move.rowId);
 	if (i < 0) return true;
-	const section = rowSection(rows[i]!);
+	const section = rowSection(rows[i]!, sections);
 	if (section !== move.section) return false;
 	if (move.before === move.rowId) return true;
-	const after = rows.slice(i + 1).find((r) => rowSection(r) === section);
+	const after = rows.slice(i + 1).find((r) => rowSection(r, sections) === section);
 	return move.before === null ? !after : after?.id === move.before;
 }
 
-/** What the pointer is over while dragging: a section header, a top-level row, or something else. */
+/** What the pointer is over while dragging: a section or sub-section header, a top-level row (with the section it's in), or something else. */
 export type DropSlot = { kind: "header"; section: string } | { kind: "row"; id: string; section: string } | { kind: "other" };
 
 /**
@@ -373,7 +384,7 @@ export type DropSlot = { kind: "header"; section: string } | { kind: "row"; id: 
 export function resolveDrop(slots: DropSlot[], index: number, lower: boolean, sections: Section[], rowId: string): (Omit<RowMove, "rowId"> & { whole: boolean }) | null | undefined {
 	const slot = slots[index];
 	if (!slot || slot.kind === "other") return undefined;
-	const order = sections.find((s) => s.id === slot.section)?.order ?? "manual";
+	const order = flatSections(sections).find((s) => s.id === slot.section)?.order ?? "manual";
 	if (order === false) return null;
 	if (order === "fixed") return { section: slot.section, before: null, whole: true };
 	const nextRow = (from: number) => {
