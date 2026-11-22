@@ -57,6 +57,15 @@ export function actionForEvent(actions: Action[], e: KeyLike): Action | undefine
 	return undefined;
 }
 
+/**
+ * The action a key press inside an open action menu runs: the same shortcut as on the table,
+ * but never with ⌘/⌃ or on auto-repeat. No match leaves the key to the menu (arrows, typeahead).
+ */
+export function menuActionForEvent(actions: Action[], e: KeyLike & { metaKey?: boolean; ctrlKey?: boolean; repeat?: boolean }): Action | undefined {
+	if (e.metaKey || e.ctrlKey || e.repeat) return undefined;
+	return actionForEvent(actions, e);
+}
+
 const KEY_SYMBOLS: Record<string, string> = { alt: "⌥", shift: "⇧", up: "↑", down: "↓", left: "←", right: "→" };
 /** How a shortcut is shown: "alt+up" → "⌥↑", "j" → "J". */
 export const formatKey = (key: string): string =>

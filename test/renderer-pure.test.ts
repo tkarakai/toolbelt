@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Action, Column } from "../src/shared/protocol";
-import { actionForEvent, actionForKey, applyMove, formatKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
+import { actionForEvent, actionForKey, menuActionForEvent, applyMove, formatKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -249,6 +249,21 @@ describe("modifier shortcuts", () => {
 		expect(actionForEvent(acts, { key: "ArrowUp", code: "ArrowUp" })).toBeUndefined();
 		// Without a ⇧ shortcut, J still means j, as before.
 		expect(actionForEvent([{ id: "j", label: "J", key: "j" }], { key: "J", code: "KeyJ", shiftKey: true })?.id).toBe("j");
+	});
+	test("inside an open menu, action keys run actions and other keys stay with the menu", () => {
+		const menu: Action[] = [...acts, { id: "update", label: "Update", key: "u", menu: [{ id: "review", label: "Review first", key: "r" }, { id: "off", label: "Off", key: "o", disabled: true }] }];
+		expect(menuActionForEvent(menu, { key: "s", code: "KeyS" })?.id).toBe("snooze");
+		expect(menuActionForEvent(menu, { key: "S", code: "KeyS", shiftKey: true })?.id).toBe("settle");
+		expect(menuActionForEvent(menu, { key: "ArrowUp", code: "ArrowUp", altKey: true })?.id).toBe("up");
+		expect(menuActionForEvent(menu, { key: "r", code: "KeyR" })?.id).toBe("review");
+		// Disabled actions, unknown letters, plain arrows, Enter, ⌘/⌃ and auto-repeat do nothing.
+		expect(menuActionForEvent(menu, { key: "o", code: "KeyO" })).toBeUndefined();
+		expect(menuActionForEvent(menu, { key: "x", code: "KeyX" })).toBeUndefined();
+		expect(menuActionForEvent(menu, { key: "ArrowDown", code: "ArrowDown" })).toBeUndefined();
+		expect(menuActionForEvent(menu, { key: "Enter", code: "Enter" })).toBeUndefined();
+		expect(menuActionForEvent(menu, { key: "s", code: "KeyS", metaKey: true })).toBeUndefined();
+		expect(menuActionForEvent(menu, { key: "s", code: "KeyS", ctrlKey: true })).toBeUndefined();
+		expect(menuActionForEvent(menu, { key: "s", code: "KeyS", repeat: true })).toBeUndefined();
 	});
 	test("shortcuts are shown with symbols", () => {
 		expect(formatKey("alt+up")).toBe("⌥↑");
