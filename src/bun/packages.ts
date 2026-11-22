@@ -45,6 +45,8 @@ export type Installed = {
   requestedRelease?: string;
   asset?: string;
   removed?: boolean;
+  /** Installed from a local archive in a development profile; never update-checked. */
+  local?: true;
   availableVersion?: string;
   availableChannel?: "stable" | "prerelease";
   availableCommit?: string;
@@ -90,6 +92,8 @@ export type Candidate = {
   requestedRelease?: string;
   asset?: string;
   channel?: "stable" | "prerelease";
+  /** A local archive staged by a development profile. */
+  local?: true;
 };
 export type RuntimeHooks = {
   prepare(id: string, reason: string): Promise<void>;
@@ -147,6 +151,8 @@ function validateRegistry(value: any, root: string): Registry {
         resolve(root, "plugins/packages", id, `${p.version}-${p.hash}`)
     )
       throw new Error("Invalid installed plugin identity/path");
+    if (p.local !== undefined && p.local !== true)
+      throw new Error("Invalid local installation flag");
     if (p.checkActivities !== undefined && (!Array.isArray(p.checkActivities) || p.checkActivities.length > 3 || p.checkActivities.some(line => typeof line !== "string" || line.length > 20000))) throw new Error("Invalid plugin check activities");
     for (const channel of [p.installedChannel, p.availableChannel]) {
       if (channel !== undefined && !["stable", "prerelease"].includes(channel)) throw new Error("Invalid release channel");
@@ -346,7 +352,7 @@ export class PackageManager {
   beginHostUpgrade() {
     if (this.operations.size)
       throw new Error(
-        "A plugin operation is in progress; try the app update after it completes",
+        "A plugin operation is in progress; try again after it completes",
       );
     this.hostUpgrading = true;
   }
@@ -370,7 +376,20 @@ export class PackageManager {
     private hostVersion = "0.1.0",
     private fault?: (point: string) => void,
     private environment?: Record<string, string | undefined>,
+    /** Development profiles accept local archives, including rebuilt bytes of an installed version. */
+    readonly development = false,
   ) {}
+  /** Same-version byte changes are refused except for local archives in a development profile. */
+  private replacesVersion(
+    old: Installed | undefined,
+    version: string,
+    hash: string,
+    local?: true,
+  ) {
+    if (!old || old.version !== version || old.hash === hash) return;
+    if (local && this.development) return;
+    throw new Error("Installed version asset bytes changed");
+  }
   registry() {
     return readRegistry(this.root);
   }
@@ -399,7 +418,11 @@ export class PackageManager {
     bytes: Uint8Array,
     expectedHash: string,
     repo: string,
+    options: { local?: boolean } = {},
   ): Promise<Candidate> {
+    if (options.local && !this.development)
+      throw new Error("Local plugin archives are only accepted in a development profile");
+    const local = options.local ? (true as const) : undefined;
     if (!/^[a-f0-9]{64}$/.test(expectedHash) || hash(bytes) !== expectedHash)
       throw new Error("Plugin archive checksum mismatch");
     const dir = join(this.root, "plugins/staging", randomUUID());
@@ -418,8 +441,7 @@ export class PackageManager {
       const old = registry.plugins[manifest.id];
       if (old && old.repo.toLowerCase() !== repo.toLowerCase())
         throw new Error("Plugin id belongs to another publisher");
-      if (old && old.version === manifest.version && old.hash !== expectedHash)
-        throw new Error("Installed version asset bytes changed");
+      this.replacesVersion(old, manifest.version, expectedHash, local);
       const packageRoot = join(
         this.root,
         "plugins/packages",
@@ -453,7 +475,7 @@ export class PackageManager {
         hash: expectedHash,
         expires: Date.now() + 10 * 60 * 1000,
       });
-      return { manifest, repo, hash: expectedHash, packageRoot, lease };
+      return { manifest, repo, hash: expectedHash, packageRoot, lease, local };
     } catch (error) {
       rmSync(dir, { recursive: true, force: true });
       throw error;
@@ -466,6 +488,8 @@ export class PackageManager {
   ) {
     if (!approved)
       throw new Error("Explicit publisher execution approval required");
+    if (candidate.local && !this.development)
+      throw new Error("Local plugin archives are only accepted in a development profile");
     return this.serialize(candidate.manifest.id, async () => {
       if (this.liveLeaseRoots(candidate.manifest.id).size)
         throw new Error(
@@ -478,6 +502,7 @@ export class PackageManager {
           ),
           candidate.hash,
           candidate.repo,
+          { local: candidate.local },
         );
       verifyPackageBytes(this.root, candidate, this.hostVersion);
       const id = candidate.manifest.id,
@@ -485,12 +510,7 @@ export class PackageManager {
         old = registry.plugins[id];
       if (old && old.repo.toLowerCase() !== candidate.repo.toLowerCase())
         throw new Error("Publisher binding mismatch");
-      if (
-        old &&
-        old.version === candidate.manifest.version &&
-        old.hash !== candidate.hash
-      )
-        throw new Error("Installed version asset bytes changed");
+      this.replacesVersion(old, candidate.manifest.version, candidate.hash, candidate.local);
       const cli = candidate.manifest.cli?.command;
       if (
         cli &&
@@ -531,6 +551,7 @@ export class PackageManager {
         release: candidate.release,
         requestedRelease: candidate.requestedRelease,
         asset: candidate.asset,
+        ...(candidate.local ? { local: true as const } : {}),
       };
       const previous = join(txDir, "previous");
       let promoted = false;

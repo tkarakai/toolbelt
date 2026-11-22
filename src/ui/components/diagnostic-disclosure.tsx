@@ -16,7 +16,7 @@ export function DisclosureContent({ open, id, labelledBy, children }: { open: bo
 }
 
 /** Local disclosure state; the mounted grid animates intrinsic height in both directions. */
-export function DiagnosticDisclosure({ title, description, icon, badge, metadata, notice = false, compact = false, showAction = true, singleLine = false, children, className, triggerClassName, contentClassName }: {
+export function DiagnosticDisclosure({ title, description, icon, badge, metadata, notice = false, compact = false, showAction = true, singleLine = false, children, className, triggerClassName, contentClassName, onOpenChange }: {
   title: ReactNode;
   description?: string;
   icon?: ReactNode;
@@ -30,8 +30,10 @@ export function DiagnosticDisclosure({ title, description, icon, badge, metadata
   className?: string;
   triggerClassName?: string;
   contentClassName?: string;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  const setOpen = (next: boolean) => { setOpenState(next); onOpenChange?.(next); };
   const id = useId();
   return <div className={cn("min-w-0 overflow-hidden rounded-lg border bg-background/60 text-foreground", className)} data-diagnostic-disclosure data-state={open ? "open" : "closed"}>
     <Button type="button" variant="ghost" aria-expanded={open} aria-controls={`${id}-content`} id={`${id}-trigger`} onClick={() => setOpen(!open)}

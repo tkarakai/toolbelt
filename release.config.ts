@@ -17,13 +17,8 @@ export default {
       async build() {
         await run(["bun", "run", "build"]);
         await run(["bun", "run", "dmg"]);
-        await run(["bun", "scripts/build-tester.ts"]);
         const v = json("package.json").version;
-        return [
-          `artifacts/Toolbelt-${v}-arm64.dmg`,
-          `artifacts-tester/Toolbelt-Plugin-Tester-${v}-arm64.dmg`,
-          `artifacts-tester/Toolbelt-Plugin-Tester-${v}-macos-arm64.tar.gz`,
-        ];
+        return [`artifacts/Toolbelt-${v}-arm64.dmg`];
       },
     },
     sdk: {

@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { Activity, TriangleAlert, CircleCheck, CircleX } from "lucide-react";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./components/ui/select";
 import { ResizableDialogContent } from "./components/ui/resizable-dialog-content";
-import { MoreHorizontal, Power, RotateCw, Trash2, Download, Loader2, GitBranch } from "lucide-react";
+import { MoreHorizontal, Power, RotateCw, Trash2, Download, Loader2, GitBranch, Eraser } from "lucide-react";
 import { Icon } from "./lib/icon";
 import { cn } from "./lib/utils";
 import { pillClass } from "./renderer/colors";
@@ -19,6 +19,8 @@ import { rpc } from "./lib/store";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { SettingsGroup } from "./components/settings-layout";
+import { LocalSourceControl, ResetDataDialog } from "./Development";
+import { useDevelopment } from "./lib/store";
 import {
   Dialog,
   DialogContent,
@@ -114,6 +116,8 @@ export function PluginManager({
   const [checkingAll, setCheckingAll] = useState(false);
   const [restartingId, setRestartingId] = useState<string>();
   const [candidate, setCandidate] = useState<Candidate>();
+  const development = useDevelopment();
+  const [resetPlugin, setResetPlugin] = useState<ManagedPlugin>();
   const [remove, setRemove] = useState<ManagedPlugin>(),
     [deleteData, setDeleteData] = useState(false);
   const [recovery, setRecovery] = useState<{
@@ -204,6 +208,7 @@ export function PluginManager({
   const updating = !!candidate && state.plugins.some(plugin => !plugin.removed && plugin.id === candidate.id);
   return (
     <div className="min-w-0 space-y-8">
+        <ResetDataDialog plugin={resetPlugin} onClose={() => setResetPlugin(undefined)} />
         <SettingsGroup separated title="Installed Plugins" notice={checkFailures.length > 0 && <UpdateRecovery failure={checkFailures[0]!} failures={checkFailures.slice(1)} history={state.githubHistory}/>} description="Each plugin is its own program. ToolBelt starts it and draws its screens. ToolBelt has no control over plugins." actions={<GitHubButton retryAt={state.schedule?.retryAt} hint={`Last checked: ${date(state.schedule?.lastChecked)}`} variant="outline" size="sm" className="h-6 text-xs" disabled={busy || !adapter.checkUpdates || (state.schedule?.retryAt ?? 0) > now} onClick={() => void run(async () => {
             setCheckingAll(true);
             try {
@@ -263,6 +268,7 @@ export function PluginManager({
                     <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label={`Actions for ${p.manifest.name}`} title="Plugin actions" disabled={busy || isActivePhase(p.phase)}><MoreHorizontal/></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-56">
                         <DropdownMenuItem onSelect={() => void run(() => adapter.enable(p.id, !p.enabled))}><Power/>{p.enabled ? "Disable" : "Enable"}</DropdownMenuItem>
+                        {development?.sources.some(s => s.id === p.id) && <DropdownMenuItem onSelect={() => setResetPlugin(p)}><Eraser/>Reset data…</DropdownMenuItem>}
                         <DropdownMenuSeparator/>
                         <DropdownMenuItem variant="destructive" onSelect={() => {setDeleteData(false); setRemove(p);}}><Trash2/>Remove plugin…</DropdownMenuItem>
                       </DropdownMenuContent>
@@ -273,16 +279,19 @@ export function PluginManager({
                   <div className="space-y-2">
                     <div className="text-xs font-medium text-muted-foreground">Installed release</div>
                     <p className="text-sm">Version <span className="font-mono font-medium">{p.version}{p.commit ? ` (${p.commit.slice(0, 7)})` : ""}</span></p>
-                    <div className="flex flex-wrap items-center gap-2"><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.installedChannel === "prerelease" ? "warning" : "muted"))}>{p.installedChannel === "prerelease" ? "Prerelease" : p.installedChannel === "stable" ? "Stable" : "Unknown channel"}</span>{p.requestedRelease && <span className="break-all font-mono text-xs text-muted-foreground">{p.requestedRelease}</span>}</div>
+                    <div className="flex flex-wrap items-center gap-2">{p.local ? <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass("warning"))}>Local archive</span> : <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.installedChannel === "prerelease" ? "warning" : "muted"))}>{p.installedChannel === "prerelease" ? "Prerelease" : p.installedChannel === "stable" ? "Stable" : "Unknown channel"}</span>}{p.requestedRelease && <span className="break-all font-mono text-xs text-muted-foreground">{p.requestedRelease}</span>}</div>
                   </div>
-                  <div className="space-y-1">
+                  {p.local ? <div className="space-y-1">
+                    <div className="text-xs font-medium text-muted-foreground">Source archive</div>
+                    <LocalSourceControl id={p.id} />
+                  </div> : <div className="space-y-1">
                     <label htmlFor={`channel-${p.id}`} className="text-xs font-medium text-muted-foreground">Update channel</label>
                     <Select value={p.channel} disabled={busy || !adapter.setChannel || isActivePhase(p.phase)} onValueChange={channel => void run(() => adapter.setChannel!(p.id, channel as "stable" | "prerelease"))}>
                       <SelectTrigger id={`channel-${p.id}`} aria-label={`Update channel for ${p.manifest.name}`} size="sm" className="-ml-2 min-w-0 w-fit justify-start border-transparent px-2 text-sm shadow-none hover:bg-accent data-[state=open]:bg-accent dark:bg-transparent dark:data-[state=open]:bg-accent"><GitBranch className="size-3.5 text-muted-foreground"/><SelectValue/></SelectTrigger>
                       <SelectContent position="popper" align="start" className="p-1"><SelectItem value="stable">Stable</SelectItem><SelectItem value="prerelease">Prerelease</SelectItem></SelectContent>
                     </Select>
                     <p className="text-xs leading-relaxed text-muted-foreground">{p.channel === "prerelease" ? "Include stable and prerelease releases in future checks." : "Use stable releases for future checks."}</p>
-                  </div>
+                  </div>}
                 </div>
                 {p.detail && (
                   <p className="text-sm text-muted-foreground">{p.detail}</p>
@@ -295,7 +304,7 @@ export function PluginManager({
                     max={p.operation.total}
                   />
                 )}
-                <ManualUpdate name={p.manifest.name} version={p.version} commit={p.commit} repo={p.repo} prerelease={p.channel === "prerelease"} busy={busy || isActivePhase(p.phase)} review={tag => review(p.repo, tag, p.channel === "prerelease")} failure={p.updateFailure} retryAt={state.schedule?.retryAt}/>
+                {!p.local && <ManualUpdate name={p.manifest.name} version={p.version} commit={p.commit} repo={p.repo} prerelease={p.channel === "prerelease"} busy={busy || isActivePhase(p.phase)} review={tag => review(p.repo, tag, p.channel === "prerelease")} failure={p.updateFailure} retryAt={state.schedule?.retryAt}/>}
                 {p.availableVersion && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{updateCheckFailed(p) ? "Previously found update" : "Available update"}</span><span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs",pillClass(p.availableChannel === "prerelease" ? "warning" : p.availableChannel === "stable" ? "info" : "muted"))}>{p.availableChannel === "prerelease" ? "Prerelease" : p.availableChannel === "stable" ? "Stable" : "Channel not recorded"}</span></div>

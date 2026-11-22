@@ -163,3 +163,17 @@ test("plugin GitHub failures notify About immediately and persist the same notic
     expect(plugins.githubHistory[0]?.status).toBe(429);
   } finally {about.stop();globalThis.fetch=previousFetch;rmSync(f.root,{recursive:true,force:true});}
 });
+
+test("local development installs are never update-checked", async () => {
+  const f=fixture();
+  try {
+    const registry=readRegistry(f.root);
+    registry.plugins.first!.local=true;
+    atomicJSON(join(f.root,"plugins/registry.json"),registry);
+    const service=new PluginManagerService(f.packages,f.host,f.resolve);
+    const response=await service.handle({operation:"checkUpdates"});
+    expect(response.error).toBeUndefined();
+    expect(f.requested).toEqual(["test/second"]);
+    expect(response.state!.plugins.find(p=>p.id==="first")?.local).toBe(true);
+  } finally {rmSync(f.root,{recursive:true,force:true});}
+});

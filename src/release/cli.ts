@@ -361,7 +361,7 @@ export async function main(argv = process.argv.slice(2)) {
         r.version,
       ) +
       (r.product === "app"
-        ? "\n\n## Downloads\n\nDownload the Toolbelt app DMG or standalone Plugin Tester. Apps are ad-hoc signed, not notarized. SDK archives are published separately under sdk-v tags.\n"
+        ? "\n\n## Downloads\n\nDownload the Toolbelt app DMG. Test unreleased plugins in its plugin development mode. Apps are ad-hoc signed, not notarized. SDK archives are published separately under sdk-v tags.\n"
         : "");
     freeze(r, source, paths, notes, "release-candidate");
     return;

@@ -5,13 +5,14 @@ import { usePluginDrag } from "./lib/use-plugin-drag";
 // The menu-bar tool list stays visible beside the selected plugin's quick view.
 // ↑/↓ and plugin hotkeys select; Enter opens the window; Escape closes.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Maximize2, Power, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, FlaskConical, Maximize2, Power, Settings } from "lucide-react";
+import { pillClass } from "@/renderer/colors";
 import { defaultScreen } from "../shared/protocol";
 import { popoverLayout, type PopoverLayout } from "../shared/popover";
 import { assignLetters } from "../shared/letters";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
-import { rpc, sendEvent, usePlugins, usePopoverHiding, usePopoverShown, useSettings, useSurface } from "@/lib/store";
+import { rpc, sendEvent, useDevelopment, usePlugins, usePopoverHiding, usePopoverShown, useSettings, useSurface } from "@/lib/store";
 import { SurfaceContext, isTyping, usePersisted } from "@/lib/uistate";
 import { Dot } from "@/renderer/Render";
 import { SafeRender as Render } from "@/renderer/SafeRender";
@@ -31,6 +32,7 @@ export default function Popover() {
     const plugins = usePlugins();
     const drag = usePluginDrag(plugins.map(p => p.manifest.id));
     const development = useUpdateState()?.channel === "dev";
+    const pluginDevelopment = useDevelopment();
     const [settings] = useSettings();
     const updatesAvailable = useAnyUpdateAvailable();
     const [selected, setSelected] = usePersisted<string | null>("toolbelt.popoverPlugin", null);
@@ -126,7 +128,7 @@ export default function Popover() {
             const extra = list ? Math.max(0, Math.min(list.scrollHeight, parseFloat(getComputedStyle(list).maxHeight)) - list.clientHeight) : 0;
             const height = el.scrollHeight + extra + 2;
             const width = box.current?.parentElement?.clientWidth || window.innerWidth;
-            const availableHeight = box.current?.closest(".tester-surface")?.clientHeight || window.innerHeight;
+            const availableHeight = window.innerHeight;
             const row = el.querySelector<HTMLElement>(`[data-index="${active}"]`);
             const scale = el.offsetHeight ? el.getBoundingClientRect().height / el.offsetHeight : 1;
             const anchorTop = row ? Math.round((row.getBoundingClientRect().top - el.getBoundingClientRect().top) / (scale || 1)) : 0;
@@ -303,6 +305,7 @@ export default function Popover() {
                 className={cn(panelStyle, "absolute top-0 z-10 outline-none")}>
 					<div className="flex shrink-0 items-center gap-2 px-4 pt-3.5 pb-2">
 						<span className="text-sm font-semibold">{development ? "ToolBelt Dev" : "ToolBelt"}</span>
+						{pluginDevelopment?.active && <span title={`Plugin development profile ${pluginDevelopment.profile}`} className={cn("inline-flex max-w-28 items-center gap-1 truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium", pillClass("warning"))}><FlaskConical className="size-3 shrink-0" /><span className="truncate font-mono">{pluginDevelopment.profile}</span></span>}
 						{settings && <button className="inline-flex rounded-sm focus-visible:ring-2 focus-visible:ring-ring [&_kbd]:transition-colors [&_kbd]:duration-200 [&:hover_kbd]:bg-foreground/15" title="Configure popover shortcut" onClick={() => rpc.send.showWindow({ plugin: "toolbelt", screen: "keyboard-shortcut" })}><Kbd>{settings.shortcutLabel}</Kbd></button>}
                         <PopoverUpdateRow onPanelChange={setUpdatePanelOpen} />
 					</div>

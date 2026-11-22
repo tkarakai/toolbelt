@@ -31,6 +31,8 @@ export type ToolbeltRPC = {
 			pauseShortcut: { params: { paused: boolean }; response: true };
 			/** The icon macOS shows for a file or app bundle, as a PNG data URL (null: no such file). */
 			fileIcon: { params: { path: string }; response: string | null };
+			/** Plugin development mode (docs/plugin-development.md); changes arrive as `developmentState`. */
+			development: { params: import("./development").DevelopmentRequest; response: import("./development").DevelopmentResponse };
 			/** Updates (src/bun/updater.ts): where they stand; changes arrive as `updateState`. */
 			updateState: { params: {}; response: UpdateState };
 			checkForUpdates: { params: {}; response: true };
@@ -70,6 +72,7 @@ export type ToolbeltRPC = {
 			popoverHiding: {};
 			settingsChanged: {};
 			updateState: UpdateState;
+			developmentState: import("./development").DevelopmentState;
 			/** From the app menu: a command for the window (toggleSidebar…). */
 			command: { name: string };
 		};

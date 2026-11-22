@@ -4,18 +4,20 @@ import { SelectionHandoffContext, SelectionRequestContext } from "./lib/selectio
 import { PaneActionsContext } from "./lib/pane-actions";
 import { usePluginDrag } from "./lib/use-plugin-drag";
 import { PluginManager } from "./PluginManager";
+import { DevelopmentSettings } from "./Development";
 // The main window: the app sidebar (resizable, collapses to an icon rail) and the selected
 // plugin's pane with its tabs. Route: #/<plugin>/<screen>, or #/toolbelt for ToolBelt's own page.
 //
 // Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · manifest-declared tab shortcuts · ⌃⇥ / ⌃⇧⇥ next and
 // previous tab · ⌘B sidebar · ⌘W closes the window (app menu).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { ArrowLeft, ChevronRight, ExternalLink, Check, PanelLeft, RotateCw, Settings, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, ExternalLink, Check, FlaskConical, PanelLeft, RotateCw, Settings, X } from "lucide-react";
 import { defaultScreen, type Manifest } from "../shared/protocol";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
+import { pillClass } from "@/renderer/colors";
 import { cn } from "@/lib/utils";
-import { committed, rpc, sendEvent, useCommand, useNavigate, usePlugins, useSettings, useSurface } from "@/lib/store";
+import { committed, rpc, sendEvent, useCommand, useDevelopment, useNavigate, usePlugins, useSettings, useSurface } from "@/lib/store";
 import { THEMES, tokens } from "./themes";
 import { QuitDialog } from "./QuitDialog";
 import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
@@ -192,6 +194,7 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 	const hints = useHeldModifiers({ meta: true });
 	const update = useAnyUpdateAvailable();
 	const drag = usePluginDrag(plugins.map(p => p.manifest.id));
+	const development = useDevelopment();
 	return (
 		<Sidebar collapsible="icon" className="group-data-[side=left]:border-r-0">
 			<SidebarCommands />
@@ -230,6 +233,12 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 			</SidebarContent>
 			<SidebarFooter>
 				<SidebarMenu>
+					{development?.active && <SidebarMenuItem>
+						<SidebarMenuButton tooltip={`Plugin development: ${development.profile}`} onClick={() => go(TOOLBELT, "plugins")} className={cn("h-9", pillClass("warning"), "hover:bg-amber-500/25")}>
+							<FlaskConical />
+							<span className="truncate">Development · <span className="font-mono">{development.profile}</span></span>
+						</SidebarMenuButton>
+					</SidebarMenuItem>}
 					<SidebarMenuItem>
 						{/* ToolBelt's settings: just the cog and its shortcut. */}
 						<ShortcutTooltip label={current === TOOLBELT ? "Settings" : "Open settings"} detail={update ? "Updates available" : undefined} keys="⌘," side={state === "collapsed" ? "right" : "top"} align={state === "collapsed" ? "center" : "start"}>
@@ -447,7 +456,7 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
 			</PaneHeader>
 			<div key={tab} className="settings-scroll min-h-0 flex-1 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring" tabIndex={0} role="region" aria-label="Settings content">
 				<div className="mx-auto max-w-4xl space-y-8 px-6 py-8">
-                    {tab === "plugins" && <PluginManager />}
+                    {tab === "plugins" && <PluginsTab />}
 
                     {tab === "appearance" && <AppearanceSetting />}
                     {tab === "about" && <AboutSettings />}
@@ -617,4 +626,12 @@ function LicenseHit({text, query}: {text: string; query: string}) {
     }
     parts.push(text.slice(start));
     return <>{parts}</>;
+}
+
+/** In development mode the workspace comes first; otherwise the switch sits below the manager. */
+function PluginsTab() {
+    const development = useDevelopment();
+    return development?.active
+        ? <div className="space-y-8"><DevelopmentSettings /><PluginManager /></div>
+        : <div className="space-y-8"><PluginManager /><DevelopmentSettings /></div>;
 }

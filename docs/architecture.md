@@ -18,7 +18,7 @@ JSON-lines and do not inject browser JavaScript, HTML or React components.
 | Protocol, manifest/capabilities and runtime validation | `src/shared/protocol.ts`, `package.ts`, `validation.ts`, `rpc.ts` |
 | Public author SDK and fake-host tools | `src/sdk/`, packaged by `scripts/build-sdk.ts` |
 | Main window, popover, manager and renderer | `src/ui/App.tsx`, `Popover.tsx`, `PluginManager.tsx`, `renderer/` |
-| Standalone visual tester | `src/bun/tester.ts`, `tester-runtime.ts`, `src/ui/Tester.tsx`, `scripts/build-tester.ts` |
+| Plugin development mode | `src/bun/development.ts`, `src/shared/development.ts`, `src/ui/Development.tsx` |
 
 Processes, Upkeep and SDK Explorer own their implementation, dependencies, UI definitions,
 assets, data schemas and behavior tests in their respective repositories. The host has no
@@ -29,7 +29,7 @@ Terminal distributions belong to the Processes repository.
 ## Package boundary
 
 The host accepts public GitHub repositories and release assets, or explicitly selected
-local archives in the tester. A release descriptor binds repository, plugin ID, semantic
+local archives in [development profiles](plugin-development.md). A release descriptor binds repository, plugin ID, semantic
 version, source commit, platform asset, byte size and SHA-256. The runtime manifest declares
 package format, protocol, host/Bun/platform support, capabilities, screens, schema and assets.
 The package carries a bundled entrypoint and any fully local helpers or dependencies.
@@ -46,14 +46,17 @@ paths and declared files. Extraction accepts bounded ustar gzip archives and rej
 traversal, duplicate entries, special files and unsupported metadata headers. Extracted bytes
 are compared to the approved cached archive before activation, including enable and restart.
 Source bindings prevent an unrelated repository from replacing an installed plugin ID.
-Changed bytes under an already approved installed version require a different release version.
+Changed bytes under an already approved installed version require a different release version,
+except local archives in a development profile.
 Checksums establish byte identity, not publisher trust.
 
 ## Profiles and storage
 
 The official profile is `~/Library/Application Support/ToolBelt`. ToolBelt Dev has its own
 identity and profile. `TOOLBELT_CONFIG_DIR` selects an explicit app profile. Renderer preferences
-are namespaced by profile as well as surface. The tester uses its own named profiles.
+are namespaced by profile as well as surface. Plugin development mode
+(`TOOLBELT_DEVELOPMENT_PROFILE`) keeps its plugin state under `development/<name>/` with the
+layout below and shares only `settings.json`; see [plugin-development.md](plugin-development.md).
 
 | Relative path | Purpose |
 | --- | --- |
@@ -128,7 +131,7 @@ out, with shorter exits and global reduced-motion support; continuously changing
 not animate. `renderer/row-motion.ts` animates table rows a refresh changes: moved rows slide
 (FLIP) and removed rows fade out in place before the gap closes. It skips changes within 600 ms
 of a click or key press, sort changes, the first paint, reduced motion and refreshes that remove
-more than 30 rows. Native popover positioning and lifecycle are shared by app and tester.
+more than 30 rows. Native popover positioning and lifecycle live in `native-popover.ts`.
 
 Plugin navigation order is a profile-scoped renderer preference shared between the sidebar and
 popover through local storage events. Dragging previews placement locally and saves on drop;
@@ -214,7 +217,7 @@ screen and confirmation; the host never bypasses it by sending a destructive act
 Generic plugin runtime status types live in `src/shared/plugin-state.ts` independently
 of native RPC types. This keeps the SDK release verifier typecheckable without a native devkit.
 
-## SDK, tester and app delivery
+## SDK, plugin development and app delivery
 
 The SDK is a versioned archive from this repository and can be consumed without a host
 checkout. It includes types, lifecycle/path APIs, package/message validators, search helpers
@@ -222,15 +225,15 @@ and a fake host. The SDK Explorer lives in its own repository and exercises publ
 its bundled seed is materialized by the same installer once per profile. Removed or disabled
 seed selections survive app upgrades, and a seed does not replace an installed version.
 
-The standalone tester embeds Bun and the production host/renderer. Its local-archive approval,
-profiles, diagnostics, restart/reset, viewport controls and native menu-bar mode use the same
-package and runtime contracts. It does not depend on an installed ToolBelt or plugin sources.
+Plugin authors test built archives in ToolBelt's [plugin development mode](plugin-development.md):
+a relaunch into a named development profile that runs only local and explicitly installed
+plugins through the production package and runtime contracts. It needs no plugin sources.
 
 App updates are a separate signed-DMG flow in `updater.ts`, with installed-plugin compatibility
 preflight and busy-plugin preparation. Development builds permit manual metadata checks,
 but scheduled app checks and app installation require a stable build or an explicit test
 feed. The check button follows the request cooldown independently of installation support.
-The app release contains its DMG and tester DMG/tarball. The SDK has a canonical, independently versioned sdk-v release. Plugin packages and terminal distributions have independent releases. Build and
+The app release contains its DMG. The SDK has a canonical, independently versioned sdk-v release. Plugin packages and terminal distributions have independent releases. Build and
 release procedures are in [releases.md](releases.md); maintenance is in
 [maintenance.md](maintenance.md), and author contracts are in
 [plugins.md](plugins.md).
@@ -279,7 +282,7 @@ ToolBelt is the displayed marketing name; `toolbelt` remains the project/CLI nam
 profile directories, bundle paths and release asset names retain their compatibility spelling.
 
 Signed distribution and evaluation bundles set both `CFBundleName` and `CFBundleDisplayName`
-to ToolBelt (ToolBelt Plugin Tester for the tester). The application menu includes the native
+to ToolBelt. The application menu includes the native
 About panel, using the bundle icon and version metadata.
 
 App and installed-plugin cards always offer a manual release guide. Failed checks show a neutral recovery card explaining possible GitHub request limits without claiming a newer version exists. App guidance covers DMG replacement and retained profile data. Plugin guidance opens the owning repository’s stable/prerelease releases and accepts an explicit tag for the existing verified review/approval flow; it still requires GitHub access and never installs downloaded archives directly. Cached availability is labeled as previously found after check errors.

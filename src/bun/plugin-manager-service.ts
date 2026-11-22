@@ -143,9 +143,15 @@ export class PluginManagerService {
     };
   }
   private metadataChanged = () => this.emit();
-  start() {
+  /** `scheduledChecks: false` (plugin development mode) keeps approvals expiring without GitHub checks. */
+  start({ scheduledChecks = true }: { scheduledChecks?: boolean } = {}) {
     githubMetadata(join(this.packages.root, "cache/github-metadata.json")).listeners.add(this.metadataChanged);
     this.expireApprovals();
+    if (!scheduledChecks) {
+      this.timer = setInterval(() => this.expireApprovals(), 15 * 60 * 1000);
+      this.timer.unref();
+      return;
+    }
     if (
       !this.packages.registry().updateSchedule?.nextCheck ||
       Date.now() >= (this.packages.registry().updateSchedule?.nextCheck ?? 0)
@@ -240,8 +246,9 @@ export class PluginManagerService {
       let error: string | undefined;
       const results = new Map<string, {checkedAt?: number; failure?: GitHubFailure}>();
       const updates = new Map<string, {version: string; channel?: "stable" | "prerelease"; commit?: string} | undefined>();
+      // Local development archives have no release to compare against.
       for (const p of Object.values(this.packages.registry().plugins).filter(
-        (p) => !p.removed,
+        (p) => !p.removed && !p.local,
       )) {
         try {
           const candidate = await this.resolveRelease(this.packages, p.repo, {

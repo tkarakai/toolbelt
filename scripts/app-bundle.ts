@@ -44,7 +44,7 @@ export async function extractSignedApp(
     .quiet()
     .nothrow();
   await $`/usr/libexec/PlistBuddy -c ${`Add :CFBundleShortVersionString string ${options.version}`} ${plist}`;
-  const displayName = options.identifier === "io.github.tkarakai.toolbelt.tester" ? "ToolBelt Plugin Tester" : "ToolBelt";
+  const displayName = "ToolBelt";
   const sourceCommit = process.env.TOOLBELT_SOURCE_COMMIT || Bun.spawnSync(["git", "rev-parse", "--short=7", "HEAD"]).stdout.toString().trim();
   if (sourceCommit) await Bun.$`/usr/bin/plutil -replace CFBundleVersion -string ${sourceCommit} ${plist}`;
   await Bun.$`/usr/bin/plutil -replace NSHumanReadableCopyright -string "Copyright NetSense LLC." ${plist}`;
