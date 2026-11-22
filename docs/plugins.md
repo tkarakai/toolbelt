@@ -163,7 +163,9 @@ before exposing trees. Initialization must distinguish `context.mode`:
   login-shell side effects, updates or other external actions.
 - `active`: final runtime activation; start approved background work here.
 
-Accept `prepare(reason, context)` only when it is safe to freeze writes and stop. Return
+Accept `prepare(reason, context)` only when it is safe to freeze writes and stop. Reasons
+include `upgrade`, `restart`, `remove`, `host-upgrade` (app update) and `mode-switch`
+(relaunching into or out of plugin development mode); treat unknown reasons like a stop. Return
 `{ready:false, reason:"..."}` while an operation cannot safely stop. A software update must
 not be interrupted just because a plugin package update is available. After accepting,
 quiesce application writes. `stop` closes owned resources/helpers; it must never kill observed
@@ -229,8 +231,8 @@ COPYFILE_DISABLE=1 tar --format=ustar -czf counter-1.0.0-darwin-arm64.tar.gz -C 
 Do not include links, special files, PAX/extended headers, duplicate paths or traversal.
 Use safe relative paths for entry, migration, CLI and assets. Respect 64 MiB compressed,
 256 MiB expanded and 10,000 entry limits. Keep protocol frames/trees/rates within the SDK's
-exported limits. Test the exact `.tar.gz` through the released [Plugin Tester](plugin-tester.md),
-not just the unpacked author folder. Check every screen and quick view, keyboard actions,
+exported limits. Test the exact `.tar.gz` in ToolBelt's [plugin development mode](plugin-development.md)
+(ToolBelt 0.4.0 or later), not just the unpacked author folder. Check every screen and quick view, keyboard actions,
 assets, themes, narrow layouts, zoom/motion, prepare refusal and migration failure/recovery.
 Mutating tests use disposable resources and temporary homes only.
 
@@ -240,7 +242,7 @@ Use the owning repository's exact release runbook:
 [Processes](https://github.com/tkarakai/toolbelt-ps/blob/main/docs/releases.md),
 [Upkeep](https://github.com/tkarakai/toolbelt-upkeep/blob/main/docs/releases.md), or
 [SDK Explorer](https://github.com/tkarakai/toolbelt-sdk-demo/blob/main/docs/releases.md).
-Those repos use the shared release CLI from their pinned SDK. Merging a validated release PR authorizes CI publication; local builds do not publish. Host SDK/tester publication is in [releases.md](releases.md).
+Those repos use the shared release CLI from their pinned SDK. Merging a validated release PR authorizes CI publication; local builds do not publish. Host app and SDK publication is in [releases.md](releases.md).
 
 Publish from the plugin's own repository, with frozen dependencies and pinned Bun/actions
 in CI. The release must contain the ready-to-run archive plus exactly one
@@ -288,8 +290,8 @@ For an update:
 Users can enter `owner/repo` or its public GitHub URL in Settings → Plugins. Private-repository
 authentication is not supported. Publisher identity changes are not followed silently.
 Disabling retains code/data; removing retains data unless explicit deletion is selected.
-For locally rebuilt same-version packages, use a fresh tester profile rather than disabling
-integrity checks. Updating plugin implementation requires no ToolBelt source changes; only
+Only development profiles accept locally rebuilt same-version packages; normal profiles keep
+rejecting changed bytes for an installed version. Updating plugin implementation requires no ToolBelt source changes; only
 a newly required public capability needs corresponding host/SDK/renderer support.
 
 ### Group summary columns
@@ -340,7 +342,7 @@ an event (an action, field, search, sort, filter, dialog or toast-button event) 
 Each event allows one navigation. Opening or closing a surface doesn't count as an event.
 Rejected calls are logged as diagnostics. An honored call opens or focuses the main window,
 shows the screen and selects `select` there through the same stable-ID handoff as quick-view
-Enter. The Plugin Tester shows the screen in its embedded window. A toast button reaches the
+Enter. A toast button reaches the
 plugin as an event with `surface: "toast"`, so the plugin can respond to it by navigating.
 Without the `navigate` capability, the SDK method returns false and sends nothing.
 

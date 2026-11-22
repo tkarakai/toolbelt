@@ -13,7 +13,7 @@ bun run release:sdk --version 0.3.0 --channel stable
 bun run release:app --version 0.2.0-rc.1 --channel prerelease --check
 ```
 
-App/tester share root package.json and v<version>. SDK_VERSION in src/shared/package.ts owns
+The app uses root package.json and v<version>. SDK_VERSION in src/shared/package.ts owns
 the independent SDK version and sdk-v<version>; its notes live in packages/sdk/CHANGELOG.md.
 
 Preparation updates the product's version sources and dated changelog, commits a machine-readable
@@ -40,7 +40,7 @@ Release-only PRs remain mandatory. A Toolbelt SDK release-only diff must change 
 the normal secret/workflow checks and required CI gate. SDK checks include standalone
 typechecking, runtime/fake-host and protocol tests, package/integrity/recovery checks used
 by the bundled release CLI, and installation/execution of the SDK archive. It does not
-bootstrap Electrobun or build the app, seed, tester or disk images.
+bootstrap Electrobun or build the app, seed or disk images.
 
 Other diffs, missing scope evidence and manual CI runs use full app and SDK validation.
 Shared runtime, schema, renderer, dependency or workflow changes never qualify as an
@@ -146,7 +146,7 @@ new, approved plugin release. Do not publish another app merely to roll out SDK-
 
 ## Products and distribution
 
-- App: Toolbelt-<version>-arm64.dmg and Plugin Tester DMG/tarball, sharing the app version.
+- App: Toolbelt-<version>-arm64.dmg. Plugin authors test archives in its plugin development mode.
 - SDK: one canonical toolbelt-sdk-<version>.tgz under sdk-v<version>. App releases link to
   the SDK rather than rebuild it. The archive includes the runtime SDK and a separate development
   CLI/bin. Release tooling is never imported by the runtime entry point.
@@ -162,4 +162,4 @@ Publish a compatible SDK before plugin dependency PRs consume it. Publish SDK Ex
 changing the host's seed. Use `bun run seed:update --tag <published-explorer-tag>` from clean main
 to verify its descriptor/archive and open a host PR updating seed.config.json. This neither publishes
 the app nor changes disable/removal persistence. New SDK APIs requiring host functionality still
-need a compatible host/tester; matching version numbers do not establish compatibility.
+need a compatible host; matching version numbers do not establish compatibility.

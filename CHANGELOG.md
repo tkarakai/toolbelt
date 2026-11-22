@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Plugin development mode: test unreleased plugin archives in ToolBelt itself. Settings → Plugins → Plugin development relaunches ToolBelt with a separate, named development profile where you open a built `.tar.gz`, optionally have rebuilds install automatically (switch it per plugin under Installed Plugins; the same version can be rebuilt there, and the choice is remembered), and read diagnostics. Released plugins don't run while you're in development mode, nothing carries over to your normal plugins, and quitting always brings ToolBelt back in normal mode. This replaces the standalone Plugin Tester app, which is no longer built or published.
 
 ## 0.3.12 — 2026-11-15
 - Plugins can let you edit a row right in the details drawer: a title you click to rename, properties that look like text until you hover them, a description that turns into an editor when you click it, and a box to write updates. A slim bar above shows the row's actions as icons, with everything in a ⋯ menu.

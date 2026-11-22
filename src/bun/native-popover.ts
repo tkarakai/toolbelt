@@ -1,6 +1,6 @@
 import { popoverPosition, popoverLayout } from "../shared/popover";
 import { BrowserWindow, Tray, Screen } from 'electrobun/main';
-/** Shared native shell; production and tester render the same Popover inside it. */
+/** The native shell the menu-bar Popover renders inside. */
 export function createNativePopover(options:{title:string;url:string;image:string;template:boolean;rpc:any}){
  const tray=new Tray({title:'',image:options.image,template:options.template,width:18,height:18});
  const popover=new BrowserWindow({title:options.title,url:options.url,frame:{width:380,height:520,x:0,y:0},titleBarStyle:'hidden',styleMask:{Resizable:false,Miniaturizable:false,Closable:false},transparent:true,hidden:true,activate:false,rpc:options.rpc});

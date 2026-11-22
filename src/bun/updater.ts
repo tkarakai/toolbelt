@@ -224,6 +224,8 @@ export type UpdaterOptions = {
   writable?: (dir: string) => boolean;
   /** Time to let "Restarting…" be seen before relaunching. */
   relaunchDelay?: number;
+  /** False disables scheduled checks and installation (plugin development mode). */
+  enabled?: boolean;
 };
 
 const defaultWritable = (dir: string) => {
@@ -275,7 +277,7 @@ export class Updater {
     this.metadata = opts.fetch || opts.now
       ? new GitHubMetadata({ file: opts.stateFile + ".metadata", fetch: this.o.fetch, now: this.o.now })
       : githubMetadata(join(dirname(opts.stateFile), "cache/github-metadata.json"));
-    this.enabled = opts.channel === "stable" || !!opts.feed;
+    this.enabled = opts.enabled ?? (opts.channel === "stable" || !!opts.feed);
     try {
       const p = JSON.parse(readFileSync(opts.stateFile, "utf8")) as Persisted;
       if (p.feed === this.o.feed && p.failure) { this.failure = p.failure; this.lastError = p.failure.message; }

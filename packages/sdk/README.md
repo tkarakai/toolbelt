@@ -66,7 +66,7 @@ resolve the active registry selection and pin live payloads with helper PID leas
 reserved. Screen IDs are unique lowercase letters/digits/dashes.
 
 See the host repository's [plugin authoring guide](https://github.com/tkarakai/toolbelt/blob/main/docs/plugins.md)
-and [Plugin Tester guide](https://github.com/tkarakai/toolbelt/blob/main/docs/plugin-tester.md),
+and [plugin development mode guide](https://github.com/tkarakai/toolbelt/blob/main/docs/plugin-development.md),
 and the [SDK Explorer](https://github.com/tkarakai/toolbelt-sdk-demo) for complete examples.
 
 SDK packaging creates a local archive. Canonical SDK assets are published under sdk-v<version> and are separate from app releases. Updating the SDK never changes plugin dependency pins automatically. There is no npm publication.

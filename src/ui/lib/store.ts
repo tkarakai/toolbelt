@@ -8,6 +8,12 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import type { Node } from "../../shared/protocol";
 import type { PluginInfo, ToolbeltRPC, UpdateState } from "../../shared/rpc";
+import {
+  UNAVAILABLE_DEVELOPMENT,
+  type DevelopmentRequest,
+  type DevelopmentResponse,
+  type DevelopmentState,
+} from "../../shared/development";
 
 type State = { plugins: PluginInfo[]; trees: Record<string, Node> };
 let state: State = { plugins: [], trees: {} };
@@ -103,6 +109,7 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
   popoverHiding: () => hidingListeners.forEach((l) => l()),
   settingsChanged: () => settingsListeners.forEach((l) => l()),
   updateState: (s) => updateListeners.forEach((l) => l(s)),
+  developmentState: (s) => setDevelopment(s),
   command: ({ name }) => commandListeners.forEach((l) => l(name)),
   confirmQuit: () => commandListeners.forEach((l) => l("confirmQuit")),
 };
@@ -331,3 +338,43 @@ registerPluginManagerAdapter({
     await managerRequest({ operation: "recover", id, choiceId });
   },
 });
+
+// ── plugin development mode (docs/plugin-development.md) ──────────────────
+let development: DevelopmentState | null = null;
+const developmentListeners = new Set<() => void>();
+function setDevelopment(next: DevelopmentState) {
+  development = next;
+  developmentListeners.forEach((l) => l());
+}
+let developmentAsked = false;
+/** Runs a development request; hosts without development mode report it unavailable. */
+export async function developmentRequest(
+  request: DevelopmentRequest,
+): Promise<DevelopmentResponse> {
+  try {
+    const response = await rpc.request.development(request);
+    setDevelopment(response.state);
+    return response;
+  } catch (error) {
+    if (request.operation === "state") {
+      setDevelopment(UNAVAILABLE_DEVELOPMENT);
+      return { state: UNAVAILABLE_DEVELOPMENT };
+    }
+    return { state: development ?? UNAVAILABLE_DEVELOPMENT, error: String(error) };
+  }
+}
+/** Null until the host answers. */
+export function useDevelopment(): DevelopmentState | null {
+  useEffect(() => {
+    if (developmentAsked) return;
+    developmentAsked = true;
+    void developmentRequest({ operation: "state" });
+  }, []);
+  return useSyncExternalStore(
+    (l) => {
+      developmentListeners.add(l);
+      return () => void developmentListeners.delete(l);
+    },
+    () => development,
+  );
+}

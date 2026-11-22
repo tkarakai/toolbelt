@@ -29,7 +29,7 @@ references, not implementation diaries, plans or reasoning transcripts.
 
 - Toolbelt is generic. Plugin implementation, assets, dependencies and behavior tests
   belong to plugin repos; do not copy them into the host or compile them during app builds.
-  The app consumes only a verified prebuilt demo seed. SDK and tester belong here.
+  The app consumes only a verified prebuilt demo seed. The SDK and plugin development mode belong here.
 - Packages run with user privileges in isolated Bun processes, not a security sandbox.
   No plugin JavaScript/HTML/React is injected into WKWebView. Do not add shared dependency
   resolution, ambient source fallbacks or publisher install scripts.
@@ -59,18 +59,19 @@ layouts, action wrapping, tab scrolling, dialogs, inspectors and tool details fo
 
 Run `bun run typecheck`, `bun test`, and `bun run build` as appropriate. Package/lifecycle
 changes need malformed archives/protocol, integrity, concurrency, crash/fault recovery and
-real archive execution checks. Build the tester with `bun scripts/build-tester.ts` when its
-runtime or packaging changes. Check SDK changes through fake-host tests and the SDK Explorer.
+real archive execution checks. Exercise local archives through plugin development mode
+([docs/plugin-development.md](docs/plugin-development.md)) in an isolated profile. Check SDK
+changes through fake-host tests and the SDK Explorer.
 
 Verify UI through `bun run preview` and `chrome-devtools-axi`, and native behavior with the
-standalone tester/debug API. Use isolated profiles, temporary homes, scratch resources,
+debug API, including plugin development mode's `/development` controls. Use isolated profiles, temporary homes, scratch resources,
 fake feeds and only disposable processes. Never kill, restart, focus or type into the user's
 processes/terminals, run real software updates, or test shell installation against real dotfiles.
 Only stop PIDs you started and clean up their tabs, ports and mounted disk images.
 
 Do not stop the user's dev app to obtain its build lock. Use a disposable source copy,
-excluding `.git`, `.hutch`, `build`, `build.noindex`, `dist`, `build-seed`, `artifacts` and
-`artifacts-tester`, and choose a separate config root/debug port. `bun run build` has the
+excluding `.git`, `.hutch`, `build`, `build.noindex`, `dist`, `build-seed` and `artifacts`,
+and choose a separate config root/debug port. `bun run build` has the
 official app identity: launch via `bun scripts/run-evaluation.ts` to use an isolated copy.
 Global shortcuts use Carbon through `hotkey.ts`; avoid Electrobun GlobalShortcut's silent
 Accessibility dependency. Release and updater rehearsal details are in maintenance.md.

@@ -16,6 +16,15 @@ import { displayAccelerator } from "../src/bun/hotkey";
 import { FileIcons } from "../src/bun/file-icon";
 import type { Phase, UpdateState } from "../src/bun/updater";
 import { githubMetadata } from "../src/bun/github-metadata";
+import { mkdirSync } from "node:fs";
+import {
+  DEVELOPMENT_ENV,
+  DevelopmentController,
+  DiagnosticLog,
+  LocalArchives,
+  developmentProfileName,
+  developmentRoot,
+} from "../src/bun/development";
 
 // Settings live in memory here (the preview doesn't touch the app's settings file).
 let settings: Settings = { ...DEFAULTS };
@@ -25,29 +34,62 @@ process.env.TOOLBELT_CONFIG_DIR ??= join(
   "Library/Application Support/Toolbelt Preview V2",
 );
 const port = Number(process.env.PORT ?? 5174);
+// TOOLBELT_DEVELOPMENT_PROFILE runs the preview on a development profile with local archives.
+// Mode switches relaunch the app, so the preview only reports them.
+const developmentProfile = process.env[DEVELOPMENT_ENV]
+  ? developmentProfileName(process.env[DEVELOPMENT_ENV])
+  : null;
+const root = developmentProfile
+  ? developmentRoot(configDir(homedir()), developmentProfile)
+  : configDir(homedir());
+mkdirSync(root, { recursive: true });
+const developmentLog = new DiagnosticLog();
 const host = new PluginHost({
   dirs: [],
-  registryRoot: configDir(homedir()),
+  registryRoot: root,
   bun: process.execPath,
   host: { name: "Toolbelt preview", version: pkg.version },
-  data: join(configDir(homedir()), "data"),
+  data: join(root, "data"),
+  diagnostic: (plugin, kind, detail) => developmentLog.record(kind, { plugin, detail }),
 });
-const packages = new PackageManager(configDir(homedir()), {
-  prepare: (id, reason) => host.prepare(id, reason),
-  stop: (id) => host.stopPlugin(id),
-  probe: (candidate, data) => host.probe(candidate, data),
-  activate: (p) => host.activate(p),
-  remove: (id) => host.remove(id),
-});
+const packages = new PackageManager(
+  root,
+  {
+    prepare: (id, reason) => host.prepare(id, reason),
+    stop: (id) => host.stopPlugin(id),
+    probe: (candidate, data) => host.probe(candidate, data),
+    activate: (p) => host.activate(p),
+    remove: (id) => host.remove(id),
+  },
+  pkg.version,
+  undefined,
+  undefined,
+  !!developmentProfile,
+);
 await packages.recover();
 const manager = new PluginManagerService(packages, host);
 
-const icons = new FileIcons(join(configDir(homedir()), "cache/icons"));
+const icons = new FileIcons(join(root, "cache/icons"));
 const clients = new Set<ServerWebSocket<{ opened: Set<string> }>>();
 const broadcast = (name: string, payload: unknown) =>
   clients.forEach((c) =>
     c.send(JSON.stringify({ kind: "message", name, payload })),
   );
+const localArchives = developmentProfile
+  ? new LocalArchives(packages, developmentLog, () => development.emit())
+  : null;
+const development = new DevelopmentController({
+  configRoot: configDir(homedir()),
+  profile: developmentProfile,
+  archives: localArchives,
+  log: developmentLog,
+  changed: (state) => broadcast("developmentState", state),
+  switchMode: async (profile) => {
+    throw new Error(
+      `The browser preview can't relaunch. Restart it ${profile ? `with ${DEVELOPMENT_ENV}=${profile}` : `without ${DEVELOPMENT_ENV}`}.`,
+    );
+  },
+});
 host.subscribe({
   plugins: (list) => broadcast("plugins", list),
   tree: (plugin, surface, tree) => broadcast("tree", { plugin, surface, tree }),
@@ -66,7 +108,8 @@ host.subscribe({
     }),
 });
 host.start();
-manager.start();
+manager.start({ scheduledChecks: !developmentProfile });
+localArchives?.resume();
 manager.subscribe((state) => broadcast("pluginManagerState", state));
 
 // A pretend update, to design the Updates card and dialog: a newer release is "available";
@@ -246,6 +289,8 @@ Bun.serve<{ opened: Set<string> }>({
             return void icons.get(p.path).then(reply);
           case "openUrl":
             return reply(false); // the browser opens links itself
+          case "development":
+            return reply(await development.request(p));
           case "updateState":
             return reply(update);
           case "checkForUpdates":

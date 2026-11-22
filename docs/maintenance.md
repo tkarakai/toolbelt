@@ -30,8 +30,7 @@ with temporary profile, renderer preferences, TUI installation home and distinct
 Generated apps are unregistered from Launch Services after builds.
 
 Dev and app builds share a lock. If an existing dev session is running, leave it alone and
-build a disposable source copy with separate config/ports. Tester builds stage their own
-source tree and emit into `artifacts-tester/`, separate from app artifact cleanup.
+build a disposable source copy with separate config/ports.
 
 ## Previewing app updates
 
@@ -52,7 +51,8 @@ or restarts an app. The browser preview also has its existing simulated update f
 | Installer/lifecycle/data | Packages, activation-integrity, owned-process and power-recovery tests; real package install/prepare/probe/restore/remove with isolated data |
 | Assets | Asset-path/content validation tests and rendered icons/images on both surfaces |
 | Manager | Real service/RPC/UI review/install, channel/check/cancel/cleanup/remove/recovery and reactive state; backend validation remains authoritative |
-| App updater/packaging | Updater unit tests, clean app/tester builds, mounted DMG identity/version/signature and disposable updater rehearsal |
+| Development mode | Development tests; preview with `TOOLBELT_DEVELOPMENT_PROFILE`; isolated native enter/exit relaunch, refusal, local load/watch/reset |
+| App updater/packaging | Updater unit tests, clean app builds, mounted DMG identity/version/signature and disposable updater rehearsal |
 
 Plugin behavior belongs in plugin repositories. Host tests use generic valid/broken fixtures;
 consume real released archives for integration without maintaining duplicate plugin source.
@@ -96,11 +96,11 @@ App controls include `/popover`, `/hide`, `/window?plugin=<id>&screen=<id>` and 
 The debug channel is local and enabled for development, or stable runs with an explicit
 update feed/debug setting. `window.__tbEvent(plugin, surface, name, payload)` sends plugin
 events; `window.__tbPerf` records render timing. Hidden windows are throttled by WebKit.
-The tester has its own `/state`, POST `/eval` and POST `/control` when a debug port is set.
-See [plugin-tester.md](plugin-tester.md).
+`/state` reports the mode and plugin profile; POST `/development` drives plugin development
+mode (see [plugin-development.md](plugin-development.md#automation)).
 
 Protocol stdout must remain JSON-lines; diagnostics use stderr. Inspect manager activity,
-errors and tester diagnostics before restarting. Never edit active package files: integrity
+errors and development-mode diagnostics before restarting. Never edit active package files: integrity
 verification rejects bytes that differ from the approved archive. Use a new plugin version
 or a fresh isolated development profile instead of weakening this check.
 
@@ -146,7 +146,7 @@ remain separate from implementation PRs, with complete checks for the products r
 
 ## Releases
 
-[releases.md](releases.md) is the authoritative app, SDK and tester runbook. It identifies
+[releases.md](releases.md) is the authoritative app and SDK runbook. It identifies
 which commands publish, exact prerequisites/artifacts, tag/draft/verification/publication
 steps, SDK/plugin dependency ordering and failure recovery. Release commands prepare version PRs; merging a validated release PR authorizes CI publication. Local build/package commands do not publish.
 Read that runbook before invoking any publication command.
@@ -162,6 +162,6 @@ Check compatibility rejection before download, busy-plugin refusal, bad hash pre
 signed swap/relaunch and retained managed data. Never use the daily installed app. Stop only
 owned PIDs, detach owned mounts and remove owned Launch Services registrations afterward.
 
-App and tester disk-image creation and verification mounts retry only `Resource busy` and
+App disk-image creation and verification mounts retry only `Resource busy` and
 `Resource temporarily unavailable` errors, with five attempts and 1/2/4/8-second delays.
 Other errors fail immediately; exhausted retries still require inspecting and retrying the release.

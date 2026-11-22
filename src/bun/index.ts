@@ -13,8 +13,18 @@ import Electrobun, {
   Utils,
   ApplicationMenu,
 } from "electrobun/main";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  DEVELOPMENT_ENV,
+  DevelopmentController,
+  DiagnosticLog,
+  LocalArchives,
+  developmentProfileName,
+  developmentRoot,
+} from "./development";
+import type { DevelopmentRequest } from "../shared/development";
 import { PluginHost, configDir } from "./host";
 import { PATHS } from "electrobun/main";
 import { PackageManager, type Installed } from "./packages";
@@ -59,16 +69,35 @@ if (channel === "dev" && !process.env.TOOLBELT_CONFIG_DIR)
     variant.settingsFolder,
   );
 let settings = loadSettings({ ...DEFAULTS, shortcut: variant.shortcut });
+// Plugin development mode (docs/plugin-development.md): one mode per process. Settings stay
+// shared with normal mode; plugin registry, packages and data use the development profile.
+const configRoot = configDir(homedir());
+const developmentProfile = (() => {
+  const requested = process.env[DEVELOPMENT_ENV];
+  if (!requested) return null;
+  try {
+    return developmentProfileName(requested);
+  } catch (error) {
+    console.error(`${DEVELOPMENT_ENV}: ${String(error)}; starting in normal mode`);
+    return null;
+  }
+})();
+const profileRoot = developmentProfile
+  ? developmentRoot(configRoot, developmentProfile)
+  : configRoot;
+mkdirSync(profileRoot, { recursive: true });
+/** The amber menu-bar glyph marks ToolBelt Dev builds and development mode. */
+const amberTray = channel === "dev" || !!developmentProfile;
 const devServer =
   channel === "dev" &&
   (await fetch("http://localhost:5173", { method: "HEAD" }).then(
     () => true,
     () => false,
   ));
-const profileQuery = process.env.TOOLBELT_CONFIG_DIR
+const profileQuery = process.env.TOOLBELT_CONFIG_DIR || developmentProfile
   ? "?profile=" +
     new Bun.CryptoHasher("sha256")
-      .update(configDir(homedir()))
+      .update(profileRoot)
       .digest("hex")
       .slice(0, 24)
   : "";
@@ -78,15 +107,22 @@ const viewUrl = (hash = "") =>
   hash;
 
 // ── plugins ──────────────────────────────────────────────────────────────
+const developmentLog = new DiagnosticLog();
 const host = new PluginHost({
   dirs: [],
-  registryRoot: configDir(homedir()),
+  registryRoot: profileRoot,
   bun: process.execPath,
   host: { name: variant.name, version: pkg.version },
-  data: join(configDir(homedir()), "data"),
+  data: join(profileRoot, "data"),
+  ...(developmentProfile
+    ? {
+        diagnostic: (plugin: string, kind: string, detail: unknown) =>
+          developmentLog.record(kind, { plugin, detail }),
+      }
+    : {}),
 });
 const packages = new PackageManager(
-  configDir(homedir()),
+  profileRoot,
   {
     prepare: (id, reason) => host.prepare(id, reason),
     stop: (id) => host.stopPlugin(id),
@@ -95,13 +131,19 @@ const packages = new PackageManager(
     remove: (id) => host.remove(id),
   },
   pkg.version,
+  undefined,
+  undefined,
+  !!developmentProfile,
 );
 await packages.recover();
 const manager = new PluginManagerService(packages, host);
 const seedDemo = () =>
   materializeSeed(packages, join(PATHS.RESOURCES_FOLDER, "app/seed"));
 
-const icons = new FileIcons(join(configDir(homedir()), "cache/icons"));
+const icons = new FileIcons(join(profileRoot, "cache/icons"));
+const localArchives = developmentProfile
+  ? new LocalArchives(packages, developmentLog, () => broadcastDevelopment())
+  : null;
 
 let debugReport: (id: number, value: unknown) => void = () => {};
 
@@ -222,6 +264,7 @@ function makeRPC() {
           else setHotKey(settings.shortcut, togglePopover);
           return true;
         },
+        development: (request) => developmentRequest(request),
         updateState: () => updater.state(),
         checkForUpdates: () => (void updater.check(), true),
         installUpdate: () => (void updater.install(), true),
@@ -296,7 +339,9 @@ function showWindow(plugin?: string, screen?: string, selection?: NavigationSele
   const hash = plugin ? `#/${plugin}${screen ? `/${screen}` : ""}` : "";
   pendingWindowFocus = true;
   win = new BrowserWindow({
-    title: variant.name,
+    title: developmentProfile
+      ? `${variant.name} — Plugin development (${developmentProfile})`
+      : variant.name,
     url: viewUrl(hash),
     frame: { width: 1180, height: 760 },
     titleBarStyle: "hiddenInset",
@@ -320,11 +365,10 @@ const popRPC = makeRPC();
 const { tray, popover } = createNativePopover({
   title: variant.name,
   url: viewUrl("#popover"),
-  image:
-    channel === "dev"
-      ? "views://assets/tray-icon-dev@2x.png"
-      : "views://assets/tray-icon@2x.png",
-  template: channel !== "dev",
+  image: amberTray
+    ? "views://assets/tray-icon-dev@2x.png"
+    : "views://assets/tray-icon@2x.png",
+  template: !amberTray,
   rpc: popRPC,
 });
 let popoverShownAt = 0;
@@ -377,7 +421,7 @@ const togglePopover = () =>
       ? undefined
       : showPopover();
 
-setTimeout(() => setTrayTemplate(!trayAlert && channel !== "dev"), 500);
+setTimeout(() => setTrayTemplate(!trayAlert && !amberTray), 500);
 tray.on("tray-clicked", () => togglePopover());
 // Clicking anywhere else dismisses it (ignore the blur that the click on the icon itself causes).
 popover.on("blur", () => {
@@ -386,10 +430,9 @@ popover.on("blur", () => {
 
 // ── updates (official builds only; src/bun/updater.ts) ───────────────────
 // Available updates use a neutral badge drawn for the menu bar’s current shade.
-const TRAY_IMAGE =
-  channel === "dev"
-    ? "views://assets/tray-icon-dev@2x.png"
-    : "views://assets/tray-icon@2x.png";
+const TRAY_IMAGE = amberTray
+  ? "views://assets/tray-icon-dev@2x.png"
+  : "views://assets/tray-icon@2x.png";
 let trayAlert: null | "light" | "dark" = null;
 function showTrayAlert(on: boolean) {
   const want = on ? (trayDark() ? "dark" : "light") : null;
@@ -397,33 +440,60 @@ function showTrayAlert(on: boolean) {
   trayAlert = want;
   tray.setImage(
     // Dev builds keep their orange glyph under the update badge.
-    want ? `views://assets/tray-icon${channel === "dev" ? "-dev" : ""}-update-${want}@2x.png` : TRAY_IMAGE,
+    want ? `views://assets/tray-icon${amberTray ? "-dev" : ""}-update-${want}@2x.png` : TRAY_IMAGE,
   );
   // Electrobun keeps the template flag it was created with; fix it once the image is in.
   for (const ms of [50, 400])
-    setTimeout(() => setTrayTemplate(!trayAlert && channel !== "dev"), ms);
+    setTimeout(() => setTrayTemplate(!trayAlert && !amberTray), ms);
 }
 
-let preparedForAppUpgrade: Installed[] = [];
-async function resumeAfterAppUpgradeFailure() {
+// App updates and mode switches stop this process: every running plugin must prepare first.
+// A refusal (or failure) leaves the refusing plugin untouched and reactivates the others.
+let preparedForRelaunch: Installed[] = [];
+async function prepareForRelaunch(reason: string) {
+  packages.beginHostUpgrade();
+  for (const plugin of host.list().filter((p) => p.state === "running")) {
+    const installed = packages.registry().plugins[plugin.manifest.id];
+    if (installed) {
+      try {
+        await host.prepare(installed.id, reason);
+      } catch (error) {
+        throw new Error(
+          `${installed.manifest.name} can't stop right now: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      preparedForRelaunch.push(installed);
+    }
+  }
+}
+async function resumeAfterRelaunchFailure() {
   packages.endHostUpgrade();
-  for (const p of preparedForAppUpgrade.splice(0)) {
+  for (const p of preparedForRelaunch.splice(0)) {
     const current = packages.registry().plugins[p.id];
     if (current?.enabled && !current.removed) await host.activate(current);
   }
 }
+/** Starts `app` once this process is gone (TOOLBELT_* settings kept, as given), then quits. */
+function relaunch(app: string, environment: Record<string, string | undefined>) {
+  const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
+  const env = Object.entries(environment)
+    .filter(
+      ([k, v]) =>
+        (k.startsWith("TOOLBELT_") ||
+          ["HOME", "SHELL", "PATH", "TMPDIR", "LANG", "LC_ALL", "USER"].includes(k)) &&
+        v !== undefined,
+    )
+    .map(([k, v]) => `--env ${q(`${k}=${v}`)}`)
+    .join(" ");
+  Bun.spawn(
+    ["/bin/sh", "-c", `(sleep 1; /usr/bin/open -n ${q(app)} ${env}) >/dev/null 2>&1 &`],
+    { stdio: ["ignore", "ignore", "ignore"] },
+  ).unref();
+  Utils.quit();
+}
 const updater = new AppUpdater({
-  prepareInstall: async () => {
-    packages.beginHostUpgrade();
-    for (const plugin of host.list().filter((p) => p.state === "running")) {
-      const installed = packages.registry().plugins[plugin.manifest.id];
-      if (installed) {
-        await host.prepare(installed.id, "host-upgrade");
-        preparedForAppUpgrade.push(installed);
-      }
-    }
-  },
-  resumeInstall: resumeAfterAppUpgradeFailure,
+  prepareInstall: () => prepareForRelaunch("host-upgrade"),
+  resumeInstall: resumeAfterRelaunchFailure,
   preflight: (version) => {
     const incompatible = Object.values(packages.registry().plugins).filter(
       (p) =>
@@ -439,7 +509,9 @@ const updater = new AppUpdater({
   version: pkg.version,
   channel,
   feed: process.env.TOOLBELT_UPDATE_FEED,
-  stateFile: join(configDir(homedir()), "update.json"),
+  // Development mode never replaces the app; its update state stays in the development profile.
+  ...(developmentProfile ? { enabled: false } : {}),
+  stateFile: join(profileRoot, "update.json"),
   appPath: bundleOf(process.execPath),
   onChange: (s: UpdateState) => {
     views.forEach((v) => v.send.updateState(s));
@@ -447,36 +519,53 @@ const updater = new AppUpdater({
   },
   // Start the new version once this one is gone, with its window open (and TOOLBELT_*
   // settings such as a test feed kept), then quit.
-  relaunch: (app) => {
-    const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
-    const env = Object.entries({ ...process.env, TOOLBELT_OPEN_WINDOW: "1" })
-      .filter(
-        ([k, v]) =>
-          (k.startsWith("TOOLBELT_") ||
-            [
-              "HOME",
-              "SHELL",
-              "PATH",
-              "TMPDIR",
-              "LANG",
-              "LC_ALL",
-              "USER",
-            ].includes(k)) &&
-          v !== undefined,
-      )
-      .map(([k, v]) => `--env ${q(`${k}=${v}`)}`)
-      .join(" ");
-    Bun.spawn(
-      [
-        "/bin/sh",
-        "-c",
-        `(sleep 1; /usr/bin/open -n ${q(app)} ${env}) >/dev/null 2>&1 &`,
-      ],
-      { stdio: ["ignore", "ignore", "ignore"] },
-    ).unref();
-    Utils.quit();
+  relaunch: (app) => relaunch(app, { ...process.env, TOOLBELT_OPEN_WINDOW: "1" }),
+});
+
+// ── plugin development mode (src/bun/development.ts) ────────────────────
+const development = new DevelopmentController({
+  configRoot,
+  profile: developmentProfile,
+  archives: localArchives,
+  log: developmentLog,
+  changed: (state) => views.forEach((v) => v.send.developmentState(state)),
+  chooseArchive: async (startingFolder) => {
+    const [path] = await Utils.openFileDialog({
+      startingFolder: startingFolder ?? "~/",
+      allowedFileTypes: "gz",
+      canChooseFiles: true,
+      canChooseDirectory: false,
+      allowsMultipleSelection: false,
+    });
+    return path || null;
+  },
+  // Prepare every running plugin, then relaunch; a refusal reactivates the prepared ones.
+  switchMode: async (profile) => {
+    const app = bundleOf(process.execPath);
+    if (!app) throw new Error("ToolBelt can't find its app bundle to relaunch");
+    const phase = updater.state().phase.kind;
+    if (phase !== "idle" && phase !== "failed")
+      throw new Error("Wait for the app update to finish before switching modes");
+    try {
+      await prepareForRelaunch("mode-switch");
+    } catch (error) {
+      await resumeAfterRelaunchFailure();
+      throw error;
+    }
+    localArchives?.closeWatches();
+    relaunch(app, {
+      ...process.env,
+      TOOLBELT_OPEN_WINDOW: "1",
+      [DEVELOPMENT_ENV]: profile ?? undefined,
+    });
+    // Quitting is under way; keep reporting a switch in progress until the process ends.
+    await new Promise(() => {});
   },
 });
+const developmentRequest = (request: DevelopmentRequest) => development.request(request);
+function broadcastDevelopment() {
+  development.emit();
+}
 
 let shortcutError = setHotKey(settings.shortcut, togglePopover);
 if (shortcutError) console.error(`shortcut: ${shortcutError}`);
@@ -499,6 +588,9 @@ ApplicationMenu.setApplicationMenu([
         accelerator: "CommandOrControl+,",
       },
       { label: "Check for Updates…", action: "check-updates" },
+      ...(developmentProfile
+        ? [{ label: "Return to Normal Mode", action: "exit-development" }]
+        : []),
       { type: "separator" },
       { role: "hide", accelerator: "CommandOrControl+H" },
       { role: "hideOthers", accelerator: "CommandOrControl+Option+H" },
@@ -563,6 +655,10 @@ Electrobun.events.on("application-menu-clicked", (e: any) => {
     showWindow("toolbelt", "updates");
     void updater.check();
   }
+  if (action === "exit-development")
+    void developmentRequest({ operation: "exit" }).then((r) => {
+      if (r.error) views.forEach((v) => v.send.toast({ plugin: "toolbelt", text: r.error!, tone: "error" }));
+    });
   if (action === "toggle-sidebar")
     winRPC?.send.command({ name: "toggleSidebar" });
   if (action === "toggle-details")
@@ -583,7 +679,10 @@ function requestQuit() {
 
 // Clicking the Dock icon while the window is closed (shouldn't happen, but be kind).
 Electrobun.events.on("reopen", () => showWindow());
-Electrobun.events.on("before-quit", () => host.stop());
+Electrobun.events.on("before-quit", () => {
+  localArchives?.closeWatches();
+  host.stop();
+});
 
 // ── debug channel (dev builds, TOOLBELT_DEBUG_PORT) ─────────────────────
 // Drive and inspect the real app without screen recording: show/hide things, read state, and
@@ -624,6 +723,13 @@ if (
         return new Response("Forbidden origin", { status: 403 });
       const url = new URL(req.url);
       const q = url.searchParams;
+      if (url.pathname === "/development") {
+        if (req.method !== "POST") return new Response("POST JSON", { status: 405 });
+        const request = await req.json().catch(() => null);
+        if (!request || typeof request !== "object")
+          return Response.json({ error: "Invalid JSON" }, { status: 400 });
+        return Response.json(await developmentRequest(request as DevelopmentRequest));
+      }
       switch (url.pathname) {
         case "/popover":
           showPopover();
@@ -666,6 +772,8 @@ if (
         trayTemplate: trayTemplate(),
         trayAlert,
         update: updater.state(),
+        development: development.state(),
+        profile: profileRoot,
         pid: process.pid,
         execPath: process.execPath,
         display: Screen.getPrimaryDisplay(),
@@ -681,10 +789,14 @@ if (
 
 Utils.setDockIconVisible(false);
 host.start();
-void seedDemo().catch((error) => console.error("SDK demo seed:", error));
+// Development profiles start empty: no seed and no scheduled plugin update checks.
+if (!developmentProfile)
+  void seedDemo().catch((error) => console.error("SDK demo seed:", error));
+// Archives the developer chose to watch keep reloading after a relaunch into this profile.
+localArchives?.resume();
 if (process.env.TOOLBELT_OPEN_WINDOW) showWindow();
 updater.start();
-manager.start();
+manager.start({ scheduledChecks: !developmentProfile });
 // Wake from sleep: the network takes a moment to come back, then see if a check is due (the
 // 15-minute tick would get there too). Noticed as a gap in a once-a-minute heartbeat.
 let heartbeat = Date.now();
@@ -696,7 +808,7 @@ setInterval(() => {
   if (trayAlert) showTrayAlert(true); // the menu bar may have changed shade
 }, 60_000);
 console.log(
-  `ToolBelt ${pkg.version} (${channel}) — plugins: ${
+  `ToolBelt ${pkg.version} (${channel}${developmentProfile ? `, development profile ${developmentProfile}` : ""}) — plugins: ${
     host
       .list()
       .map((p) => p.manifest.id)
