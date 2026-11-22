@@ -93,6 +93,11 @@ const hue = enumeration(
 const color = union(tone, hue);
 /** One key, or `alt+`/`shift+` (in that order) before a key or an arrow name. */
 export const ACTION_KEY = /^(?:.|(?:alt\+(?:shift\+)?|shift\+)(?:[^+\s]|up|down|left|right))$/u;
+/**
+ * A toast button's shortcut: ⌘, optionally ⇧, and a letter. Letters the system or the host
+ * already own with ⌘ (clipboard, select all, find, hide, minimize, close, quit) are refused.
+ */
+export const TOAST_KEY = /^cmd\+(?:shift\+)?(?![acfhmqvwx]$)[a-z]$/u;
 const dot = union(
   color,
   object({
@@ -657,7 +662,15 @@ export function validateMessage(
       text,
       tone: optional(enumeration("default", "success", "error")),
       action: optional(
-        object({ id: text, label: text, payload: optional(any) }),
+        object({
+          id: text,
+          label: text,
+          payload: optional(any),
+          key: optional((v: unknown, p: string) => {
+            text(v, p);
+            if (!TOAST_KEY.test(v as string)) fail(p);
+          }),
+        }),
       ),
     }),
     clipboard: object({ type: literal("clipboard"), text }),

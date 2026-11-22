@@ -43,6 +43,8 @@ lets people drag rows within and between sections, sending `reorder` (`ui.row-re
 `ui.row-pane` adds `Row.pane`, nodes the details drawer shows to edit the row in place (forms
 with `appearance: "inline"`, `text` fields with `heading`), `Action.focus` and table `enter`.
 `ui.composer` adds the `composer` node, `timeline` `edit` and `Action.input`.
+`ui.toast-key` gives a toast button a ⌘ shortcut (`key: "cmd+z"`), shown on the button and
+pressed while the toast shows; older hosts ignore it.
 `ui.sub-sections` lets a table section declare `sections` of its own (one level), shown even
 when empty; rows join them with `group: "<sub id>"` and `reorder` names them in `section`.
 Tables with `appearance: "document"` drop row lines and tinted section headers; `Tag.shade`

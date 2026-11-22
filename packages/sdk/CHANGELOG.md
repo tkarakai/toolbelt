@@ -1,6 +1,7 @@
 # SDK changelog
 
 ## Unreleased
+- Add `ToastAction.key` behind the new `ui.toast-key` capability: a ⌘ shortcut for a toast's button (`cmd+`, optionally `shift+`, then a lowercase letter, such as `"cmd+z"`). The main window shows it on the button and sends the button's event when it's pressed while the toast shows, except while focus is in a text field, menu or dialog. Keys the system or host own with ⌘ (A, C, F, H, M, Q, V, W, X) are rejected. Older hosts ignore it. `ToastAction` is exported.
 - Add `Section.sections` behind the new `ui.sub-sections` capability: declared sub-sections, one level deep, drawn like sections and indented under their parent. Each shows even when empty (with its `empty` text), can start `collapsed` and takes drops by its own `order`, `dropLabel` and `dropIcon`. Rows join one with `group: "<sub id>"` (or a path starting with it); a drop into one sends `reorder` with the sub-section's id as `section`. Validation rejects deeper nesting and section or sub-section ids used twice in a table.
 
 ## 0.3.8 — 2026-11-15

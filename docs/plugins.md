@@ -121,7 +121,7 @@ explicit targets such as `darwin-arm64` or `darwin-x64`; ship every required bin
 
 Capabilities are `ui.core`, `ui.action-key`, `ui.terminal`, `ui.conversation`, `assets`,
 `lifecycle`, `native.handoff`, `ui.split-action`, `navigate`, `ui.rich-fields`, `ui.row-select`,
-`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane`, `ui.composer` and `ui.sub-sections`. Require what cannot be omitted. For optional features, test
+`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane`, `ui.composer`, `ui.sub-sections` and `ui.toast-key`. Require what cannot be omitted. For optional features, test
 `context.capabilities.has(name)` and render a working fallback. Unknown required features
 prevent activation; declaring a feature optional does not implement its fallback.
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing
@@ -344,6 +344,16 @@ Rejected calls are logged as diagnostics. An honored call opens or focuses the m
 shows the screen and selects `select` there through the same stable-ID handoff as quick-view
 Enter. A toast button reaches the
 plugin as an event with `surface: "toast"`, so the plugin can respond to it by navigating.
+
+With `ui.toast-key`, a toast button can have a ⌘ shortcut: `key` is `cmd+`, optionally
+`shift+`, then a lowercase letter, such as `"cmd+z"` for Undo. While the toast shows, the main
+window shows the key on the button (Undo ⌘Z) and pressing it sends the button's event, as a
+click would, and dismisses the toast. The newest toast with that key wins, and it wins over
+screen shortcuts. It doesn't fire while focus is in a text field, menu or dialog, so ⌘Z there
+still undoes typing, and it never fires in the menu-bar quick view, which shows no toasts.
+Keys the system or host own with ⌘ (A, C, F, H, M, Q, V, W, X) are refused. Older hosts ignore
+`key` and show the plain button, so it needs no fallback; mention the key in the toast's text
+only when the capability is present.
 Without the `navigate` capability, the SDK method returns false and sends nothing.
 
 ### Rich form fields

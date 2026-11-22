@@ -14,6 +14,7 @@ import {
   type HostMessage,
   type Node,
   type PluginMessage,
+  type ToastAction,
 } from "../shared/protocol";
 import { resolve, sep } from "node:path";
 import {
@@ -51,6 +52,7 @@ export type {
   Manifest,
   HostMessage,
   PluginMessage,
+  ToastAction,
 } from "../shared/protocol";
 export { HUES } from "../shared/protocol";
 export { duration, relative } from "../shared/time";
@@ -115,10 +117,14 @@ export type Context = {
   /** Re-render open surfaces (all, or the ones named). */
   invalidate(...surfaces: string[]): void;
   badge(value: number | string | null): void;
+  /**
+   * A short notification in the main window. `action` adds a button that sends its event with
+   * surface "toast"; with `ui.toast-key` its `key` (such as `"cmd+z"`) presses it too.
+   */
   toast(
     text: string,
     tone?: "default" | "success" | "error",
-    action?: { id: string; label: string; payload?: unknown },
+    action?: ToastAction,
   ): void;
   /** Put text on the clipboard. */
   copy(text: string): void;

@@ -66,10 +66,27 @@ export function menuActionForEvent(actions: Action[], e: KeyLike & { metaKey?: b
 	return actionForEvent(actions, e);
 }
 
-const KEY_SYMBOLS: Record<string, string> = { alt: "⌥", shift: "⇧", up: "↑", down: "↓", left: "←", right: "→" };
-/** How a shortcut is shown: "alt+up" → "⌥↑", "j" → "J". */
-export const formatKey = (key: string): string =>
-	key.length === 1 ? key.toUpperCase() : key.split("+").map((part) => KEY_SYMBOLS[part] ?? part.toUpperCase()).join("");
+const KEY_SYMBOLS: Record<string, string> = { alt: "⌥", shift: "⇧", cmd: "⌘", up: "↑", down: "↓", left: "←", right: "→" };
+/** macOS's modifier order: ⌥⇧⌘. */
+const MODIFIER_ORDER = ["alt", "shift", "cmd"];
+/** How a shortcut is shown: "alt+up" → "⌥↑", "cmd+shift+z" → "⇧⌘Z", "j" → "J". */
+export function formatKey(key: string): string {
+	if (key.length === 1) return key.toUpperCase();
+	const parts = key.split("+");
+	const mods = MODIFIER_ORDER.filter((m) => parts.includes(m));
+	return [...mods, ...parts.filter((p) => !MODIFIER_ORDER.includes(p))].map((part) => KEY_SYMBOLS[part] ?? part.toUpperCase()).join("");
+}
+
+/**
+ * Whether a key press is a toast button's shortcut (`cmd+z`, `cmd+shift+z`): exactly those
+ * modifiers, the letter from the physical key, and not auto-repeat.
+ */
+export function isToastKey(key: string, e: KeyLike & { metaKey?: boolean; ctrlKey?: boolean; repeat?: boolean }): boolean {
+	const m = /^cmd\+(shift\+)?([a-z])$/.exec(key);
+	if (!m || !e.metaKey || e.ctrlKey || e.altKey || e.repeat || !!e.shiftKey !== !!m[1]) return false;
+	const letter = e.code && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
+	return letter === m[2];
+}
 
 // ── tree layout: everything lines up with its parent's title ─────────────
 

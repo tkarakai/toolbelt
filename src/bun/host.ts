@@ -11,6 +11,7 @@ import {
   type Manifest,
   type Node,
   type PluginMessage,
+  type ToastAction,
 } from "../shared/protocol";
 import {
   LIMITS,
@@ -63,7 +64,7 @@ type Listener = {
     plugin: string,
     text: string,
     tone?: "default" | "success" | "error",
-    action?: { id: string; label: string; payload?: unknown },
+    action?: ToastAction,
   ): void;
   clipboard?(plugin: string, text: string): void;
   /** Show the plugin's screen in the main window (already checked: declared, user-initiated). */
