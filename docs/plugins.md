@@ -454,6 +454,11 @@ With `ui.modifier-keys`, `Action.key` may put `alt+` and/or `shift+` (in that or
 key or `up`, `down`, `left`, `right`: `"alt+up"`, `"shift+s"`. They act on the selected row
 and are shown as ⌥↑ and ⇧S. Plain keys behave as before. Older hosts reject these keys.
 
+Action keys also work inside an open action menu (the row's ⋯ menu, the drawer's ⋯ menu and a
+split button's alternatives): the key runs the action as picking its item would, with its
+`confirm`, or asks which target first. Other letters jump to matching items. Older hosts
+only moved the highlight there.
+
 ### Toolbar action keys
 
 `Action.key` on a page's toolbar actions works too ("n" for New task) and shows as a key hint on

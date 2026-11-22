@@ -121,7 +121,9 @@ places a row whose group names a sub-section under its parent (`[parent, sub, �
 renderer and the selection handoff. The drag logic (where a drop lands, which drops change
 nothing, the optimistic move shown until the next tree) is pure code in `renderer/pure.ts`.
 Action keys may carry `alt+`/`shift+`; `keyNames` reads the physical key because ⌥ changes the
-typed character on macOS.
+typed character on macOS. Open action menus (row ⋯, drawer ⋯, split-button alternatives) run an
+action from its key in their own `onKeyDown` (`menuActionForEvent`), preventing Radix typeahead
+only for matching keys; actions with targets switch the menu to its "which one?" view.
 Tables lay out declared column widths with fixed table layout; people resize and reorder
 columns by dragging headers, and the renderer saves those choices per plugin table. Resizing
 drags the boundary between two columns: the columns to its right pay for the change and

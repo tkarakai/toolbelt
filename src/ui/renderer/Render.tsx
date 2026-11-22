@@ -27,7 +27,7 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
 import { isTyping, SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { TerminalView } from "./Terminal";
-import { actionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
+import { actionForEvent, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
 import { parseMarkdown, safeHref, type Block, type Inline } from "./markdown";
@@ -202,6 +202,7 @@ function AlternativeItem({ a, onRun, inset }: { a: Action; onRun: (a: Action) =>
  * its alternatives. Both halves share the variant and a 1 px divider separates them.
  */
 function SplitButton({ a, size, variant, onRun, hints, className }: { a: Action; size: "sm" | "default"; variant: ButtonVariant; onRun: (a: Action) => void; hints?: ReactNode; className?: string }) {
+	const [open, setOpen] = useState(false);
 	const main = (
 		<Button size={size} disabled={a.disabled} variant={variant} onClick={() => onRun(a)} className={cn(a.menu?.length && "rounded-r-none", className)}>
 			{a.icon && <Icon name={a.icon} />}
@@ -213,7 +214,7 @@ function SplitButton({ a, size, variant, onRun, hints, className }: { a: Action;
 	return (
 		<div role="group" aria-label={a.label} data-slot="split-button" className="inline-flex shrink-0 items-stretch">
 			{main}
-			<DropdownMenu>
+			<DropdownMenu open={open} onOpenChange={setOpen}>
 				<DropdownMenuTrigger asChild>
 					<Button
 						size={size === "sm" ? "icon-sm" : "icon"}
@@ -230,7 +231,7 @@ function SplitButton({ a, size, variant, onRun, hints, className }: { a: Action;
 						<ChevronDown className="size-3.5" />
 					</Button>
 				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="min-w-48" onCloseAutoFocus={toTable}>
+				<DropdownMenuContent align="end" className="min-w-48" onCloseAutoFocus={toTable} onKeyDown={runByKey(a.menu, (m) => (setOpen(false), onRun(m)))}>
 					{a.menu.map((m) => (
 						<AlternativeItem key={m.id} a={m} onRun={onRun} />
 					))}
@@ -892,14 +893,28 @@ const pickByDigit = (targets: Target[], onPick: (t: Target) => void) => (e: Reac
 	const n = Number(e.key);
 	if (n >= 1 && n <= 9 && targets[n - 1]) (e.preventDefault(), onPick(targets[n - 1]));
 };
+/** In an open action menu an action's key runs it, as clicking its item would, instead of
+ *  Radix's typeahead (which skips prevented events). Keys from portalled submenus stay theirs. */
+const runByKey = (actions: Action[], onRun: (a: Action) => void) => (e: React.KeyboardEvent) => {
+	if (e.defaultPrevented || !e.currentTarget.contains(e.target as globalThis.Node)) return;
+	const a = menuActionForEvent(actions, e.nativeEvent);
+	if (a) (e.preventDefault(), onRun(a));
+};
+/** After a key swaps a menu to "which one?", the keyboard goes to its first choice (the item
+ *  that had focus is gone), so ↑/↓ and 1…9 keep working. */
+const focusFirstItem = (content: HTMLElement | null) =>
+	requestAnimationFrame(() => (content?.querySelector<HTMLElement>("[role=menuitem]") ?? content)?.focus({ preventScroll: true }));
 
 function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setChoosing }: { actions: Action[]; row: Row; run: Run; menuOpen: boolean; setMenuOpen: (open: boolean) => void; choosing: string | null; setChoosing: (action: string | null) => void }) {
 	const self = useRef<HTMLDivElement>(null);
+	const content = useRef<HTMLDivElement>(null);
 	if (!actions.length) return null;
 	const pending = actions.find(a => a.id === choosing);
 	const targets = pending && choicesFor(row, pending);
 	const close = () => { setMenuOpen(false); setChoosing(null); };
 	const pick = (a: Action, target?: string) => { close(); run(a, row.id, target ? { target } : undefined); };
+	// A key does what clicking does: actions with several targets ask which one.
+	const byKey = (a: Action) => (actions.includes(a) && choicesFor(row, a) ? (setChoosing(a.id), focusFirstItem(content.current)) : pick(a));
 	return (
 		<div ref={self} onClick={e => e.stopPropagation()}>
 			<DropdownMenu open={menuOpen || !!targets} onOpenChange={open => { setMenuOpen(open); if (!open) setChoosing(null); }}>
@@ -913,7 +928,7 @@ function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setCho
 					</TooltipTrigger>
 					<TooltipContent><span className="flex items-center gap-2">All actions <Kbd>.</Kbd></span></TooltipContent>
 				</Tooltip>
-				<DropdownMenuContent align="end" className={targets ? "w-72" : "w-60"} onCloseAutoFocus={e => { e.preventDefault(); refocusTable(self.current); }} onKeyDown={targets && pending ? pickByDigit(targets, t => pick(pending, t.id)) : undefined}>
+				<DropdownMenuContent ref={content} align="end" className={targets ? "w-72" : "w-60"} onCloseAutoFocus={e => { e.preventDefault(); refocusTable(self.current); }} onKeyDown={targets && pending ? pickByDigit(targets, t => pick(pending, t.id)) : runByKey(actions, byKey)}>
 					{pending && targets ? <TargetItems a={pending} targets={targets} onPick={t => pick(pending, t.id)} /> : groupActions(actions).map((group, gi) => (
 						<DropdownMenuGroup key={gi}>
 							{gi > 0 && <DropdownMenuSeparator />}
@@ -2159,6 +2174,16 @@ function RowPane({ row, pane, actions, run, emit }: { row: Row; pane: Node[]; ac
 	const groups = groupActions(actions);
 	const first = groups[0] ?? [];
 	const runAction = (a: Action, target?: string) => run(a, row.id, target ? { target } : undefined);
+	// Which menu is open (an action's id, or "" for ⋯), and the ⋯ menu's "which one?" action.
+	const [menu, setMenu] = useState<string | null>(null);
+	const [choosing, setChoosing] = useState<Action | null>(null);
+	const allMenu = useRef<HTMLDivElement>(null);
+	const openMenu = (id: string) => (open: boolean) => {
+		setMenu(open ? id : null);
+		if (!open) setChoosing(null);
+	};
+	const fromMenu = (a: Action, target?: string) => (setMenu(null), setChoosing(null), runAction(a, target));
+	const choosingTargets = choosing ? choicesFor(row, choosing) : undefined;
 	const tip = (a: Action) => (
 		<TooltipContent>
 			{a.label}
@@ -2185,14 +2210,15 @@ function RowPane({ row, pane, actions, run, emit }: { row: Row; pane: Node[]; ac
 								</Tooltip>
 							);
 						return (
-							<DropdownMenu key={a.id}>
+							<DropdownMenu key={a.id} open={menu === a.id} onOpenChange={openMenu(a.id)}>
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
 									</TooltipTrigger>
 									{tip(a)}
 								</Tooltip>
-								<DropdownMenuContent align="start" className="min-w-48" onCloseAutoFocus={paneMenuClosed}>
+								{/* Alternatives answer their keys; targets share the action's key, so they don't. */}
+								<DropdownMenuContent align="start" className="min-w-48" onCloseAutoFocus={paneMenuClosed} onKeyDown={targets ? undefined : runByKey([a], (x) => fromMenu(x))}>
 									{choices.map((c, i) => (
 										<DropdownMenuItem key={`${c.id}:${c.target ?? i}`} disabled={c.disabled} variant={c.tone === "destructive" ? "destructive" : "default"} onSelect={() => runAction(c, c.target)}>
 											{c.icon && <Icon name={c.icon} />}
@@ -2204,7 +2230,7 @@ function RowPane({ row, pane, actions, run, emit }: { row: Row; pane: Node[]; ac
 							</DropdownMenu>
 						);
 					})}
-					<DropdownMenu>
+					<DropdownMenu open={menu === "" || !!choosingTargets} onOpenChange={openMenu("")}>
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<DropdownMenuTrigger asChild>
@@ -2217,8 +2243,18 @@ function RowPane({ row, pane, actions, run, emit }: { row: Row; pane: Node[]; ac
 								All actions <KeyHint keys="." />
 							</TooltipContent>
 						</Tooltip>
-						<DropdownMenuContent align="end" className="min-w-56" onCloseAutoFocus={paneMenuClosed}>
-							{groups.map((g, gi) => (
+						<DropdownMenuContent
+							ref={allMenu}
+							align="end"
+							className={choosingTargets ? "w-72" : "min-w-56"}
+							onCloseAutoFocus={paneMenuClosed}
+							onKeyDown={
+								choosing && choosingTargets
+									? pickByDigit(choosingTargets, (t) => fromMenu(choosing, t.id))
+									: runByKey(actions, (a) => (actions.includes(a) && choicesFor(row, a) ? (setChoosing(a), focusFirstItem(allMenu.current)) : fromMenu(a)))
+							}
+						>
+							{choosing && choosingTargets ? <TargetItems a={choosing} targets={choosingTargets} onPick={(t) => fromMenu(choosing, t.id)} /> : groups.map((g, gi) => (
 								<Fragment key={gi}>
 									{gi > 0 && <DropdownMenuSeparator />}
 									<DropdownMenuGroup>
