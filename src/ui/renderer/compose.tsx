@@ -2,12 +2,7 @@
 // ⌘↵ and cancels on Esc, the `composer` node built on it, and the inline Markdown field of a
 // drawer's property sheet (formatted text that turns into an editor). Typing stays here; the
 // plugin hears what was sent or committed.
-import { createContext, forwardRef, useContext, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { EditorState } from "@codemirror/state";
-import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { syntaxHighlighting } from "@codemirror/language";
-import { markdown } from "@codemirror/lang-markdown";
+import { createContext, forwardRef, lazy, Suspense, useContext, useEffect, useRef, useState } from "react";
 import type { Field, Node } from "../../shared/protocol";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/icon";
@@ -16,7 +11,6 @@ import { overlayOpen } from "@/lib/keyboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { KeyHint } from "@/components/key-hint";
-import { editorTheme, markdownStyle } from "./fields";
 import { Markdown, type Emit } from "./Render";
 
 /** The row whose drawer pane holds what's rendered (its events carry it as `rowId`). */
@@ -24,7 +18,7 @@ export const PaneRow = createContext<string | undefined>(undefined);
 
 export type MarkdownBoxHandle = { focus(): void; set(text: string): void; text(): string };
 
-type BoxProps = {
+export type BoxProps = {
 	value: string;
 	label: string;
 	placeholder?: string;
@@ -41,58 +35,23 @@ type BoxProps = {
 	className?: string;
 };
 
-/** Markdown styled as it's typed (as in a Markdown `textarea`), with send and cancel keys. */
+const LazyBox = lazy(() => import("./editor").then((m) => ({ default: m.MarkdownBox })));
+
+/**
+ * Markdown styled as it's typed (as in a Markdown `textarea`), with send and cancel keys. The
+ * editor (editor.tsx) loads on first use; until then an empty box of the same size holds its place.
+ */
 export const MarkdownBox = forwardRef<MarkdownBoxHandle, BoxProps>(function MarkdownBox(props, ref) {
-	const host = useRef<HTMLDivElement>(null);
-	const view = useRef<EditorView | null>(null);
-	const latest = useRef(props);
-	latest.current = props;
-	useImperativeHandle(ref, () => ({
-		focus: () => view.current?.focus(),
-		set: (text) => view.current?.dispatch({ changes: { from: 0, to: view.current.state.doc.length, insert: text } }),
-		text: () => view.current?.state.doc.toString() ?? "",
-	}));
-	useEffect(() => {
-		const text = () => view.current?.state.doc.toString() ?? "";
-		view.current = new EditorView({
-			parent: host.current!,
-			state: EditorState.create({
-				doc: props.value,
-				extensions: [
-					history(),
-					// No Tab binding: Tab moves on to the next control, as everywhere else.
-					keymap.of([
-						{ key: "Mod-Enter", run: () => (latest.current.onSubmit?.(text()), !!latest.current.onSubmit) },
-						{ key: "Escape", run: () => (latest.current.onCancel?.(), !!latest.current.onCancel) },
-						...defaultKeymap,
-						...historyKeymap,
-					]),
-					markdown(),
-					syntaxHighlighting(markdownStyle),
-					editorTheme,
-					EditorView.lineWrapping,
-					EditorView.contentAttributes.of({ "aria-label": props.label, "aria-multiline": "true" }),
-					EditorView.updateListener.of((u) => u.docChanged && latest.current.onChange?.(text())),
-					EditorView.domEventHandlers({ blur: () => latest.current.onBlur?.(text()), focus: () => latest.current.onFocus?.() }),
-					...(props.placeholder ? [placeholderExt(props.placeholder)] : []),
-				],
-			}),
-		});
-		if (props.autoFocus) {
-			view.current.focus();
-			view.current.dispatch({ selection: { anchor: view.current.state.doc.length } });
-		}
-		return () => view.current?.destroy();
-		// Created once; the owner sets new text through the handle.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
-	return (
+	const fallback = (
 		<div
-			ref={host}
-			onClick={() => view.current?.focus()}
 			style={{ minHeight: `${(props.rows ?? 1) * 1.55 + 1}rem` }}
-			className={cn("cursor-text rounded-lg border border-input bg-background transition-[border-color,box-shadow,min-height] duration-200 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30", props.className)}
+			className={cn("rounded-lg border border-input bg-background dark:bg-input/30", props.className)}
 		/>
+	);
+	return (
+		<Suspense fallback={fallback}>
+			<LazyBox ref={ref} {...props} />
+		</Suspense>
 	);
 });
 

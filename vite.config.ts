@@ -17,7 +17,8 @@ export default defineConfig({
 	build: {
 		outDir: "../../dist",
 		emptyOutDir: true,
-		// Local files, no network: one bundle (it includes every lucide icon plugins may name).
+		// Local files, no network: the main bundle includes every lucide icon plugins may name.
+		// CodeMirror (renderer/editor.tsx) and xterm.js (renderer/Terminal.tsx) are lazy chunks.
 		chunkSizeWarningLimit: 2000,
 	},
 	server: {
