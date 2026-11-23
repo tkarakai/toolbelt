@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.15 — 2026-11-23
 - Plugins can draw a table cell's text or a list item's title in any color, bold or italic.
 - Quick-view items show their status dot right before the title, next to the unread dot, instead of before the icon.
 
