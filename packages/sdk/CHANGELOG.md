@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.3.10 — 2026-11-23
 - Add `TextStyle` (`color`: a tone or hue, `bold`, `italic`), `Cell.style` and list items' `titleStyle`. A style's `color` wins over a cell's `tone`, and colors stay readable on a selected row or active item. Validation rejects unknown colors and non-boolean `bold`/`italic`. Older hosts ignore them.
 - List items draw `dot` before the title (after the icon, after the unread dot), as cells do.
 
