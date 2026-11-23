@@ -1,6 +1,6 @@
 {
   "name": "toolbelt",
-  "version": "0.3.15",
+  "version": "0.3.16",
   "private": true,
   "description": "One app, one menu bar icon, many small tools.",
   "type": "module",
