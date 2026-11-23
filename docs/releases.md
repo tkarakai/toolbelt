@@ -36,8 +36,8 @@ session's app to obtain a build lock; the check command builds in its own stagin
 
 Release-only PRs remain mandatory. A Toolbelt SDK release-only diff must change exactly
 `.toolbelt-release.json`, `packages/sdk/CHANGELOG.md` and the `SDK_VERSION` constant in
-`src/shared/package.ts`. Its CI runs `bun run sdk:check` and `bun run sdk:package`, plus
-the normal secret/workflow checks and required CI gate. SDK checks include standalone
+`src/shared/package.ts`. Its CI runs `bun run sdk:check` and `bun run sdk:package` on Linux, plus
+the normal secret/workflow checks and required CI gate; the macOS app job is skipped. SDK checks include standalone
 typechecking, runtime/fake-host and protocol tests, package/integrity/recovery checks used
 by the bundled release CLI, and installation/execution of the SDK archive. It does not
 bootstrap Electrobun or build the app, seed or disk images.
@@ -55,7 +55,9 @@ publication verification remain required.
 The Release workflow installs frozen dependencies and builds the exact authorized merged source.
 It runs tests, validates archives with the host's bounded extractor/schema and real child-process
 readiness, screens, quick view and probe preparation. Plugin smoke processes receive temporary
-homes/data and no GitHub credentials. Native package execution runs on each declared target's
+homes/data and no GitHub credentials. Planning and publication run on Linux, as does the SDK
+candidate build; only the app build (Electrobun, DMG) and plugin target checks use macOS runners.
+Native package execution runs on each declared target's
 runner before publication; platform-specific business tests remain in the product repository.
 
 The candidate is built once and saved with `release-record.json`: source, repository, product,

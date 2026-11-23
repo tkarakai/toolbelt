@@ -21,12 +21,14 @@ env:
 
 jobs:
   test:
-    # macOS: the app is a macOS app (Electrobun + WKWebView).
-    name: Test and build
-    runs-on: macos-latest
+    # Everything that runs anywhere: release request, scope, SDK and host tests, SDK archive.
+    name: Test
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
+    outputs:
+      sdk: ${{ steps.scope.outputs.sdk }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -51,17 +53,37 @@ jobs:
       - name: Standalone SDK typecheck
         if: steps.scope.outputs.sdk != 'true'
         run: bun run sdk:typecheck
-      - name: Electrobun devkit (pinned bootstrap, checksum-verified Hutch)
+      - name: Tests (the Carbon hotkey test runs on macOS)
         if: steps.scope.outputs.sdk != 'true'
+        run: bun test --path-ignore-patterns='test/hotkey.test.ts'
+      - name: Build SDK artifact
+        run: bun run sdk:package
+
+  macos:
+    # Only what needs macOS: the Electrobun devkit and app typecheck, Carbon, the app, its disk image.
+    name: macOS app
+    needs: test
+    if: needs.test.outputs.sdk != 'true'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Electrobun devkit (pinned bootstrap, checksum-verified Hutch)
         run: bunx electrobun prepare
       - name: Typecheck
-        if: steps.scope.outputs.sdk != 'true'
         run: bun run typecheck
-      - name: Tests
-        if: steps.scope.outputs.sdk != 'true'
-        run: bun test
+      - name: Carbon hotkey tests
+        run: bun test test/hotkey.test.ts
       - name: Build the app (dmg + update bundle)
-        if: steps.scope.outputs.sdk != 'true'
         run: |
           bun run build
           ls -la artifacts
@@ -75,12 +97,9 @@ jobs:
           # "code has no resources but signature indicates they must be present".)
           codesign -dv build.noindex/stable-macos-arm64/Toolbelt.app 2>&1 | grep -q 'Signature=adhoc'
       - name: Verify host disk image
-        if: steps.scope.outputs.sdk != 'true'
         run: bun run dmg
-      - name: Build SDK artifact
-        run: bun run sdk:package
       - name: Diagnose disk image failures
-        if: failure() && steps.scope.outputs.sdk != 'true'
+        if: failure()
         run: |
           sw_vers
           hdiutil info
@@ -158,7 +177,7 @@ jobs:
     # Single required status check for the branch ruleset.
     name: CI
     if: always()
-    needs: [test, secrets, workflows]
+    needs: [test, macos, secrets, workflows]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions: {}
@@ -166,8 +185,15 @@ jobs:
       - name: Require all jobs to succeed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          # The macOS job may be skipped only when Test chose SDK-only validation.
+          MACOS: ${{ needs.macos.result }}
+          SDK_ONLY: ${{ needs.test.outputs.sdk }}
+          TEST: ${{ needs.test.result }}
         run: |
-          echo "Job results: $RESULTS"
+          echo "Job results: $RESULTS (macOS: $MACOS, SDK only: $SDK_ONLY)"
+          [ "$TEST" = "success" ] || { echo "::error::Test did not succeed ($TEST)"; exit 1; }
+          if [ "$MACOS" = "skipped" ] && [ "$SDK_ONLY" = "true" ]; then MACOS=success; fi
+          [ "$MACOS" = "success" ] || { echo "::error::macOS app did not succeed ($MACOS)"; exit 1; }
           for r in $RESULTS; do
-            [ "$r" = "success" ] || { echo "::error::A required job did not succeed ($r)"; exit 1; }
+            [ "$r" = "success" ] || [ "$r" = "skipped" ] || { echo "::error::A required job did not succeed ($r)"; exit 1; }
           done
