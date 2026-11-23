@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Fixed: the update badge on the sidebar's settings cog is no longer cut off at its top and right edge.
 
 ## 0.3.13 — 2026-11-22
 - Grouped tables line up: a section's or group's tasks now start exactly where its title does (the unread dot sits just before them), and a group inside it has its open/close arrow under the title too, instead of fixed steps that lined up with nothing.
