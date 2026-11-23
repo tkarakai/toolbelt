@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.14 — 2026-11-23
 - Keyboard first: everything in ToolBelt can now be used without a mouse, and you can always see where the keyboard is.
   - F6 and ⇧F6 move between the sidebar, the tabs, the screen and the details drawer, and come back to where you were in each. A screen takes the keyboard when it opens, so the arrow and Page keys scroll it right away.
   - Focus rings are stronger and show on every control. A list or table you tab into with nothing selected shows a ring, and any arrow key selects its first row (←/→ too, which used to do nothing). A list or table without the keyboard shows its selection in a quieter color, so the full selection color always marks where your keys go.
