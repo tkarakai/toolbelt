@@ -543,8 +543,8 @@ const FILLS = new Set(["terminal", "conversation"]);
 
 function DialogBody({ d, emit, close, className, style, header, children }: { d: DialogNode; emit: Emit; close: () => void; className?: string; style?: React.CSSProperties; header?: ReactNode; children?: ReactNode }) {
 	const fills = d.children.some((c) => FILLS.has(c.type));
-	// The main action is the dialog's default: ↵ runs it from fields, pickers and toggles, ⌘↵ from
-	// anywhere (see `useDefaultAction`). Esc (Cancel / Close) is the dialog's own.
+	// The main action runs on ⌘↵ from anywhere; plain ↵ gets into the focused control (opens a
+	// picker, flips a toggle, presses a button). See `useDefaultAction`. Esc is Cancel / Close.
 	const main = d.actions?.find((a) => a.primary && !a.disabled && a.checked === undefined);
 	const defaultAction = useDefaultAction(main && (() => emit(main.id, { dialog: d.id })));
 	return (

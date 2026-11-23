@@ -493,7 +493,8 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
                             <Shortcut label="Notifications: reach the latest" keys={["⌥T"]} />
                             <Shortcut label="ToolBelt settings (this page)" keys={["⌘,"]} />
                             <Shortcut label="Menu bar popover: open a tool in this window (its letter is on the row)" keys={["P", "S", "…"]} />
-                            <Shortcut label="Dialogs: main action · cancel" keys={["↵", "esc"]} />
+                            <Shortcut label="Dialogs: main action · cancel" keys={["⌘↵", "esc"]} />
+<Shortcut label="Dialogs: open a picker, tick a box, press a button" keys={["↵", "space"]} />
                             <Shortcut label="Close the window · quit ToolBelt" keys={["⌘W", "⌘Q"]} />
                     </div></SettingsGroup></>}
 				</div>

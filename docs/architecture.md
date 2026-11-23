@@ -208,13 +208,12 @@ rules (`test/keyboard.test.ts`). New screens and dialogs use them rather than ad
 - `DialogContent` returns focus to what had it when the dialog opened (the menu's button for a
   dialog opened from a menu item, the table or list for a row control), since key-, plugin- and
   action-opened dialogs have no `DialogTrigger` for Radix to restore.
-- `useDefaultAction(run)`: a dialog's default button, the macOS way. ↵ runs it from one-line
-  fields (committing them first), pickers (`role=combobox`) and toggles, whose own ↵ would open
-  or flip them; Space still opens or flips them. Multi-line text keeps ↵ for new lines and other
-  buttons keep ↵ for themselves; ⌘↵ runs it from anywhere. Its `hint` shows ⌘↵ on the default
-  button while focus is in multi-line text. Without a runnable default, keys keep their meaning.
-  Approval and destructive host dialogs (install, remove, recovery) have no ↵ default and start
-  on their safe button.
+- `useDefaultAction(run)`: a dialog's main action runs on ⌘↵ from anywhere in the dialog,
+  committing the field being typed in first; its button shows ⌘↵. Plain ↵ never submits: like
+  Space, it gets into the focused control (opens a picker, flips a toggle or checkbox, presses a
+  button, starts a new line). Approval and destructive host dialogs (install, remove, recovery)
+  have no ⌘↵ default and start on their safe button; small confirmations start on their
+  confirming button, which ↵ presses.
 - `TabbableControls`: WKWebView follows macOS's Keyboard navigation setting (off by default),
   which makes Tab skip buttons, links and pop-up buttons. Every such control without its own
   `tabindex` gets `tabindex="0"`, so Tab reaches them on every Mac. Chrome-based previews don't

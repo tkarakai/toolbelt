@@ -356,47 +356,24 @@ export function FocusHint() {
 }
 
 // ── dialogs: the default action ────────────────────────────────────────────
-const MULTILINE = "textarea, [contenteditable=true], .tb-terminal";
-/** Fields whose ↵ belongs to the dialog's default button, as in macOS dialogs: pickers open with
- *  Space (or ↓), toggles flip with Space. */
-const RETURN_SUBMITS = "[role=combobox]:not([aria-expanded=true]), [role=switch], [role=checkbox], [role=radio], input[type=checkbox], input[type=radio]";
-const NOT_TEXT = new Set(["checkbox", "radio", "button", "submit", "reset", "file", "color", "range", "image"]);
-
 /**
- * A dialog's default action, the macOS way: ↵ runs it from anywhere in the dialog (one-line
- * fields commit first, pickers and toggles leave ↵ to it), except in multi-line text, where ↵ is a
- * new line, and on another button, which ↵ presses. ⌘↵ runs it from anywhere, editors included.
- * `hint` is the key to show on the default button: "⌘↵" while focus is in multi-line text. Spread
- * `handlers` on the dialog's content. With no `run` (no default action, or it's disabled), keys
- * keep their usual meaning, so ↵ on a picker opens it.
+ * A dialog's default action: ⌘↵ runs it from anywhere in the dialog, fields and editors included
+ * (what's being typed is committed first). Plain ↵ never submits: it "gets into" the focused
+ * control as Space does (opens a picker, flips a toggle, presses a button, starts a new line).
+ * Spread `handlers` on the dialog's content and show `hint` on the default button. With no `run`
+ * (no default action, or it's disabled), ⌘↵ does nothing.
  */
 export function useDefaultAction(run: (() => void) | undefined) {
-	const [multiline, setMultiline] = useState(false);
-	const inside = (e: React.SyntheticEvent) => e.currentTarget.contains(e.target as Node);
-	const fire = (e: React.KeyboardEvent) => {
-		e.preventDefault();
-		e.stopPropagation();
-		// Fields send their value on blur: commit what's being typed before the action.
-		(e.target as HTMLElement).blur?.();
-		run!();
-	};
-	const plain = (e: React.KeyboardEvent) => e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.nativeEvent.isComposing;
 	const handlers = {
 		onKeyDownCapture: (e: React.KeyboardEvent) => {
-			if (!run || !inside(e) || e.nativeEvent.isComposing) return;
-			const target = e.target as HTMLElement;
-			// ⌘↵ from anywhere; ↵ on a picker or toggle before the control opens or flips itself.
-			if (e.key === "Enter" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) return fire(e);
-			if (plain(e) && target.matches(RETURN_SUBMITS)) fire(e);
+			if (!run || e.key !== "Enter" || !e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.nativeEvent.isComposing) return;
+			if (!e.currentTarget.contains(e.target as Node)) return;
+			e.preventDefault();
+			e.stopPropagation();
+			// Fields send their value on blur: commit what's being typed before the action.
+			(e.target as HTMLElement).blur?.();
+			run();
 		},
-		onKeyDown: (e: React.KeyboardEvent) => {
-			if (!run || e.defaultPrevented || !inside(e) || !plain(e)) return;
-			const target = e.target as HTMLElement;
-			const oneLine = target instanceof HTMLInputElement && !NOT_TEXT.has(target.type);
-			if (!oneLine && target.closest(`button, a, select, [role=menuitem], [role=option], ${MULTILINE}`)) return;
-			fire(e);
-		},
-		onFocusCapture: (e: React.FocusEvent) => setMultiline(!!(e.target as HTMLElement).closest(MULTILINE)),
 	};
-	return { handlers, hint: multiline ? "⌘↵" : "↵", ariaKeys: multiline ? "Meta+Enter" : "Enter Meta+Enter" };
+	return { handlers, hint: "⌘↵", ariaKeys: "Meta+Enter" };
 }

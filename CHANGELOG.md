@@ -11,7 +11,7 @@
   - Fixed: Tab could not leave a terminal output view. Tab, Esc and F6 now leave it, and the arrow and Page keys scroll it.
   - Fixed: the closed details drawer's controls could be reached with Tab although they weren't visible.
   - Tab now reaches every button, link and pop-up menu on every Mac. Before, with macOS's Keyboard navigation setting off (the default), Tab skipped them: the filters, a dialog's buttons, the due date and labels pickers, the details drawer's ⋯ menu and its other buttons.
-  - Return in a dialog presses its main button (Save, Snooze, Watch…) from any field, including pickers and switches, as in other Mac apps. Space opens a picker or flips a switch, and ⌘↵ works from anywhere. In a multi-line text box Return starts a new line, and the main button's hint changes to ⌘↵.
+  - In plugin dialogs, ⌘↵ runs the main button (Save, Snooze, Watch…) from anywhere, and the button shows ⌘↵. Return no longer submits from a field: like Space, it opens the focused picker (a date, a list), ticks a checkbox or flips a switch, presses the focused button, or starts a new line.
   - Column headers and resize edges say what their keys do while they have keyboard focus.
   - Removing a plugin starts on “Keep plugin” rather than on the “delete data” checkbox.
   - Screen readers hear tables, lists and their selected row, row levels and expanded state, and buttons' shortcuts without the key pictures read as part of their names. Settings → Keyboard lists the new keys.

@@ -591,10 +591,11 @@ a key's values to shades for the `tags` field: its pills and its value picker us
 
 ### Dialog keyboard
 
-A dialog focuses its first form field when it opens (else the dialog itself). Return runs the
-primary action from anywhere except buttons, multi-line fields and terminals; in a one-line field
-the value is committed first. ⌘Return runs it from any field, Markdown editors included, after
-committing what is being typed. Tab moves through every control, including out of Markdown
+A dialog focuses its first form field when it opens (else the dialog itself). ⌘Return runs the
+primary action from anywhere, Markdown editors included, after committing what is being typed;
+its button shows ⌘↵. Return alone never submits: like Space, it opens the focused picker (date,
+select, combobox), ticks a checkbox or flips a switch, presses the focused button, and starts a
+new line in multi-line fields. Tab moves through every control, including out of Markdown
 editors. Inside dialogs, forms drop their card and line up labels in one column and controls,
 as wide as the dialog allows, in the other; descriptions sit under their control. A resizable
 dialog opens at a reading width and its content's height until the person resizes it.
