@@ -45,12 +45,31 @@ function DialogOverlay({
   )
 }
 
+/** Remembers what had focus when the dialog opened (its layout effect runs before Radix moves
+ *  focus into the dialog). A menu item that opened it is about to disappear with its menu: the
+ *  menu's button (through any submenus) stands in for it, and a table or list for a control of
+ *  one of its rows. */
+function RememberFocus({ into }: { into: React.RefObject<HTMLElement | null> }) {
+  React.useLayoutEffect(() => {
+    let active: Element | null = document.activeElement
+    for (let menu = active?.closest("[role=menu]"); menu; menu = active?.closest("[role=menu]")) {
+      const by = menu.getAttribute("aria-labelledby")
+      active = by ? document.getElementById(by) : null
+    }
+    // A control outside the Tab order inside a table or list (a row's ⋯) hands back to the list.
+    if (active instanceof HTMLElement && active.tabIndex < 0) active = active.closest("[data-navigation-collection]") ?? active
+    into.current = active instanceof HTMLElement && active !== document.body ? active : null
+  }, [into])
+  return null
+}
+
 function DialogContent({
   className,
   children,
   showCloseButton = true,
   overlay = true,
   container,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -59,6 +78,9 @@ function DialogContent({
   /** Where the dialog mounts (default: the document body). */
   container?: HTMLElement | null
 }) {
+  // Radix gives focus back to a `DialogTrigger`; dialogs opened by a key, a plugin or an action
+  // have none, and focus would fall to the page. They return it to where it was instead.
+  const opener = React.useRef<HTMLElement | null>(null)
   return (
     <DialogPortal container={container}>
       {overlay && <DialogOverlay />}
@@ -68,8 +90,18 @@ function DialogContent({
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-200 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event)
+          if (event.defaultPrevented) return
+          const target = opener.current
+          if (target?.isConnected && target.getClientRects().length && !target.closest("[inert]")) {
+            event.preventDefault()
+            target.focus({ preventScroll: true })
+          }
+        }}
         {...props}
       >
+        <RememberFocus into={opener} />
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close data-slot="dialog-close" asChild>

@@ -153,5 +153,5 @@ export function useHeldModifiers(
 /** Keyboard events that shouldn't drive lists: typing in a field, or inside a menu/dialog. */
 export const isTyping = (e: KeyboardEvent) =>
   !!(e.target as HTMLElement | null)?.closest?.(
-    "input, textarea, select, [contenteditable=true], [role=dialog], [role=menu], [role=listbox]",
+    "input, textarea, select, [contenteditable=true], [role=dialog], [role=menu], [role=listbox]:not([data-navigation-collection])",
   );

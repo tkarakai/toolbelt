@@ -42,11 +42,11 @@ export function QuitDialog({ onRequestChange, ready = true, inPlace }: {
 					<DialogDescription>The menu bar icon and every tool stop. Processes you started in your terminals keep running.</DialogDescription>
 				</DialogHeader>
 				<DialogFooter className="flex-row justify-end">
-					<Button variant="outline" onClick={() => setOpen(false)}>
+					<Button variant="outline" aria-keyshortcuts="Escape" onClick={() => setOpen(false)}>
 						Cancel
 						<KeyHint keys="esc" />
 					</Button>
-					<Button variant="destructive" autoFocus onClick={() => rpc.send.quit({})}>
+					<Button variant="destructive" autoFocus aria-keyshortcuts="Enter" onClick={() => rpc.send.quit({})}>
 						<Power />
 						Quit
 						<KeyHint keys="↵" />

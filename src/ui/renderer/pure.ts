@@ -425,6 +425,41 @@ export function isNoopMove(rows: Row[], move: RowMove, sections: Section[] = [])
 	return move.before === null ? !after : after?.id === move.before;
 }
 
+/**
+ * The move ⌘↑ / ⌘↓ makes for a top-level row: within a manually ordered section it trades
+ * places with its neighbor; at the section's edge (or in a section that orders itself) it goes
+ * into the next section that takes drops, at the near end. Same rules as a drop, so `"fixed"`
+ * sections take the row whole and sections with `order: false` are passed over. null: nowhere
+ * to go.
+ */
+export function keyboardMove(slots: DropSlot[], rowId: string, dir: "up" | "down", sections: Section[]): Omit<RowMove, "rowId"> | null {
+	const at = slots.findIndex((s) => s.kind === "row" && s.id === rowId);
+	const self = slots[at];
+	if (!self || self.kind !== "row") return null;
+	const orderOf = (id: string) => flatSections(sections).find((s) => s.id === id)?.order ?? "manual";
+	const strip = (d: ReturnType<typeof resolveDrop>) => (d ? { section: d.section, before: d.before } : null);
+	const step = dir === "down" ? 1 : -1;
+	// The neighbor in the same section, when the section keeps a manual order.
+	let n = at + step;
+	while (slots[n]?.kind === "other") n += step;
+	const neighbor = slots[n];
+	if (neighbor?.kind === "row" && neighbor.section === self.section && orderOf(self.section) === "manual")
+		return strip(resolveDrop(slots, n, dir === "down", sections, rowId));
+	// Otherwise: the next section along that takes the row. Going up, that's the section before
+	// the row's own header; going down, the next header.
+	let h = at;
+	if (dir === "up") while (h >= 0 && slots[h]!.kind !== "header") h--;
+	for (h += step; h >= 0 && h < slots.length; h += step) {
+		const slot = slots[h]!;
+		if (slot.kind !== "header" || slot.section === self.section) continue;
+		const order = orderOf(slot.section);
+		if (order === false) continue;
+		if (order === "fixed" || dir === "down") return strip(resolveDrop(slots, h, false, sections, rowId));
+		return { section: slot.section, before: null };
+	}
+	return null;
+}
+
 /** What the pointer is over while dragging: a section or sub-section header, a top-level row (with the section it's in), or something else. */
 export type DropSlot = { kind: "header"; section: string } | { kind: "row"; id: string; section: string } | { kind: "other" };
 

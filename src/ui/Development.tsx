@@ -69,7 +69,7 @@ function EnterDevelopment() {
                 </ul>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button>
-                    <Button disabled={state.switching} onClick={() => { setConfirming(false); void run({ operation: "enter", profile }); }}>Relaunch</Button>
+                    <Button autoFocus disabled={state.switching} onClick={() => { setConfirming(false); void run({ operation: "enter", profile }); }}>Relaunch</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -152,7 +152,7 @@ export function ResetDataDialog({ plugin, onClose }: { plugin?: { id: string; ma
                 </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-                <Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button>
+                <Button variant="outline" autoFocus disabled={busy} onClick={onClose}>Cancel</Button>
                 <Button variant="destructive" disabled={busy} onClick={async () => {
                     setBusy(true);
                     const response = await run({ operation: "reset", id: plugin!.id });

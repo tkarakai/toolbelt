@@ -1,6 +1,22 @@
 # Changelog
 
 ## Unreleased
+- Keyboard first: everything in ToolBelt can now be used without a mouse, and you can always see where the keyboard is.
+  - F6 and ⇧F6 move between the sidebar, the tabs, the screen and the details drawer, and come back to where you were in each. A screen takes the keyboard when it opens, so the arrow and Page keys scroll it right away.
+  - Focus rings are stronger and show on every control. A list or table you tab into with nothing selected shows a ring, and any arrow key selects its first row (←/→ too, which used to do nothing). A list or table without the keyboard shows its selection in a quieter color, so the full selection color always marks where your keys go.
+  - Arrow keys stay with what you're on: ←/→ on screen tabs, a segmented control or a radio group no longer also move the table. Lists on a screen take arrows only once you're in them, so the arrows scroll a page that merely contains a list.
+  - The sidebar's tools, the color scheme and the theme choices are one Tab stop each; arrows move between them (and pick a scheme or theme). Tab no longer stops at every row's ⋯ button (`.` opens it).
+  - Return on a row without a main action opens its ⋯ menu (as `.` does) instead of doing nothing.
+  - Tables: Page Up/Down move a screenful of rows, ⌘↑/⌘↓ move the selected row in tables you can reorder (into the next section at its edge), → goes into the details drawer for any row, and ⌥←/⌥→ move a focused column header. The sidebar, details drawer and column edges can be focused and resized with ←/→ (↵ resets).
+  - Closing a dialog puts the keyboard back where it was, also for dialogs opened from a key, a menu or a plugin; when the thing you were on disappears (a deleted row), focus moves to its list instead of getting lost.
+  - Fixed: Tab could not leave a terminal output view. Tab, Esc and F6 now leave it, and the arrow and Page keys scroll it.
+  - Fixed: the closed details drawer's controls could be reached with Tab although they weren't visible.
+  - Tab now reaches every button, link and pop-up menu on every Mac. Before, with macOS's Keyboard navigation setting off (the default), Tab skipped them: the filters, a dialog's buttons, the due date and labels pickers, the details drawer's ⋯ menu and its other buttons.
+  - In plugin dialogs, ⌘↵ runs the main button (Save, Snooze, Watch…) from anywhere, and the button shows ⌘↵. Return no longer submits from a field: like Space, it opens the focused picker (a date, a list), ticks a checkbox or flips a switch, presses the focused button, or starts a new line.
+  - Column headers and resize edges say what their keys do while they have keyboard focus.
+  - Removing a plugin starts on “Keep plugin” rather than on the “delete data” checkbox.
+  - Screen readers hear tables, lists and their selected row, row levels and expanded state, and buttons' shortcuts without the key pictures read as part of their names. Settings → Keyboard lists the new keys.
+- Fixed: a link to a screen a plugin doesn't have opens its first screen instead of loading forever.
 - Grouped tables indent consistently: everything inside a section or group has its open/close arrow (or unread dot) start right where the group's icon, or its title without one, starts, whatever icon the group shows. Tables with checkboxes line up the same way.
 - Lists move: when rows are reordered, whether by a plugin, by dragging or with ⌥↑/↓ (a plugin's move keys), they slide to their new places over 300 ms instead of jumping, and a dropped row slides in from where you let go. New rows fade in, removed rows fade out before the others close the gap, and expanding or collapsing a group slides the rows below. This works in tables, lists, timelines and the menu-bar quick view. Searching, filtering and sorting still update at once, and Reduce Motion turns it all off.
 - Fixed: the update badge on the sidebar's settings cog is no longer cut off at its top and right edge.

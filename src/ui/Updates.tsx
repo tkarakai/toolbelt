@@ -324,12 +324,13 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
           )}
           {kind === "idle" && (
             <>
-              <Button variant="outline" onClick={close}>
+              <Button variant="outline" aria-keyshortcuts="Escape" onClick={close}>
                 Later
                 <KeyHint keys="esc" />
               </Button>
               <GitHubButton retryAt={s.retryAt}
                 autoFocus
+                aria-keyshortcuts="Enter"
                 onClick={() => updateAction("installUpdate")}
               >
                 Update &amp; Restart
@@ -340,6 +341,7 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
           {kind === "downloading" && (
             <Button
               variant="outline"
+              aria-keyshortcuts="Escape"
               onClick={() => updateAction("cancelUpdate")}
             >
               Cancel
@@ -353,12 +355,13 @@ export function UpdateDialog({ s }: { s: UpdateState }) {
           )}
           {kind === "failed" && (
             <>
-              <Button variant="outline" onClick={close}>
+              <Button variant="outline" aria-keyshortcuts="Escape" onClick={close}>
                 Close
                 <KeyHint keys="esc" />
               </Button>
               <GitHubButton retryAt={s.retryAt}
                 autoFocus
+                aria-keyshortcuts="Enter"
                 onClick={() => updateAction("installUpdate")}
               >
                 Try Again

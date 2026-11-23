@@ -88,6 +88,21 @@ export function TerminalView({ node, className }: { node: TerminalNode; classNam
 		const f = new FitAddon();
 		t.loadAddon(f);
 		t.open(el);
+		// Output only: the keyboard reads it, it doesn't type into it. Tab, Esc and F6 leave (no
+		// keyboard trap); the scrolling keys scroll the output.
+		t.attachCustomKeyEventHandler((e) => {
+			if (e.metaKey || e.ctrlKey || e.altKey) return false;
+			const scroll: Record<string, () => void> = {
+				ArrowUp: () => t.scrollLines(-1), ArrowDown: () => t.scrollLines(1),
+				PageUp: () => t.scrollPages(-1), PageDown: () => t.scrollPages(1),
+				Home: () => t.scrollToTop(), End: () => t.scrollToBottom(),
+			};
+			if (scroll[e.key]) {
+				if (e.type === "keydown") (e.preventDefault(), scroll[e.key]!());
+				return false;
+			}
+			return false;
+		});
 		term.current = t;
 		fit.current = f;
 		const measure = () => {
@@ -160,7 +175,7 @@ export function TerminalView({ node, className }: { node: TerminalNode; classNam
 	}, [fitCols, wrap, widest]);
 
 	return (
-		<div className={cn("relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-muted", className)}>
+		<div className={cn("relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-muted has-[.xterm-helper-textarea:focus]:border-ring has-[.xterm-helper-textarea:focus]:ring-2 has-[.xterm-helper-textarea:focus]:ring-ring", className)}>
 			<div ref={scroller} className={cn("min-h-0 flex-1 py-2 pl-3", wrap ? "overflow-hidden" : "overflow-x-auto overflow-y-hidden")}>
 				<div ref={host} className="tb-terminal h-full select-text" />
 			</div>
@@ -169,6 +184,7 @@ export function TerminalView({ node, className }: { node: TerminalNode; classNam
 				size="icon-xs"
 				onClick={() => setWrapChoice(!wrap)}
 				aria-pressed={wrap}
+				aria-label="Wrap long lines"
 				title={wrap ? "Wrap long lines (on)" : "Wrap long lines (off)"}
 				className={cn("absolute right-4 bottom-2 z-10 bg-muted/80 backdrop-blur", wrap ? "text-foreground" : "text-muted-foreground")}
 			>

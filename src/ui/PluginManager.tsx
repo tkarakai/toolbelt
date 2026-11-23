@@ -541,6 +541,8 @@ export function PluginManager({
             <DialogFooter>
               <Button
                 variant="outline"
+                autoFocus
+                aria-keyshortcuts="Escape"
                 disabled={busy}
                 onClick={() => setRemove(undefined)}
               >

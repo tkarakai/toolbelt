@@ -2,6 +2,7 @@ import { SharedSelectionProvider, readSharedSelection, refreshSharedSelection } 
 import { captureQuickViewExit, QuickViewClosing, quickViewOrigin, type QuickViewExit } from "./QuickViewTransition";
 import { selectedPaneItem, paneBookmark, restorePaneFocus, pointerTracker, type PaneBookmark } from "./lib/pane-navigation";
 import { usePluginDrag } from "./lib/use-plugin-drag";
+import { FocusRescue, TabbableControls, overlayOpen } from "./lib/keyboard";
 // The menu-bar tool list stays visible beside the selected plugin's quick view.
 // ↑/↓ and plugin hotkeys select; Enter opens the window; Escape closes.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -237,7 +238,7 @@ export default function Popover() {
     }, [current]);
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
-            if (document.querySelector("[role=dialog], [role=menu], [role=listbox]")) return;
+            if (overlayOpen()) return;
             const inDetails = detail.current?.contains(event.target as Node);
             const consume = () => { mouseNavigation.current = false; event.preventDefault(); event.stopImmediatePropagation(); };
             if (menu.current?.querySelector("[data-plugin-dragging]")) {
@@ -365,8 +366,8 @@ export default function Popover() {
 						))}
 					</div>
 					<div className="flex shrink-0 flex-wrap items-center gap-1 border-t px-2 py-1.5">
-						<Button data-footer-control variant="ghost" size="sm" className="relative" title="Settings" aria-label="Settings" onClick={() => rpc.send.showWindow({ plugin: "toolbelt" })}><span className="relative inline-flex size-4 shrink-0"><Settings className="size-4"/>{updatesAvailable && <UpdateIndicator className="absolute -right-1 -top-1"/>}</span><KeyHint keys="⌘," /></Button>
-                        <Button data-footer-control variant="ghost" size="sm" className="ml-auto text-muted-foreground" onClick={askQuit}>
+						<Button data-footer-control variant="ghost" size="sm" className="relative" title="Settings" aria-label="Settings" aria-keyshortcuts="Meta+," onClick={() => rpc.send.showWindow({ plugin: "toolbelt" })}><span className="relative inline-flex size-4 shrink-0"><Settings className="size-4"/>{updatesAvailable && <UpdateIndicator className="absolute -right-1 -top-1"/>}</span><KeyHint keys="⌘," /></Button>
+                        <Button data-footer-control variant="ghost" size="sm" className="ml-auto text-muted-foreground" aria-keyshortcuts="Meta+Q" onClick={askQuit}>
 							<Power />
 							Quit
 							<KeyHint keys="⌘Q" />
@@ -394,6 +395,9 @@ export default function Popover() {
             </aside>}
             {!quitRequested && exits.map(snapshot => <QuickViewClosing key={snapshot.id} snapshot={snapshot}
                 onDone={id => setExits(previous => previous.filter(exit => exit.id !== id))} />)}
+            {/* A quick view redrawn under the keyboard gives it back to its pane, else the menu. */}
+            <FocusRescue fallback="[data-keyboard-pane=menu]" />
+            <TabbableControls />
             {/* Quitting hides the menu too; the confirmation takes its place. */}
             <QuitDialog onRequestChange={prepareQuit} ready={quitRequested && quitLayoutReady} inPlace={{
                 container: box.current, style: { top: 0, left: menuLeft, width: layout.menuWidth },
