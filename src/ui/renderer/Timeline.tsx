@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { EmptyState, Markdown, When, useConfirm, type Emit } from "./Render";
 import { MarkdownBox, PaneRow } from "./compose";
 import { actionForEvent, formatKey } from "./pure";
+import { ENTERING, enterStyle, LEAVING, leavingProps, useRowMotion } from "./row-motion";
 
 type TimelineNode = Extract<Node, { type: "timeline" }>;
 
@@ -34,6 +35,8 @@ export function Timeline({ node, emit }: { node: TimelineNode; emit: Emit }) {
 	const inPane = useContext(PaneRow) !== undefined;
 	const list = useRef<HTMLOListElement>(null);
 	const ids = node.entries.map((e) => e.id);
+	// Entries that arrive, leave or move animate like table rows.
+	const motion = useRowMotion(node.entries, { container: list, attr: "data-entry" });
 	const [active, setActive] = useState<string | undefined>(node.selected ?? ids[0]);
 	const current = active && ids.includes(active) ? active : (node.selected ?? ids[0]);
 	// The plugin's selection wins when it changes (an entry being edited), and comes into view.
@@ -98,13 +101,14 @@ export function Timeline({ node, emit }: { node: TimelineNode; emit: Emit }) {
 					runOn(a, entry);
 				}}
 			>
-				{node.entries.map((e, i) => {
+				{motion.rows.map((e, i) => {
 					const acts = entryActions(node, e);
 					const selected = e.id === node.selected;
 					const edited = e.edited !== undefined && e.edited > e.at + 60_000;
 					return (
 						<li
 							key={e.id}
+							{...(e.leaving ? leavingProps : motion.entering.has(e.id) ? { style: enterStyle } : {})}
 							data-entry={e.id}
 							tabIndex={e.id === current ? 0 : -1}
 							aria-current={selected || undefined}
@@ -114,10 +118,11 @@ export function Timeline({ node, emit }: { node: TimelineNode; emit: Emit }) {
 							className={cn(
 								"group/entry relative rounded-lg py-2.5 pr-2 pl-7 outline-none transition-colors duration-200 focus-visible:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50",
 								selected && "bg-primary/5 ring-1 ring-primary/30",
+								e.leaving ? LEAVING : motion.entering.has(e.id) && ENTERING,
 							)}
 						>
 							{/* The rail and the entry's dot. */}
-							<span aria-hidden className={cn("absolute top-0 bottom-0 left-[0.6875rem] w-px bg-border", i === 0 && "top-4", i === node.entries.length - 1 && "bottom-auto h-4")} />
+							<span aria-hidden className={cn("absolute top-0 bottom-0 left-[0.6875rem] w-px bg-border", i === 0 && "top-4", i === motion.rows.length - 1 && "bottom-auto h-4")} />
 							<span aria-hidden className={cn("absolute top-[0.9rem] left-2 size-2 rounded-full ring-4 ring-background", selected ? "bg-primary" : "bg-muted-foreground/50")} />
 							<div className="flex min-h-6 items-center gap-2">
 								<div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5 text-xs text-muted-foreground">

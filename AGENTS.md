@@ -51,7 +51,8 @@ references, not implementation diaries, plans or reasoning transcripts.
 Keep instant state (typing, selection, scroll, widths, zoom) in the renderer. Use declarative
 nodes and existing shadcn components. Selection uses `selected`/`selected-foreground`, hover
 uses `accent`. Theme changes must pass `test/themes.test.ts` AA checks. Appear/disappear,
-position and size changes animate at 200 ms easing out, exits about 150 ms. Respect reduced
+position and size changes animate at 200 ms easing out, exits about 150 ms; rows of tables, lists
+and timelines move and fade in over 300 ms and fade out over 200 ms (`renderer/row-motion.ts`). Respect reduced
 motion; avoid animation on continuous values or first paint of long lists. Check narrow
 layouts, action wrapping, tab scrolling, dialogs, inspectors and tool details for overflow.
 
