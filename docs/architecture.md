@@ -185,6 +185,45 @@ the manifest's asset map. The host bounds image bytes, checks supported image co
 rejects unsafe SVG content. Lucide names and Finder `app:`/`file:` icons are also supported.
 Assets cannot supply executable webview code.
 
+## Keyboard
+
+`src/ui/lib/keyboard.tsx` is the shared keyboard layer and `lib/keys.ts` its pure, unit-tested
+rules (`test/keyboard.test.ts`). New screens and dialogs use them rather than ad-hoc listeners:
+
+- `ownsKey(e)`: the focused element or a widget around it handles the key itself (text entry,
+  tabs by orientation, radio groups, menus, listboxes, separators, buttons for ↵/Space). Page
+  shortcuts and collections leave those keys alone. `OVERLAY`/`overlayOpen()` mark open dialogs,
+  menus and pickers; a collection inside a dialog answers only while focused.
+- `useWindowKeys`, `useRovingFocus` (one Tab stop for a group; arrows, Home/End, geometric 2-D
+  moves for wrapping grids, optional select-on-focus for radio groups) and `ResizeHandle`
+  (`components/resize-handle.tsx`, the window-splitter pattern for the sidebar, drawer and column
+  edges: ←/→ resize, ⇧ for larger steps, Home/End limits, ↵ resets).
+- `FocusRegions`: F6 / ⇧F6 cycle through visible `[data-focus-region]`s (sidebar, header, content,
+  drawer), returning to the last focused control in each, else the region's selected collection,
+  current item (active tab, checked radio, current tool) or first control. A focused region
+  scrolls its content with the arrow, Page and Home/End keys when the scroller is inside it.
+- `FocusRescue`: when the focused element is removed, disabled or hidden, focus moves to its
+  nearest surviving collection, pane, region or dialog instead of the page body, after closing
+  dialogs and menus have had their turn.
+- `DialogContent` returns focus to what had it when the dialog opened (the menu's button for a
+  dialog opened from a menu item), since key-, plugin- and action-opened dialogs have no
+  `DialogTrigger` for Radix to restore.
+- A new screen or Settings tab takes focus on its content region when focus is idle (the page
+  body or that region), and a table appearing then takes it from the region.
+
+`ownsCollectionKeyboard` (`lib/pane-navigation.ts`) decides which collection answers: the focused
+one; in popover panes and dialogs only a focused one; otherwise the screen's first visible table.
+Tables are `grid`/`treegrid` with rows carrying `aria-selected`, `aria-level` and `aria-expanded`;
+lists are `listbox`es of options. Both point `aria-activedescendant` at the selection. Row ⋯ buttons
+and group summaries are out of the Tab order (`.` and the drawer reach them). With nothing
+selected, any move key selects an end item, and the focused container shows the ring. Collections
+without focus use the inactive selection fill everywhere. Page Up/Down move a screenful of rows;
+⌘↑/⌘↓ reorder rows by the drop rules (`keyboardMove` in `renderer/pure.ts`); ⌥←/⌥→ on a focused
+column header moves the column. Key hints (`KeyHint`) are hidden from assistive technology; the
+control carries `aria-keyshortcuts` (`ariaShortcut`). All controls draw a full-strength `--ring`
+focus indicator (text fields keep a ring-colored border); `:focus-visible` falls back to a 2 px
+outline. The read-only terminal lets Tab, Esc and F6 leave and scrolls with the arrow and Page keys.
+
 ## Installation, updates and recovery
 
 The manager exposes observable phase, progress, errors and bounded logs. GitHub resolution
@@ -272,7 +311,7 @@ Settings remembers its last tab. App and plugin update locations share a top-rig
 Settings uses the shared header tabs for Appearance, Keyboard, Plugins and About, in that order. About contains app updates and a nested, searchable Legal notice pane.
 Settings tabs use ⌘A (Appearance), ⌘P (Plugins), ⌘K (Keyboard) and ⌘I (About), with icons and visible key hints. Text fields retain editing shortcuts.
 Window icon buttons with a shortcut (sidebar ⌘B, details drawer ⌥⌘B, Settings ⌘,) carry no visible key hint; `ShortcutTooltip` shows, on hover or keyboard focus, what activating the button does in its current state and its keys in the usual key hint. The buttons expose `aria-keyshortcuts` and no native `title`.
-Settings and plugin headers support ⌥⌘number and ⌃Tab navigation; F6 transfers focus between tabs and content.
+Settings and plugin headers support ⌥⌘number and ⌃Tab navigation; F6 / ⇧F6 move between the window's focus regions (see Keyboard).
 Shared tab strips hide scrollbar chrome, reveal the active tab, and expose edge arrows when overflow exists. The strip clips controls to its shared outline; adjacent free header space remains a native window drag target.
 Main-window navigation cancels pending popover dismissal and explicitly activates both the application and its target window, including first creation. Keyboard focus is assigned to the actual WKWebView in that window at navigation and initial renderer readiness; Electrobun BrowserView wrapper pointers are never passed as native responder views.
 Settings sections share grouped-card and heading components across tabs, with stable scrollbar space and matching content widths. Horizontal tab strips suppress vertical overflow and overscroll.

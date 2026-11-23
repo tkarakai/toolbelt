@@ -415,7 +415,10 @@ says how it takes drops: `"manual"` (default) at the position shown, `"fixed"` a
 with the plugin choosing the position (a section sorted by time), `false` not at all.
 `dropLabel` and `dropIcon` name what a drop from another section does ("Settle"); the chip
 under the pointer shows it. The renderer shows the row in its new place until the next tree,
-so apply the move or re-render to undo it. Escape cancels a drag.
+so apply the move or re-render to undo it. Escape cancels a drag. ⌘↑ / ⌘↓ move the selected row
+by keyboard with the same rules and the same `reorder` event: a step within a manual section, or
+into the next section that takes drops at its near end (a collapsed one opens). Moves made before
+the next tree pile up in the renderer.
 
 ### Sub-sections
 
@@ -522,8 +525,24 @@ window is too narrow), the action is sent as usual, so keep a dialog for that ca
 `enter` names the row action ↵ runs instead of the first inline one; with its `focus`, ↵ goes
 into the drawer.
 
-Moving through rows with the arrow keys, Home or End always brings the keyboard into the table,
-so ←/→ and Tab carry on in the table even if focus was on a screen tab or a toolbar button.
+Moving through rows with the arrow keys, Home or End brings the keyboard into the screen's first
+table even if focus was on a toolbar button, so the next keys carry on there. A focused widget
+keeps its own keys: ←/→ on screen tabs or a segmented control, arrows in a radio group or menu,
+typing in a field. With nothing selected, any arrow selects an end row. → on a row without a
+pane moves into the open drawer's first control too.
+
+## Keyboard and accessibility
+
+Every node is keyboard-operable without plugin code: tables and lists hold focus on their
+container and announce the selected row or item (`aria-activedescendant`, with grid/treegrid and
+listbox roles), timelines rove focus between entries, and forms use native controls. A focused
+collection with nothing selected shows a focus ring; a collection without focus shows its
+selection in a quieter fill, so the full selection color always marks where keys go. Lists in a
+screen answer arrows only while focused (a page that merely contains one still scrolls); the
+screen's first table also answers while focus is elsewhere on the screen. F6 / ⇧F6 move between
+the sidebar, the screen tabs, the content and the details drawer. Give actions a `key` and
+`label`: the key appears as a hint and as the control's `aria-keyshortcuts`, and the label is its
+accessible name.
 Older hosts ignore `pane`, `focus` and `enter`, and draw an inline form as a boxed one; require
 the capability when the pane is the only way to edit.
 

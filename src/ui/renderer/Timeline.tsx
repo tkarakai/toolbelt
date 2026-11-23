@@ -116,7 +116,7 @@ export function Timeline({ node, emit }: { node: TimelineNode; emit: Emit }) {
 							onFocus={(ev) => ev.target === ev.currentTarget && setActive(e.id)}
 							onDoubleClick={(ev) => editing !== e.id && !(ev.target as HTMLElement).closest("a, button, [contenteditable]") && acts[0] && !acts[0].disabled && runOn(acts[0], e)}
 							className={cn(
-								"group/entry relative rounded-lg py-2.5 pr-2 pl-7 outline-none transition-colors duration-200 focus-visible:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50",
+								"group/entry relative rounded-lg py-2.5 pr-2 pl-7 outline-none transition-colors duration-200 focus-visible:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring",
 								selected && "bg-primary/5 ring-1 ring-primary/30",
 								e.leaving ? LEAVING : motion.entering.has(e.id) && ENTERING,
 							)}

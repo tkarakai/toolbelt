@@ -278,7 +278,7 @@ function TagPillEditor({ k, tag, onSet, onRemove }: { k: TagKey; tag: TagValue; 
 			) : (
 				<Popover open={open} onOpenChange={setOpen}>
 					<PopoverTrigger asChild>
-						<button type="button" aria-label={`Change ${k.label}`} className="h-full pl-2 outline-none hover:underline focus-visible:underline">
+						<button type="button" aria-label={`Change ${k.label}`} className="h-full rounded-l-md pl-2 outline-none hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
 							{text}
 						</button>
 					</PopoverTrigger>
@@ -287,7 +287,7 @@ function TagPillEditor({ k, tag, onSet, onRemove }: { k: TagKey; tag: TagValue; 
 					</PopoverContent>
 				</Popover>
 			)}
-			<button type="button" aria-label={`Remove ${k.label}`} onClick={onRemove} className="flex h-full items-center px-1.5 opacity-70 outline-none hover:opacity-100 focus-visible:opacity-100">
+			<button type="button" aria-label={`Remove ${k.label}`} onClick={onRemove} className="flex h-full items-center rounded-r-md px-1.5 opacity-70 outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
 				<X className="size-3" />
 			</button>
 		</span>

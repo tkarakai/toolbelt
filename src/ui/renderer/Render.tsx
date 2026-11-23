@@ -2,6 +2,7 @@ import { useCollectionSelection, LocalSelectionProvider } from "@/lib/shared-sel
 import { SelectionHandoffContext, SelectionRequestContext } from "@/lib/selection-handoff";
 import { PaneActionsContext } from "@/lib/pane-actions";
 import { ownsCollectionKeyboard, focusPopoverCollection, canHoverNavigate, pointerTracker } from "@/lib/pane-navigation";
+import { firstFocusable, focusIsIdle, focusRegion, itemDomId, overlayOpen, ownsKey, useWindowKeys } from "@/lib/keyboard";
 import { EnvironmentEditor } from "./EnvironmentEditor";
 import { ColorField, ComboboxField, TagsField, TextAreaField, WIDE_FIELDS } from "./fields";
 import { DateTimeField } from "./DateTimeField";
@@ -14,7 +15,7 @@ import { Composer, InlineMarkdown, MarkdownBox, PaneRow, leaveToCollection } fro
 // · an action's own key (`Action.key`: J, P…) · . row menu · esc clear. The table is the
 // keyboard's home: menus hand focus back to it when they close. Pages: ⌘F or / to filter, esc
 // back to the list, toolbar actions' own keys. Dialogs: the first field has focus; ↵ / ⌘↵ save.
-import { createContext, Fragment, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, Fragment, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
 import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Section, Tag, TagValue, Target, Tone } from "../../shared/protocol";
 import { dotClass, dotSpec, pillClass, shadeStyle, textClass } from "./colors";
@@ -25,8 +26,10 @@ import { ENTER_MS, ENTERING, enterStyle, LEAVING, leavingProps, useRowMotion } f
 import { cn } from "@/lib/utils";
 import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
-import { isTyping, SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
+import { SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { TerminalView } from "./Terminal";
+import { ariaShortcut, stepIndex } from "@/lib/keys";
+import { keyboardMove } from "./pure";
 import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_SLOT, ROW_STEP, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
@@ -44,6 +47,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { KeyHint } from "@/components/key-hint";
+import { ResizeHandle } from "@/components/resize-handle";
 import { ShortcutTooltip } from "@/components/shortcut-tooltip";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -177,7 +181,7 @@ function ActionButtons({ actions, onRun, size = "sm", enter, keys }: { actions: 
 						{a.label}
 					</label>
 				) : (
-					<SplitButton key={a.id} a={a} size={size} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onRun={onRun} hints={a === enter ? <KeyHint keys="↵" /> : keys && a.key && <KeyHint keys={formatKey(a.key)} />} />
+					<SplitButton key={a.id} a={a} size={size} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onRun={onRun} hints={a === enter ? <KeyHint keys="↵" /> : keys && a.key && <KeyHint keys={formatKey(a.key)} />} ariaKeys={a === enter ? "Enter" : keys && a.key ? ariaShortcut(a.key) : undefined} />
 				),
 			)}
 		</>
@@ -201,10 +205,10 @@ function AlternativeItem({ a, onRun, inset }: { a: Action; onRun: (a: Action) =>
  * A button; with `menu`, a split button: the main part runs the action, the joined chevron opens
  * its alternatives. Both halves share the variant and a 1 px divider separates them.
  */
-function SplitButton({ a, size, variant, onRun, hints, className }: { a: Action; size: "sm" | "default"; variant: ButtonVariant; onRun: (a: Action) => void; hints?: ReactNode; className?: string }) {
+function SplitButton({ a, size, variant, onRun, hints, ariaKeys, className }: { a: Action; size: "sm" | "default"; variant: ButtonVariant; onRun: (a: Action) => void; hints?: ReactNode; ariaKeys?: string; className?: string }) {
 	const [open, setOpen] = useState(false);
 	const main = (
-		<Button size={size} disabled={a.disabled} variant={variant} onClick={() => onRun(a)} className={cn(a.menu?.length && "rounded-r-none", className)}>
+		<Button size={size} disabled={a.disabled} variant={variant} aria-keyshortcuts={ariaKeys} onClick={() => onRun(a)} className={cn(a.menu?.length && "rounded-r-none", className)}>
 			{a.icon && <Icon name={a.icon} />}
 			{a.label}
 			{hints}
@@ -348,39 +352,29 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 		clearTimeout(timer.current);
 		timer.current = setTimeout(() => emit("search", { query: q }), 120);
 	};
-	useEffect(() => {
-		if (!node.search) return;
-		const onKey = (e: KeyboardEvent) => {
-            const pane = input.current?.closest<HTMLElement>("[data-keyboard-pane]");
-            if (pane && pane.dataset.keyboardActive !== "true") return;
-			if ((e.metaKey && e.key === "f") || (e.key === "/" && !isTyping(e))) {
-				e.preventDefault();
-				input.current?.focus();
-				input.current?.select();
-			}
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [node.search]);
+	useWindowKeys((e) => {
+		const pane = input.current?.closest<HTMLElement>("[data-keyboard-pane]");
+		if (e.defaultPrevented || (pane && pane.dataset.keyboardActive !== "true")) return;
+		if ((e.metaKey && e.key === "f") || (e.key === "/" && !ownsKey(e) && !overlayOpen())) {
+			e.preventDefault();
+			input.current?.focus();
+			input.current?.select();
+		}
+	}, { enabled: !!node.search });
 
 	// Toolbar actions' own keys ("n": New task). A selected row's action with the same key
 	// wins: the table sees the key first and claims it, so the page waits until it has.
 	const root = useRef<HTMLDivElement>(null);
 	const keyed = useMemo(() => (node.actions ?? []).filter((a) => a.key && a.checked === undefined), [JSON.stringify(node.actions ?? [])]);
 	const runRef = useRef<(a: Action) => void>(() => {});
-	useEffect(() => {
-		if (!keyed.length) return;
-		const onKey = (e: KeyboardEvent) => {
-			if (e.metaKey || e.ctrlKey || e.repeat || isTyping(e) || document.querySelector("[role=dialog], [role=menu], [role=listbox]")) return;
-			if (!root.current?.getClientRects().length) return;
-			const pane = root.current.closest<HTMLElement>("[data-keyboard-pane]");
-			if (pane && pane.dataset.keyboardActive !== "true") return;
-			const a = actionForEvent(keyed, e);
-			if (a) setTimeout(() => !e.defaultPrevented && runRef.current(a));
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [keyed]);
+	useWindowKeys((e) => {
+		if (e.metaKey || e.ctrlKey || e.repeat || ownsKey(e) || overlayOpen()) return;
+		if (!root.current?.getClientRects().length) return;
+		const pane = root.current.closest<HTMLElement>("[data-keyboard-pane]");
+		if (pane && pane.dataset.keyboardActive !== "true") return;
+		const a = actionForEvent(keyed, e);
+		if (a) setTimeout(() => !e.defaultPrevented && runRef.current(a));
+	}, { enabled: keyed.length > 0 });
 
 	const words = (node.highlight ?? []).filter((w) => w.trim().length > 0);
 	const highlight = useMemo(() => (words.length ? new RegExp(`(${words.map(escape).sort((a, b) => b.length - a.length).join("|")})`, "ig") : null), [words.join("\n")]);
@@ -405,11 +399,18 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 								value={query}
 								onChange={(e) => onQuery(e.target.value)}
 								onKeyDown={(e) => {
+									// Esc clears, then leaves; ↓ and ↵ go on to the results. Leaving goes to
+									// the screen's table, else its content, never nowhere.
+									const leave = () => {
+										const region = input.current?.closest<HTMLElement>("[data-focus-region], [data-keyboard-pane]");
+										if (region) focusRegion(region);
+										else input.current?.blur();
+									};
 									if (e.key === "Escape") {
 										if (query) onQuery("");
-										else input.current?.blur();
+										else leave();
 									}
-									if (e.key === "ArrowDown" || e.key === "Enter") input.current?.blur(); // on to the list
+									if (e.key === "ArrowDown" || e.key === "Enter") leave();
 								}}
 							/>
 							<InputGroupAddon align="inline-end">
@@ -593,7 +594,7 @@ function DialogBody({ d, emit, close, className, style, header, children }: { d:
                 </LocalSelectionProvider>
 			</div>
 			<DialogFooter className="mx-0 mb-0 flex-wrap gap-y-2 px-6 py-4">
-				<Button variant="outline" onClick={close}>
+				<Button variant="outline" aria-keyshortcuts="Escape" onClick={close}>
 					{d.actions?.some((a) => a.primary) ? "Cancel" : "Close"}
 					<KeyHint keys="esc" />
 				</Button>
@@ -778,11 +779,11 @@ export function useConfirm(emit: Emit) {
 				</DialogHeader>
 				{asking && <MarkdownBox value="" label={asking.action.label} placeholder={asking.action.input?.placeholder} rows={4} autoFocus onChange={setText} onSubmit={sendAsked} />}
 				<DialogFooter>
-					<Button variant="outline" onClick={() => (setAsking(null), setText(""))}>
+					<Button variant="outline" aria-keyshortcuts="Escape" onClick={() => (setAsking(null), setText(""))}>
 						Cancel
 						<KeyHint keys="esc" />
 					</Button>
-					<Button disabled={!text.trim()} onClick={() => sendAsked(text)}>
+					<Button disabled={!text.trim()} aria-keyshortcuts="Meta+Enter" onClick={() => sendAsked(text)}>
 						{asking?.action.label}
 						<KeyHint keys="⌘↵" />
 					</Button>
@@ -807,12 +808,13 @@ export function useConfirm(emit: Emit) {
 					<DialogDescription>{pending?.action.confirm}</DialogDescription>
 				</DialogHeader>
 				<DialogFooter>
-					<Button variant="outline" onClick={() => setPending(null)}>
+					<Button variant="outline" aria-keyshortcuts="Escape" onClick={() => setPending(null)}>
 						Cancel
 						<KeyHint keys="esc" />
 					</Button>
 					<Button
 						ref={confirmButton}
+						aria-keyshortcuts="Enter"
 						variant={pending?.action.tone === "destructive" ? "destructive" : "default"}
 						onClick={() => {
 							if (pending) emit(pending.action.id, pending.payload);
@@ -859,10 +861,14 @@ const rowElement = (wrap: HTMLElement | null, id: string) => [...(wrap?.querySel
 /** The table a menu belonged to gets the keyboard back when the menu closes (↑/↓ keep working). */
 const TABLE = "[data-table-focus]";
 const refocusTable = (from: Element | null | undefined) => (from?.closest(TABLE) as HTMLElement | null)?.focus({ preventScroll: true });
-/** For menus outside the table (filters, the drawer's buttons): back to the page's table. */
+/** For menus outside the table (filters, the drawer's buttons): back to the page's table, so
+ *  ↑/↓ carry on there. A page without one leaves focus to the menu, which returns it to its
+ *  button. */
 const toTable = (e: Event) => {
+	const table = [...document.querySelectorAll<HTMLElement>(TABLE)].find((el) => el.getClientRects().length);
+	if (!table) return;
 	e.preventDefault();
-	(document.querySelector(TABLE) as HTMLElement | null)?.focus({ preventScroll: true });
+	table.focus({ preventScroll: true });
 };
 
 /** The targets an action can apply to on this row, when there's a choice. */
@@ -921,7 +927,7 @@ function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setCho
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<DropdownMenuTrigger asChild>
-							<Button variant="ghost" size="icon-sm" className={cn(ROW_BUTTON, "data-[state=open]:bg-muted data-[state=open]:text-foreground")} aria-label="Row actions">
+							<Button variant="ghost" size="icon-sm" tabIndex={-1} aria-keyshortcuts="." className={cn(ROW_BUTTON, "data-[state=open]:bg-muted data-[state=open]:text-foreground")} aria-label="Row actions">
 								<MoreHorizontal />
 							</Button>
 						</DropdownMenuTrigger>
@@ -1004,7 +1010,7 @@ type Item =
 	| { kind: "row"; id: string; v: Visible; muted: boolean };
 
 const TableRow = memo(
-	function TableRow({ v, muted, leaving, doc, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, onDragStart, dragging, run, ready }: { v: Visible; muted?: boolean; leaving?: boolean; doc?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; onDragStart?: (e: React.PointerEvent, row: Row) => void; dragging?: boolean; run: Run; ready: { current: boolean } }) {
+	function TableRow({ domPrefix, v, muted, leaving, doc, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, onDragStart, dragging, run, ready }: { domPrefix: string; v: Visible; muted?: boolean; leaving?: boolean; doc?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; onDragStart?: (e: React.PointerEvent, row: Row) => void; dragging?: boolean; run: Run; ready: { current: boolean } }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
 		// Rows that appear after the table is up (expanded, new processes) fade in. The class goes
@@ -1017,6 +1023,11 @@ const TableRow = memo(
 		}, []);
 		return (
 			<tr
+				id={itemDomId(domPrefix, row.id)}
+				role="row"
+				aria-selected={selected}
+				aria-level={depth + 1}
+				aria-expanded={hasChildren ? expanded : undefined}
 				data-row-id={row.id}
 				data-selected={selected}
 				{...(leaving ? leavingProps : {})}
@@ -1038,12 +1049,12 @@ const TableRow = memo(
 				)}
 			>
 				{onCheck && (
-					<td className="pl-4" onClick={(e) => e.stopPropagation()}>
+					<td role="gridcell" className="pl-4" onClick={(e) => e.stopPropagation()}>
 						{depth === 0 && <Checkbox tabIndex={-1} checked={!!checked} onCheckedChange={() => onCheck(row.id)} aria-label="Select row" />}
 					</td>
 				)}
 				{columns.map((c, i) => (
-					<td key={c.key} className={cn("h-12 overflow-hidden px-3 align-middle text-sm", c.align === "right" && "text-right", !growOf(c) && "whitespace-nowrap", roomy.split(",").includes(c.key) && "tb-cell-roomy")} style={i === 0 ? { paddingLeft: 12 + v.offset } : undefined}>
+					<td key={c.key} role="gridcell" className={cn("h-12 overflow-hidden px-3 align-middle text-sm", c.align === "right" && "text-right", !growOf(c) && "whitespace-nowrap", roomy.split(",").includes(c.key) && "tb-cell-roomy")} style={i === 0 ? { paddingLeft: 12 + v.offset } : undefined}>
 						{i === 0 ? (
 							<div className="flex min-w-0 items-center">
 								{hasChildren ? (
@@ -1069,7 +1080,7 @@ const TableRow = memo(
 						)}
 					</td>
 				))}
-				<td className="px-1 whitespace-nowrap">
+				<td role="gridcell" className="px-1 whitespace-nowrap">
 					<RowActions actions={actions} row={row} run={run} menuOpen={menuOpen} setMenuOpen={(o) => onMenu(o ? row.id : null)} choosing={choosing} setChoosing={(a) => onChoose(a ? { row: row.id, action: a } : null)} />
 				</td>
 			</tr>
@@ -1245,6 +1256,28 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		window.addEventListener("pointerup", up);
 		window.addEventListener("pointercancel", up);
 	};
+	/** Keyboard resizing (the separator's arrows): the same boundary rule as dragging. */
+	const resizeTo = (c: Column, width: number) => {
+		const index = columns.indexOf(c);
+		const spare = overflow === "scroll" && !columns.some((x) => growOf(x)) ? Infinity : Math.max(0, available - layout.total);
+		const next = dragBoundary(columns, layout.widths, index, width - layout.widths[c.key], spare);
+		if (Object.keys(next).length) saveLayout({ widths: { ...saved.widths, ...next } });
+	};
+	/** ⌥← / ⌥→ on a header: the column trades places with its neighbor, and keeps the focus. */
+	const moveByKey = (e: React.KeyboardEvent, c: Column) => {
+		if (!e.altKey || e.metaKey || e.ctrlKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+		e.preventDefault();
+		e.stopPropagation();
+		const shown = columns.filter((x) => isReorderable(x, allColumns.indexOf(x)));
+		const at = shown.indexOf(c);
+		const neighbor = shown[at + (e.key === "ArrowRight" ? 1 : -1)];
+		if (at < 0 || !neighbor) return;
+		saveLayout({ order: moveColumn(ordered, allColumns, c.key, neighbor.key, e.key === "ArrowRight") });
+		requestAnimationFrame(() => {
+			const th = [...(headRow.current?.querySelectorAll<HTMLElement>("th[data-col]") ?? [])].find((el) => el.dataset.col === c.key);
+			(th?.querySelector<HTMLElement>("[data-col-focus]") ?? th)?.focus();
+		});
+	};
 	/** Double-click an edge: the columns on both sides go back to their own widths. */
 	const resetWidth = (c: Column) => {
 		const index = columns.indexOf(c);
@@ -1321,8 +1354,10 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	// Group headers (nested, in order of first appearance) and rows with their expanded children.
 	// Rows of one group needn't be adjacent in `rows`: they're gathered under the first header.
 	// A dropped row shows in its new place until the plugin's next tree arrives.
-	const [pending, setPending] = useState<{ rows: Row[]; move: RowMove } | null>(null);
-	const rows = useMemo(() => (pending && pending.rows === node.rows ? applyMove(node.rows, pending.move, sections) : node.rows), [node.rows, pending, sections]);
+	// Moves made before the plugin answers pile up (⌘↓ ⌘↓ ⌘↓), each shown on top of the last.
+	const [pending, setPending] = useState<{ rows: Row[]; moves: RowMove[] } | null>(null);
+	const rows = useMemo(() => (pending && pending.rows === node.rows ? pending.moves.reduce((r, m) => applyMove(r, m, sections), node.rows) : node.rows), [node.rows, pending, sections]);
+	const addPending = useCallback((base: Row[], m: RowMove) => setPending((p) => ({ rows: base, moves: [...(p && p.rows === base ? p.moves : []), m] })), []);
 	const items = useMemo(() => {
 		type GNode = { group: GroupLevel; key: string; level: number; rows: Row[]; kids: Map<string, GNode>; order: GNode[]; muted: boolean; parent?: GNode; section?: Section; /** where its chevron starts */ chevron?: number };
 		const root: GNode = { group: { key: "", label: "" }, key: "", level: -1, rows: [], kids: new Map(), order: [], muted: false };
@@ -1378,6 +1413,9 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	useEffect(() => setPending((p) => (p && p.rows !== node.rows ? null : p)), [node.rows]);
 
 	const current = items.find((it) => it.id === selected) ?? null;
+	const domPrefix = `tb${useId().replace(/:/g, "")}`;
+	// Expandable rows or groups make it a tree grid (rows announce their level and state).
+	const tree = items.some((it) => it.kind === "header" || it.v.depth > 0 || !!it.v.row.children?.length);
 
 	// `selectEvents`: tell the plugin which row the person is looking at, once it rests there.
 	const selectedRow = current?.kind === "row" ? current.v.row.id : null;
@@ -1514,7 +1552,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				const m: RowMove = { rowId: row.id, section: target.section, before: target.before };
 				if (isNoopMove(live.current.rows, m, live.current.sections)) return;
 				landDrop.current(row.id, y);
-				setPending({ rows: live.current.nodeRows, move: m });
+				addPending(live.current.nodeRows, m);
 				// Into a collapsed section, the row goes out of sight: don't select what can't be seen.
 				if (!live.current.hidesDrops(m.section)) setSelected(row.id);
 				emit("reorder", { table: node.id, rowId: m.rowId, section: m.section, before: m.before });
@@ -1535,6 +1573,25 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		[emit, node.id, setSelected],
 	);
 
+	// The keyboard's drag: the same slots and rules as a drop (pure.ts `keyboardMove`).
+	const moveByKeyboard = (row: Row, dir: "up" | "down") => {
+		const slots: DropSlot[] = items.map((it) =>
+			it.kind === "header" ? (it.section ? { kind: "header", section: it.section.id } : it.level === 0 ? { kind: "header", section: it.group.key } : { kind: "other" })
+			: it.v.depth === 0 ? { kind: "row", id: it.v.row.id, section: rowSection(it.v.row, sections) } : { kind: "other" });
+		const to = keyboardMove(slots, row.id, dir, sections);
+		if (!to) return;
+		const m: RowMove = { rowId: row.id, ...to };
+		if (isNoopMove(rows, m, sections)) return;
+		// A collapsed section opens to show the row arriving.
+		if (hidesDrops(m.section)) {
+			const parent = parents.get(m.section);
+			setCollapsedGroups((c) => ({ ...c, [declaredKeys.get(m.section) ?? sectionKey(m.section)]: false, ...(parent && { [sectionKey(parent.id)]: false }) }));
+		}
+		addPending(node.rows, m);
+		emit("reorder", { table: node.id, rowId: m.rowId, section: m.section, before: m.before });
+		requestAnimationFrame(() => rowElement(wrap.current, row.id)?.scrollIntoView({ block: "nearest" }));
+	};
+	
 	// Coming back to this table: where it was scrolled to, and the selection in view.
 	const ready = useRef(false);
 	useLayoutEffect(() => {
@@ -1554,15 +1611,31 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
-			if (!ownsCollectionKeyboard(wrap.current) || isTyping(e) || e.metaKey || e.ctrlKey) return;
+			if (e.defaultPrevented || e.ctrlKey || !ownsCollectionKeyboard(wrap.current, e)) return;
 			// The drawer's controls keep their keys (Esc there comes back to the table).
 			if ((e.target as HTMLElement | null)?.closest?.("[data-inspector]")) return;
 			const i = items.findIndex((it) => it.id === selected);
 			const cur = items[i];
+			// ⌘↑ / ⌘↓ move the selected row, as dragging it would (tables with `reorder`).
+			if (e.metaKey && !e.altKey && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && node.reorder && cur?.kind === "row" && cur.v.depth === 0) {
+				e.preventDefault();
+				moveByKeyboard(cur.v.row, e.key === "ArrowUp" ? "up" : "down");
+				return;
+			}
+			if (e.metaKey) return;
+			const moving = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "PageDown", "PageUp"].includes(e.key);
 			// Moving through the rows brings the keyboard into the table, wherever it was (a
-			// screen tab, a toolbar button), so ←/→ and Tab carry on here instead of there.
-			if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key) && wrap.current && !wrap.current.contains(document.activeElement))
+			// toolbar button, the page), so the next keys carry on here instead of there.
+			if (moving && wrap.current && !wrap.current.contains(document.activeElement))
 				wrap.current.focus({ preventScroll: true });
+			// Nothing selected yet: any move key selects an end row, so the keyboard always has
+			// something visible to start from (←/→ included, which otherwise act on a row).
+			if (moving && !cur && !e.altKey && !e.shiftKey) {
+				e.preventDefault();
+				const end = ["ArrowUp", "End", "PageUp"].includes(e.key) ? items[items.length - 1] : items[0];
+				if (end) select(end.id);
+				return;
+			}
 			// ⌥ / ⇧ shortcuts ("alt+up") belong to the selected row's actions, never to navigation.
 			if (e.altKey || (e.shiftKey && e.key.startsWith("Arrow"))) {
 				if (cur?.kind !== "row") return;
@@ -1587,8 +1660,8 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						e.preventDefault();
 						if (!expanded.has(cur.v.row.id)) toggle(cur.v.row.id);
 						else select(cur.v.row.children[0].id);
-					} else if (cur?.v.row.pane && focusPane.current(null)) {
-						// A row with a pane: into its details.
+					} else if (cur?.v.row.pane ? focusPane.current(null) : focusDrawer.current()) {
+						// Into the drawer: a row's pane, else the first control of its details.
 						e.preventDefault();
 					}
 					break;
@@ -1626,6 +1699,16 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				case "End":
 					if (items.length) (e.preventDefault(), select(items[e.key === "Home" ? 0 : items.length - 1].id));
 					break;
+				case "PageDown":
+				case "PageUp": {
+					// A screenful of rows at a time.
+					e.preventDefault();
+					const rowHeight = (cur && rowElement(wrap.current, cur.id)?.offsetHeight) || 48;
+					const page = Math.max(1, Math.floor(((wrap.current?.clientHeight ?? 480) - 36) / rowHeight) - 1);
+					const next = items[Math.max(0, Math.min(items.length - 1, i + (e.key === "PageDown" ? page : -page)))];
+					if (next) select(next.id);
+					break;
+				}
 				default: {
 					// An action's own key ("j", "p"…) on the selected row.
 					if (cur?.kind !== "row" || e.key.length !== 1) break;
@@ -1697,6 +1780,15 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		setTimeout(go, drawerOpen && (rowId === undefined || rowId === selected) ? 0 : 60);
 		return true;
 	};
+	// Into the open drawer's first control (a row's details, a group's summary).
+	const focusDrawer = useRef<() => boolean>(() => false);
+	focusDrawer.current = () => {
+		if (!drawerUseful || !drawerFits || !drawerOpen) return false;
+		const aside = outer.current?.querySelector<HTMLElement>("[data-inspector]");
+		const first = aside && firstFocusable(aside);
+		first?.focus();
+		return !!first;
+	};
 	focusInPane.current = (a, rowId) => {
 		const row = items.find((it) => it.kind === "row" && it.v.row.id === rowId);
 		return !!(row?.kind === "row" && row.v.row.pane && a.focus && focusPane.current(a.focus, rowId));
@@ -1713,7 +1805,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 
 	// The table takes the keyboard when it appears, unless something else already has it.
 	useEffect(() => {
-		if (document.activeElement === document.body) wrap.current?.focus({ preventScroll: true });
+		if (focusIsIdle(wrap.current)) wrap.current?.focus({ preventScroll: true });
 	}, [node.rows.length > 0]);
 
 	if (!node.rows.length) return node.empty ? <EmptyState {...node.empty} /> : null;
@@ -1742,6 +1834,10 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				<div
 					ref={wrap}
 					tabIndex={0}
+					role={tree ? "treegrid" : "grid"}
+					aria-label={`${columns[0]?.title ?? "Rows"} table`}
+					aria-activedescendant={current ? itemDomId(domPrefix, current.id) : undefined}
+					aria-multiselectable={bulk.length > 0 || undefined}
 					data-table-focus
                     data-navigation-collection={`table:${node.id}`}
                     onFocusCapture={() => {
@@ -1754,17 +1850,17 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 					className="min-h-0 min-w-0 flex-1 scroll-pt-9 overflow-auto outline-none"
 					style={doc ? { paddingInline: DOC_INSET } : undefined}
 				>
-					<table className="border-separate border-spacing-0 text-left" style={{ tableLayout: "fixed", width: Number.isFinite(available) ? Math.max(available, layout.total) : "100%" }}>
+					<table role="presentation" className="border-separate border-spacing-0 text-left" style={{ tableLayout: "fixed", width: Number.isFinite(available) ? Math.max(available, layout.total) : "100%" }}>
 							<colgroup>
 								{bulk.length > 0 && <col style={{ width: CHECK_WIDTH }} />}
 								{columns.map((c) => <col key={c.key} style={{ width: layout.widths[c.key] }} />)}
 								{/* Spare room (no growing column, or all at their maximum) sits after the last column. */}
 								<col style={{ width: actionsWidth + (Number.isFinite(available) ? Math.max(0, available - layout.total) : 0) }} />
 							</colgroup>
-						<thead className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-							<tr ref={headRow}>
+						<thead role="rowgroup" className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+							<tr ref={headRow} role="row">
 								{bulk.length > 0 && (
-									<th className="border-b pl-4">
+									<th role="columnheader" aria-label="Checked" className="border-b pl-4">
 										<Checkbox checked={allChecked ? true : checked.size ? "indeterminate" : false} onCheckedChange={() => setChecked(allChecked ? [] : [...rowIds])} aria-label="Select all" />
 									</th>
 								)}
@@ -1773,18 +1869,24 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 									const Arrow = sorted && node.sort!.desc ? ArrowDown : ArrowUp;
 									return (
 										<th
-												key={c.key}
-												data-col={c.key}
+											key={c.key}
+											role="columnheader"
+											data-col={c.key}
 												data-view-control
 												aria-sort={sorted ? (node.sort!.desc ? "descending" : "ascending") : undefined}
+												// Columns that can move but not sort take focus themselves, for ⌥←/⌥→.
+												tabIndex={!c.sortable && isReorderable(c, allColumns.indexOf(c)) ? 0 : undefined}
+												title={!c.sortable && isReorderable(c, allColumns.indexOf(c)) ? "⌥← ⌥→ move the column" : undefined}
+												onKeyDown={(e) => moveByKey(e, c)}
 												onPointerDown={(e) => startMove(e, c)}
 												onClickCapture={(e) => suppressClick.current && (e.stopPropagation(), e.preventDefault())}
 												className={cn("relative h-9 overflow-hidden border-b px-3 text-xs font-medium whitespace-nowrap text-ellipsis text-muted-foreground transition-opacity duration-200", i === 0 && "pl-9", c.align === "right" && "text-right", moving?.key === c.key && "opacity-40")}
 											>
 											{c.sortable ? (
 												<button
-													onClick={() => sortBy(c)}
-													title={`Sort by ${c.title.toLowerCase()}`}
+												data-col-focus
+												onClick={() => sortBy(c)}
+												title={`Sort by ${c.title.toLowerCase()}${isReorderable(c, allColumns.indexOf(c)) ? " · ⌥← ⌥→ move the column" : ""}`}
 													className={cn("group/sort -mx-1.5 inline-flex items-center gap-1 rounded px-1.5 py-1 transition-colors duration-200 hover:bg-accent hover:text-foreground", sorted && "text-foreground", c.align === "right" && "flex-row-reverse")}
 												>
 													{c.title}
@@ -1794,31 +1896,35 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 													c.title
 												)}
 												{boundary(c) && (
-													<span
-														role="separator"
-														aria-orientation="vertical"
-														aria-label={`Resize ${c.title}`}
-														title="Drag to resize · double-click to reset"
+													<ResizeHandle
+														label={`Resize ${c.title}`}
+														value={layout.widths[c.key] ?? 0}
+														min={c.minWidth ?? 40}
+														max={c.maxWidth ?? Math.max(available, (layout.widths[c.key] ?? 0) + 800)}
+														onResize={(w) => resizeTo(c, w)}
+														onReset={() => resetWidth(c)}
+														title="Drag to resize · double-click to reset (←/→ and ↵ with the keyboard)"
 														onPointerDown={(e) => startResize(e, c)}
 														onDoubleClick={(e) => (e.stopPropagation(), resetWidth(c))}
-														className="group/resize absolute top-0 right-0 z-10 flex h-full w-2 cursor-col-resize justify-center"
+														className="group/resize absolute top-0 right-0 z-10 flex h-full w-2 cursor-col-resize justify-center rounded-sm focus-visible:bg-ring/15"
 													>
-														<span className="my-2 w-px bg-border transition-colors duration-200 group-hover/resize:bg-ring/70" />
-													</span>
+														<span className="my-2 w-px bg-border transition-colors duration-200 group-hover/resize:bg-ring/70 group-focus-visible/resize:w-0.5 group-focus-visible/resize:bg-ring" />
+													</ResizeHandle>
 												)}
 											</th>
 									);
 								})}
-								<th className="border-b" />
+								<th role="columnheader" aria-label="Actions" className="border-b" />
 							</tr>
 						</thead>
-						<tbody ref={body}>
+						<tbody ref={body} role="rowgroup">
 							{shown.map((it) =>
 								it.kind === "header" ? (
-									<GroupHeader key={it.id} item={it} doc={doc} columns={columns} bulk={bulk.length > 0} selected={!it.leaving && it.id === selected} leaving={it.leaving} onSelect={() => select(it.id)} onToggle={() => toggleGroup(it.key)} />
+									<GroupHeader key={it.id} domPrefix={domPrefix} item={it} doc={doc} columns={columns} bulk={bulk.length > 0} selected={!it.leaving && it.id === selected} leaving={it.leaving} onSelect={() => select(it.id)} onToggle={() => toggleGroup(it.key)} />
 								) : (
 									<TableRow
 										key={it.v.row.id}
+										domPrefix={domPrefix}
 										v={it.v}
 										leaving={it.leaving}
 										doc={doc}
@@ -1925,16 +2031,17 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 /** A group header: a section (level 0: where jobs run), a declared sub-section (drawn like a
  *  section, indented under it) or a group inside them (a folder). It can be selected (and moved
  *  through with the keyboard) and collapsed. */
-function GroupHeader({ item, doc, columns, bulk, selected, leaving, onSelect, onToggle }: { item: Extract<Item, { kind: "header" }>; doc?: boolean; columns: Column[]; bulk: boolean; selected: boolean; leaving?: boolean; onSelect: () => void; onToggle: () => void }) {
+function GroupHeader({ domPrefix, item, doc, columns, bulk, selected, leaving, onSelect, onToggle }: { domPrefix: string; item: Extract<Item, { kind: "header" }>; doc?: boolean; columns: Column[]; bulk: boolean; selected: boolean; leaving?: boolean; onSelect: () => void; onToggle: () => void }) {
 	const { group: g, level, count, muted, collapsed } = item;
 	const top = level === 0 || !!item.section;
 	const { index, labelSpan: colSpan } = groupSummaryLayout(columns, g.summary?.column, bulk);
 	// In a document, headers sit on the page like headings: no tint, no line under them.
 	const background = cn(selected ? "bg-selected text-selected-foreground" : doc ? "group-hover/row:bg-accent" : top ? "bg-muted/60 group-hover/row:bg-accent" : "bg-background group-hover/row:bg-accent", !doc && "border-b");
-	const summary = g.summary && <Tooltip><TooltipTrigger asChild><span tabIndex={0} aria-label={`${g.summary.label}: ${g.summary.value}`} className="inline-block shrink-0 rounded font-mono text-xs text-muted-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring">{g.summary.value}</span></TooltipTrigger><TooltipContent className="max-w-xs"><div className="font-medium">{g.summary.label}</div>{g.summary.description && <p className="mt-1 leading-relaxed">{g.summary.description}</p>}</TooltipContent></Tooltip>;
+	const summary = g.summary && <Tooltip><TooltipTrigger asChild><span tabIndex={-1} aria-label={`${g.summary.label}: ${g.summary.value}`} className="inline-block shrink-0 rounded font-mono text-xs text-muted-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring">{g.summary.value}</span></TooltipTrigger><TooltipContent className="max-w-xs"><div className="font-medium">{g.summary.label}</div>{g.summary.description && <p className="mt-1 leading-relaxed">{g.summary.description}</p>}</TooltipContent></Tooltip>;
 	return (
-		<tr data-row-id={item.id} data-group-level={level} data-selected={selected} {...(leaving ? leavingProps : {})} onClick={(e) => (onSelect(), refocusTable(e.currentTarget))} onDoubleClick={onToggle} className={cn("group/row cursor-default", doc && DOC_ROW, leaving && LEAVING)}>
+		<tr id={itemDomId(domPrefix, item.id)} role="row" aria-selected={selected} aria-level={level + 1} aria-expanded={!collapsed} data-row-id={item.id} data-group-level={level} data-selected={selected} {...(leaving ? leavingProps : {})} onClick={(e) => (onSelect(), refocusTable(e.currentTarget))} onDoubleClick={onToggle} className={cn("group/row cursor-default", doc && DOC_ROW, leaving && LEAVING)}>
 			<td
+				role="gridcell"
 				colSpan={colSpan}
 				className={cn(
 					"transition-colors duration-200",
@@ -1984,8 +2091,8 @@ function GroupHeader({ item, doc, columns, bulk, selected, leaving, onSelect, on
                     {(g.summary?.column === undefined || index === 0) && <span className="ml-auto">{summary}</span>}
 				</div>
 			</td>
-			{index >= 0 && columns.slice(Math.max(1, index)).map((c, offset) => <td key={c.key} className={cn("px-3 whitespace-nowrap transition-colors duration-200", background, c.align === "right" && "text-right", muted && !selected && "text-muted-foreground")} >{index > 0 && offset === 0 && summary}</td>)}
-			{index >= 0 && <td className={cn("transition-colors duration-200", background)} />}
+			{index >= 0 && columns.slice(Math.max(1, index)).map((c, offset) => <td key={c.key} role="gridcell" className={cn("px-3 whitespace-nowrap transition-colors duration-200", background, c.align === "right" && "text-right", muted && !selected && "text-muted-foreground")} >{index > 0 && offset === 0 && summary}</td>)}
+			{index >= 0 && <td role="gridcell" className={cn("transition-colors duration-200", background)} />}
 		</tr>
 	);
 }
@@ -2023,6 +2130,10 @@ function Inspector({ open, item, selected, actions, run, emit, onLeave, onToggle
 	return (
 		<aside
 			data-inspector
+			data-focus-region="drawer"
+			aria-label="Details"
+			// Closed, it's 0 px wide: nothing inside may take focus or be read.
+			inert={!open}
 			aria-hidden={!open}
 			onKeyDown={(e) => {
 				// Esc in the drawer goes back to the table, unless a control used it (an editor
@@ -2034,7 +2145,7 @@ function Inspector({ open, item, selected, actions, run, emit, onLeave, onToggle
 			className={cn("relative hidden shrink-0 overflow-hidden bg-muted/20 @3xl:flex", open && "border-l", !dragging && "transition-[width] duration-200 ease-out")}
 			style={{ width: open ? width : 0 }}
 		>
-			{open && <div onPointerDown={onPointerDown} onDoubleClick={() => setWidth(340)} className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize after:absolute after:inset-y-0 after:left-0 after:w-px after:transition-colors after:duration-200 hover:after:bg-ring/60" />}
+			{open && <ResizeHandle label="Resize details" value={width} min={280} max={720} grows="ArrowLeft" onResize={setWidth} onReset={() => setWidth(340)} onPointerDown={onPointerDown} onDoubleClick={() => setWidth(340)} className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize after:absolute after:inset-y-0 after:left-0 after:w-px after:transition-colors after:duration-200 hover:after:bg-ring/60" />}
 			<div className={cn("flex h-full shrink-0 flex-col transition-opacity duration-200", open ? "opacity-100" : "opacity-0")} style={{ width }}>
 				{!item ? (
 					<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
@@ -2100,7 +2211,7 @@ function GroupSummary({ item, onToggle }: { item: Extract<Item, { kind: "header"
                 {g.summary?.description && <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{g.summary.description}</p>}
 			</div>
 			<div className="border-t p-3">
-				<Button size="sm" variant="outline" onClick={onToggle}>
+				<Button size="sm" variant="outline" aria-keyshortcuts="Enter" onClick={onToggle}>
 					<ChevronRight className={cn("transition-transform duration-200", !item.collapsed && "rotate-90")} />
 					{item.collapsed ? "Expand" : "Collapse"}
 					<KeyHint keys="↵" />
@@ -2330,10 +2441,10 @@ function InspectorActions({ groups, main, row, run }: { groups: Action[][]; main
 			</>
 		);
 		const cls = cn(variant === "ghost" && "px-2 text-muted-foreground hover:text-foreground");
-		if (!targets && a.menu?.length) return <SplitButton key={a.id} a={a} size="sm" variant={variant} onRun={(x) => run(x)} hints={hints} className={cls} />;
+		if (!targets && a.menu?.length) return <SplitButton key={a.id} a={a} size="sm" variant={variant} onRun={(x) => run(x)} hints={hints} ariaKeys={[a === main && "Enter", a.key && ariaShortcut(a.key)].filter(Boolean).join(" ") || undefined} className={cls} />;
 		if (!targets)
 			return (
-				<Button key={a.id} size="sm" disabled={a.disabled} variant={variant} onClick={() => run(a)} className={cls}>
+				<Button key={a.id} size="sm" disabled={a.disabled} variant={variant} aria-keyshortcuts={[a === main && "Enter", a.key && ariaShortcut(a.key)].filter(Boolean).join(" ") || undefined} onClick={() => run(a)} className={cls}>
 					{a.icon && <Icon name={a.icon} />}
 					{a.label}
 					{hints}
@@ -2443,6 +2554,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 	const { run, dialog } = useConfirm(emit);
     const self = useRef<HTMLDivElement>(null);
 	const [active, setActive, sharedTarget] = useCollectionSelection(`${node.id}:active`, `list:${node.id}`);
+	const domPrefix = `ls${useId().replace(/:/g, "")}`;
 	const [pointerMoved] = useState(pointerTracker);
 	// An action with `input` asks for its text in a line under the item.
 	const [asking, setAsking] = useState<{ item: string; action: Action } | null>(null);
@@ -2450,12 +2562,15 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 	useEffect(() => {
 		if (!keyboard) return;
 		const onKey = (e: KeyboardEvent) => {
-			if (!ownsCollectionKeyboard(self.current) || isTyping(e) || e.metaKey || e.ctrlKey) return;
-            if ((e.target as HTMLElement).closest("button, a, [role=switch]")) return;
+			if (e.defaultPrevented || e.metaKey || e.ctrlKey || !ownsCollectionKeyboard(self.current, e)) return;
+			if ((e.target as HTMLElement).closest("button, a, [role=switch]")) return;
 			const i = node.items.findIndex((it) => it.id === active);
-			if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.altKey && !e.shiftKey) {
-				e.preventDefault();
-				const next = node.items[i < 0 ? (e.key === "ArrowDown" ? 0 : node.items.length - 1) : Math.max(0, Math.min(node.items.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
+			const step = stepIndex(node.items.length, i, e.key, "vertical");
+			// Nothing selected: ←/→ select the first item too, so a key never leaves nothing to see.
+			const start = i < 0 && (e.key === "ArrowLeft" || e.key === "ArrowRight") ? 0 : null;
+			if ((step !== null || start !== null) && !e.altKey && !e.shiftKey) {
+			e.preventDefault();
+			const next = node.items[start ?? step!];
 				if (next) {
 					setActive(next.id);
 					requestAnimationFrame(() => self.current?.querySelector(`[data-item-id="${CSS.escape(next.id)}"]`)?.scrollIntoView({ block: "nearest" }));
@@ -2497,10 +2612,12 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 	if (!node.items.length) return node.empty ? <EmptyState {...node.empty} /> : null;
 	return (
 		<div ref={self} tabIndex={keyboard ? 0 : undefined} data-navigation-collection={keyboard ? `list:${node.id}` : undefined}
-            onFocusCapture={restoreSelection} className="flex flex-col outline-none">
+		role={keyboard ? "listbox" : "list"} aria-label={`${node.items.length} ${node.items.length === 1 ? "item" : "items"}`}
+		aria-activedescendant={keyboard && node.items.some((it) => it.id === active) ? itemDomId(domPrefix, active!) : undefined}
+		onFocusCapture={restoreSelection} className="flex flex-col outline-none">
 			{motion.rows.map((it) => (
 				<Fragment key={it.id}>
-				<div data-item-id={it.id} data-active={it.id === active} {...(it.leaving ? leavingProps : motion.entering.has(it.id) ? { style: enterStyle } : {})} onMouseEnter={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e)) { focusPopoverCollection(self.current); setActive(it.id); } }}
+				<div id={itemDomId(domPrefix, it.id)} role={keyboard ? "option" : "listitem"} aria-selected={keyboard ? it.id === active : undefined} data-item-id={it.id} data-active={it.id === active} {...(it.leaving ? leavingProps : motion.entering.has(it.id) ? { style: enterStyle } : {})} onMouseEnter={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e)) { focusPopoverCollection(self.current); setActive(it.id); } }}
                     onMouseMove={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e) && (active !== it.id || !self.current?.contains(document.activeElement))) { focusPopoverCollection(self.current); setActive(it.id); } }}
                     onPointerDown={() => { focusPopoverCollection(self.current); setActive(it.id); }} className={cn("group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground", it.leaving ? LEAVING : motion.entering.has(it.id) && ENTERING)}>
 					{it.dot && <Dot dot={it.dot} />}
@@ -2684,7 +2801,7 @@ function HeadingField({ id, field, onChange }: { id: string; field: Extract<Fiel
 				if (e.key === "Enter") (e.preventDefault(), e.currentTarget.blur(), leaveToCollection(e.currentTarget));
 				if (e.key === "Escape") cancelled.current = true;
 			}}
-			className="-mx-2 block w-[calc(100%+1rem)] resize-none overflow-hidden rounded-md bg-transparent px-2 py-1 text-[1.05rem] leading-snug font-semibold outline-none transition-colors duration-150 placeholder:text-muted-foreground hover:bg-accent/60 focus:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+			className="-mx-2 block w-[calc(100%+1rem)] resize-none overflow-hidden rounded-md bg-transparent px-2 py-1 text-[1.05rem] leading-snug font-semibold outline-none transition-colors duration-150 placeholder:text-muted-foreground hover:bg-accent/60 focus:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
 		/>
 	);
 }

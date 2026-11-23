@@ -12,6 +12,7 @@ import type { Field, Node } from "../../shared/protocol";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/icon";
 import { isTyping, useUIState } from "@/lib/uistate";
+import { overlayOpen } from "@/lib/keyboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { KeyHint } from "@/components/key-hint";
@@ -128,7 +129,7 @@ export function Composer({ node, emit }: { node: Extract<Node, { type: "composer
 			if (e.key !== node.key || e.metaKey || e.ctrlKey || e.altKey || isTyping(e) || !root.current?.getClientRects().length) return;
 			const pane = root.current.closest<HTMLElement>("[data-keyboard-pane]");
 			if (pane && pane.dataset.keyboardActive !== "true") return;
-			if (document.querySelector("[role=dialog], [role=menu], [role=listbox]")) return;
+			if (overlayOpen()) return;
 			e.preventDefault();
 			if (node.single) input.current?.focus();
 			else box.current?.focus();
@@ -181,7 +182,7 @@ export function Composer({ node, emit }: { node: Extract<Node, { type: "composer
 			/>
 			<div className={cn("flex items-center justify-end gap-2 overflow-hidden transition-[height,opacity] duration-200", open ? "h-7 opacity-100" : "h-0 opacity-0")}>
 				<span className="mr-auto truncate text-xs text-muted-foreground">Markdown · Esc to leave</span>
-				<Button size="xs" disabled={!draft.trim() || node.action.disabled} tabIndex={open ? 0 : -1} onMouseDown={(e) => e.preventDefault()} onClick={() => send(box.current?.text() ?? draft)}>
+				<Button size="xs" aria-keyshortcuts="Meta+Enter" disabled={!draft.trim() || node.action.disabled} tabIndex={open ? 0 : -1} onMouseDown={(e) => e.preventDefault()} onClick={() => send(box.current?.text() ?? draft)}>
 					{node.action.icon && <Icon name={node.action.icon} />}
 					{node.action.label}
 					<KeyHint keys="⌘↵" />
@@ -239,7 +240,7 @@ export function InlineMarkdown({ id, field, onChange }: { id: string; field: Ext
 					setEditing(true);
 				}
 			}}
-			className="-mx-2 w-[calc(100%+1rem)] cursor-text rounded-md px-2 py-1.5 text-left outline-none transition-colors duration-150 hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50"
+			className="-mx-2 w-[calc(100%+1rem)] cursor-text rounded-md px-2 py-1.5 text-left outline-none transition-colors duration-150 hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
 		>
 			{field.value.trim() ? <Markdown text={field.value} className="space-y-2" /> : <span className="text-sm text-muted-foreground">{field.placeholder || "Add text…"}</span>}
 		</div>

@@ -1,25 +1,33 @@
-/** Renderer-only keyboard ownership for adjacent host panes. A popover collection responds
- * only while focused. On ordinary screens one collection answers: the one holding focus, or,
- * with focus elsewhere (a toolbar button, the page), the first one on the screen, so a page
- * with two tables doesn't move both selections at once. */
-export function ownsCollectionKeyboard(element: HTMLElement | null): boolean {
-  if (!element) return false;
+import { COLLECTION, OVERLAY, isShown, ownsKey } from "./keyboard";
+
+/** Renderer-only keyboard ownership for collections (tables, lists). Inside a dialog, and in
+ * popover panes, a collection responds only while focused. On ordinary screens one collection
+ * answers: the one holding focus, or, with focus elsewhere (a toolbar button, the page), the
+ * screen's first table, so a page with two tables doesn't move both selections at once. Lists
+ * outside the popover answer only while focused, so arrows still scroll a page that merely
+ * contains one. A focused widget keeps its own keys (`ownsKey`): ←/→ on tabs or a segmented
+ * control stay theirs. */
+export function ownsCollectionKeyboard(element: HTMLElement | null, e?: KeyboardEvent): boolean {
+  if (!element || !isShown(element)) return false;
+  const target = (e?.target instanceof Element ? e.target : document.activeElement) ?? document.body;
+  if (e && ownsKey(e, element)) return false;
+  const overlay = target.closest(OVERLAY);
+  if (overlay) return overlay.contains(element) && element.contains(target);
+  if (document.querySelector(OVERLAY) && !element.closest(OVERLAY)) return false;
   const pane = element.closest<HTMLElement>("[data-keyboard-pane]");
-  if (!pane) {
-    const focused = document.activeElement?.closest<HTMLElement>(COLLECTION);
-    if (focused) return focused === element;
-    const first = [...document.querySelectorAll<HTMLElement>(COLLECTION)].find((el) => el.getClientRects().length);
-    return !first || first === element;
-  }
-  if (document.querySelector("[role=dialog], [role=menu], [role=listbox]")) return false;
-  return pane.dataset.keyboardActive === "true" && element.contains(document.activeElement);
+  if (pane) return pane.dataset.keyboardActive === "true" && element.contains(document.activeElement);
+  const focused = target.closest<HTMLElement>(COLLECTION);
+  if (focused) return focused === element;
+  if (!element.matches("[data-table-focus]")) return false;
+  const first = [...document.querySelectorAll<HTMLElement>(`${COLLECTION}[data-table-focus]`)].find((el) => isShown(el) && !el.closest(OVERLAY));
+  return first === element;
 }
 
 export function focusPopoverCollection(element: HTMLElement | null) {
   if (element?.closest("[data-keyboard-pane]")) element.focus({ preventScroll: true });
 }
 
-export const COLLECTION = "[data-navigation-collection]";
+export { COLLECTION };
 const CONTROLS = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex='0']";
 export type PaneBookmark = { collection?: string; control: number };
 function controls(pane: HTMLElement) {

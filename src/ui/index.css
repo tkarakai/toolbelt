@@ -142,7 +142,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
     }
   body {
     @apply bg-background text-foreground;
@@ -283,10 +283,11 @@ mark.hit {
 [data-selected="true"] [data-path-context] { color: var(--selected-muted); opacity: 1; }
 [data-selected="true"] button[data-state="open"] { color: var(--selected-default) !important; background: var(--selected-default-pill) !important; }
 
-/* A remembered selection stays visible without competing with the active selection.
-   Collections outside keyboard focus also use this treatment within an active pane. */
+/* A remembered selection stays visible without competing with the active selection: a
+   collection (table, list) without keyboard focus, or a popover pane that isn't active, shows
+   its selection in the quieter fill, so the full selection color always marks where keys go. */
 [data-keyboard-pane][data-keyboard-active="false"],
-[data-keyboard-pane] [data-navigation-collection]:not(:focus-within) {
+[data-navigation-collection]:not(:focus-within) {
   --selected: var(--inactive-selected);
   --selected-foreground: var(--inactive-selected-foreground);
   --selected-red: var(--inactive-selected-red);
@@ -339,6 +340,24 @@ mark.hit {
   --selected-default-pill: var(--inactive-selected-default-pill);
   --selected-muted: var(--inactive-selected-muted);
   --selected-muted-pill: var(--inactive-selected-muted-pill);
+}
+
+/* Keyboard focus is always visible. Controls draw their own ring (`focus-visible:ring-*`); this
+   is the fallback for anything focusable that doesn't (links, summaries, custom widgets). */
+@layer base {
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+}
+/* A focused collection with nothing selected shows the ring around itself (its first arrow
+   press selects an item); with a selection, the selection's full color is the focus mark. */
+[data-navigation-collection]:focus-visible:not(:has([data-active="true"], [data-selected="true"])) {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+  border-radius: var(--radius);
+}
+/* A focus region (F6) that takes focus itself shows where focus landed. */
+[data-focus-region]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
 }
 
 /* The pane border reinforces keyboard ownership without another outline inside the item. */

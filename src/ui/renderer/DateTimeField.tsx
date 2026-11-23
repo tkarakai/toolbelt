@@ -226,7 +226,7 @@ function DatePanel({ field, parts, today, withTime, seed, onPick, onClose }: { f
 								key={p.label}
 								type="button"
 								onClick={() => (hasTime ? (setFocus(pp.date), onPick(pp, true)) : pickDay(pp.date, true))}
-								className={cn("flex items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50", on && "font-medium")}
+								className={cn("flex items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring", on && "font-medium")}
 							>
 								<span className="truncate">{p.label}</span>
 								<span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
