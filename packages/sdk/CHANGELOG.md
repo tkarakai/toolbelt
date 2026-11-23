@@ -3,6 +3,7 @@
 ## Unreleased
 - Add the `options` form field behind the new `ui.options-field` capability: an editable list of choices (`OptionItem`: `key?`, `text`, `color?`, `count?`). People rename items in place, add them from the last row (Return keeps adding; pasting several lines adds one item per line; an existing item typed again is pointed at, not added twice), remove them and, with `reorder`, move them by dragging the grip or with ⌥↑ ⌥↓. With `colors`, each item has a color dot that opens a swatch popover, and new items get the color the list uses least. Renaming keeps an item's `key`, so plugins tell a rename from a remove and an add; added items come back without one. `count` is shown beside an item and isn't sent back. Validation rejects duplicate keys, unknown colors and counts that aren't whole numbers of 0 or more.
 - Add `TagKey.colors` (value → hue): a value's own color for its pill and in the `tags` picker, winning over the key's `color`. Older hosts ignore it.
+- Add the `"rainbow"` dot color (`DotColor`): a multicolored dot for something whose parts each have their own color. A `TagKey` with `colors` and no `color` shows one in the `tags` picker. Older hosts refuse it; it ships with `ui.options-field`.
 - Export `leastUsedHue(used, random?)`: the color the `options` field gives new items (one the list uses least, never a grey, not a wheel neighbour of the last item's color when avoidable), for plugins that add items themselves.
 
 ## 0.3.10 — 2026-11-23

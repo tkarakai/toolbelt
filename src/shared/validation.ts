@@ -98,10 +98,11 @@ export const ACTION_KEY = /^(?:.|(?:alt\+(?:shift\+)?|shift\+)(?:[^+\s]|up|down|
  * already own with ⌘ (clipboard, select all, find, hide, minimize, close, quit) are refused.
  */
 export const TOAST_KEY = /^cmd\+(?:shift\+)?(?![acfhmqvwx]$)[a-z]$/u;
+const dotColor = union(color, literal("rainbow"));
 const dot = union(
-  color,
+  dotColor,
   object({
-    color,
+    color: dotColor,
     label: optional(text),
     pulse: optional(bool),
     dim: optional(bool),

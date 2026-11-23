@@ -36,6 +36,7 @@ export type {
   Tone,
   Hue,
   Dot,
+  DotColor,
   Tag,
   Mark,
   TextStyle,

@@ -22,6 +22,11 @@ test("decorated cells and nested renderer values reject React-crashing objects",
     ),
   ).not.toThrow();
 });
+test("dots can be a rainbow", () => {
+  for (const dot of ["rainbow", { color: "rainbow", label: "Each value its own color" }])
+    expect(() => validateTree(table({ text: "Status", dot }))).not.toThrow();
+  for (const dot of ["rainbows", { color: "rainbows" }]) expect(() => validateTree(table({ text: "Status", dot }))).toThrow();
+});
 test("fields and nested action options are checked", () => {
   expect(() =>
     validateTree({

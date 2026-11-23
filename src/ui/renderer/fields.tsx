@@ -243,7 +243,7 @@ function AddTag({ keys, onAdd }: { keys: TagKey[]; onAdd: (key: string, value?: 
 							<CommandGroup>
 								{keys.map((k) => (
 									<CommandItem key={k.key} value={`${k.label} \u0002${k.key}`} onSelect={() => (k.flag ? (setOpen(false), onAdd(k.key)) : setKey(k))}>
-										<span className={cn("size-2 rounded-full", dotClass(k.color ?? "default"))} />
+										<span className={cn("size-2 rounded-full", dotClass(k.color ?? (k.colors ? "rainbow" : "default")))} />
 										{k.label}
 									</CommandItem>
 								))}

@@ -2,7 +2,7 @@
 // Tailwind sees every class. Hue shades: -700 text on light, -400 on dark; pills tint the
 // background and use -800 / -300 text, which keeps them readable in every theme.
 import type { CSSProperties } from "react";
-import type { Dot, Hue, TextStyle, Tone } from "../../shared/protocol";
+import type { Dot, DotColor, Hue, TextStyle, Tone } from "../../shared/protocol";
 import { shadeStep } from "../themes";
 
 const DOT: Record<Tone | Hue, string> = {
@@ -117,7 +117,10 @@ const PILL: Record<Tone | Hue, string> = {
 	stone: "bg-stone-500/15 text-stone-800 dark:bg-stone-400/15 dark:text-stone-300",
 };
 
-export const dotClass = (c: Tone | Hue = "default", dim?: boolean) => (dim ? DOT_DIM : DOT)[c] ?? DOT.default;
+/** A multicolored dot: the hues around the wheel. */
+const RAINBOW = "bg-[conic-gradient(var(--color-red-500),var(--color-amber-400),var(--color-lime-500),var(--color-emerald-500),var(--color-sky-500),var(--color-violet-500),var(--color-pink-500),var(--color-red-500))]";
+export const dotClass = (c: DotColor = "default", dim?: boolean) => (c === "rainbow" ? cnRainbow(dim) : ((dim ? DOT_DIM : DOT)[c] ?? DOT.default));
+const cnRainbow = (dim?: boolean) => (dim ? `${RAINBOW} opacity-60` : RAINBOW);
 export const textClass = (c: Tone | Hue = "default") => `${TEXT[c] ?? ""} tb-tone-${c}`;
 /** A `TextStyle`'s classes; `tone` colors the text when the style has no color. */
 export const styleClass = (style?: TextStyle, tone?: Tone) => {
@@ -132,7 +135,7 @@ export const pillClass = (c: Tone | Hue = "default") => `${PILL[c] ?? PILL.defau
 export const pillTint = (c: Tone | Hue = "default") => PILL[c] ?? PILL.default;
 
 /** A `Dot` in one shape. */
-export function dotSpec(d: Dot): { color: Tone | Hue; label?: string; pulse?: boolean; dim?: boolean } {
+export function dotSpec(d: Dot): { color: DotColor; label?: string; pulse?: boolean; dim?: boolean } {
 	return typeof d === "string" ? { color: d } : d;
 }
 

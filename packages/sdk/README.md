@@ -49,7 +49,8 @@ pressed while the toast shows; older hosts ignore it.
 when empty; rows join them with `group: "<sub id>"` and `reorder` names them in `section`.
 `ui.options-field` adds the `options` form field, an editable list of choices (`OptionItem`)
 with optional reordering and a color per item; `leastUsedHue` picks colors for new items the
-same way. `TagKey.colors` gives `tags` values colors of their own; older hosts ignore it.
+same way. `TagKey.colors` gives `tags` values colors of their own; older hosts ignore it. A dot can be
+`"rainbow"` for something whose parts each have their own color.
 Tables with `appearance: "document"` drop row lines and tinted section headers; `Tag.shade`
 (0–1) and `TagKey.shades` draw tags as steps of their color's intensity. Older hosts ignore
 both. Page toolbar actions can have a `key` too.

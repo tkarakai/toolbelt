@@ -395,7 +395,8 @@ refused. The host never asks before removing an item, so let a dialog's Cancel u
 confirm when you save. Hosts without the capability reject the field type, so require it.
 
 `TagKey.colors` maps a `tags` key's values to hues: each value's pill and its entry in the
-value picker take that color instead of the key's. Older hosts ignore it.
+value picker take that color instead of the key's. A key with `colors` and no `color` shows a
+rainbow dot in the picker. Older hosts ignore it.
 
 Any field can set `autofocus: true`: it takes focus when the dialog opens instead of the first
 field, and when the plugin swaps one form for another in an open dialog (an "edit this note"
@@ -623,6 +624,10 @@ an active quick-view item. Older hosts ignore both fields.
 
 A list item's `dot` sits right before its title, after its icon, as a cell's `dot` sits before
 its text; with `unread` the unread dot comes first.
+
+A dot's color can also be `"rainbow"`: a multicolored dot for something whose parts each have
+their own color, such as a label whose values are colored one by one. It arrived with
+`ui.options-field`; older hosts refuse it, so require that capability before sending it.
 
 ### Dialog keyboard
 

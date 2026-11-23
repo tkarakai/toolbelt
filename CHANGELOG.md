@@ -3,6 +3,7 @@
 ## Unreleased
 - Plugins can show an editable list of choices in their forms: rename items in place, add them from the last row, remove them, drag them into order, and give each its own color from a swatch.
 - Value pickers in plugin forms can show each value in its own color.
+- Plugins can show a rainbow dot for something whose parts each have their own color.
 
 ## 0.3.15 — 2026-11-23
 - Plugins can draw a table cell's text or a list item's title in any color, bold or italic.

@@ -60,9 +60,12 @@ export type Hue = (typeof HUES)[number];
 
 /**
  * A status dot: a tone or hue, or one with a label (an instant tooltip), `pulse` (slowly
- * breathing: busy) and `dim` (a darker shade of the color: idle).
+ * breathing: busy) and `dim` (a darker shade of the color: idle). `"rainbow"` draws a
+ * multicolored dot, for something whose parts each have their own color (a label whose values
+ * are colored one by one). Older hosts refuse it; require `ui.options-field` before sending it.
  */
-export type Dot = Tone | Hue | { color: Tone | Hue; label?: string; pulse?: boolean; dim?: boolean };
+export type DotColor = Tone | Hue | "rainbow";
+export type Dot = DotColor | { color: DotColor; label?: string; pulse?: boolean; dim?: boolean };
 
 /**
  * A small colored pill (an agent's name, a state). `tooltip` shows instantly on hover.
@@ -395,7 +398,8 @@ export type Field = (
 
 /**
  * `shades` gives values a `Tag.shade` (value → 0…1), used for their pills and in the picker.
- * `colors` gives values a color of their own (value → hue), which wins over `color`.
+ * `colors` gives values a color of their own (value → hue), which wins over `color`; without a
+ * `color`, the key itself shows a rainbow dot.
  */
 export type TagKey = { key: string; label: string; color?: Tone | Hue; values?: string[]; freeform?: boolean; flag?: boolean; shades?: Record<string, number>; colors?: Record<string, Hue> };
 
