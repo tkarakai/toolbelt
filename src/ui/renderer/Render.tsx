@@ -27,7 +27,7 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
 import { isTyping, SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { TerminalView } from "./Terminal";
-import { actionForEvent, groupTitleOffset, rowOffset, ROW_SLOT, ROW_STEP, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
+import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_SLOT, ROW_STEP, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
 import { parseMarkdown, safeHref, type Block, type Inline } from "./markdown";
@@ -972,7 +972,6 @@ const groupPath = (g: Row["group"]): GroupLevel[] =>
 
 /** The row-actions column (the ⋯ button), and the checkbox column of tables with bulk actions. */
 const ACTIONS_WIDTH = 40;
-const CHECK_WIDTH = 40;
 
 /** Rows to measure for content-sized columns: those on screen, enough to be representative. */
 const MEASURE_ROWS = 200;
@@ -1004,7 +1003,7 @@ const headerId = (key: string) => HEADER + key;
 
 /** What a table body shows, in order: group headers and rows. */
 type Item =
-	| { kind: "header"; id: string; level: number; group: GroupLevel; count: number; key: string; muted: boolean; parent?: string; collapsed: boolean; firstChild?: string; section?: Section; /** where its chevron starts: its parent header's title */ offset: number }
+	| { kind: "header"; id: string; level: number; group: GroupLevel; count: number; key: string; muted: boolean; parent?: string; collapsed: boolean; firstChild?: string; section?: Section; /** where its chevron starts: one `INDENT` in from its parent header's */ offset: number }
 	| { kind: "row"; id: string; v: Visible; muted: boolean };
 
 const TableRow = memo(
@@ -1040,9 +1039,9 @@ const TableRow = memo(
 					</td>
 				)}
 				{columns.map((c, i) => (
-					<td key={c.key} className={cn("h-12 overflow-hidden px-3 align-middle text-sm", i === 0 && "pl-3", c.align === "right" && "text-right", !growOf(c) && "whitespace-nowrap", roomy.split(",").includes(c.key) && "tb-cell-roomy")}>
+					<td key={c.key} className={cn("h-12 overflow-hidden px-3 align-middle text-sm", c.align === "right" && "text-right", !growOf(c) && "whitespace-nowrap", roomy.split(",").includes(c.key) && "tb-cell-roomy")} style={i === 0 ? { paddingLeft: 12 + v.offset } : undefined}>
 						{i === 0 ? (
-							<div className="flex min-w-0 items-center" style={{ paddingLeft: v.offset }}>
+							<div className="flex min-w-0 items-center">
 								{hasChildren ? (
 									<button
 										tabIndex={-1}
@@ -1148,6 +1147,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 
 	// Checked rows (tables with bulk actions): only top-level rows that still exist count.
 	const bulk = useMemo(() => node.bulkActions ?? [], [JSON.stringify(node.bulkActions ?? [])]);
+	const hasBulk = bulk.length > 0;
 	const [checkedList, setChecked] = useUIState<string[]>(`${node.id}:checked`, []);
 	const rowIds = useMemo(() => new Set(node.rows.map((r) => r.id)), [node.rows]);
 	const checked = useMemo(() => new Set(checkedList.filter((id) => rowIds.has(id))), [checkedList, rowIds]);
@@ -1320,7 +1320,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const [pending, setPending] = useState<{ rows: Row[]; move: RowMove } | null>(null);
 	const rows = useMemo(() => (pending && pending.rows === node.rows ? applyMove(node.rows, pending.move, sections) : node.rows), [node.rows, pending, sections]);
 	const items = useMemo(() => {
-		type GNode = { group: GroupLevel; key: string; level: number; rows: Row[]; kids: Map<string, GNode>; order: GNode[]; muted: boolean; parent?: GNode; section?: Section; title?: number };
+		type GNode = { group: GroupLevel; key: string; level: number; rows: Row[]; kids: Map<string, GNode>; order: GNode[]; muted: boolean; parent?: GNode; section?: Section; /** where its chevron starts */ chevron?: number };
 		const root: GNode = { group: { key: "", label: "" }, key: "", level: -1, rows: [], kids: new Map(), order: [], muted: false };
 		// Declared sections come first, in order, even without rows; so do their sub-sections
 		// inside them.
@@ -1353,9 +1353,9 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		const add = (n: GNode) => {
 			const collapsed = n.level >= 0 && isCollapsed(n.key);
 			if (n.level >= 0) {
-				// A header starts under its parent's title, and its own title is where its children line up.
-				const offset = n.parent?.title ?? 0;
-				n.title = groupTitleOffset(offset, n.group.icon, n.level === 0 || !!n.section);
+				// A header's chevron starts where its parent's icon or title does: one step in.
+				const offset = n.parent?.chevron === undefined ? 0 : n.parent.chevron + INDENT;
+				n.chevron = offset;
 				const firstChild = n.rows[0]?.id ?? (n.order[0] ? headerId(n.order[0].key) : undefined);
 				out.push({ kind: "header", id: headerId(n.key), level: n.level, group: n.group, count: count(n), key: n.key, muted: n.muted, parent: n.parent && n.parent.level >= 0 ? headerId(n.parent.key) : undefined, collapsed, firstChild, section: n.section, offset });
 				if (collapsed) return;
@@ -1365,12 +1365,12 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				out.push({ kind: "row", id: r.id, v: { row: r, depth, parent, offset, group: groupId }, muted: n.muted });
 				if (r.children && expanded.has(r.id)) for (const c of r.children) walk(c, depth + 1, offset + ROW_STEP, r.id);
 			};
-			for (const r of n.rows) walk(r, 0, rowOffset(n.title, !!r.children?.length));
+			for (const r of n.rows) walk(r, 0, rowOffset(n.chevron, hasBulk));
 			for (const k of n.order) add(k);
 		};
 		add(root);
 		return out;
-	}, [rows, sections, parents, expanded, isCollapsed]);
+	}, [rows, sections, parents, expanded, isCollapsed, hasBulk]);
 	useEffect(() => setPending((p) => (p && p.rows !== node.rows ? null : p)), [node.rows]);
 
 	const current = items.find((it) => it.id === selected) ?? null;
