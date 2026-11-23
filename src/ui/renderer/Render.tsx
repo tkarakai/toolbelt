@@ -1666,6 +1666,8 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 					const acts = cur ? actionsFor(cur.v.row) : [];
 					const a = node.enter ? acts.find((x) => x.id === node.enter && !x.disabled) : acts.find((x) => x.inline);
 					if (a) (e.preventDefault(), trigger(a, cur!.v.row));
+					// No main action: ↵ opens the row's ⋯ menu, as "." does.
+					else if (cur?.kind === "row" && acts.some((x) => !x.disabled)) (e.preventDefault(), setMenuFor(cur.v.row.id));
 					break;
 				}
 				case ".":

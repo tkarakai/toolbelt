@@ -523,7 +523,7 @@ composer's id, or a field of a pane form): running the action from its key, the 
 drawer bar focuses that element instead of sending the action. When the drawer can't show (the
 window is too narrow), the action is sent as usual, so keep a dialog for that case. The table's
 `enter` names the row action ↵ runs instead of the first inline one; with its `focus`, ↵ goes
-into the drawer.
+into the drawer. A row with neither opens its ⋯ menu on ↵, as `.` does.
 
 Moving through rows with the arrow keys, Home or End brings the keyboard into the screen's first
 table even if focus was on a toolbar button, so the next keys carry on there. A focused widget

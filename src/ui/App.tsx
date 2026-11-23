@@ -483,7 +483,7 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
                             <Shortcut label="Move through rows · expand / collapse" keys={["↑", "↓", "→", "←"]} />
                             <Shortcut label="A page of rows · first / last row" keys={["⇞", "⇟", "home", "end"]} />
                             <Shortcut label="Into the details · back to the rows" keys={["→", "esc"]} />
-                            <Shortcut label="Row: main action · all actions · deselect" keys={["↵", ".", "esc"]} />
+                            <Shortcut label="Row: main action (else all actions) · all actions · deselect" keys={["↵", ".", "esc"]} />
                             <Shortcut label="Row action letters — shown on hover and in details" keys={["letter"]} />
                             <Shortcut label="Check a row for bulk actions" keys={["space"]} />
                             <Shortcut label="Move the selected row (tables you can reorder)" keys={["⌘↑", "⌘↓"]} />

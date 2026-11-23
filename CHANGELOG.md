@@ -6,6 +6,7 @@
   - Focus rings are stronger and show on every control. A list or table you tab into with nothing selected shows a ring, and any arrow key selects its first row (←/→ too, which used to do nothing). A list or table without the keyboard shows its selection in a quieter color, so the full selection color always marks where your keys go.
   - Arrow keys stay with what you're on: ←/→ on screen tabs, a segmented control or a radio group no longer also move the table. Lists on a screen take arrows only once you're in them, so the arrows scroll a page that merely contains a list.
   - The sidebar's tools, the color scheme and the theme choices are one Tab stop each; arrows move between them (and pick a scheme or theme). Tab no longer stops at every row's ⋯ button (`.` opens it).
+  - Return on a row without a main action opens its ⋯ menu (as `.` does) instead of doing nothing.
   - Tables: Page Up/Down move a screenful of rows, ⌘↑/⌘↓ move the selected row in tables you can reorder (into the next section at its edge), → goes into the details drawer for any row, and ⌥←/⌥→ move a focused column header. The sidebar, details drawer and column edges can be focused and resized with ←/→ (↵ resets).
   - Closing a dialog puts the keyboard back where it was, also for dialogs opened from a key, a menu or a plugin; when the thing you were on disappears (a deleted row), focus moves to its list instead of getting lost.
   - Fixed: Tab could not leave a terminal output view. Tab, Esc and F6 now leave it, and the arrow and Page keys scroll it.
