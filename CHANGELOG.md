@@ -4,6 +4,8 @@
 - Grouped tables indent consistently: everything inside a section or group has its open/close arrow (or unread dot) start right where the group's icon, or its title without one, starts, whatever icon the group shows. Tables with checkboxes line up the same way.
 - Lists move: when rows are reordered, whether by a plugin, by dragging or with ⌥↑/↓ (a plugin's move keys), they slide to their new places over 300 ms instead of jumping, and a dropped row slides in from where you let go. New rows fade in, removed rows fade out before the others close the gap, and expanding or collapsing a group slides the rows below. This works in tables, lists, timelines and the menu-bar quick view. Searching, filtering and sorting still update at once, and Reduce Motion turns it all off.
 - Fixed: the update badge on the sidebar's settings cog is no longer cut off at its top and right edge.
+- Quitting from the menu-bar popover now closes the popover and its quick view and asks in their place: the Quit ToolBelt? confirmation appears where the menu was, with its top-left corner in the same spot, and nothing behind it dimmed or blurred.
+- Fixed: with the quick view open, clicking the empty space next to it or under the menu (or above the quick view) closes the popover, like clicking anywhere else on the screen.
 
 ## 0.3.13 — 2026-11-22
 - Grouped tables line up: a section's or group's tasks now start exactly where its title does (the unread dot sits just before them), and a group inside it has its open/close arrow under the title too, instead of fixed steps that lined up with nothing.

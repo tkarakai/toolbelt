@@ -159,6 +159,17 @@ export default function Popover() {
         return () => { live = false; cancelAnimationFrame(frame); el.removeEventListener("scroll", schedule, true); observer.disconnect(); window.removeEventListener("resize", report); };
     }, [needsPanelSpace, reserveHeight, shown.n, active, current?.manifest.id, quitRequested]);
     useLayoutEffect(() => { menu.current?.focus({ preventScroll: true }); }, [shown.n]);
+    // The window is wider and taller than what it shows (beside a short quick view, under a short
+    // menu). A click on that transparent part closes the popover, like a click anywhere else.
+    useEffect(() => {
+        const onPointerDown = (event: PointerEvent) => {
+            const target = event.target;
+            if (target === box.current || target === document.documentElement || target === document.body
+                || target === document.getElementById("root")) rpc.send.hidePopover({});
+        };
+        document.addEventListener("pointerdown", onPointerDown, true);
+        return () => document.removeEventListener("pointerdown", onPointerDown, true);
+    }, []);
     useEffect(() => {
         menu.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
     }, [active]);
@@ -282,6 +293,7 @@ export default function Popover() {
         return () => window.removeEventListener("keydown", onKey, true);
     }, [current, plugins, active, pick, letters, layout.side, activePane, focusDetails, openQuick]);
     const SideChevron = layout.side === "left" ? ChevronLeft : ChevronRight;
+    const menuLeft = layout.side === "left" ? layout.width - layout.menuWidth : 0;
     return (
         <div key={shown.n} ref={box} data-pointer-navigation="false"
             onPointerDownCapture={() => {
@@ -301,8 +313,10 @@ export default function Popover() {
                 shown.closing ? "animate-out fade-out-0 zoom-out-95 fill-mode-forwards duration-150" : "")}>
             <section ref={menu} tabIndex={-1} aria-label="Plugins" data-keyboard-pane="menu" data-keyboard-active={activePane === "menu"}
                 onFocusCapture={event => { setActivePane("menu"); setControlFocused(!!(event.target as HTMLElement).closest("button:not([data-plugin-sort])")); }}
-                style={{ minHeight: updatePanelOpen || quitRequested ? 300 : undefined, width: layout.menuWidth, maxHeight: layout.menuHeight, left: layout.side === "left" ? layout.width - layout.menuWidth : 0 }}
-                className={cn(panelStyle, "absolute top-0 z-10 outline-none")}>
+                inert={quitRequested}
+                style={{ minHeight: updatePanelOpen || quitRequested ? 300 : undefined, width: layout.menuWidth, maxHeight: layout.menuHeight, left: menuLeft }}
+                className={cn(panelStyle, "absolute top-0 z-10 outline-none transition-opacity ease-out motion-reduce:transition-none",
+                    quitRequested ? "opacity-0 duration-150" : "duration-200")}>
 					<div className="flex shrink-0 items-center gap-2 px-4 pt-3.5 pb-2">
 						<span className="text-sm font-semibold">{development ? "ToolBelt Dev" : "ToolBelt"}</span>
 						{pluginDevelopment?.active && <span title={`Plugin development profile ${pluginDevelopment.profile}`} className={cn("inline-flex max-w-28 items-center gap-1 truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium", pillClass("warning"))}><FlaskConical className="size-3 shrink-0" /><span className="truncate font-mono">{pluginDevelopment.profile}</span></span>}
@@ -380,7 +394,11 @@ export default function Popover() {
             </aside>}
             {!quitRequested && exits.map(snapshot => <QuickViewClosing key={snapshot.id} snapshot={snapshot}
                 onDone={id => setExits(previous => previous.filter(exit => exit.id !== id))} />)}
-            <QuitDialog onRequestChange={prepareQuit} ready={quitRequested && quitLayoutReady} />
+            {/* Quitting hides the menu too; the confirmation takes its place. */}
+            <QuitDialog onRequestChange={prepareQuit} ready={quitRequested && quitLayoutReady} inPlace={{
+                container: box.current, style: { top: 0, left: menuLeft, width: layout.menuWidth },
+                onOutside: () => rpc.send.hidePopover({}),
+            }} />
         </div>
     );
 }
