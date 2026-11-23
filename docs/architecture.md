@@ -108,7 +108,10 @@ and selection is immediate in the renderer before the field event reaches the pl
 Forms add `textarea` (with a CodeMirror editor that styles Markdown as typed), `datetime`,
 `color`, `combobox` and `tags` fields in `renderer/fields.tsx` and `renderer/DateTimeField.tsx`;
 values commit on blur or pick. The date picker's reading of typed dates and times, month grid
-and wording are pure code in `renderer/datetime.ts`. `renderer/Timeline.tsx` draws `timeline`
+and wording are pure code in `renderer/datetime.ts`. `renderer/OptionsField.tsx` draws the
+`options` list editor; it keeps row identity across renders (by key, or by text until the
+plugin keys a new item) so focus survives and moves animate, and it picks new items' colors with
+`shared/hues.ts`, which the SDK also exports. `renderer/Timeline.tsx` draws `timeline`
 nodes with roving focus and in-place entry editing. `renderer/compose.tsx` holds the Markdown box
 that sends on ⌘↵ and cancels on Esc, the `composer` node and the inline Markdown field. The CodeMirror
 editors live in `renderer/editor.tsx` and xterm.js in `renderer/Terminal.tsx`; both are lazy chunks

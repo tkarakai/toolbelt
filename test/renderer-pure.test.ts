@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Action, Column } from "../src/shared/protocol";
-import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_STEP, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
+import { HUES, type Action, type Column } from "../src/shared/protocol";
+import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_STEP, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth, leastUsedHue, moveItem, newOptionTexts } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -428,4 +428,25 @@ test("a text style colors, bolds and italicizes; its color wins over the tone", 
 	expect(styleClass({ color: "danger" }, "muted")).toContain("tb-tone-danger");
 	expect(styleClass({ bold: true }, "muted")).toBe("text-muted-foreground tb-tone-muted font-semibold");
 	expect(styleClass({ color: "violet" })).toContain("tb-tone-violet");
+});
+
+describe("options field", () => {
+	test("new items take a color the list uses least, never a grey", () => {
+		expect(leastUsedHue([], () => 0)).toBe("red");
+		const all = HUES.filter((h) => h !== "slate" && h !== "stone");
+		// Every color used once except teal: teal is the only least-used one.
+		expect(leastUsedHue(all.filter((h) => h !== "teal"), () => 0.99)).toBe("teal");
+		for (let i = 0; i < 50; i++) expect(["slate", "stone"]).not.toContain(leastUsedHue(["red"]));
+	});
+	test("a new color avoids the last item's neighbours on the wheel when it can", () => {
+		for (let r = 0; r < 1; r += 0.05) expect(["red", "orange", "rose"]).not.toContain(leastUsedHue(["red"], () => r));
+		// Only orange left unused, right after red: it's still chosen.
+		const all = HUES.filter((h) => h !== "slate" && h !== "stone");
+		expect(leastUsedHue([...all.filter((h) => h !== "orange"), "red"], () => 0)).toBe("orange");
+	});
+	test("moving and adding items", () => {
+		expect(moveItem(["a", "b", "c"], 0, 2)).toEqual(["b", "c", "a"]);
+		expect(moveItem(["a", "b", "c"], 2, 0)).toEqual(["c", "a", "b"]);
+		expect(newOptionTexts(" High \n\nlow\nMedium\thigh", ["Low"])).toEqual(["High", "Medium"]);
+	});
 });

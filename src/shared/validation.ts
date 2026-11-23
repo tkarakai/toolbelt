@@ -98,10 +98,11 @@ export const ACTION_KEY = /^(?:.|(?:alt\+(?:shift\+)?|shift\+)(?:[^+\s]|up|down|
  * already own with ⌘ (clipboard, select all, find, hide, minimize, close, quit) are refused.
  */
 export const TOAST_KEY = /^cmd\+(?:shift\+)?(?![acfhmqvwx]$)[a-z]$/u;
+const dotColor = union(color, literal("rainbow"));
 const dot = union(
-  color,
+  dotColor,
   object({
-    color,
+    color: dotColor,
     label: optional(text),
     pulse: optional(bool),
     dim: optional(bool),
@@ -291,6 +292,10 @@ const environment = object({
   selected: bool,
   secret: bool,
 });
+const count: Schema = (v, p) => {
+  number(v, p);
+  if (!Number.isInteger(v) || (v as number) < 0) fail(p);
+};
 const rowCount: Schema = (v, p) => {
   number(v, p);
   if (!Number.isInteger(v) || (v as number) < 1 || (v as number) > 40) fail(p);
@@ -387,6 +392,7 @@ const field: Schema = (v, p) => {
             freeform: optional(bool),
             flag: optional(bool),
             shades: optional(record(shade)),
+            colors: optional(record(hue)),
           }),
         ),
       })(v, p);
@@ -394,6 +400,19 @@ const field: Schema = (v, p) => {
       if (new Set(keys).size !== keys.length) fail(`${p}.keys`);
       const used = (v as any).value.map((t: { key: string }) => t.key);
       if (new Set(used).size !== used.length || used.some((k: string) => !keys.includes(k))) fail(`${p}.value`);
+      break;
+    }
+    case "options": {
+      object({
+        ...base,
+        type: literal("options"),
+        value: array(object({ key: optional(text), text, color: optional(hue), count: optional(count) })),
+        colors: optional(bool),
+        reorder: optional(bool),
+        placeholder: optional(text),
+      })(v, p);
+      const keys = (v as any).value.flatMap((o: { key?: string }) => (o.key === undefined ? [] : [o.key]));
+      if (new Set(keys).size !== keys.length) fail(`${p}.value`);
       break;
     }
     default:

@@ -5,6 +5,7 @@ import { ownsCollectionKeyboard, focusPopoverCollection, canHoverNavigate, point
 import { firstFocusable, focusIsIdle, focusRegion, itemDomId, overlayOpen, ownsKey, useDefaultAction, useWindowKeys } from "@/lib/keyboard";
 import { EnvironmentEditor } from "./EnvironmentEditor";
 import { ColorField, ComboboxField, TagsField, TextAreaField, WIDE_FIELDS } from "./fields";
+import { OptionsField } from "./OptionsField";
 import { DateTimeField } from "./DateTimeField";
 import { Timeline } from "./Timeline";
 import { Composer, InlineMarkdown, MarkdownBox, PaneRow, leaveToCollection } from "./compose";
@@ -17,7 +18,7 @@ import { Composer, InlineMarkdown, MarkdownBox, PaneRow, leaveToCollection } fro
 // back to the list, toolbar actions' own keys. Dialogs: the first field has focus; ↵ / ⌘↵ save.
 import { createContext, Fragment, lazy, memo, Suspense, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
-import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Section, Tag, TagValue, Target, Tone } from "../../shared/protocol";
+import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Section, Tag, TagValue, OptionItem, Target, Tone } from "../../shared/protocol";
 import { dotClass, dotSpec, pillClass, shadeStyle, styleClass, textClass } from "./colors";
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { selectionKey } from "../../shared/navigation";
@@ -2709,7 +2710,7 @@ function Stats({ node }: { node: Extract<Node, { type: "stats" }> }) {
 const InDialog = createContext(false);
 
 /** Fields whose label names a group of controls rather than one input. */
-const GROUP_LABEL = new Set<Field["type"]>(["environment", "tags", "color"]);
+const GROUP_LABEL = new Set<Field["type"]>(["environment", "tags", "color", "options"]);
 
 function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emit }) {
 	if (node.appearance === "inline") return <InlineForm node={node} emit={emit} />;
@@ -2827,7 +2828,7 @@ function BoxedForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emit
 							<div key={f.id} className="contents">
 								{label(f, cn("sm:flex sm:min-h-8 sm:items-center sm:self-start", f.type === "textarea" && "sm:items-start sm:pt-2"))}
 								<AutoFocus on={!!f.autofocus} className="min-w-0 space-y-1.5">
-									<div className={cn("flex min-h-8 items-center *:max-w-full", f.type === "textarea" && "*:w-full", (f.type === "tags" || f.type === "color") && "py-1")}>
+									<div className={cn("flex min-h-8 items-center *:max-w-full", f.type === "textarea" && "*:w-full", (f.type === "tags" || f.type === "color") && "py-1", f.type === "options" && "self-start")}>
 										<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} fill />
 									</div>
 									{f.description && <p className="text-xs text-muted-foreground">{f.description}</p>}
@@ -2881,7 +2882,7 @@ function AutoFocus({ on, className, children }: { on: boolean; className?: strin
 	);
 }
 
-type FieldValue = string | boolean | EnvironmentEntry[] | TagValue[];
+type FieldValue = string | boolean | EnvironmentEntry[] | TagValue[] | OptionItem[];
 /** `fill`: as wide as the space it's given (dialog forms), instead of the control's usual width. */
 function FieldControl({ id, field, onChange, fill }: { id: string; field: Field; onChange: (v: FieldValue) => void; fill?: boolean }) {
 	switch (field.type) {
@@ -2916,6 +2917,8 @@ function FieldControl({ id, field, onChange, fill }: { id: string; field: Field;
 			return <ComboboxField id={id} field={field} onChange={onChange} className={fill ? "w-full" : undefined} />;
 		case "tags":
 			return <TagsField id={id} field={field} onChange={onChange} />;
+		case "options":
+			return <OptionsField id={id} field={field} onChange={onChange} />;
 	}
 }
 

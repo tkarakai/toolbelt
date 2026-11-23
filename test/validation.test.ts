@@ -22,6 +22,11 @@ test("decorated cells and nested renderer values reject React-crashing objects",
     ),
   ).not.toThrow();
 });
+test("dots can be a rainbow", () => {
+  for (const dot of ["rainbow", { color: "rainbow", label: "Each value its own color" }])
+    expect(() => validateTree(table({ text: "Status", dot }))).not.toThrow();
+  for (const dot of ["rainbows", { color: "rainbows" }]) expect(() => validateTree(table({ text: "Status", dot }))).toThrow();
+});
 test("fields and nested action options are checked", () => {
   expect(() =>
     validateTree({
@@ -289,4 +294,22 @@ test("a toast button may carry a ⌘ shortcut the host doesn't own", () => {
   for (const key of ["cmd+z", "cmd+shift+z", "cmd+u", undefined]) expect(() => validateMessage(toast(key))).not.toThrow();
   for (const key of ["z", "alt+z", "cmd+", "cmd+1", "cmd+alt+z", "shift+cmd+z", "cmd+zz", "cmd+Z", "cmd+c", "cmd+v", "cmd+q", "cmd+w", 3])
     expect(() => validateMessage(toast(key))).toThrow();
+});
+test("options fields check their items, and tag keys take per-value colors", () => {
+  const good = [
+    { type: "options", id: "v", label: "Values", value: [] },
+    { type: "options", id: "v", label: "Values", value: [{ key: "1", text: "High", color: "red", count: 3 }, { text: "New" }, { key: "2", text: "Low", count: 0 }], colors: true, reorder: true, placeholder: "Add value" },
+    { type: "tags", id: "l", label: "L", value: [], keys: [{ key: "p", label: "P", values: ["High"], colors: { High: "red" } }] },
+  ];
+  for (const f of good) expect(() => validateTree(form(f))).not.toThrow();
+  const bad = [
+    { type: "options", id: "v", label: "Values", value: [{ key: "1", text: "A" }, { key: "1", text: "B" }] },
+    { type: "options", id: "v", label: "Values", value: [{ text: 1 }] },
+    { type: "options", id: "v", label: "Values", value: [{ text: "A", color: "magenta" }] },
+    { type: "options", id: "v", label: "Values", value: [{ text: "A", count: -1 }] },
+    { type: "options", id: "v", label: "Values", value: [{ text: "A", count: 1.5 }] },
+    { type: "options", id: "v", label: "Values", value: [], colors: "yes" },
+    { type: "tags", id: "l", label: "L", value: [], keys: [{ key: "p", label: "P", colors: { High: "danger" } }] },
+  ];
+  for (const f of bad) expect(() => validateTree(form(f))).toThrow();
 });

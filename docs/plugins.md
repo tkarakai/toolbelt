@@ -121,7 +121,7 @@ explicit targets such as `darwin-arm64` or `darwin-x64`; ship every required bin
 
 Capabilities are `ui.core`, `ui.action-key`, `ui.terminal`, `ui.conversation`, `assets`,
 `lifecycle`, `native.handoff`, `ui.split-action`, `navigate`, `ui.rich-fields`, `ui.row-select`,
-`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane`, `ui.composer`, `ui.sub-sections` and `ui.toast-key`. Require what cannot be omitted. For optional features, test
+`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane`, `ui.composer`, `ui.sub-sections`, `ui.toast-key` and `ui.options-field`. Require what cannot be omitted. For optional features, test
 `context.capabilities.has(name)` and render a working fallback. Unknown required features
 prevent activation; declaring a feature optional does not implement its fallback.
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing
@@ -372,6 +372,32 @@ With `ui.rich-fields`, forms accept five more field types. Each sends `field` wi
 `textarea`, `tags` and `color` take the form's full width under their label. Hosts without the
 capability reject these field types, so require it.
 
+### Option lists
+
+With `ui.options-field`, forms accept an `options` field: an editable list of choices, such as a
+label's values or a project's statuses. Its value is `OptionItem[]`, and every change sends the
+whole list as `field` with `{form, field, value}`.
+
+| `OptionItem` | Meaning |
+| --- | --- |
+| `key` | The plugin's stable id for the item. Renaming keeps it, so compare keys to tell a rename from a remove and an add. Items the person adds come back without one: give them keys when you render the field again. |
+| `text` | What the item says. Never empty in what the host sends. |
+| `color` | With `colors: true`, a hue drawn as the item's dot, which opens a swatch popover. New items come back with the color the list uses least (`leastUsedHue`, exported by the SDK). |
+| `count` | Optional: how many things use the item, shown beside it. It isn't sent back. |
+
+People rename an item in place (Return or leaving the row commits it; emptying it keeps the
+old text), add items from the last row (Return keeps adding, pasting several lines adds one
+item per line, and an item already in the list, ignoring case, is pointed at instead of added
+twice), remove an item with its × or Backspace in an empty row, and move between rows with ↑ ↓.
+With `reorder: true` they drag the grip or press ⌥↑ ⌥↓. `placeholder` is the add row's hint.
+Two items can end up with the same text after a rename: decide whether that merges them or is
+refused. The host never asks before removing an item, so let a dialog's Cancel undo it, or
+confirm when you save. Hosts without the capability reject the field type, so require it.
+
+`TagKey.colors` maps a `tags` key's values to hues: each value's pill and its entry in the
+value picker take that color instead of the key's. A key with `colors` and no `color` shows a
+rainbow dot in the picker. Older hosts ignore it.
+
 Any field can set `autofocus: true`: it takes focus when the dialog opens instead of the first
 field, and when the plugin swaps one form for another in an open dialog (an "edit this note"
 form replacing a composer). Give swapped-in fields ids of their own so they mount fresh. Older
@@ -598,6 +624,10 @@ an active quick-view item. Older hosts ignore both fields.
 
 A list item's `dot` sits right before its title, after its icon, as a cell's `dot` sits before
 its text; with `unread` the unread dot comes first.
+
+A dot's color can also be `"rainbow"`: a multicolored dot for something whose parts each have
+their own color, such as a label whose values are colored one by one. It arrived with
+`ui.options-field`; older hosts refuse it, so require that capability before sending it.
 
 ### Dialog keyboard
 
