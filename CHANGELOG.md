@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Grouped tables indent consistently: everything inside a section or group has its open/close arrow (or unread dot) start right where the group's icon, or its title without one, starts, whatever icon the group shows. Tables with checkboxes line up the same way.
 - Fixed: the update badge on the sidebar's settings cog is no longer cut off at its top and right edge.
 
 ## 0.3.13 — 2026-11-22

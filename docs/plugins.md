@@ -441,11 +441,12 @@ Rows can still join the parent with `group: "progressing"`; they come first, the
 sub-sections in order, then any other groups in the parent. A sub-section header looks like a
 section header, with its icon, label and row count.
 
-Tables indent by lining things up with the title above them. A group's rows have their text
-start where the group's title does, with the unread dot in the margin before it; a sub-section's
-or folder's chevron, and the chevron of a row with children, starts there too. So the indent
-follows the parent's icon: a group without one indents its children less. Children of an
-expanded row indent 20 px further than the row. Rows outside any group start at the edge. It shows even with no rows, with its
+Tables indent by one fixed step per level: a child's chevron starts where its parent's content
+does, after the parent's chevron. Under a group header that is where the header's icon starts
+(or its title, without an icon); the icon never widens the indent. A group's rows put their
+chevron or unread slot there, as do its sub-sections and folders, and with bulk actions rows
+land in the same place despite the checkbox column. Children of an expanded row start under
+the row's text. Rows outside any group start at the edge. It shows even with no rows, with its
 `empty` text, and can start `collapsed` (the person's choice is remembered as for sections).
 Collapsing the parent hides its sub-sections. The keyboard moves through sub-sections like
 any group and skips collapsed ones, and the selection handoff opens a collapsed parent and

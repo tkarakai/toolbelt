@@ -88,34 +88,30 @@ export function isToastKey(key: string, e: KeyLike & { metaKey?: boolean; ctrlKe
 	return letter === m[2];
 }
 
-// ── tree layout: everything lines up with its parent's title ─────────────
+// ── tree layout: a child's chevron starts where its parent's content does ──
 
-/** A group header's chevron (20px) and the gap after it. */
-const HEADER_CHEVRON = 28;
+/**
+ * A chevron (20px) and the gap after it: where a group header's icon, or its title when it has
+ * none, starts. Its children's chevrons (or unread slots) start here too, so every level indents
+ * by the same step whatever icon the parent draws.
+ */
+export const INDENT = 28;
 /** A row's chevron or unread slot (20px) and the margin after it: the row's text starts here. */
 export const ROW_SLOT = 24;
-/** How much further in an expanded row's children start than the row itself. */
-export const ROW_STEP = 20;
+/** How much further in an expanded row's children start than the row: under its text. */
+export const ROW_STEP = ROW_SLOT;
+/** The checkbox column of a table with bulk actions. */
+export const CHECK_WIDTH = 40;
 
 /**
- * Where a group header's title starts, given where its chevron starts: after the chevron and its
- * icon (with their gaps). Sections and sub-sections (`top`) draw larger icons than folders, and a
- * macOS file icon larger still. Its sub-groups' chevrons and its rows' text line up here.
+ * Where a top-level row's chevron or unread slot starts, relative to the first column's
+ * padding, given where its group header's chevron starts (from the table's padding). The
+ * header spans the checkbox column and the row doesn't, so with `bulk` the row moves back by
+ * it (into the cell's padding: at most 12px). Without groups, rows start at the edge.
  */
-export function groupTitleOffset(start: number, icon: string | undefined, top: boolean): number {
-	if (!icon) return start + HEADER_CHEVRON;
-	const file = /^(app|file):/.test(icon);
-	return start + HEADER_CHEVRON + (file ? (top ? 28 : 20) : top ? 20 : 16) + 8;
-}
-
-/**
- * Where a top-level row's chevron or unread slot starts. Under a group, its text lines up with the
- * group's title, the unread dot hanging in the margin before it; a row with children is a group
- * of its own, so its chevron lines up there instead. Without groups, rows start at the edge.
- */
-export function rowOffset(groupTitle: number | undefined, hasChildren: boolean): number {
-	if (groupTitle === undefined) return 0;
-	return hasChildren ? groupTitle : groupTitle - ROW_SLOT;
+export function rowOffset(groupChevron: number | undefined, bulk: boolean): number {
+	if (groupChevron === undefined) return 0;
+	return groupChevron + INDENT - (bulk ? CHECK_WIDTH : 0);
 }
 
 // ── table columns: width, order, what fits ──────────────────────────────

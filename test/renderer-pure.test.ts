@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Action, Column } from "../src/shared/protocol";
-import { actionForEvent, groupTitleOffset, rowOffset, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
+import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_STEP, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -391,21 +391,19 @@ describe("dragging rows into sub-sections", () => {
 	});
 });
 
-test("everything in a tree lines up with its parent's title", () => {
-	// A section with an icon: chevron (20 + 8), icon (20 + 8), then the title.
-	const section = groupTitleOffset(0, "inbox", true);
-	expect(section).toBe(56);
-	// A sub-section's chevron starts under that title; its title further in.
-	const sub = groupTitleOffset(section, "play", true);
-	expect(sub).toBe(112);
-	// Folders draw smaller icons, macOS file icons larger ones, and no icon takes no room.
-	expect(groupTitleOffset(0, "folder", false)).toBe(52);
-	expect(groupTitleOffset(0, "app:/Applications/Xcode.app", true)).toBe(64);
-	expect(groupTitleOffset(16, undefined, true)).toBe(44);
-	// A row's text lines up with the title (its unread slot hangs before it); a row with
-	// children puts its chevron there instead. Without a group, rows start at the edge.
-	expect(rowOffset(section, false) + ROW_SLOT).toBe(section);
-	expect(rowOffset(section, true)).toBe(section);
+test("a child's chevron starts where its parent's icon or title does, whatever the icon", () => {
+	// One step: the parent's chevron (20) and its gap (8).
+	expect(INDENT).toBe(28);
+	// A group's rows put their chevron or unread slot one step in from the header's chevron.
+	expect(rowOffset(0, false)).toBe(INDENT);
+	expect(rowOffset(INDENT, false)).toBe(2 * INDENT);
+	// With bulk actions the header spans the checkbox column and the row starts after it, so
+	// the row moves back by that column: on screen it lands in the same place.
+	expect(rowOffset(0, true) + CHECK_WIDTH).toBe(rowOffset(0, false));
+	// It never goes back further than the first cell's 12px padding.
+	expect(rowOffset(0, true)).toBeGreaterThanOrEqual(-12);
+	// An expanded row's children start under its text. Without groups, rows start at the edge.
+	expect(ROW_STEP).toBe(ROW_SLOT);
 	expect(rowOffset(undefined, false)).toBe(0);
 	expect(rowOffset(undefined, true)).toBe(0);
 });
