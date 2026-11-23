@@ -589,6 +589,16 @@ Each step is an opaque background computed per theme with a text color that meet
 a key's values to shades for the `tags` field: its pills and its value picker use them.
 `default` and `muted` tags have no shades. Older hosts ignore `shade` and draw the usual tint.
 
+### Text styles and dots
+
+`Cell.style` and list items' `titleStyle` (`TextStyle`) draw text in a `color` (any `Tone` or
+`Hue`), `bold` or `italic`, in any combination: an overdue task's title in red, a draft in
+italics. A style's `color` wins over a cell's `tone`. Colors stay readable on a selected row or
+an active quick-view item. Older hosts ignore both fields.
+
+A list item's `dot` sits right before its title, after its icon, as a cell's `dot` sits before
+its text; with `unread` the unread dot comes first.
+
 ### Dialog keyboard
 
 A dialog focuses its first form field when it opens (else the dialog itself). ⌘Return runs the

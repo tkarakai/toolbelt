@@ -2,7 +2,7 @@
 // Tailwind sees every class. Hue shades: -700 text on light, -400 on dark; pills tint the
 // background and use -800 / -300 text, which keeps them readable in every theme.
 import type { CSSProperties } from "react";
-import type { Dot, Hue, Tone } from "../../shared/protocol";
+import type { Dot, Hue, TextStyle, Tone } from "../../shared/protocol";
 import { shadeStep } from "../themes";
 
 const DOT: Record<Tone | Hue, string> = {
@@ -119,6 +119,11 @@ const PILL: Record<Tone | Hue, string> = {
 
 export const dotClass = (c: Tone | Hue = "default", dim?: boolean) => (dim ? DOT_DIM : DOT)[c] ?? DOT.default;
 export const textClass = (c: Tone | Hue = "default") => `${TEXT[c] ?? ""} tb-tone-${c}`;
+/** A `TextStyle`'s classes; `tone` colors the text when the style has no color. */
+export const styleClass = (style?: TextStyle, tone?: Tone) => {
+	const color = style?.color ?? tone;
+	return [color ? textClass(color) : "", style?.bold ? "font-semibold" : "", style?.italic ? "italic" : ""].filter(Boolean).join(" ");
+};
 export const pillClass = (c: Tone | Hue = "default") => `${PILL[c] ?? PILL.default} tb-pill-${c}`;
 
 /** A `Dot` in one shape. */

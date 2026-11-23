@@ -38,6 +38,7 @@ export type {
   Dot,
   Tag,
   Mark,
+  TextStyle,
   Target,
   Section,
   TagKey,

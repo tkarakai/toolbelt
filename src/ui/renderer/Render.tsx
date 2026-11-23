@@ -18,7 +18,7 @@ import { Composer, InlineMarkdown, MarkdownBox, PaneRow, leaveToCollection } fro
 import { createContext, Fragment, lazy, memo, Suspense, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
 import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Section, Tag, TagValue, Target, Tone } from "../../shared/protocol";
-import { dotClass, dotSpec, pillClass, shadeStyle, textClass } from "./colors";
+import { dotClass, dotSpec, pillClass, shadeStyle, styleClass, textClass } from "./colors";
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { selectionKey } from "../../shared/navigation";
 import { flatSections, sectionGroup, subSectionParents } from "../../shared/sections";
@@ -679,17 +679,17 @@ function CellView({ cell, col, measure }: { cell: Cell | undefined; col: Column;
 			{spark}
 			<div className={measure ? "shrink-0" : spark ? "min-w-0" : "min-w-0 flex-1"} title={[cell.text, cell.sub].filter(Boolean).join("\n")}>
 				{cell.at !== undefined ? (
-					<When at={cell.at} className={cn("block truncate", mono && "font-mono text-[0.8rem] tabular-nums", textClass(cell.tone ?? "default"))} />
+					<When at={cell.at} className={cn("block truncate", mono && "font-mono text-[0.8rem] tabular-nums", styleClass(cell.style, cell.tone ?? "default"))} />
 				) : cell.text &&
 					(cell.badge ? (
 						<Badge variant="secondary"><Hl text={cell.text} /></Badge>
 					) : cell.marks?.length ? (
 						<div className="flex min-w-0 items-center gap-1">
-							<div className={cn("truncate", mono && "font-mono text-[0.8rem] tabular-nums", textClass(cell.tone ?? "default"))}><Strong text={cell.text} strong={cell.strong} /></div>
+							<div className={cn("truncate", mono && "font-mono text-[0.8rem] tabular-nums", styleClass(cell.style, cell.tone ?? "default"))}><Strong text={cell.text} strong={cell.strong} /></div>
 							{cell.marks.map((m) => <MarkIcon key={m.icon + m.tooltip} mark={m} />)}
 						</div>
 					) : (
-						<div className={cn("truncate", mono && "font-mono text-[0.8rem] tabular-nums", textClass(cell.tone ?? "default"))}><Strong text={cell.text} strong={cell.strong} /></div>
+						<div className={cn("truncate", mono && "font-mono text-[0.8rem] tabular-nums", styleClass(cell.style, cell.tone ?? "default"))}><Strong text={cell.text} strong={cell.strong} /></div>
 					))}
 				{(!!cell.sub || !!cell.tags?.length) && (
 					<div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
@@ -2613,12 +2613,13 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 				<div id={itemDomId(domPrefix, it.id)} role={keyboard ? "option" : "listitem"} aria-selected={keyboard ? it.id === active : undefined} data-item-id={it.id} data-active={it.id === active} {...(it.leaving ? leavingProps : motion.entering.has(it.id) ? { style: enterStyle } : {})} onMouseEnter={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e)) { focusPopoverCollection(self.current); setActive(it.id); } }}
                     onMouseMove={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e) && (active !== it.id || !self.current?.contains(document.activeElement))) { focusPopoverCollection(self.current); setActive(it.id); } }}
                     onPointerDown={() => { focusPopoverCollection(self.current); setActive(it.id); }} className={cn("group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground", it.leaving ? LEAVING : motion.entering.has(it.id) && ENTERING)}>
-					{it.dot && <Dot dot={it.dot} />}
                     {it.icon && <Icon name={it.icon} className="size-4 shrink-0" />}
 					<div className="min-w-0 flex-1">
+						{/* Every dot sits before the title, the unread one first, as in tables. */}
 						<div className={cn("flex items-center gap-1.5 text-sm", it.unread ? "font-semibold" : "font-medium")}>
 							{it.unread && <UnreadDot />}
-							<span className="truncate">{it.title}</span>
+							{it.dot && <Dot dot={it.dot} />}
+							<span className={cn("truncate", styleClass(it.titleStyle))}>{it.title}</span>
 						</div>
 						{it.subtitle && <div className="truncate font-mono text-xs text-muted-foreground">{it.subtitle}</div>}
 					</div>

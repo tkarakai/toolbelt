@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+- Add `TextStyle` (`color`: a tone or hue, `bold`, `italic`), `Cell.style` and list items' `titleStyle`. A style's `color` wins over a cell's `tone`, and colors stay readable on a selected row or active item. Validation rejects unknown colors and non-boolean `bold`/`italic`. Older hosts ignore them.
+- List items draw `dot` before the title (after the icon, after the unread dot), as cells do.
 
 ## 0.3.9 — 2026-11-23
 - Add `ToastAction.key` behind the new `ui.toast-key` capability: a ⌘ shortcut for a toast's button (`cmd+`, optionally `shift+`, then a lowercase letter, such as `"cmd+z"`). The main window shows it on the button and sends the button's event when it's pressed while the toast shows, except while focus is in a text field, menu or dialog. Keys the system or host own with ⌘ (A, C, F, H, M, Q, V, W, X) are rejected. Older hosts ignore it. `ToastAction` is exported.

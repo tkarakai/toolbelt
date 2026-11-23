@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Plugins can draw a table cell's text or a list item's title in any color, bold or italic.
+- Quick-view items show their status dot right before the title, next to the unread dot, instead of before the icon.
 
 ## 0.3.14 — 2026-11-23
 - Keyboard first: everything in ToolBelt can now be used without a mouse, and you can always see where the keyboard is.
