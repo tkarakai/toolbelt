@@ -153,6 +153,7 @@ const tag = object({
   tooltip: optional(text),
   shade: optional(shade),
 });
+const textStyle = object({ color: optional(color), bold: optional(bool), italic: optional(bool) });
 const mark = object({ icon: text, tooltip: text, color: optional(color) });
 const cell = union(
   text,
@@ -163,6 +164,7 @@ const cell = union(
     sub: optional(text),
     mono: optional(bool),
     tone: optional(tone),
+    style: optional(textStyle),
     dot: optional(dot),
     strong: optional(text),
     tags: optional(array(tag)),
@@ -471,6 +473,7 @@ const node: Schema = (v, p) => {
         object({
           id: text,
           title: text,
+          titleStyle: optional(textStyle),
           subtitle: optional(text),
           icon: optional(text),
           dot: optional(dot),

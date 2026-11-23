@@ -420,3 +420,12 @@ test("a toast button's ⌘ shortcut matches only its exact key press", () => {
 	expect(isToastKey("cmd+shift+z", { key: "Z", code: "KeyZ", metaKey: true, shiftKey: true })).toBe(true);
 	expect(isToastKey("z", { key: "z", code: "KeyZ", metaKey: true })).toBe(false);
 });
+
+test("a text style colors, bolds and italicizes; its color wins over the tone", async () => {
+	const { styleClass } = await import("../src/ui/renderer/colors");
+	expect(styleClass(undefined)).toBe("");
+	expect(styleClass({ bold: true, italic: true })).toBe("font-semibold italic");
+	expect(styleClass({ color: "danger" }, "muted")).toContain("tb-tone-danger");
+	expect(styleClass({ bold: true }, "muted")).toBe("text-muted-foreground tb-tone-muted font-semibold");
+	expect(styleClass({ color: "violet" })).toContain("tb-tone-violet");
+});

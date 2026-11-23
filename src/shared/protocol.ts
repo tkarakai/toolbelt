@@ -72,6 +72,12 @@ export type Dot = Tone | Hue | { color: Tone | Hue; label?: string; pulse?: bool
  */
 export type Tag = { text: string; color?: Tone | Hue; icon?: string; tooltip?: string; shade?: number };
 
+/**
+ * How a title or a cell's text is drawn: `color` (a tone or hue, kept readable on a selected row
+ * or item), `bold` and `italic`. Older hosts ignore it.
+ */
+export type TextStyle = { color?: Tone | Hue; bold?: boolean; italic?: boolean };
+
 /** A small icon after a cell's text, with an instant tooltip (a bookmark: "kept as …"). */
 export type Mark = { icon: string; tooltip: string; color?: Tone | Hue };
 
@@ -86,6 +92,8 @@ export type Cell =
 			sub?: string;
 			mono?: boolean;
 			tone?: Tone;
+			/** How the text is drawn; its `color` wins over `tone`. Older hosts ignore it. */
+			style?: TextStyle;
 			/** A small status dot before the text. */
 			dot?: Dot;
 			/** The part of `text` that matters most (a path's project folder): drawn stronger. */
@@ -489,8 +497,12 @@ export type Node =
 	| {
 			type: "list";
 			id: string;
-			/** `metaAt` shows a moment (epoch ms) relative to now instead of `meta`. */
-			items: { id: string; title: string; subtitle?: string; icon?: string; dot?: Dot; meta?: string; metaAt?: number; actions?: Action[]; unread?: boolean }[];
+			/**
+			 * `metaAt` shows a moment (epoch ms) relative to now instead of `meta`. `dot` and the
+			 * `unread` dot sit before the title, after the icon. `titleStyle` draws the title in a
+			 * color, bold or italic (older hosts ignore it).
+			 */
+			items: { id: string; title: string; titleStyle?: TextStyle; subtitle?: string; icon?: string; dot?: Dot; meta?: string; metaAt?: number; actions?: Action[]; unread?: boolean }[];
 			empty?: { title: string; description?: string; icon?: string };
 	  }
 	/** `at` shows a moment (epoch ms) relative to now instead of `value`. */

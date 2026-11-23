@@ -223,6 +223,18 @@ test("tables accept the document appearance, and tags a shade from 0 to 1", () =
   expect(() => validateTree(tags({ High: 1, Low: 0 }))).not.toThrow();
   expect(() => validateTree(tags({ High: 2 }))).toThrow();
 });
+test("cells and list titles take a text style: a tone or hue, bold and italic", () => {
+  const table = (style: unknown) => ({ type: "table", id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "a", cells: { x: { text: "A", style } } }] });
+  const list = (titleStyle: unknown) => ({ type: "list", id: "l", items: [{ id: "1", title: "T", titleStyle, dot: "danger" }] });
+  for (const style of [{ color: "danger" }, { color: "violet", bold: true }, { italic: true }, {}]) {
+    expect(() => validateTree(table(style))).not.toThrow();
+    expect(() => validateTree(list(style))).not.toThrow();
+  }
+  for (const style of [{ color: "crimson" }, { bold: "yes" }, { italic: 1 }, "danger"]) {
+    expect(() => validateTree(table(style))).toThrow();
+    expect(() => validateTree(list(style))).toThrow();
+  }
+});
 test("rows can carry a pane of inline forms, composers and editable timelines", () => {
   const pane = [
     {
