@@ -243,7 +243,8 @@ function AppSidebar({ plugins, current, go, onResize }: { plugins: PluginInfo[];
 						{/* ToolBelt's settings: just the cog and its shortcut. */}
 						<ShortcutTooltip label={current === TOOLBELT ? "Settings" : "Open settings"} detail={update ? "Updates available" : undefined} keys="⌘," side={state === "collapsed" ? "right" : "top"} align={state === "collapsed" ? "center" : "start"}>
 							<SidebarMenuButton isActive={current === TOOLBELT} aria-label={update ? "ToolBelt settings, updates available" : "ToolBelt settings"} aria-keyshortcuts="Meta+," onClick={() => go(TOOLBELT)} className={cn("relative w-full", ACTIVE)}>
-								<span className="relative inline-flex size-4 shrink-0"><Settings className="size-4"/>{update && <UpdateIndicator className="absolute -right-1 -top-1" />}</span>
+								{/* The menu button truncates its last span; keep the badge from being clipped. */}
+								<span className="relative inline-flex size-4 shrink-0 overflow-visible!"><Settings className="size-4"/>{update && <UpdateIndicator className="absolute -right-1 -top-1" />}</span>
 							</SidebarMenuButton>
 						</ShortcutTooltip>
 					</SidebarMenuItem>
