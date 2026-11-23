@@ -21,7 +21,7 @@ import { dotClass, dotSpec, pillClass, shadeStyle, textClass } from "./colors";
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { selectionKey } from "../../shared/navigation";
 import { flatSections, sectionGroup, subSectionParents } from "../../shared/sections";
-import { EXIT_MS, useRowMotion } from "./row-motion";
+import { ENTER_MS, ENTERING, enterStyle, LEAVING, leavingProps, useRowMotion } from "./row-motion";
 import { cn } from "@/lib/utils";
 import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
@@ -247,7 +247,7 @@ function Segmented({ node, emit }: { node: Extract<Node, { type: "segmented" }>;
 	useEffect(() => setValue(node.value), [node.value]);
 	return (
 		<Tabs value={value} onValueChange={(v) => { setValue(v); emit("field", { form: node.id, field: node.id, value: v }); }}>
-			<TabsList aria-label={node.label ?? node.id}>
+			<TabsList data-view-control aria-label={node.label ?? node.id}>
 				{node.options.map((o) => {
 					const trigger = <TabsTrigger value={o.value} className="gap-1.5 px-3 aria-selected:bg-selected aria-selected:text-selected-foreground dark:aria-selected:bg-selected dark:aria-selected:text-selected-foreground">
 						{o.icon && <Icon name={o.icon} />}{o.label}
@@ -395,7 +395,7 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 			{hasToolbar && (
 				<div className={cn("flex w-full min-w-0 shrink-0 flex-wrap items-center gap-3 px-6 pt-4 pb-3", narrow && "mx-auto max-w-4xl")}>
 					{node.search && (
-						<InputGroup data-filtering={!!query} className={cn("w-64 max-w-full min-w-0 transition-colors duration-200", !!query && ACTIVE_QUERY)}>
+						<InputGroup data-view-control data-filtering={!!query} className={cn("w-64 max-w-full min-w-0 transition-colors duration-200", !!query && ACTIVE_QUERY)}>
 							<InputGroupAddon>
 								<Search />
 							</InputGroupAddon>
@@ -471,14 +471,14 @@ function FilterMenu({ filter, emit }: { filter: Filter; emit: Emit }) {
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button variant="outline" size="sm" data-filtering={picked.length > 0} className={cn("h-8 shrink-0 gap-1.5 transition-colors duration-200", picked.length > 0 && ACTIVE_QUERY)}>
+				<Button variant="outline" size="sm" data-view-control data-filtering={picked.length > 0} className={cn("h-8 shrink-0 gap-1.5 transition-colors duration-200", picked.length > 0 && ACTIVE_QUERY)}>
 					{filter.icon && <Icon name={filter.icon} />}
 					{filter.label}
 					{names.length > 0 && <span className="max-w-36 truncate font-normal text-muted-foreground">· {names.length === 1 ? names[0] : names.length}</span>}
 					<ChevronDown className="size-3.5 opacity-60" />
 				</Button>
 			</DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64 overflow-x-hidden" onCloseAutoFocus={toTable}>
+            <DropdownMenuContent data-view-control align="start" className="w-64 overflow-x-hidden" onCloseAutoFocus={toTable}>
                 <div className="px-2 pt-2 pb-1">
                     <Input ref={searchInput} className={cn("min-w-0 transition-colors duration-200", !!query && ACTIVE_QUERY)} autoFocus aria-label={`Search ${filter.label} options`} placeholder="Search options…" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => {
                         if (e.key === "Escape") return;
@@ -985,9 +985,6 @@ const measureRows = (items: Item[]): Visible[] => {
 const DOC_INSET = 8;
 const DOC_ROW = "*:first:rounded-l-md *:last:rounded-r-md";
 
-/** A row the plugin removed, fading out in place before the rows around it close the gap. */
-const LEAVING = "pointer-events-none animate-out fade-out-0 fill-mode-forwards";
-const leavingProps = { "aria-hidden": true, "data-leaving": "", style: { animationDuration: `${EXIT_MS}ms` } } as const;
 
 /** A declared section's group key (top-level groups are keyed under the root's empty key; a
  *  sub-section under its parent's). */
@@ -1010,13 +1007,20 @@ const TableRow = memo(
 	function TableRow({ v, muted, leaving, doc, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, onDragStart, dragging, run, ready }: { v: Visible; muted?: boolean; leaving?: boolean; doc?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; onDragStart?: (e: React.PointerEvent, row: Row) => void; dragging?: boolean; run: Run; ready: { current: boolean } }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
-		// Rows that appear after the table is up (expanded, new processes) fade in.
-		const [fresh] = useState(() => ready.current);
+		// Rows that appear after the table is up (expanded, new processes) fade in. The class goes
+		// once they have: a row moved in the DOM would replay it over its slide.
+		const [fresh, setFresh] = useState(() => ready.current);
+		useEffect(() => {
+			if (!fresh) return;
+			const timer = setTimeout(() => setFresh(false), ENTER_MS);
+			return () => clearTimeout(timer);
+		}, []);
 		return (
 			<tr
 				data-row-id={row.id}
 				data-selected={selected}
 				{...(leaving ? leavingProps : {})}
+				style={leaving ? leavingProps.style : fresh ? enterStyle : undefined}
 				onClick={(e) => (onSelect(row.id), refocusTable(e.currentTarget))}
 				onDoubleClick={() => hasChildren && onToggle(row.id)}
 				onPointerDown={onDragStart && depth === 0 ? (e) => onDragStart(e, row) : undefined}
@@ -1029,7 +1033,7 @@ const TableRow = memo(
 						? cn(DOC_ROW, selected ? "text-selected-foreground *:bg-selected" : "hover:*:bg-accent")
 						: cn("[&>td]:border-b [&>td]:border-border/50", selected ? "bg-selected text-selected-foreground" : "hover:bg-accent", depth > 0 && !selected && "bg-muted/20"),
 					muted && !selected && "text-muted-foreground",
-					fresh && !leaving && "animate-in fade-in-0 slide-in-from-top-1 duration-200",
+					fresh && !leaving && ENTERING,
 					leaving && LEAVING,
 				)}
 			>
@@ -1415,6 +1419,8 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const [rowDrag, setRowDrag] = useState<{ rowId: string; title: string; x: number; y: number; target?: RowDropTarget; label?: string; mark?: { top: number; left: number; width: number; height: number } } | null>(null);
 	const live = useRef({ items, rows, nodeRows: node.rows, sections, columns: allColumns, hidesDrops });
 	live.current = { items, rows, nodeRows: node.rows, sections, columns: allColumns, hidesDrops };
+	// A dropped row slides from under the pointer (set once the row motion below exists).
+	const landDrop = useRef((_id: string, _y: number) => {});
 	const suppressRowClick = useRef(false);
 	const startRowDrag = useCallback(
 		(e: React.PointerEvent, row: Row) => {
@@ -1507,6 +1513,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				if (!commit || !target) return;
 				const m: RowMove = { rowId: row.id, section: target.section, before: target.before };
 				if (isNoopMove(live.current.rows, m, live.current.sections)) return;
+				landDrop.current(row.id, y);
 				setPending({ rows: live.current.nodeRows, move: m });
 				// Into a collapsed section, the row goes out of sight: don't select what can't be seen.
 				if (!live.current.hidesDrops(m.section)) setSelected(row.id);
@@ -1538,10 +1545,12 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		requestAnimationFrame(() => (ready.current = true));
 	});
 
-	// Refreshes that reorder, add or remove rows animate (see row-motion.ts); the person's own
-	// changes (sorting, filtering, collapsing) don't.
+	// Rows that move, appear or leave animate (see row-motion.ts); sorting and filtering don't.
 	const body = useRef<HTMLTableSectionElement>(null);
-	const shown = useRowMotion(items, body, wrap, `${node.id}\0${node.sort?.key ?? ""}\0${node.sort?.desc ?? ""}`, ready);
+	const folding = useMemo(() => JSON.stringify([collapsedGroups, overrides]), [collapsedGroups, overrides]);
+	const motion = useRowMotion(items, { container: body, scroller: wrap, context: `${node.id}\0${node.sort?.key ?? ""}\0${node.sort?.desc ?? ""}`, folding, ready });
+	const shown = motion.rows;
+	landDrop.current = motion.land;
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
@@ -1766,6 +1775,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 										<th
 												key={c.key}
 												data-col={c.key}
+												data-view-control
 												aria-sort={sorted ? (node.sort!.desc ? "descending" : "ascending") : undefined}
 												onPointerDown={(e) => startMove(e, c)}
 												onClickCapture={(e) => suppressClick.current && (e.stopPropagation(), e.preventDefault())}
@@ -2473,6 +2483,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
     };
     const handoff = useContext(SelectionHandoffContext);
     const appliedHandoff = useRef<number | null>(null);
+	const motion = useRowMotion(node.items, { container: self, attr: "data-item-id", context: node.id });
     useLayoutEffect(() => {
         if (!handoff || handoff.collection !== `list:${node.id}` || appliedHandoff.current === handoff.token) return;
         appliedHandoff.current = handoff.token;
@@ -2487,11 +2498,11 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 	return (
 		<div ref={self} tabIndex={keyboard ? 0 : undefined} data-navigation-collection={keyboard ? `list:${node.id}` : undefined}
             onFocusCapture={restoreSelection} className="flex flex-col outline-none">
-			{node.items.map((it) => (
+			{motion.rows.map((it) => (
 				<Fragment key={it.id}>
-				<div data-item-id={it.id} data-active={it.id === active} onMouseEnter={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e)) { focusPopoverCollection(self.current); setActive(it.id); } }}
+				<div data-item-id={it.id} data-active={it.id === active} {...(it.leaving ? leavingProps : motion.entering.has(it.id) ? { style: enterStyle } : {})} onMouseEnter={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e)) { focusPopoverCollection(self.current); setActive(it.id); } }}
                     onMouseMove={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e) && (active !== it.id || !self.current?.contains(document.activeElement))) { focusPopoverCollection(self.current); setActive(it.id); } }}
-                    onPointerDown={() => { focusPopoverCollection(self.current); setActive(it.id); }} className="group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground">
+                    onPointerDown={() => { focusPopoverCollection(self.current); setActive(it.id); }} className={cn("group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground", it.leaving ? LEAVING : motion.entering.has(it.id) && ENTERING)}>
 					{it.dot && <Dot dot={it.dot} />}
                     {it.icon && <Icon name={it.icon} className="size-4 shrink-0" />}
 					<div className="min-w-0 flex-1">
