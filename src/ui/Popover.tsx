@@ -2,7 +2,7 @@ import { SharedSelectionProvider, readSharedSelection, refreshSharedSelection } 
 import { captureQuickViewExit, QuickViewClosing, quickViewOrigin, type QuickViewExit } from "./QuickViewTransition";
 import { selectedPaneItem, paneBookmark, restorePaneFocus, pointerTracker, type PaneBookmark } from "./lib/pane-navigation";
 import { usePluginDrag } from "./lib/use-plugin-drag";
-import { FocusRescue, overlayOpen } from "./lib/keyboard";
+import { FocusRescue, TabbableControls, overlayOpen } from "./lib/keyboard";
 // The menu-bar tool list stays visible beside the selected plugin's quick view.
 // ↑/↓ and plugin hotkeys select; Enter opens the window; Escape closes.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -397,6 +397,7 @@ export default function Popover() {
                 onDone={id => setExits(previous => previous.filter(exit => exit.id !== id))} />)}
             {/* A quick view redrawn under the keyboard gives it back to its pane, else the menu. */}
             <FocusRescue fallback="[data-keyboard-pane=menu]" />
+            <TabbableControls />
             {/* Quitting hides the menu too; the confirmation takes its place. */}
             <QuitDialog onRequestChange={prepareQuit} ready={quitRequested && quitLayoutReady} inPlace={{
                 container: box.current, style: { top: 0, left: menuLeft, width: layout.menuWidth },

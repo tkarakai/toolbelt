@@ -13,12 +13,17 @@
 // - `focusRegion(el)` / `firstFocusable(el)`: where keyboard focus goes inside a container;
 //   `focusIsIdle(el)`: nothing in particular has it, so a new screen may take it.
 // - `itemDomId`: ids for `aria-activedescendant` on collections.
+// - `<TabbableControls />`: buttons, links and pop-up buttons take Tab whatever macOS's Keyboard
+//   navigation setting says (WebKit skips them while it's off).
+// - `<FocusHint />`: a control with `data-key-hint="…"` shows that text beside it while it has
+//   keyboard focus, for controls whose keys aren't obvious (column headers, resize edges).
 // - `ResizeHandle` (components/resize-handle.tsx) and `ariaShortcut` (keys.ts) round it off.
 //
 // Visible focus: every control shows `:focus-visible` (index.css). Collections (tables, lists)
 // keep DOM focus on their container and show the selected item; with nothing selected the
 // container shows the ring instead, and any arrow selects an item.
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { claims, nearestInDirection, stepIndex, widgetKeys, type Direction } from "./keys";
 
 /** Dialogs, menus and pickers: while one is open, the page underneath gets no keys. */
@@ -281,3 +286,117 @@ export function FocusRescue({ fallback = "[data-focus-region=content]" }: { fall
 
 /** A DOM id for a collection item (any string id), for `aria-activedescendant`. */
 export const itemDomId = (prefix: string, id: string) => `${prefix}-${encodeURIComponent(id)}`;
+
+// ── reach every control with Tab ───────────────────────────────────────────
+/** Controls WebKit leaves out of the Tab order unless macOS's Keyboard navigation is on. */
+const SKIPPED = "button:not([tabindex]), a[href]:not([tabindex]), summary:not([tabindex]), select:not([tabindex]), input:is([type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=button], [type=submit], [type=reset]):not([tabindex])";
+
+/**
+ * WKWebView follows macOS's “Keyboard navigation” setting, off by default: Tab then stops only
+ * at text fields and elements with an explicit `tabindex`, skipping every button, link and
+ * pop-up button. An explicit `tabindex="0"` puts them back, so the app is keyboard-usable on
+ * every Mac. Elements that set their own `tabindex` (roving groups, `-1` for out-of-order
+ * controls) are left alone. Mount once per window.
+ */
+export function TabbableControls() {
+	useEffect(() => {
+		const apply = (root: ParentNode) => root.querySelectorAll<HTMLElement>(SKIPPED).forEach((el) => el.setAttribute("tabindex", "0"));
+		apply(document);
+		const observer = new MutationObserver((records) => {
+			for (const r of records) {
+				if (r.type === "attributes") {
+					const el = r.target as HTMLElement;
+					if (el.matches(SKIPPED)) el.setAttribute("tabindex", "0");
+				} else r.addedNodes.forEach((n) => n instanceof HTMLElement && (n.matches(SKIPPED) ? n.setAttribute("tabindex", "0") : undefined, apply(n)));
+			}
+		});
+		observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["tabindex", "href"] });
+		return () => observer.disconnect();
+	}, []);
+	return null;
+}
+
+// ── focus hints ────────────────────────────────────────────────────────────
+/** While a control with `data-key-hint` has keyboard focus, its hint shows beside it (and is
+ *  its accessible description). Mount once per window. */
+export function FocusHint() {
+	const [hint, setHint] = useState<{ text: string; el: HTMLElement } | null>(null);
+	const [box, setBox] = useState<{ left: number; top: number; above: boolean } | null>(null);
+	useEffect(() => {
+		const onIn = (e: FocusEvent) => {
+			const el = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>("[data-key-hint]") : null;
+			setHint(el && el === e.target && el.matches(":focus-visible") ? { text: el.dataset.keyHint!, el } : null);
+		};
+		const onOut = () => setHint(null);
+		document.addEventListener("focusin", onIn);
+		document.addEventListener("focusout", onOut);
+		return () => (document.removeEventListener("focusin", onIn), document.removeEventListener("focusout", onOut));
+	}, []);
+	useLayoutEffect(() => {
+		if (!hint) return setBox(null);
+		const place = () => {
+			if (!hint.el.isConnected) return setHint(null);
+			const r = hint.el.getBoundingClientRect();
+			const above = r.bottom + 36 > window.innerHeight;
+			setBox({ left: Math.max(8, Math.min(window.innerWidth - 8, r.left + r.width / 2)), top: above ? r.top - 6 : r.bottom + 6, above });
+		};
+		place();
+		window.addEventListener("scroll", place, true);
+		window.addEventListener("resize", place);
+		return () => (window.removeEventListener("scroll", place, true), window.removeEventListener("resize", place));
+	}, [hint]);
+	if (!hint || !box) return null;
+	return createPortal(
+		<div role="presentation" aria-hidden="true" style={{ left: box.left, top: box.top, transform: `translate(-50%, ${box.above ? "-100%" : "0"})` }}
+			className="pointer-events-none fixed z-[60] max-w-80 rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md animate-in fade-in-0 duration-200">
+			{hint.text}
+		</div>,
+		document.body,
+	);
+}
+
+// ── dialogs: the default action ────────────────────────────────────────────
+const MULTILINE = "textarea, [contenteditable=true], .tb-terminal";
+/** Fields whose ↵ belongs to the dialog's default button, as in macOS dialogs: pickers open with
+ *  Space (or ↓), toggles flip with Space. */
+const RETURN_SUBMITS = "[role=combobox]:not([aria-expanded=true]), [role=switch], [role=checkbox], [role=radio], input[type=checkbox], input[type=radio]";
+const NOT_TEXT = new Set(["checkbox", "radio", "button", "submit", "reset", "file", "color", "range", "image"]);
+
+/**
+ * A dialog's default action, the macOS way: ↵ runs it from anywhere in the dialog (one-line
+ * fields commit first, pickers and toggles leave ↵ to it), except in multi-line text, where ↵ is a
+ * new line, and on another button, which ↵ presses. ⌘↵ runs it from anywhere, editors included.
+ * `hint` is the key to show on the default button: "⌘↵" while focus is in multi-line text. Spread
+ * `handlers` on the dialog's content. With no `run` (no default action, or it's disabled), keys
+ * keep their usual meaning, so ↵ on a picker opens it.
+ */
+export function useDefaultAction(run: (() => void) | undefined) {
+	const [multiline, setMultiline] = useState(false);
+	const inside = (e: React.SyntheticEvent) => e.currentTarget.contains(e.target as Node);
+	const fire = (e: React.KeyboardEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		// Fields send their value on blur: commit what's being typed before the action.
+		(e.target as HTMLElement).blur?.();
+		run!();
+	};
+	const plain = (e: React.KeyboardEvent) => e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.nativeEvent.isComposing;
+	const handlers = {
+		onKeyDownCapture: (e: React.KeyboardEvent) => {
+			if (!run || !inside(e) || e.nativeEvent.isComposing) return;
+			const target = e.target as HTMLElement;
+			// ⌘↵ from anywhere; ↵ on a picker or toggle before the control opens or flips itself.
+			if (e.key === "Enter" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) return fire(e);
+			if (plain(e) && target.matches(RETURN_SUBMITS)) fire(e);
+		},
+		onKeyDown: (e: React.KeyboardEvent) => {
+			if (!run || e.defaultPrevented || !inside(e) || !plain(e)) return;
+			const target = e.target as HTMLElement;
+			const oneLine = target instanceof HTMLInputElement && !NOT_TEXT.has(target.type);
+			if (!oneLine && target.closest(`button, a, select, [role=menuitem], [role=option], ${MULTILINE}`)) return;
+			fire(e);
+		},
+		onFocusCapture: (e: React.FocusEvent) => setMultiline(!!(e.target as HTMLElement).closest(MULTILINE)),
+	};
+	return { handlers, hint: multiline ? "⌘↵" : "↵", ariaKeys: multiline ? "Meta+Enter" : "Enter Meta+Enter" };
+}

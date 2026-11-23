@@ -23,7 +23,7 @@ import { THEMES, tokens } from "./themes";
 import { QuitDialog } from "./QuitDialog";
 import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { WindowZoom, ZoomKeys } from "@/lib/zoom";
-import { FocusRegions, FocusRescue, focusIsIdle, overlayOpen, useRovingFocus, useWindowKeys } from "@/lib/keyboard";
+import { FocusHint, FocusRegions, FocusRescue, TabbableControls, focusIsIdle, overlayOpen, useRovingFocus, useWindowKeys } from "@/lib/keyboard";
 import { ResizeHandle } from "@/components/resize-handle";
 import { UpdateIndicator, UpdatesCard, useAnyUpdateAvailable, usePluginUpdateAvailable, useUpdateAvailable, useUpdateState } from "./Updates";
 import { EmptyState, Dot } from "@/renderer/Render";
@@ -159,6 +159,8 @@ export default function App() {
 			{!inApp && <FakeTrafficLights />}
 			<FocusRegions />
 			<FocusRescue />
+			<TabbableControls />
+			<FocusHint />
 			<QuitDialog />
 			<ZoomKeys />
 			<WindowZoom />
@@ -300,7 +302,8 @@ function SidebarResize({ width, onResize, onCollapse, onExpand, collapsed }: { w
 			max={400}
 			onResize={(w) => (collapsed && onExpand(), onResize(w))}
 			onReset={() => (collapsed ? onExpand() : onCollapse())}
-			title="Drag to resize · double-click to collapse (←/→ and ↵ with the keyboard)"
+			title="Drag to resize · double-click to collapse"
+			hint={`← → resize · ⇧ faster · ↵ ${collapsed ? "expand" : "collapse"}`}
 			onPointerDown={onPointerDown}
 			onDoubleClick={() => (collapsed ? onExpand() : onCollapse())}
 			className={cn("absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-1 after:w-px after:bg-border after:transition-colors hover:after:bg-ring/60", collapsed && "top-12")}

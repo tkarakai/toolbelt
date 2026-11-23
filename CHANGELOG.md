@@ -10,6 +10,10 @@
   - Closing a dialog puts the keyboard back where it was, also for dialogs opened from a key, a menu or a plugin; when the thing you were on disappears (a deleted row), focus moves to its list instead of getting lost.
   - Fixed: Tab could not leave a terminal output view. Tab, Esc and F6 now leave it, and the arrow and Page keys scroll it.
   - Fixed: the closed details drawer's controls could be reached with Tab although they weren't visible.
+  - Tab now reaches every button, link and pop-up menu on every Mac. Before, with macOS's Keyboard navigation setting off (the default), Tab skipped them: the filters, a dialog's buttons, the due date and labels pickers, the details drawer's ⋯ menu and its other buttons.
+  - Return in a dialog presses its main button (Save, Snooze, Watch…) from any field, including pickers and switches, as in other Mac apps. Space opens a picker or flips a switch, and ⌘↵ works from anywhere. In a multi-line text box Return starts a new line, and the main button's hint changes to ⌘↵.
+  - Column headers and resize edges say what their keys do while they have keyboard focus.
+  - Removing a plugin starts on “Keep plugin” rather than on the “delete data” checkbox.
   - Screen readers hear tables, lists and their selected row, row levels and expanded state, and buttons' shortcuts without the key pictures read as part of their names. Settings → Keyboard lists the new keys.
 - Fixed: a link to a screen a plugin doesn't have opens its first screen instead of loading forever.
 - Grouped tables indent consistently: everything inside a section or group has its open/close arrow (or unread dot) start right where the group's icon, or its title without one, starts, whatever icon the group shows. Tables with checkboxes line up the same way.

@@ -2,7 +2,7 @@ import { useCollectionSelection, LocalSelectionProvider } from "@/lib/shared-sel
 import { SelectionHandoffContext, SelectionRequestContext } from "@/lib/selection-handoff";
 import { PaneActionsContext } from "@/lib/pane-actions";
 import { ownsCollectionKeyboard, focusPopoverCollection, canHoverNavigate, pointerTracker } from "@/lib/pane-navigation";
-import { firstFocusable, focusIsIdle, focusRegion, itemDomId, overlayOpen, ownsKey, useWindowKeys } from "@/lib/keyboard";
+import { firstFocusable, focusIsIdle, focusRegion, itemDomId, overlayOpen, ownsKey, useDefaultAction, useWindowKeys } from "@/lib/keyboard";
 import { EnvironmentEditor } from "./EnvironmentEditor";
 import { ColorField, ComboboxField, TagsField, TextAreaField, WIDE_FIELDS } from "./fields";
 import { DateTimeField } from "./DateTimeField";
@@ -171,7 +171,7 @@ function Elapsed({ at }: { at: number }) {
 
 /** Buttons for toolbar, card and dialog actions; `checked` actions are switches, actions with a
  *  `menu` are split buttons. */
-function ActionButtons({ actions, onRun, size = "sm", enter, keys }: { actions: Action[]; onRun: (a: Action) => void; size?: "sm" | "default"; enter?: Action; keys?: boolean }) {
+function ActionButtons({ actions, onRun, size = "sm", enter, enterKeys = { hint: "↵", ariaKeys: "Enter" }, keys }: { actions: Action[]; onRun: (a: Action) => void; size?: "sm" | "default"; enter?: Action; enterKeys?: { hint: string; ariaKeys: string }; keys?: boolean }) {
 	return (
 		<>
 			{actions.map((a) =>
@@ -181,7 +181,7 @@ function ActionButtons({ actions, onRun, size = "sm", enter, keys }: { actions: 
 						{a.label}
 					</label>
 				) : (
-					<SplitButton key={a.id} a={a} size={size} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onRun={onRun} hints={a === enter ? <KeyHint keys="↵" /> : keys && a.key && <KeyHint keys={formatKey(a.key)} />} ariaKeys={a === enter ? "Enter" : keys && a.key ? ariaShortcut(a.key) : undefined} />
+					<SplitButton key={a.id} a={a} size={size} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onRun={onRun} hints={a === enter ? <KeyHint keys={enterKeys.hint} /> : keys && a.key && <KeyHint keys={formatKey(a.key)} />} ariaKeys={a === enter ? enterKeys.ariaKeys : keys && a.key ? ariaShortcut(a.key) : undefined} />
 				),
 			)}
 		</>
@@ -543,31 +543,13 @@ const FILLS = new Set(["terminal", "conversation"]);
 
 function DialogBody({ d, emit, close, className, style, header, children }: { d: DialogNode; emit: Emit; close: () => void; className?: string; style?: React.CSSProperties; header?: ReactNode; children?: ReactNode }) {
 	const fills = d.children.some((c) => FILLS.has(c.type));
-	// ↵ runs the main action, wherever focus is — in a one-line field too (its value is committed
-	// first) — unless it's on another button, or in a field or terminal that wants the key itself.
-	// ⌘↵ runs it from anywhere, Markdown editors included. Esc (Cancel / Close) is the dialog's own.
+	// The main action is the dialog's default: ↵ runs it from fields, pickers and toggles, ⌘↵ from
+	// anywhere (see `useDefaultAction`). Esc (Cancel / Close) is the dialog's own.
 	const main = d.actions?.find((a) => a.primary && !a.disabled && a.checked === undefined);
-	const inside = (e: React.KeyboardEvent) => e.currentTarget.contains(e.target as globalThis.Node) && !(e.target as HTMLElement).closest(".tb-terminal");
-	const onKeyDownCapture = (e: React.KeyboardEvent) => {
-		if (e.key !== "Enter" || !main || !e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.nativeEvent.isComposing || !inside(e)) return;
-		e.preventDefault();
-		e.stopPropagation();
-		// Blurring commits what's being typed (fields send their value on blur) before the action.
-		(e.target as HTMLElement).blur?.();
-		emit(main.id, { dialog: d.id });
-	};
-	const onKeyDown = (e: React.KeyboardEvent) => {
-		if (e.key !== "Enter" || !main || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.nativeEvent.isComposing || !inside(e)) return;
-		const target = e.target as HTMLElement;
-		const oneLine = target instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "reset", "file"].includes(target.type);
-		if (!oneLine && target.closest("button, a, input, textarea, select, [contenteditable], [role=switch]")) return;
-		e.preventDefault();
-		emit(main.id, { dialog: d.id });
-	};
+	const defaultAction = useDefaultAction(main && (() => emit(main.id, { dialog: d.id })));
 	return (
 		<DialogContent
-			onKeyDownCapture={onKeyDownCapture}
-			onKeyDown={onKeyDown}
+			{...defaultAction.handlers}
 			className={cn("flex max-h-[85vh] flex-col gap-0 p-0 duration-200", d.wide ? "sm:max-w-3xl" : "sm:max-w-lg", className)}
 			style={style}
 			// Focus the first form field, so typing can start at once; with none, the dialog itself
@@ -598,7 +580,7 @@ function DialogBody({ d, emit, close, className, style, header, children }: { d:
 					{d.actions?.some((a) => a.primary) ? "Cancel" : "Close"}
 					<KeyHint keys="esc" />
 				</Button>
-				<ActionButtons size="default" actions={d.actions ?? []} enter={main} onRun={(a) => emit(a.id, { dialog: d.id })} />
+				<ActionButtons size="default" actions={d.actions ?? []} enter={main} enterKeys={defaultAction} onRun={(a) => emit(a.id, { dialog: d.id })} />
 			</DialogFooter>
 			{children}
 		</DialogContent>
@@ -1876,17 +1858,20 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 												aria-sort={sorted ? (node.sort!.desc ? "descending" : "ascending") : undefined}
 												// Columns that can move but not sort take focus themselves, for ⌥←/⌥→.
 												tabIndex={!c.sortable && isReorderable(c, allColumns.indexOf(c)) ? 0 : undefined}
-												title={!c.sortable && isReorderable(c, allColumns.indexOf(c)) ? "⌥← ⌥→ move the column" : undefined}
+												data-key-hint={!c.sortable && isReorderable(c, allColumns.indexOf(c)) ? "⌥← ⌥→ move this column" : undefined}
+												{...(!c.sortable && isReorderable(c, allColumns.indexOf(c)) && { "aria-description": "⌥← ⌥→ move this column" })}
 												onKeyDown={(e) => moveByKey(e, c)}
 												onPointerDown={(e) => startMove(e, c)}
 												onClickCapture={(e) => suppressClick.current && (e.stopPropagation(), e.preventDefault())}
-												className={cn("relative h-9 overflow-hidden border-b px-3 text-xs font-medium whitespace-nowrap text-ellipsis text-muted-foreground transition-opacity duration-200", i === 0 && "pl-9", c.align === "right" && "text-right", moving?.key === c.key && "opacity-40")}
+												className={cn("relative h-9 overflow-hidden border-b px-3 text-xs font-medium whitespace-nowrap text-ellipsis text-muted-foreground transition-opacity duration-200 focus-visible:rounded-md focus-visible:outline-offset-[-2px]", i === 0 && "pl-9", c.align === "right" && "text-right", moving?.key === c.key && "opacity-40")}
 											>
 											{c.sortable ? (
 												<button
-												data-col-focus
-												onClick={() => sortBy(c)}
-												title={`Sort by ${c.title.toLowerCase()}${isReorderable(c, allColumns.indexOf(c)) ? " · ⌥← ⌥→ move the column" : ""}`}
+													data-col-focus
+													onClick={() => sortBy(c)}
+													title={`Sort by ${c.title.toLowerCase()}`}
+													data-key-hint={`↵ sort by ${c.title.toLowerCase()}${isReorderable(c, allColumns.indexOf(c)) ? " · ⌥← ⌥→ move this column" : ""}`}
+													{...(isReorderable(c, allColumns.indexOf(c)) && { "aria-description": "⌥← ⌥→ move this column" })}
 													className={cn("group/sort -mx-1.5 inline-flex items-center gap-1 rounded px-1.5 py-1 transition-colors duration-200 hover:bg-accent hover:text-foreground", sorted && "text-foreground", c.align === "right" && "flex-row-reverse")}
 												>
 													{c.title}
@@ -1903,7 +1888,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 														max={c.maxWidth ?? Math.max(available, (layout.widths[c.key] ?? 0) + 800)}
 														onResize={(w) => resizeTo(c, w)}
 														onReset={() => resetWidth(c)}
-														title="Drag to resize · double-click to reset (←/→ and ↵ with the keyboard)"
+														title="Drag to resize · double-click to reset"
 														onPointerDown={(e) => startResize(e, c)}
 														onDoubleClick={(e) => (e.stopPropagation(), resetWidth(c))}
 														className="group/resize absolute top-0 right-0 z-10 flex h-full w-2 cursor-col-resize justify-center rounded-sm focus-visible:bg-ring/15"

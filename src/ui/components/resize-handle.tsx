@@ -5,7 +5,7 @@ import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 import { resizeKey } from "@/lib/keys";
 
-export function ResizeHandle({ label, value, min, max, step, grows = "ArrowRight", onResize, onReset, className, children, ...props }: Omit<ComponentProps<"div">, "onResize"> & {
+export function ResizeHandle({ label, value, min, max, step, grows = "ArrowRight", onResize, onReset, hint, className, children, ...props }: Omit<ComponentProps<"div">, "onResize"> & {
 	label: string;
 	value: number;
 	min: number;
@@ -15,8 +15,11 @@ export function ResizeHandle({ label, value, min, max, step, grows = "ArrowRight
 	grows?: "ArrowRight" | "ArrowLeft" | "ArrowDown" | "ArrowUp";
 	onResize: (value: number) => void;
 	onReset?: () => void;
+	/** What the keys do, shown beside the edge while it has keyboard focus (`FocusHint`). */
+	hint?: string;
 }) {
 	const vertical = grows === "ArrowRight" || grows === "ArrowLeft";
+	const keys = hint ?? `${vertical ? "← →" : "↑ ↓"} resize · ⇧ faster${onReset ? " · ↵ reset" : ""}`;
 	return (
 		<div
 			role="separator"
@@ -26,6 +29,8 @@ export function ResizeHandle({ label, value, min, max, step, grows = "ArrowRight
 			aria-valuenow={Math.round(value)}
 			aria-valuemin={Math.round(min)}
 			aria-valuemax={Math.round(max)}
+			data-key-hint={keys}
+			{...{ "aria-description": keys }}
 			onKeyDown={(e) => {
 				if (e.metaKey || e.ctrlKey || e.altKey) return;
 				if (e.key === "Enter" && onReset) {

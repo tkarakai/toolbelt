@@ -47,7 +47,8 @@ function DialogOverlay({
 
 /** Remembers what had focus when the dialog opened (its layout effect runs before Radix moves
  *  focus into the dialog). A menu item that opened it is about to disappear with its menu: the
- *  menu's button (through any submenus) stands in for it. */
+ *  menu's button (through any submenus) stands in for it, and a table or list for a control of
+ *  one of its rows. */
 function RememberFocus({ into }: { into: React.RefObject<HTMLElement | null> }) {
   React.useLayoutEffect(() => {
     let active: Element | null = document.activeElement
@@ -55,6 +56,8 @@ function RememberFocus({ into }: { into: React.RefObject<HTMLElement | null> }) 
       const by = menu.getAttribute("aria-labelledby")
       active = by ? document.getElementById(by) : null
     }
+    // A control outside the Tab order inside a table or list (a row's ⋯) hands back to the list.
+    if (active instanceof HTMLElement && active.tabIndex < 0) active = active.closest("[data-navigation-collection]") ?? active
     into.current = active instanceof HTMLElement && active !== document.body ? active : null
   }, [into])
   return null
