@@ -379,6 +379,12 @@ export type Field = (
 	 * value is picked from them (any text too with `freeform`); otherwise it's free text.
 	 */
 	| { type: "tags"; id: string; label: string; value: TagValue[]; keys: TagKey[]; description?: string }
+	/**
+	 * An editable list of choices (capability `ui.options-field`): add, rename, remove and, with
+	 * `reorder`, move items; with `colors`, each item has a color of its own. See `OptionItem`.
+	 * `placeholder` is the add row's hint ("Add value").
+	 */
+	| { type: "options"; id: string; label: string; value: OptionItem[]; colors?: boolean; reorder?: boolean; placeholder?: string; description?: string }
 ) & {
 	/**
 	 * Focus this field when it appears in an open dialog (also when the plugin swaps one form for
@@ -387,8 +393,20 @@ export type Field = (
 	autofocus?: boolean;
 };
 
-/** `shades` gives values a `Tag.shade` (value → 0…1), used for their pills and in the picker. */
-export type TagKey = { key: string; label: string; color?: Tone | Hue; values?: string[]; freeform?: boolean; flag?: boolean; shades?: Record<string, number> };
+/**
+ * `shades` gives values a `Tag.shade` (value → 0…1), used for their pills and in the picker.
+ * `colors` gives values a color of their own (value → hue), which wins over `color`.
+ */
+export type TagKey = { key: string; label: string; color?: Tone | Hue; values?: string[]; freeform?: boolean; flag?: boolean; shades?: Record<string, number>; colors?: Record<string, Hue> };
+
+/**
+ * One item of an `options` field. `key` is the plugin's stable id for it: renaming keeps the key,
+ * so a plugin tells a rename from a remove and an add. Items the person adds come back without
+ * a key (and, with `colors`, with the color the host picked: one the list uses least); give
+ * them keys when you render the field again. `count` (how many things use it) is shown beside
+ * the item and isn't sent back.
+ */
+export type OptionItem = { key?: string; text: string; color?: Hue; count?: number };
 export type TagValue = { key: string; value?: string };
 
 /** A line of output in a `log`. */

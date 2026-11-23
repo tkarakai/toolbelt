@@ -125,6 +125,11 @@ export const styleClass = (style?: TextStyle, tone?: Tone) => {
 	return [color ? textClass(color) : "", style?.bold ? "font-semibold" : "", style?.italic ? "italic" : ""].filter(Boolean).join(" ");
 };
 export const pillClass = (c: Tone | Hue = "default") => `${PILL[c] ?? PILL.default} tb-pill-${c}`;
+/**
+ * A pill's tint without the selected-row treatment, for pills inside menus and pickers, whose
+ * highlighted item also carries `data-selected` but keeps a light background.
+ */
+export const pillTint = (c: Tone | Hue = "default") => PILL[c] ?? PILL.default;
 
 /** A `Dot` in one shape. */
 export function dotSpec(d: Dot): { color: Tone | Hue; label?: string; pulse?: boolean; dim?: boolean } {

@@ -1,6 +1,7 @@
 // Form fields beyond one-line text, switches and selects (capability `ui.rich-fields`):
 // several lines with optional live Markdown styling, a local date with an optional time, a
-// theme color, a searchable choice and key/value pills. Typing stays here; the plugin hears
+// theme color, a searchable choice and key/value pills. The `options` list editor
+// (capability `ui.options-field`) is in OptionsField.tsx. Typing stays here; the plugin hears
 // committed values (blur, ⌘↵, a pick).
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Check, ChevronsUpDown, Plus, X } from "lucide-react";
@@ -10,12 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { dotClass, pillClass, shadeStyle } from "./colors";
+import { dotClass, pillClass, pillTint, shadeStyle } from "./colors";
 
 type Of<T extends Field["type"]> = Extract<Field, { type: T }>;
 
 /** Fields drawn under their label, across the form's width. */
-export const WIDE_FIELDS = new Set<Field["type"]>(["environment", "textarea", "tags", "color"]);
+export const WIDE_FIELDS = new Set<Field["type"]>(["environment", "textarea", "tags", "color", "options"]);
 
 // ── several lines ───────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ export function ColorField({ id, field, onChange }: { id: string; field: Of<"col
 // ── searchable choice ───────────────────────────────────────────────────
 
 /** A list to pick from, with "Use …" for typed text when any text is allowed. */
-function Picker({ options, value, freeform, placeholder, onPick }: { options: { value: string; label: string; sub?: string; swatch?: CSSProperties }[]; value: string; freeform: boolean; placeholder: string; onPick: (v: string) => void }) {
+function Picker({ options, value, freeform, placeholder, onPick }: { options: { value: string; label: string; sub?: string; swatch?: CSSProperties; pill?: string }[]; value: string; freeform: boolean; placeholder: string; onPick: (v: string) => void }) {
 	const [query, setQuery] = useState("");
 	const typed = query.trim();
 	const exact = options.some((o) => o.value === typed || o.label.toLowerCase() === typed.toLowerCase());
@@ -117,11 +118,11 @@ function Picker({ options, value, freeform, placeholder, onPick }: { options: { 
 						{options.map((o) => (
 							<CommandItem key={o.value} value={`${o.label} ${o.sub ?? ""} \u0002${o.value}`} onSelect={() => onPick(o.value)}>
 								<Check className={cn("size-3.5", o.value === value ? "opacity-100" : "opacity-0")} />
-								{o.swatch ? (
-									// A shaded value: shown as the pill it will be.
-									<span style={o.swatch} className="min-w-0 truncate rounded px-1.5 py-0.5 text-xs font-medium">{o.label}</span>
+								{o.swatch || o.pill ? (
+									// A shaded or colored value: shown as the pill it will be.
+									<span style={o.swatch} className={cn("min-w-0 truncate rounded px-1.5 py-0.5 text-xs font-medium", !o.swatch && o.pill)}>{o.label}</span>
 								) : null}
-								<span className={cn("min-w-0 flex-1 truncate", o.swatch && "sr-only")}>{o.label}</span>
+								<span className={cn("min-w-0 flex-1 truncate", (o.swatch || o.pill) && "sr-only")}>{o.label}</span>
 								{o.sub && <span className="truncate text-xs text-muted-foreground">{o.sub}</span>}
 							</CommandItem>
 						))}
@@ -163,8 +164,10 @@ export function ComboboxField({ id, field, onChange, className }: { id: string; 
 // ── key/value pills ─────────────────────────────────────────────────────
 
 const anyText = (k: TagKey) => !!k.freeform || !k.values?.length;
-/** A key's values as picker options, each shown as its shaded pill when the key has shades. */
-const valueOptions = (k: TagKey) => (k.values ?? []).map((v) => ({ value: v, label: v, swatch: shadeStyle(k.color, k.shades?.[v]) }));
+/** A value's color: its own (`TagKey.colors`) or its key's. */
+const valueColor = (k: TagKey, v?: string) => (v !== undefined && k.colors?.[v]) || k.color;
+/** A key's values as picker options, each shown as its pill when the key shades or colors values. */
+const valueOptions = (k: TagKey) => (k.values ?? []).map((v) => ({ value: v, label: v, swatch: shadeStyle(valueColor(k, v), k.shades?.[v]), pill: k.colors?.[v] && pillTint(k.colors[v]) }));
 
 export function TagsField({ id, field, onChange }: { id: string; field: Of<"tags">; onChange: (v: TagValue[]) => void }) {
 	const [tags, setTags] = useState(field.value);
@@ -194,9 +197,10 @@ export function TagsField({ id, field, onChange }: { id: string; field: Of<"tags
 function TagPillEditor({ k, tag, onSet, onRemove }: { k: TagKey; tag: TagValue; onSet: (v: string) => void; onRemove: () => void }) {
 	const [open, setOpen] = useState(false);
 	const text = k.flag ? k.label : `${k.label}: ${tag.value ?? ""}`;
-	const shaded = tag.value === undefined ? undefined : shadeStyle(k.color, k.shades?.[tag.value]);
+	const color = valueColor(k, tag.value);
+	const shaded = tag.value === undefined ? undefined : shadeStyle(color, k.shades?.[tag.value]);
 	return (
-		<span style={shaded} className={cn("inline-flex h-7 items-center overflow-hidden rounded-md text-xs font-medium", !shaded && pillClass(k.color ?? "default"))}>
+		<span style={shaded} className={cn("inline-flex h-7 items-center overflow-hidden rounded-md text-xs font-medium", !shaded && pillClass(color ?? "default"))}>
 			{k.flag ? (
 				<span className="pl-2">{text}</span>
 			) : (

@@ -43,6 +43,7 @@ export type {
   Section,
   TagKey,
   TagValue,
+  OptionItem,
   Filter,
   EventPayloads,
   Dialog,
@@ -56,6 +57,7 @@ export type {
   ToastAction,
 } from "../shared/protocol";
 export { HUES } from "../shared/protocol";
+export { leastUsedHue } from "../shared/hues";
 export { duration, relative } from "../shared/time";
 
 /** This plugin's own folder for data (settings, state, logs). Toolbelt creates it. */

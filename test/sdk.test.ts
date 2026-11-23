@@ -115,17 +115,19 @@ test("SDK carries sections, sub-sections, reorder, rich fields and their events 
 	const tree = {
 		type: "page" as const,
 		children: [{ type: "table" as const, id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "a", cells: { x: "A" }, group: "inbox", unread: true }], sections: [{ id: "inbox", label: "Inbox" }, { id: "progressing", label: "Progressing", sections: [{ id: "snoozed", label: "Snoozed", empty: "Nothing snoozed", collapsed: true }] }, { id: "settled", label: "Settled", order: "fixed" as const, dropLabel: "Settle" }], reorder: true, selectEvents: true, actions: [{ id: "up", label: "Up", key: "alt+up" }] }],
-		dialog: { id: "d", title: "Edit", children: [{ type: "form" as const, id: "f", fields: [{ type: "textarea" as const, id: "desc", label: "Description", value: "# Hi", markdown: true }, { type: "tags" as const, id: "l", label: "Labels", value: [{ key: "p", value: "High" }], keys: [{ key: "p", label: "Priority", color: "orange" as const, values: ["High"] }] }] }] },
+		dialog: { id: "d", title: "Edit", children: [{ type: "form" as const, id: "f", fields: [{ type: "textarea" as const, id: "desc", label: "Description", value: "# Hi", markdown: true }, { type: "tags" as const, id: "l", label: "Labels", value: [{ key: "p", value: "High" }], keys: [{ key: "p", label: "Priority", color: "orange" as const, values: ["High"], colors: { High: "red" as const } }] }, { type: "options" as const, id: "v", label: "Values", value: [{ key: "1", text: "High", color: "red" as const, count: 2 }], colors: true, reorder: true, placeholder: "Add value" }] }] },
 	};
 	definePlugin({ render: { "screen:a": () => tree }, onEvent: (_s, name, payload) => { events.push([name, payload]); } }, { write: h.write, input: h.input });
 	await tick();
-	h.send({ type: "hello", protocol: 1, capabilities: ["ui.core", "ui.rich-fields", "ui.row-select", "ui.row-reorder", "ui.modifier-keys", "ui.sub-sections"], plugin: { id: "t" }, host: { name: "test", version: "0.3.9" } });
+	h.send({ type: "hello", protocol: 1, capabilities: ["ui.core", "ui.rich-fields", "ui.row-select", "ui.row-reorder", "ui.modifier-keys", "ui.sub-sections", "ui.options-field"], plugin: { id: "t" }, host: { name: "test", version: "0.3.9" } });
 	h.send({ type: "open", surface: "screen:a" });
 	h.send({ type: "event", surface: "screen:a", name: "reorder", payload: { table: "t", rowId: "a", section: "snoozed", before: null } });
 	h.send({ type: "event", surface: "screen:a", name: "select", payload: { table: "t", rowId: "a" } });
 	h.send({ type: "event", surface: "screen:a", name: "field", payload: { form: "f", field: "l", value: [{ key: "p", value: "High" }] } });
+	h.send({ type: "event", surface: "screen:a", name: "field", payload: { form: "f", field: "v", value: [{ key: "1", text: "Top", color: "red" }, { text: "Low", color: "sky" }] } });
 	await tick();
 	expect(h.out.find((m: any) => m.type === "render")).toEqual({ type: "render", surface: "screen:a", tree });
-	expect(events.map(([n]) => n)).toEqual(["reorder", "select", "field"]);
+	expect(events.map(([n]) => n)).toEqual(["reorder", "select", "field", "field"]);
+	expect(events.at(-1)![1]).toMatchObject({ field: "v", value: [{ key: "1", text: "Top" }, { text: "Low" }] });
 	expect(validateTree(tree)).toBeUndefined();
 });

@@ -485,3 +485,26 @@ export function resolveDrop(slots: DropSlot[], index: number, lower: boolean, se
 	if (slot.kind === "header") return { section: slot.section, before: nextRow(index + 1), whole: false };
 	return { section: slot.section, before: lower ? nextRow(index + 1) : slot.id, whole: false };
 }
+
+// ── options field ───────────────────────────────────────────────────────
+
+export { leastUsedHue } from "../../shared/hues";
+
+/** `items` with the one at `from` moved to `to`. */
+export function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
+	const next = [...items];
+	const [it] = next.splice(from, 1);
+	next.splice(Math.max(0, Math.min(to, next.length)), 0, it!);
+	return next;
+}
+
+/** Texts to add from what was typed or pasted into the add row: one per line, trimmed, new only. */
+export function newOptionTexts(input: string, existing: readonly string[]): string[] {
+	const seen = new Set(existing.map((t) => t.toLowerCase()));
+	const out: string[] = [];
+	for (const raw of input.split(/\r?\n|\t/)) {
+		const t = raw.trim();
+		if (t && !seen.has(t.toLowerCase())) (seen.add(t.toLowerCase()), out.push(t));
+	}
+	return out;
+}

@@ -22,6 +22,7 @@ export const CAPABILITIES = [
   "ui.composer",
   "ui.sub-sections",
   "ui.toast-key",
+  "ui.options-field",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

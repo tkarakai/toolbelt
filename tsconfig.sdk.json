@@ -2,7 +2,7 @@
   "extends": "./tsconfig.json",
   "include": [
     "src/sdk", "src/release", "src/shared/protocol.ts", "src/shared/package.ts",
-    "src/shared/validation.ts", "src/shared/time.ts", "scripts/build-sdk.ts", "release.config.ts",
+    "src/shared/validation.ts", "src/shared/time.ts", "src/shared/hues.ts", "scripts/build-sdk.ts", "release.config.ts",
     "scripts/check-sdk.ts", "scripts/ci-scope.ts", "test/ci-scope.test.ts",
     "test/sdk.test.ts", "test/sdk-release.test.ts", "test/release.test.ts", "test/release-retry.test.ts",
     "test/search.test.ts", "test/time.test.ts", "test/protocol.test.ts", "test/validation.test.ts",
