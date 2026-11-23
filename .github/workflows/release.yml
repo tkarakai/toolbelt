@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   plan:
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
@@ -47,7 +47,8 @@ jobs:
   build:
     needs: plan
     if: needs.plan.outputs.release == 'true' && needs.plan.outputs.reuse != 'true'
-    runs-on: macos-15
+    # Only the app (Electrobun, DMG) needs macOS; the SDK archive builds and checks anywhere.
+    runs-on: ${{ needs.plan.outputs.product == 'app' && 'macos-15' || 'ubuntu-latest' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -70,6 +71,7 @@ jobs:
   native:
     needs: [plan, build]
     if: always() && needs.plan.outputs.release == 'true' && needs.plan.outputs.product == 'plugin' && (needs.build.result == 'success' || needs.plan.outputs.reuse == 'true')
+    # A plugin's archive runs on each target its users have: macOS.
     strategy:
       matrix:
         runner: [macos-15]
@@ -108,7 +110,7 @@ jobs:
       cancel-in-progress: false
     needs: [plan, build, native]
     if: always() && needs.plan.outputs.release == 'true' && (needs.build.result == 'success' || needs.plan.outputs.reuse == 'true') && (needs.native.result == 'success' || needs.plan.outputs.product != 'plugin')
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: write

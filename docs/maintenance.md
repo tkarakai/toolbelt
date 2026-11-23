@@ -108,6 +108,14 @@ SDK release-only CI and candidate builds use `bun run sdk:check` for the SDK run
 its bundled release-tool dependencies. Changes outside the exact SDK release metadata
 allowlist keep full app CI. See [releases.md](releases.md#product-specific-validation).
 
+CI runs on Linux except where macOS is required. The Linux `Test` job validates the release
+request, selects the scope, runs the SDK checks or the SDK typecheck and every test but
+`test/hotkey.test.ts`, and packages the SDK. The `macOS app` job runs only the macOS-bound
+work: the Electrobun devkit and app typecheck, the Carbon hotkey tests, the app build with its
+signature check and the disk image; it is skipped for SDK release-only diffs. Keep new tests
+platform-neutral (fake `hdiutil`, injected executables) so they run on Linux; tests that load
+macOS frameworks belong in the macOS job's explicit list.
+
 ## Maintaining SDK, renderer and demo
 
 `src/shared/protocol.ts` defines public nodes/events. `src/shared/package.ts` defines package
