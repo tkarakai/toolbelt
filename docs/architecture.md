@@ -110,7 +110,9 @@ Forms add `textarea` (with a CodeMirror editor that styles Markdown as typed), `
 values commit on blur or pick. The date picker's reading of typed dates and times, month grid
 and wording are pure code in `renderer/datetime.ts`. `renderer/Timeline.tsx` draws `timeline`
 nodes with roving focus and in-place entry editing. `renderer/compose.tsx` holds the Markdown box
-that sends on ⌘↵ and cancels on Esc, the `composer` node and the inline Markdown field. A row's
+that sends on ⌘↵ and cancels on Esc, the `composer` node and the inline Markdown field. The CodeMirror
+editors live in `renderer/editor.tsx` and xterm.js in `renderer/Terminal.tsx`; both are lazy chunks
+loaded on first use, behind same-size placeholders, to keep the main bundle small. A row's
 `pane` renders in the drawer (`RowPane` in `Render.tsx`) under a `PaneRow` context that adds
 `rowId` to its events and draws cards as sections; inline forms get their text-like controls
 from `[data-inline-form]` rules in `index.css`. The table ignores keys from inside the drawer

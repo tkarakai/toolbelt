@@ -2,14 +2,8 @@
 // several lines with optional live Markdown styling, a local date with an optional time, a
 // theme color, a searchable choice and key/value pills. Typing stays here; the plugin hears
 // committed values (blur, ⌘↵, a pick).
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Check, ChevronsUpDown, Plus, X } from "lucide-react";
-import { EditorState } from "@codemirror/state";
-import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { markdown } from "@codemirror/lang-markdown";
-import { tags as t } from "@lezer/highlight";
 import { HUES, type Field, type Hue, type TagKey, type TagValue } from "../../shared/protocol";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -25,8 +19,16 @@ export const WIDE_FIELDS = new Set<Field["type"]>(["environment", "textarea", "t
 
 // ── several lines ───────────────────────────────────────────────────────
 
+/** Markdown styled as it's typed (editor.tsx, loaded on first use). */
+const MarkdownEditor = lazy(() => import("./editor").then((m) => ({ default: m.MarkdownEditor })));
+
 export function TextAreaField({ id, field, onChange }: { id: string; field: Of<"textarea">; onChange: (v: string) => void }) {
-	if (field.markdown) return <MarkdownEditor id={id} field={field} onChange={onChange} />;
+	if (field.markdown)
+		return (
+			<Suspense fallback={<div style={{ minHeight: `${(field.rows ?? 6) * 1.55 + 1}rem` }} className="rounded-lg border border-input dark:bg-input/30" />}>
+				<MarkdownEditor id={id} field={field} onChange={onChange} />
+			</Suspense>
+		);
 	return <PlainTextArea id={id} field={field} onChange={onChange} />;
 }
 
@@ -43,84 +45,6 @@ function PlainTextArea({ id, field, onChange }: { id: string; field: Of<"textare
 			onChange={(e) => setV(e.target.value)}
 			onBlur={commit}
 			onKeyDown={(e) => e.key === "Enter" && e.metaKey && commit()}
-		/>
-	);
-}
-
-/**
- * Markdown styled as it's typed: headings grow, emphasis and code look the part, and the
- * syntax characters stay visible but quiet. The text is the Markdown source, unchanged.
- */
-export const markdownStyle = HighlightStyle.define([
-	{ tag: t.heading1, fontSize: "1.45em", fontWeight: "700" },
-	{ tag: t.heading2, fontSize: "1.25em", fontWeight: "700" },
-	{ tag: t.heading3, fontSize: "1.1em", fontWeight: "650" },
-	{ tag: [t.heading4, t.heading5, t.heading6], fontWeight: "650" },
-	{ tag: t.strong, fontWeight: "700" },
-	{ tag: t.emphasis, fontStyle: "italic" },
-	{ tag: t.strikethrough, textDecoration: "line-through" },
-	{ tag: t.monospace, fontFamily: "var(--font-mono, ui-monospace, monospace)", fontSize: "0.9em", backgroundColor: "color-mix(in oklab, var(--muted) 80%, transparent)", borderRadius: "4px" },
-	{ tag: t.link, color: "var(--color-sky-600, #0284c7)", textDecoration: "underline" },
-	{ tag: t.url, color: "var(--muted-foreground)" },
-	{ tag: t.quote, color: "var(--muted-foreground)", fontStyle: "italic" },
-	{ tag: [t.processingInstruction, t.contentSeparator, t.labelName], color: "color-mix(in oklab, var(--muted-foreground) 75%, transparent)" },
-	{ tag: t.list, color: "var(--muted-foreground)" },
-]);
-export const editorTheme = EditorView.theme({
-	"&": { backgroundColor: "transparent", color: "var(--foreground)", fontSize: "0.875rem" },
-	"&.cm-focused": { outline: "none" },
-	".cm-content": { fontFamily: "inherit", padding: "0.5rem 0", caretColor: "var(--foreground)", lineHeight: "1.55" },
-	".cm-line": { padding: "0 0.625rem" },
-	".cm-scroller": { fontFamily: "inherit" },
-	".cm-placeholder": { color: "var(--muted-foreground)" },
-	"&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": { backgroundColor: "color-mix(in oklab, var(--ring) 35%, transparent)" },
-	".cm-cursor": { borderLeftColor: "var(--foreground)" },
-});
-
-function MarkdownEditor({ id, field, onChange }: { id: string; field: Of<"textarea">; onChange: (v: string) => void }) {
-	const host = useRef<HTMLDivElement>(null);
-	const view = useRef<EditorView | null>(null);
-	const latest = useRef({ value: field.value, onChange });
-	latest.current = { value: field.value, onChange };
-	useEffect(() => {
-		const commit = () => {
-			const text = view.current?.state.doc.toString() ?? "";
-			if (text !== latest.current.value) latest.current.onChange(text);
-		};
-		view.current = new EditorView({
-			parent: host.current!,
-			state: EditorState.create({
-				doc: field.value,
-				extensions: [
-					history(),
-					// No Tab binding: Tab moves on to the next control, as everywhere else.
-					keymap.of([{ key: "Mod-Enter", run: () => (commit(), true) }, ...defaultKeymap, ...historyKeymap]),
-					markdown(),
-					syntaxHighlighting(markdownStyle),
-					editorTheme,
-					EditorView.lineWrapping,
-					EditorView.contentAttributes.of({ "aria-label": "Markdown", id }),
-					EditorView.domEventHandlers({ blur: () => commit() }),
-					...(field.placeholder ? [placeholderExt(field.placeholder)] : []),
-				],
-			}),
-		});
-		return () => view.current?.destroy();
-		// The editor is created once; later values arrive through the effect below.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
-	// The plugin's value, when the person isn't editing.
-	useEffect(() => {
-		const v = view.current;
-		if (!v || v.hasFocus || v.state.doc.toString() === field.value) return;
-		v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: field.value } });
-	}, [field.value]);
-	return (
-		<div
-			ref={host}
-			onClick={() => view.current?.focus()}
-			style={{ minHeight: `${(field.rows ?? 6) * 1.55 + 1}rem` }}
-			className="cursor-text rounded-lg border border-input transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30"
 		/>
 	);
 }

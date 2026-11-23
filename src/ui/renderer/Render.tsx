@@ -15,7 +15,7 @@ import { Composer, InlineMarkdown, MarkdownBox, PaneRow, leaveToCollection } fro
 // · an action's own key (`Action.key`: J, P…) · . row menu · esc clear. The table is the
 // keyboard's home: menus hand focus back to it when they close. Pages: ⌘F or / to filter, esc
 // back to the list, toolbar actions' own keys. Dialogs: the first field has focus; ↵ / ⌘↵ save.
-import { createContext, Fragment, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, Fragment, lazy, memo, Suspense, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
 import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Section, Tag, TagValue, Target, Tone } from "../../shared/protocol";
 import { dotClass, dotSpec, pillClass, shadeStyle, textClass } from "./colors";
@@ -27,7 +27,6 @@ import { cn } from "@/lib/utils";
 import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
 import { SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
-import { TerminalView } from "./Terminal";
 import { ariaShortcut, stepIndex } from "@/lib/keys";
 import { keyboardMove } from "./pure";
 import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_SLOT, ROW_STEP, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
@@ -53,6 +52,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+// xterm.js is large and few surfaces show a terminal: Terminal.tsx is its own chunk, loaded on first use.
+const TerminalView = lazy(() => import("./Terminal").then((m) => ({ default: m.TerminalView })));
 
 const ACTIVE_QUERY = "border-primary! bg-primary/10! ring-1 ring-primary/30";
 
@@ -301,7 +303,11 @@ export function Render({ node, emit }: { node: Node; emit: Emit }): ReactNode {
 		case "markdown":
 			return <Markdown text={node.text} />;
 		case "terminal":
-			return <TerminalView node={node} />;
+			return (
+				<Suspense fallback={<div className="min-h-0 flex-1 rounded-md border bg-muted" />}>
+					<TerminalView node={node} />
+				</Suspense>
+			);
 		case "conversation":
 			return <ConversationView node={node} />;
 		case "timeline":
