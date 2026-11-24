@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.24 — 2026-11-24
 - Toasts have an X button to dismiss them.
 - Plugins can offer a duration field: a length of time edited in place as days, hours and minutes, with arrow keys, typing and a menu of presets.
 - A plugin's filter menu can follow the plugin's own structure: sections with a name and a divider between them, instead of moving options with no matches below a divider.
