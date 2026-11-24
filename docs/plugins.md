@@ -116,7 +116,20 @@ renderer state survives updates. Screen shortcuts are unique lowercase letters. 
 plugin versions; package/protocol/SDK/host/data-schema versions are distinct.
 
 Declare `portable` only for actually portable output. Packages with platform helpers declare
-explicit targets such as `darwin-arm64` or `darwin-x64`; ship every required binary/library.
+explicit targets; ship every required binary/library. Mac-specific packages target
+`darwin-arm64` only: the Toolbelt app ships for Apple silicon, so don't add `darwin-x64`.
+
+CI and release runners follow `requires.platforms`:
+
+- **Portable plugins** run every CI and release job on Linux, including `verify-target` on the
+  frozen archive. Linux can't notice names that differ only by letter case or Unicode
+  normalization, which would be the same file on a Mac. So the build refuses them, checking
+  the tracked files and the archive folder (see `scripts/check-case.ts` in toolbelt-ontrack or
+  toolbelt-sdk-demo).
+- **`darwin-arm64` plugins** keep a macOS (`macos-15`) job for `verify-target`, and for any CI
+  test or build step that runs macOS tools or compiles and runs macOS binaries. Planning,
+  plain bundle builds and publishing run on Linux; the SDK skips its in-build check for a
+  target that isn't the runner's.
 `requires.host` and `requires.bun` are compatible ranges, not SDK equality checks.
 
 Capabilities are `ui.core`, `ui.action-key`, `ui.terminal`, `ui.conversation`, `assets`,
