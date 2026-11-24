@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.19 — 2026-11-24
 - Plugins can let you move through dimmed stand-in rows with the keyboard and act on them as the real row, with every copy of the selected row softly highlighted.
 - Plugins can put a status dot beside the unread dot, draw a group's title as a colored pill, show a details drawer's actions as buttons at its bottom, put a note such as an id above a drawer's title, and put a pill such as an id before a row's title.
 - Plugin forms can add the same kind of tag several times, such as several tasks a task blocks.
