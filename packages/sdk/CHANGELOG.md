@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.3.16 — 2026-11-24
 - `ui.tag-open` (docs): on hosts from 0.3.22, only a pill's value is the link; its key ("Blocks:") opens the value picker again, so a value can be changed in place.
 
 ## 0.3.15 — 2026-11-24
