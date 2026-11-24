@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.3.13 — 2026-11-24
 - Add `ui.row-tree`: the table's `reorderOnto` (text) lets rows at any depth be dragged and makes the middle of each row a drop target, sending `reorder` with `onto` (that row's id) and its top-level row's section; the text names the drop. Such tables count rows at any depth. `Row.context` (a row id) makes a row a dimmed stand-in for another row: not counted, not draggable, a drop onto it means the row it names, and selecting it selects that row when shown.
 - Add `ui.choice-control`: the `choice` page control, a toolbar button showing "<label> · <chosen>" with a menu of radio options (`section` headings, `description` lines). Changes arrive as `field` events.
 
