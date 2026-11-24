@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Plugin page toolbars stay on one row at any width. When the search, filters and other controls don't fit, they scroll sideways with a trackpad swipe or touch, with no scrollbar: a fade and a ‹ or › button show where controls are cut off (click it to scroll), and a control you Tab to, or search via /, scrolls into view. Dragging a filter to an edge scrolls too. On narrow windows, toolbar buttons such as New task become icon buttons with their name and key in a tooltip.
 
 ## 0.3.20 — 2026-11-24
 - In plugin lists, a status dot sits left of the unread dot, as in tables.

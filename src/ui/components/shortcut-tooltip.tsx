@@ -1,4 +1,4 @@
-// The hover (and keyboard-focus) card for an icon control with a keyboard shortcut: what
+// The hover (and keyboard-focus) card for an icon control, with its keyboard shortcut if any: what
 // activating it will do right now ("Hide details"), and its keys in the usual key hint. Icon controls
 // in the window use it instead of a permanent key hint.
 import type { ReactNode } from "react";
@@ -10,7 +10,8 @@ export function ShortcutTooltip({ label, detail, keys, side = "bottom", align = 
 	label: string;
 	/** A second, quieter line ("Updates available"). */
 	detail?: string;
-	keys: string;
+	/** Its keys, if it has a shortcut. */
+	keys?: string;
 	side?: "top" | "right" | "bottom" | "left";
 	align?: "start" | "center" | "end";
 	children: ReactNode;
@@ -37,7 +38,7 @@ export function ShortcutTooltip({ label, detail, keys, side = "bottom", align = 
 						<span className="font-medium">{label}</span>
 						{detail && <span className="mt-0.5 text-muted-foreground">{detail}</span>}
 					</span>
-					<KeyHint keys={keys} className="ml-0" />
+					{keys && <KeyHint keys={keys} className="ml-0" />}
 				</TooltipPrimitive.Content>
 			</TooltipPrimitive.Portal>
 		</TooltipPrimitive.Root>
