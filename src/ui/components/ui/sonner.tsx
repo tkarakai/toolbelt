@@ -18,6 +18,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group !z-[100]"
+      // Every toast gets an X. Sonner already dismisses a toast dragged right or down (bottom-right).
+      closeButton
       icons={{
         success: (
           <CircleCheckIcon className="size-4" />
@@ -44,8 +46,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
         } as React.CSSProperties
       }
       toastOptions={{
+        closeButtonAriaLabel: "Dismiss",
         classNames: {
           toast: "cn-toast",
+          closeButton: "hover:!bg-accent hover:!text-accent-foreground hover:!border-border",
         },
       }}
       {...props}
