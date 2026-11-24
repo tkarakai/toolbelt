@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.17 — 2026-11-24
 - Plugins can nest table sections up to ten levels deep, and dim a section and its rows.
 - Plugin filters can group the list too: a Group by switch at the top of a filter's menu, filters you drag (or move with ⌥← ⌥→) to set the grouping order and across a divider to start or stop grouping, sliding to their new place with their menu. A filter can offer Reset to its starting selection.
 - When a row moves into a collapsed group, the group's header flashes instead of the row just disappearing.
