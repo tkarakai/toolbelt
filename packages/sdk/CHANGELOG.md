@@ -4,6 +4,7 @@
 - Add `ui.context-select`: the table's `contextSelect` lets context rows be selected in place. A context row then shows its own `actions`, `targets` and `pane`, and its events carry `rowId`: the row it stands for. The selected row and its other copies are highlighted softly.
 - Add `ui.row-dot`: `Row.dot` sits in the row's leading slot beside the unread dot (to its left), so text lines up.
 - Add `ui.section-pill`: `Section.pill` (`{ color?, shade? }`) draws a section's label as a colored pill.
+- Add `ui.heading-aside`: a heading `text` field's `aside` is a quiet monospaced note at the heading's right end (an id).
 - Add `ui.tag-multiple`: `TagKey.multiple` lets a `tags` field hold that key once per value (Blocks: #3, Blocks: #7). Validation still rejects a value repeated under one key.
 - Add `ui.pane-buttons`: the table's `paneButtons` shows a pane row's actions as buttons at the bottom of its drawer, as for `details`, instead of the bar on top.
 

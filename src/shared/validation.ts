@@ -342,6 +342,7 @@ const field: Schema = (v, p) => {
         placeholder: optional(text),
         sensitive: optional(bool),
         heading: optional(bool),
+        aside: optional(text),
       })(v, p);
       break;
     case "textarea":

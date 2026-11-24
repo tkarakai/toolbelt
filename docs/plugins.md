@@ -571,6 +571,8 @@ selection color, showing they're the same thing.
   ↵), other groups as quieter rows, destructive actions last, apart. Order and group actions
   with that in mind.
 
+- `ui.heading-aside`: a `heading` text field's `aside` (text) is drawn quietly, monospaced, at
+  the heading's right end, in line with its first line: an id beside the title.
 - `ui.tag-multiple`: `TagKey.multiple` lets a `tags` field hold a key several times, once per
   value (Blocks: #3, Blocks: #7), for many-valued keys such as relations. The Add menu keeps
   offering it; each value appears once per key.

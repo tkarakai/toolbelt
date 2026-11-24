@@ -411,8 +411,11 @@ export type Field = (
 	| { type: "environment"; id: string; label: string; value: EnvironmentEntry[]; description?: string }
 	| { type: "select"; id: string; label: string; value: string; options: { value: string; label: string }[]; description?: string }
 	| { type: "switch"; id: string; label: string; value: boolean; description?: string }
-	/** `heading`: the title of what's edited, drawn large (inline forms). */
-	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean; heading?: boolean }
+	/**
+	 * `heading`: the title of what's edited, drawn large (inline forms). `aside` (capability
+	 * `ui.heading-aside`): a quiet monospaced note at the heading's right end, such as an id.
+	 */
+	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean; heading?: boolean; aside?: string }
 	// The fields below need the `ui.rich-fields` capability.
 	/** Several lines; with `markdown`, an editor that styles Markdown as it's typed. Sent on blur and ⌘↵. */
 	| { type: "textarea"; id: string; label: string; value: string; placeholder?: string; description?: string; markdown?: boolean; rows?: number }

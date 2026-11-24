@@ -3167,8 +3167,10 @@ function InlineForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emi
 					);
 				if (!f.label || (f.type === "text" && f.heading))
 					return (
-						<div key={f.id} data-pane-id={f.id} className={cn("col-span-2 min-w-0", f.type === "text" && f.heading ? "mb-1.5" : "mt-1.5")}>
-							{control}
+						<div key={f.id} data-pane-id={f.id} className={cn("col-span-2 min-w-0", f.type === "text" && f.heading ? "mb-1.5" : "mt-1.5", f.type === "text" && f.aside && "flex items-start gap-3")}>
+							{f.type === "text" && f.aside ? <div className="min-w-0 flex-1">{control}</div> : control}
+							{/* `aside`: a quiet note in line with the heading's first line (an id). */}
+							{f.type === "text" && f.aside && <span className="mt-1.5 shrink-0 font-mono text-xs text-muted-foreground select-text">{f.aside}</span>}
 						</div>
 					);
 				return (
