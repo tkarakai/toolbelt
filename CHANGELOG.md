@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.22 — 2026-11-24
 - Fixed: the page toolbar's scroll strip showed a scrollbar while scrolling, and the scrollbar made the header taller.
 - Fixed: hovering an item of a list in the details drawer (such as a task's Parent or Blocks) closed the drawer and cleared the table's selection.
 - In plugin forms whose pills link to what they name, only the value is the link now; the pill's name (such as "Blocks:") opens the picker to change the value again.
