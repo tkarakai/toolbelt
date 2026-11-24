@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.3.18 — 2026-11-24
 - Plugins can nest rows under rows from other groups with a dimmed stand-in, let you drag nested rows and drop a row onto another, and offer a menu of choices in the toolbar.
 
 ## 0.3.17 — 2026-11-24
