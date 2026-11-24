@@ -374,3 +374,23 @@ test("options fields check their items, and tag keys take per-value colors", () 
   ];
   for (const f of bad) expect(() => validateTree(form(f))).toThrow();
 });
+test("a duration field holds whole minutes within its bounds, or null when it names none", () => {
+  const form = (extra: Record<string, unknown>) => ({ type: "form", id: "f", fields: [{ type: "duration", id: "after", label: "Stall after", value: 4320, ...extra }] });
+  expect(() => validateTree(form({}))).not.toThrow();
+  expect(() => validateTree(form({ min: 5, max: 43200, presets: [{ value: 60 }, { label: "A day", value: 1440 }] }))).not.toThrow();
+  expect(() => validateTree(form({ value: null, none: "Never", presets: [{ value: null }, { value: 1440 }] }))).not.toThrow();
+  expect(() => validateTree(form({ value: null }))).toThrow();
+  expect(() => validateTree(form({ value: 1.5 }))).toThrow();
+  expect(() => validateTree(form({ value: -1 }))).toThrow();
+  expect(() => validateTree(form({ value: "3d" }))).toThrow();
+  expect(() => validateTree(form({ min: 5000 }))).toThrow();
+  expect(() => validateTree(form({ min: 10, max: 5 }))).toThrow();
+  expect(() => validateTree(form({ presets: [{ value: null }] }))).toThrow();
+  expect(() => validateTree(form({ max: 60, presets: [{ value: 120 }] }))).toThrow();
+});
+test("filter options can name their section", () => {
+  const page = (section: unknown) => ({ type: "page", filters: [{ id: "status", label: "Workflow", options: [{ value: "inbox", label: "Inbox" }, { value: "working", label: "Working on", count: 0, ...(section !== undefined && { section }) }], selected: [] }], children: [] });
+  expect(() => validateTree(page("Progressing"))).not.toThrow();
+  expect(() => validateTree(page(undefined))).not.toThrow();
+  expect(() => validateTree(page(3))).toThrow();
+});

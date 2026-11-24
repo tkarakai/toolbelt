@@ -7,6 +7,7 @@ import { EnvironmentEditor } from "./EnvironmentEditor";
 import { ColorField, ComboboxField, TagsField, TextAreaField, WIDE_FIELDS } from "./fields";
 import { OptionsField } from "./OptionsField";
 import { DateTimeField } from "./DateTimeField";
+import { DurationField } from "./DurationField";
 import { Timeline } from "./Timeline";
 import { Composer, InlineMarkdown, MarkdownBox, PaneRow, leaveToCollection } from "./compose";
 // Turns a plugin's UI tree into shadcn/ui components. Every node type in shared/protocol.ts
@@ -29,7 +30,7 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
 import { SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { ariaShortcut, stepIndex } from "@/lib/keys";
-import { allowsSequence, arrangesFilters, atFilterDefault, COMPACT_TOOLBAR, edgeScrollSpeed, FILTER_DIVIDER, filterSequence, keyboardMove, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup } from "./pure";
+import { allowsSequence, arrangesFilters, atFilterDefault, COMPACT_TOOLBAR, edgeScrollSpeed, FILTER_DIVIDER, filterOptionGroups, filterSequence, keyboardMove, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup } from "./pure";
 import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_SLOT, ROW_STEP, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
@@ -574,8 +575,9 @@ function FilterMenu({ filter, emit, arranged }: { filter: Filter; emit: Emit; ar
 	const [open, setOpen] = useState(false);
 	const openAtPress = useRef(false);
 	const matches = filter.options.filter((o) => o.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-	const present = matches.filter((o) => (o.count ?? 1) > 0);
-	const absent = matches.filter((o) => o.count === 0);
+	// The plugin's sections (`ui.filter-sections`), or options with tasks before those without.
+	const groups = filterOptionGroups(matches);
+	const sectioned = matches.some((o) => o.section !== undefined);
 	const sent = JSON.stringify(filter.selected);
 	useEffect(() => setPicked(filter.selected), [sent]);
 	const set = (values: string[]) => {
@@ -682,11 +684,13 @@ function FilterMenu({ filter, emit, arranged }: { filter: Filter; emit: Emit; ar
 				</div>
 				<DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{filter.label}: show only…</DropdownMenuLabel>
 				<div className="max-h-72 min-w-0 overflow-x-hidden overflow-y-auto">
-					{[present, absent].map((group, i) => <div key={i}>
-						{i === 1 && present.length > 0 && absent.length > 0 && <DropdownMenuSeparator />}
-						{group.map((o) => <DropdownMenuCheckboxItem key={o.value} checked={on.has(o.value)} onSelect={(e) => e.preventDefault()} onCheckedChange={(c) => set(c ? [...picked, o.value] : picked.filter((v) => v !== o.value))}>
+					{groups.map((group, i) => <div key={i}>
+						{i > 0 && <DropdownMenuSeparator />}
+						{group.section && <DropdownMenuLabel className="pt-1 text-xs font-normal text-muted-foreground">{group.section}</DropdownMenuLabel>}
+						{group.options.map((o) => <DropdownMenuCheckboxItem key={o.value} checked={on.has(o.value)} onSelect={(e) => e.preventDefault()} onCheckedChange={(c) => set(c ? [...picked, o.value] : picked.filter((v) => v !== o.value))}>
 							{o.dot && <Dot dot={typeof o.dot === "string" ? o.dot : { ...o.dot, label: undefined }} />}
-							<span className="min-w-0 flex-1 truncate">{o.label}</span>
+							{/* In the plugin's sections an option counted 0 keeps its place, quieter. */}
+							<span className={cn("min-w-0 flex-1 truncate", sectioned && o.count === 0 && "text-muted-foreground")}>{o.label}</span>
 							<span className="text-xs text-muted-foreground tabular-nums">{o.count}</span>
 						</DropdownMenuCheckboxItem>)}
 					</div>)}
@@ -3385,7 +3389,7 @@ function AutoFocus({ on, className, children }: { on: boolean; className?: strin
 	);
 }
 
-type FieldValue = string | boolean | EnvironmentEntry[] | TagValue[] | OptionItem[];
+type FieldValue = string | boolean | number | null | EnvironmentEntry[] | TagValue[] | OptionItem[];
 /** `fill`: as wide as the space it's given (dialog forms), instead of the control's usual width. */
 /** A `tags` field's `open`: a pill's text sends it with the pill's key and value. */
 const openTag = (form: string, f: Field, emit: Emit) => (f.type === "tags" && f.open && !f.open.disabled ? (t: TagValue) => emit(f.open!.id, { form, field: f.id, key: t.key, value: t.value }) : undefined);
@@ -3425,6 +3429,8 @@ function FieldControl({ id, field, onChange, onOpen, fill }: { id: string; field
 			return <TagsField id={id} field={field} onChange={onChange} onOpen={onOpen} />;
 		case "options":
 			return <OptionsField id={id} field={field} onChange={onChange} />;
+		case "duration":
+			return <DurationField id={id} field={field} onChange={onChange} fill={fill} />;
 	}
 }
 

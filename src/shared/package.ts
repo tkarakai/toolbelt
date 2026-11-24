@@ -37,6 +37,8 @@ export const CAPABILITIES = [
   "ui.list-open",
   "ui.tag-open",
   "ui.list-inset",
+  "ui.duration-field",
+  "ui.filter-sections",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

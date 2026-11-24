@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+- Add `ui.duration-field`: a `duration` form field holding whole minutes, edited as days, hours and minutes, with `min`/`max`, `presets` and an optional none value (`none`, sent as `null`). The `field` event's value type now includes numbers, `null` and `OptionItem[]`.
+- Add `ui.filter-sections`: a filter option's `section` groups the filter's menu in the plugin's order, with a separator between groups and the section's name above its options.
 
 ## 0.3.17 — 2026-11-24
 - Add `ui.list-inset`: a `list`'s `inset: true` keeps an icon's space before items without an `icon`, so they read as indented.

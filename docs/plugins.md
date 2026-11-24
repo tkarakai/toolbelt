@@ -586,6 +586,22 @@ selection color, showing they're the same thing.
   the pane's `rowId` too; to go to another row, answer with `navigate(screen, { select })`.
 - `ui.list-inset`: a `list`'s `inset: true` keeps an icon's space before items without an
   `icon`, so their text starts where it would after one and the list reads as indented.
+- `ui.duration-field`: forms accept a `duration` field, a length of time in whole minutes:
+  `{ type: "duration", id, label, value, min?, max?, presets?, none?, description? }`. It's
+  edited in place as days, hours and minutes, like a native time field: each part is a
+  spinbutton (↑/↓ step it and carry into the next part, ⇧ steps by 10, digits type it, ←/→ move
+  between parts, ⌫ clears it, Esc puts the value back), and leading parts that are zero stay
+  quiet. A menu at its end offers `presets` (`{ label?, value }`, read aloud as "2 days 4 hours"
+  without a label). With `none` (such as "Never"), `value` can be `null`, offered first in that
+  menu. `min` and `max` bound it (minutes, 0 to 999 days); a typed value is clamped to them,
+  and validation refuses a value, preset or `null` that doesn't fit. The `field` event's value
+  is the minutes, or `null`, sent on leaving the field, ↵ or a pick. Older hosts refuse the
+  field: require the capability.
+- `ui.filter-sections`: a filter option's `section` groups the menu the way the plugin
+  structures its values. Consecutive options with the same `section` form a group, groups are
+  divided by a separator, and a named section shows its name above its options (options without
+  one form unnamed groups). With sections the menu keeps the plugin's order and dims options
+  counted 0; without, options counted 0 move below a divider. Older hosts ignore `section`.
 - `ui.tag-open`: a `tags` field's `open` (an `Action`) makes each pill's value a link: clicking
   it sends that action with `{ form, field, key, value }`. The pill's key ("Blocks:") still opens
   the value picker to change it. A flag pill, having no value, is a link as a whole.

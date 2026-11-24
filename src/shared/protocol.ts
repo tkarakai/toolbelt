@@ -385,7 +385,14 @@ export type Filter = {
 	id: string;
 	label: string;
 	icon?: string;
-	options: { value: string; label: string; dot?: Dot; count?: number }[];
+	/**
+	 * Capability `ui.filter-sections`: options with a `section` are grouped the way the plugin
+	 * structures them. Consecutive options with the same `section` form a group, groups are
+	 * divided by a separator, and a named section shows its name above its options; options
+	 * without one form unnamed groups. With sections the menu keeps the plugin's order and dims
+	 * options counted 0, instead of moving them below a divider. Older hosts ignore `section`.
+	 */
+	options: { value: string; label: string; dot?: Dot; count?: number; section?: string }[];
 	selected: string[];
 	/**
 	 * Capability `ui.filter-group`: the filter can also group the page's rows, and is grouping
@@ -449,6 +456,15 @@ export type Field = (
 	 * `placeholder` is the add row's hint ("Add value").
 	 */
 	| { type: "options"; id: string; label: string; value: OptionItem[]; colors?: boolean; reorder?: boolean; placeholder?: string; description?: string }
+	/**
+	 * A length of time in whole minutes (capability `ui.duration-field`), edited as days, hours
+	 * and minutes. ↑/↓ step the focused part (carrying into the next), digits type it, and a
+	 * menu offers `presets`. `min`/`max` (minutes) bound it; a typed value is clamped to them.
+	 * With `none` ("Never"), the value can be `null`, offered first in the menu under that label.
+	 * Sent as a number of minutes (or `null`) when it changes: on leaving it, ↵ or a pick.
+	 * Older hosts refuse the field, so require the capability before sending it.
+	 */
+	| { type: "duration"; id: string; label: string; value: number | null; min?: number; max?: number; presets?: { label?: string; value: number | null }[]; none?: string; description?: string }
 ) & {
 	/**
 	 * Focus this field when it appears in an open dialog (also when the plugin swaps one form for
@@ -746,7 +762,7 @@ export type EventPayloads = {
 	sort: { table: string; key: string; desc: boolean };
 	/** A form field changed. */
 	/** `rowId`: the row whose `pane` holds the form. */
-	field: { form: string; field: string; value: string | boolean | EnvironmentEntry[] | TagValue[]; rowId?: string };
+	field: { form: string; field: string; value: string | boolean | number | null | EnvironmentEntry[] | TagValue[] | OptionItem[]; rowId?: string };
 	/** A filter's checked options changed. */
 	filter: { filter: string; values: string[] };
 	/** The selection rested on a row (`selectEvents` tables); null when cleared. */
