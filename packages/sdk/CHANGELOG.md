@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.3.14 — 2026-11-24
 - Add `ui.context-select`: the table's `contextSelect` lets context rows be selected in place. A context row then shows its own `actions`, `targets` and `pane`, and its events carry `rowId`: the row it stands for. The selected row and its other copies are highlighted softly.
 - Add `ui.row-dot`: `Row.dot` sits in the row's leading slot beside the unread dot (to its left), so text lines up.
 - Add `ui.section-pill`: `Section.pill` (`{ color?, shade? }`) draws a section's label as a colored pill.
