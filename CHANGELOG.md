@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Toasts have an X button to dismiss them.
 
 ## 0.3.23 — 2026-11-24
 - Fixed: the selected item of a plugin list (such as a related task in a details drawer) hid its pills, the id and state, behind the selection color.
