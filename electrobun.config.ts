@@ -21,6 +21,12 @@ export default {
 		copy: {
 			"dist/index.html": "views/ui/index.html",
 			"dist/assets": "views/ui/assets",
+			// Remote access serves views/ui to other devices as an installable web app.
+			"dist/sw.js": "views/ui/sw.js",
+			"dist/manifest.webmanifest": "views/ui/manifest.webmanifest",
+			[`${variant.icons}/icon_256x256.png`]: "views/ui/pwa/icon-256.png",
+			[`${variant.icons}/icon_512x512.png`]: "views/ui/pwa/icon-512.png",
+			[`${variant.icons}/icon_512x512@2x.png`]: "views/ui/pwa/icon-1024.png",
 			"assets/tray-icon-dev@2x.png": "views/assets/tray-icon-dev@2x.png",
 			"assets/tray-icon@2x.png": "views/assets/tray-icon@2x.png",
 			// With a neutral badge, when an update is available (scripts/make-icons.ts).

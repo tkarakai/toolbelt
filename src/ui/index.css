@@ -441,3 +441,9 @@ mark.hit {
 [data-inline-form] [data-slot="select-trigger"] svg { opacity: 0; transition: opacity 150ms ease; }
 [data-inline-form] [data-slot="select-trigger"]:hover svg,
 [data-inline-form] [data-slot="select-trigger"]:focus-visible svg { opacity: 0.5; }
+
+/* Touch devices without a physical keyboard show no key hints (src/ui/lib/device.ts). The
+   Keyboard settings tab keeps its reference list (`data-keep-keys`). */
+html[data-keyboard="none"] :is([data-slot="kbd"], [data-slot="kbd-group"], [data-slot="dropdown-menu-shortcut"]):not([data-keep-keys] *) {
+	display: none !important;
+}

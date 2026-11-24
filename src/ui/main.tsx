@@ -9,6 +9,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { setTheme } from "@/lib/theme";
 import { useSettings } from "@/lib/store";
 import { installToastKeys } from "@/lib/plugin-toast";
+import { inApp, installKeyboardDetection, popoverAllowed, remoteClient } from "@/lib/device";
+import { BadgeSync, ConnectionBanner, registerServiceWorker } from "./remote-client";
 
 /** Keeps this view's colors in step with ToolBelt's appearance settings. */
 function ThemeSync() {
@@ -19,9 +21,14 @@ function ThemeSync() {
 	return null;
 }
 
+// Remote and touch devices always get the main window (docs/remote-access.md).
+if (location.hash === "#popover" && !popoverAllowed) history.replaceState(null, "", location.pathname + location.search);
 const isPopover = location.hash === "#popover";
 document.documentElement.dataset.surface = isPopover ? "popover" : "window";
+if (remoteClient) document.documentElement.dataset.remote = "";
 if (!isPopover) installToastKeys();
+installKeyboardDetection();
+registerServiceWorker();
 
 // No web-page right-click menu (Back, Reload, Inspect Element) — this is an app. It stays where
 // it's useful: in text fields (cut, copy, paste) and on selected text (copy, look up).
@@ -37,6 +44,8 @@ createRoot(document.getElementById("root")!).render(
 			<ThemeSync />
 			{isPopover ? <Popover /> : <App />}
 			{!isPopover && <Toaster position="bottom-right" />}
+			{!inApp && <ConnectionBanner />}
+			{remoteClient && <BadgeSync />}
 		</TooltipProvider>
 	</StrictMode>,
 );

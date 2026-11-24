@@ -23,7 +23,11 @@ export type ToolbeltRPC = {
 			close: { params: Surface; response: true };
 			event: { params: Surface & { name: string; payload?: unknown }; response: true };
 			restartPlugin: { params: { plugin: string }; response: true };
-			settings: { params: {}; response: { shortcut: string; shortcutLabel: string; shortcutError: string | null; theme: string; mode: "system" | "light" | "dark" } };
+			settings: { params: {}; response: { shortcut: string; shortcutLabel: string; shortcutError: string | null; theme: string; mode: "system" | "light" | "dark"; badgePlugins: string[] } };
+			/** Remote access (docs/remote-access.md); changes arrive as `remoteAccessState`. */
+			remoteAccess: { params: import("./remote").RemoteAccessRequest; response: import("./remote").RemoteAccessState };
+			/** The UI build the server is serving (remote connections), null inside the app. */
+			buildId: { params: {}; response: string | null };
 			setAppearance: { params: { theme?: string; mode?: string }; response: true };
 			/** Open a link in the default browser (http, https, mailto). */
 			openUrl: { params: { url: string }; response: boolean };
@@ -73,6 +77,7 @@ export type ToolbeltRPC = {
 			settingsChanged: {};
 			updateState: UpdateState;
 			developmentState: import("./development").DevelopmentState;
+			remoteAccessState: import("./remote").RemoteAccessState;
 			/** From the app menu: a command for the window (toggleSidebar…). */
 			command: { name: string };
 		};

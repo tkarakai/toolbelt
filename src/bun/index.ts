@@ -54,6 +54,9 @@ import {
 import type { ToolbeltRPC } from "../shared/rpc";
 import { captureFrontApplication, focusWindowContent, prepareAppHandoff } from "./activation";
 import { appVariant } from "../shared/variant";
+import { RemoteAccess } from "./remote-access";
+import { buildIdOf, remoteSender } from "./remote-server";
+import { REMOTE_DEFAULT_PORT } from "../shared/remote";
 import pkg from "../../package.json" with { type: "json" };
 
 /** Last requested list geometry, reused when the native popover is shown again. */
@@ -68,7 +71,12 @@ if (channel === "dev" && !process.env.TOOLBELT_CONFIG_DIR)
     "Library/Application Support",
     variant.settingsFolder,
   );
-let settings = loadSettings({ ...DEFAULTS, shortcut: variant.shortcut });
+let settings = loadSettings({
+  ...DEFAULTS,
+  shortcut: variant.shortcut,
+  // ToolBelt Dev listens on the next port so both apps can serve at once.
+  remote: { ...DEFAULTS.remote, port: REMOTE_DEFAULT_PORT + (channel === "dev" ? 1 : 0) },
+});
 // Plugin development mode (docs/plugin-development.md): one mode per process. Settings stay
 // shared with normal mode; plugin registry, packages and data use the development profile.
 const configRoot = configDir(homedir());
@@ -147,11 +155,16 @@ const localArchives = developmentProfile
 
 let debugReport: (id: number, value: unknown) => void = () => {};
 
-// Each web view gets its own RPC object; both see every plugin message.
+// Each web view gets its own RPC object, and each remote connection (src/bun/remote-access.ts)
+// a view of its own; all of them see every plugin message.
 type ViewRPC = ReturnType<typeof makeRPC>;
-const views = new Set<ViewRPC>();
+type View = { send: ViewRPC["send"] };
+const views = new Set<View>();
 // Which surfaces each view has open, so a closed window releases them.
-const opened = new Map<ViewRPC, Set<string>>();
+const opened = new Map<View, Set<string>>();
+const remoteViews = new WeakSet<View>();
+/** The view that sent the latest plugin event: a plugin's navigation goes back to it. */
+let lastEvent: { view: View; plugin: string; at: number } | null = null;
 let pluginUpdateAvailable = manager.read().plugins.some(p => !p.removed && !!p.availableVersion);
 manager.subscribe((state) => {
   views.forEach((view) => view.send.pluginManagerState(state));
@@ -159,13 +172,18 @@ manager.subscribe((state) => {
   showTrayAlert(pluginUpdateAvailable || !!updater.state().available);
 });
 
-function makeRPC() {
-  const rpc: any = BrowserView.defineRPC<ToolbeltRPC>({
-    maxRequestTime: 300_000,
-    handlers: {
-      requests: {
+type Requests = ToolbeltRPC["bun"]["requests"];
+type RequestHandlers = {
+  [K in keyof Requests]: (
+    params: Requests[K]["params"],
+  ) => Requests[K]["response"] | Promise<Requests[K]["response"]>;
+};
+
+/** The request handlers for one view (web view or remote connection). */
+function requestHandlers(view: () => View): RequestHandlers {
+  return {
         initialNavigation: () => {
-          if (rpc !== winRPC) return null;
+          if (view() !== winRPC) return null;
           if (pendingWindowFocus && win) {
             pendingWindowFocus = false;
             prepareAppHandoff();
@@ -187,11 +205,11 @@ function makeRPC() {
         pluginAsset: ({ reference }) => pluginAsset(packages, reference),
         plugins: () => host.list(),
         open: ({ plugin, surface }) => {
-          opened.get(rpc)?.add(`${plugin}\n${surface}`);
+          opened.get(view())?.add(`${plugin}\n${surface}`);
           return host.open(plugin, surface);
         },
         close: ({ plugin, surface }) => {
-          opened.get(rpc)?.delete(`${plugin}\n${surface}`);
+          opened.get(view())?.delete(`${plugin}\n${surface}`);
           host.close(plugin, surface);
           return true;
         },
@@ -200,6 +218,7 @@ function makeRPC() {
             throw new Error(
               "ToolBelt is preparing to update; plugin actions are temporarily deferred",
             );
+          lastEvent = { view: view(), plugin, at: Date.now() };
           // Register ToolBelt as the foreground application before handing focus away.
           if (
             host
@@ -233,7 +252,10 @@ function makeRPC() {
           shortcutError,
           theme: settings.theme,
           mode: settings.mode,
+          badgePlugins: settings.remote.badgePlugins,
         }),
+        remoteAccess: (request) => remoteAccess.handle(request),
+        buildId: () => (remoteViews.has(view()) ? buildIdOf(remoteRoot) : null),
         setAppearance: ({ theme, mode }) => {
           settings = {
             ...settings,
@@ -270,7 +292,14 @@ function makeRPC() {
         installUpdate: () => (void updater.install(), true),
         cancelUpdate: () => (updater.cancel(), true),
         dismissUpdate: () => (updater.dismiss(), true),
-      },
+  };
+}
+
+function makeRPC() {
+  const rpc: any = BrowserView.defineRPC<ToolbeltRPC>({
+    maxRequestTime: 300_000,
+    handlers: {
+      requests: requestHandlers(() => rpc),
       messages: {
         selectionChanged: payload => views.forEach(view => view.send.selectionChanged(payload)),
         showWindow: ({ plugin, screen, selection }) => {
@@ -294,7 +323,7 @@ function makeRPC() {
   return rpc as ReturnType<typeof BrowserView.defineRPC<ToolbeltRPC>>;
 }
 
-function releaseView(rpc: ViewRPC) {
+function releaseView(rpc: View) {
   for (const key of opened.get(rpc) ?? []) {
     const [plugin, surface] = key.split("\n");
     host.close(plugin, surface);
@@ -310,8 +339,60 @@ host.subscribe({
   toast: (plugin, text, tone, action) =>
     views.forEach((v) => v.send.toast({ plugin, text, tone, action })),
   clipboard: (_plugin, text) => Utils.clipboardWriteText(text),
-  navigate: (plugin, screen, select) =>
-    showWindow(plugin, screen, select ? { item: select } : undefined),
+  navigate: (plugin, screen, select) => {
+    const selection = select ? { item: select } : undefined;
+    // The host honors navigation only shortly after an event; it belongs to the view that sent it.
+    const origin = lastEvent?.plugin === plugin && Date.now() - lastEvent.at < 10_000 ? lastEvent.view : null;
+    if (origin && remoteViews.has(origin) && views.has(origin))
+      return origin.send.navigate({ plugin, screen, selection });
+    showWindow(plugin, screen, selection);
+  },
+});
+
+// ── remote access (docs/remote-access.md) ───────────────────────────────
+// Remote connections get the same request handlers as a web view, minus the ones that only
+// make sense on the Mac: the popover's geometry and plugin development mode's control plane.
+const REMOTE_EXCLUDED = new Set<string>(["popoverLayout", "development"]);
+const remoteRoot = join(PATHS.VIEWS_FOLDER, "ui");
+const remoteClients = new Map<number, { view: View; handlers: RequestHandlers }>();
+const remoteAccess = new RemoteAccess({
+  settings: () => settings.remote,
+  save: (remote) => {
+    const badgeChanged = remote.badgePlugins.join("\n") !== settings.remote.badgePlugins.join("\n");
+    settings = { ...settings, remote };
+    saveSettings(settings);
+    if (badgeChanged) views.forEach((v) => v.send.settingsChanged({}));
+  },
+  root: remoteRoot,
+  changed: (state) => views.forEach((v) => v.send.remoteAccessState(state)),
+  handlers: {
+    opened: (client) => {
+      const view: View = { send: remoteSender<ViewRPC["send"]>(client) };
+      remoteViews.add(view);
+      views.add(view);
+      opened.set(view, client.opened);
+      remoteClients.set(client.id, { view, handlers: requestHandlers(() => view) });
+    },
+    closed: (client) => {
+      const entry = remoteClients.get(client.id);
+      remoteClients.delete(client.id);
+      if (entry) releaseView(entry.view);
+    },
+    request: (client, method, params) => {
+      const entry = remoteClients.get(client.id);
+      const handler = entry && !REMOTE_EXCLUDED.has(method)
+        ? (entry.handlers as Record<string, ((p: unknown) => unknown) | undefined>)[method]
+        : undefined;
+      // Unknown methods fail closed.
+      if (!handler) throw new Error(`Unknown method ${method}`);
+      return handler(params);
+    },
+    message: (_client, name, payload) => {
+      if (name === "selectionChanged")
+        views.forEach((view) => view.send.selectionChanged(payload as never));
+      else if (name === "quit") Utils.quit();
+    },
+  },
 });
 
 // ── main window ──────────────────────────────────────────────────────────
@@ -681,6 +762,7 @@ function requestQuit() {
 Electrobun.events.on("reopen", () => showWindow());
 Electrobun.events.on("before-quit", () => {
   localArchives?.closeWatches();
+  void remoteAccess.stop();
   host.stop();
 });
 
@@ -773,6 +855,7 @@ if (
         trayAlert,
         update: updater.state(),
         development: development.state(),
+        remote: remoteAccess.state(),
         profile: profileRoot,
         pid: process.pid,
         execPath: process.execPath,
@@ -797,6 +880,7 @@ localArchives?.resume();
 if (process.env.TOOLBELT_OPEN_WINDOW) showWindow();
 updater.start();
 manager.start({ scheduledChecks: !developmentProfile });
+void remoteAccess.start().catch((error) => console.error("remote access:", error));
 // Wake from sleep: the network takes a moment to come back, then see if a check is due (the
 // 15-minute tick would get there too). Noticed as a gap in a once-a-minute heartbeat.
 let heartbeat = Date.now();

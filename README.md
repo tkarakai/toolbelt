@@ -15,6 +15,10 @@ owns its `running` terminal command and shell integration; ToolBelt does not ins
 implicitly. Plugins execute with your user privileges; process isolation is not a security
 sandbox.
 
+Settings → Remote Access serves ToolBelt to your phone or tablet through Tailscale, as a web
+app you can add to the home screen. Plugins keep running on the Mac, and only devices signed in
+to your Tailscale account can connect. See [Remote access](docs/remote-access.md).
+
 ## Manual installation
 
 1. Download `Toolbelt-<version>-arm64.dmg` from the official
@@ -55,6 +59,7 @@ home. Stop only development processes you started; app development and builds sh
 - [Architecture](docs/architecture.md): runtime, storage, rendering, recovery and boundaries.
 - [Plugin authoring and updates](docs/plugins.md): SDK, manifest, packaging and releases.
 - [Plugin development mode](docs/plugin-development.md): testing unreleased plugin archives in ToolBelt.
+- [Remote access](docs/remote-access.md): using ToolBelt from a phone or tablet over Tailscale.
 - [Maintenance](docs/maintenance.md): checks, debugging and SDK/seed changes.
 - [Releases](docs/releases.md): exact app and SDK build/publish/recovery procedures.
 - [Agent instructions](AGENTS.md): working conventions and verification requirements.

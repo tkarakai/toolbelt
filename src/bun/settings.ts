@@ -3,6 +3,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { REMOTE_DEFAULT_PORT, type RemoteSettings } from "../shared/remote";
 
 export type Settings = {
 	/** Global shortcut for the menu bar popover, Electron-style ("Control+Option+Shift+T"). */
@@ -10,16 +11,25 @@ export type Settings = {
 	/** Color theme id (src/ui/themes.ts). */
 	theme: string;
 	mode: "system" | "light" | "dark";
+	/** Remote access (docs/remote-access.md). */
+	remote: RemoteSettings;
 };
 
-export const DEFAULTS: Settings = { shortcut: "Control+Option+Shift+T", theme: "graphite", mode: "system" };
+export const DEFAULTS: Settings = {
+	shortcut: "Control+Option+Shift+T",
+	theme: "graphite",
+	mode: "system",
+	remote: { enabled: false, port: REMOTE_DEFAULT_PORT, badgePlugins: [] },
+};
 
 const dir = () => process.env.TOOLBELT_CONFIG_DIR ?? join(homedir(), "Library/Application Support/Toolbelt");
 const file = () => join(dir(), "settings.json");
 
 export function loadSettings(defaults: Settings = DEFAULTS): Settings {
 	try {
-		return { ...defaults, ...JSON.parse(readFileSync(file(), "utf8")) };
+		const saved = JSON.parse(readFileSync(file(), "utf8"));
+		const remote = saved.remote && typeof saved.remote === "object" ? saved.remote : {};
+		return { ...defaults, ...saved, remote: { ...defaults.remote, ...remote } };
 	} catch {
 		return { ...defaults };
 	}

@@ -1,342 +1,313 @@
-# Remote access (design v1)
+# Remote access
 
-Status: design, not implemented. This document records the intended design and the reasons
-behind it. When the feature lands, the parts that describe shipped behavior move into
-[architecture.md](architecture.md) and [maintenance.md](maintenance.md), and this file keeps
-only the deferred work.
+Remote access serves ToolBelt and every installed plugin to the owner's phone or tablet,
+from anywhere and over slow connections, through Tailscale. This document is the reference
+for how it works and why. [architecture.md](architecture.md) summarizes it and
+[maintenance.md](maintenance.md) covers testing it.
 
-## Goal
-
-Use ToolBelt and every installed plugin from a phone or tablet, from anywhere, over a slow
-connection if necessary. The use is personal and private: the screens show the processes,
-packages and data on one person's Mac.
-
-Remote access is **remote control of the Mac**. Plugins keep running on the Mac, and every
-host action keeps its Mac meaning (clipboard, revealing files, opening terminals, file icons).
-The remote device is just another screen, keyboard and pointer, with the limits of a small
-touch screen.
+The use is personal and private: the screens show the processes, packages and data on one
+person's Mac. Remote access is **remote control of the Mac**. Plugins keep running on the Mac,
+and every host action keeps its Mac meaning (clipboard, revealing files, opening terminals,
+file icons). The remote device is another screen, keyboard and pointer, with the limits of a
+small touch screen.
 
 Non-goals: a native iPhone app, running plugins on the phone, cloud relays, push
-notifications, a mobile-specific redesign of plugin screens.
+notifications, mobile-specific plugin screens.
 
-## Decisions
+| Area | Implementation |
+| --- | --- |
+| Shared types, close codes, badge total | `src/shared/remote.ts` |
+| Tailscale CLI: discovery, status, Serve rule | `src/bun/tailscale.ts` |
+| HTTP/WebSocket server, request checks, outgoing queue | `src/bun/remote-server.ts` |
+| Server lifecycle, owner, rule, reachability, devices | `src/bun/remote-access.ts` |
+| App wiring: remote views, allowed methods, navigation | `src/bun/index.ts` (remote access section) |
+| Browser connection: reconnects, heartbeat, visibility | `src/ui/lib/connection.ts`, `src/ui/lib/store.ts` |
+| Device detection, key hints | `src/ui/lib/device.ts`, `index.css` |
+| Connection banner, badge, service worker registration | `src/ui/remote-client.tsx` |
+| Settings → Remote Access | `src/ui/RemoteAccess.tsx` |
+| Web app shell | `src/ui/public/sw.js`, `manifest.webmanifest`, `index.html`, copies in `electrobun.config.ts` |
 
-### Plugins run on the Mac; the phone is a remote surface
+## Setup
+
+1. Install Tailscale on the Mac and the phone, sign both in to the same account, and enable
+   MagicDNS and HTTPS certificates for the tailnet in the Tailscale admin console.
+2. In ToolBelt, open Settings → Remote Access, check the Tailscale rows, choose **Create
+   Tailscale rule…** and confirm, then turn remote access on.
+3. On the phone, scan the QR code or open the address in Safari, then Share → Add to Home
+   Screen.
+
+Recommended tailnet hygiene (the tab repeats it):
+
+- Add only devices that lock automatically with a passcode or biometrics.
+- Turn on device approval, so a newly signed-in device needs approval before it joins.
+- Keep node key expiry on, so devices sign in again periodically.
+- Remove a lost device in the admin console immediately.
+- Give the Mac a nondescript machine name: Tailscale's HTTPS certificates appear in public
+  Certificate Transparency logs, which publishes the machine and tailnet names (not content).
+- If other people share the tailnet, restrict the port in the tailnet policy to your own
+  devices (an ACL rule accepting only you → you:`<port>`, with no broader rule covering it).
+  The owner check below already refuses them; the ACL adds a network layer underneath.
+
+## Plugins run on the Mac; the phone is a remote surface
 
 iOS does not allow an app to spawn Bun processes or download and run code, and the main
-plugins (Processes, Upkeep) are about the Mac itself. The architecture already separates
-the two halves: plugins send complete declarative trees over JSON lines, and the renderer is
-an ordinary React web app. `scripts/preview.ts` already serves the real host and plugins to a
-plain browser and bridges the web view RPC over a WebSocket. Remote access turns that bridge
-into a product feature of the app.
+plugins (Processes, Upkeep) are about the Mac itself. The architecture already separates the
+two halves: plugins send complete declarative trees over JSON lines, and the renderer is an
+ordinary React web app. Remote access serves that renderer to other devices and bridges the web
+view RPC over a WebSocket, the way the browser preview always has.
 
-### Tailscale and the devices are the security boundary
+## Security: Tailscale and the devices are the boundary
 
-There is no ToolBelt login or pairing. Tailscale decides who can connect. Adding our own
+There is no ToolBelt login or pairing. Tailscale decides who can connect. ToolBelt's own
 authentication would duplicate what Tailscale already provides (device identity, encryption,
 revocation, ACLs) for a single-user tool.
 
 **Owner check.** `tailscale serve` adds a `Tailscale-User-Login` header to every request it
-forwards, and removes any copy the client tried to send. The server accepts a request only if
-that header equals the Tailscale login that owns the Mac (from `tailscale status --json`:
-`Self.UserID` looked up in `User`). That refuses:
+forwards and removes any copy the client sent. The server accepts a request only when that
+header equals the login that owns the Mac (`tailscale status --json`: `Self.UserID` looked up in
+`User`). That refuses:
 
 - people using a node shared into the tailnet from another tailnet;
 - tagged devices (servers, agent machines), which Tailscale never gives identity headers;
 - anything that reaches the loopback port directly instead of through Serve, including a DNS
   rebinding page in a browser on the Mac.
 
-Tailscale's guidance for identity headers is the same as this design: listen only on
-localhost, so nobody can bypass Serve and send their own headers. Local processes can still do
-that, but they already run as the same user. The owner's login is read when remote access
-starts and on every status refresh. If it cannot be read, the server refuses everything.
+Tailscale's guidance for identity headers matches this design: listen only on localhost, so
+nobody can bypass Serve and send their own headers. Local processes still can, but they
+already run as the same user. The owner's login is read when remote access starts and on every
+status refresh; while it is unknown the server refuses everything (503).
 
-What the owner check does not cover, and the server must also handle:
+`checkRemoteRequest` also requires:
 
-- **Cross-site WebSockets.** Browsers do not apply the same-origin policy to WebSocket
-  connections, so any page open in the phone's browser could try to connect to the Mac's
-  tailnet URL. The server accepts HTTP and WebSocket requests only when `Origin` is absent or
-  equals the request's own origin, as `src/bun/loopback.ts` does for development controls.
-- **DNS rebinding.** A hostile site can rebind its own name to `127.0.0.1`; its requests then
-  carry a matching `Host` and `Origin` for that hostile name. The server therefore also
-  requires `Host` to be on an allowlist: `localhost`, `127.0.0.1`, `[::1]` and the Mac's
-  MagicDNS name.
-- **Other users on the tailnet.** If the tailnet has more people, the owner check already
-  refuses them. A Tailscale ACL restricting the port to the owner's devices adds a network
-  layer underneath; the setup documentation shows the rule.
-- **Framing and forwarded headers.** Pages are served with CSP `frame-ancestors 'none'`.
-  `X-Forwarded-For`/`-Proto` are read only when the peer is loopback (that is, `tailscale
-  serve`), and only for display, never for authorization.
+- a loopback peer (Serve);
+- a `Host` on the allowlist: `localhost`, `127.0.0.1`, `[::1]` and the Mac's MagicDNS name;
+- an absent `Origin`, or one equal to the request's own host. Browsers don't apply the
+  same-origin policy to WebSockets, so this is what stops a page open on the phone from
+  connecting to the Mac.
 
-**Device security belongs to the device and the tailnet.** Anyone holding an unlocked
-device signed in to the owner's Tailscale account has full control of the Mac through
-ToolBelt. The second layer is therefore each device's own passcode or biometric lock, plus
-tailnet hygiene. The setup documentation recommends:
+Responses carry CSP `frame-ancestors 'none'`, `nosniff` and `no-referrer`. `X-Forwarded-For`
+(the device's tailnet IP) is read only from a loopback peer and only identifies the device in
+the list; it never authorizes anything.
 
-- only adding devices to the tailnet that have a passcode or biometric lock and lock
-  automatically;
-- turning on Tailscale device approval, so a newly signed-in device needs approval in the
-  admin console before it joins;
-- keeping node key expiry on, so devices re-authenticate periodically;
-- removing a lost device in the admin console immediately.
+**Device security belongs to the device and the tailnet.** Anyone holding an unlocked device
+signed in to the owner's Tailscale account has full control of the Mac through ToolBelt.
+ToolBelt cannot check whether a device has a passcode; that, and the tailnet hygiene above, are
+the owner's responsibility.
 
-ToolBelt cannot check whether a device has a passcode; this is the owner's responsibility.
+Everything is available remotely, including plugin installation, approvals, updates and the
+Remote Access tab itself. Remote connections get the same request handlers as a web view except
+`popoverLayout` (the native popover's geometry) and `development`: plugin development mode
+approves execution of local archives and stays on the Mac. Unknown methods fail closed. Of the
+web view messages, remote connections may send only `selectionChanged` and `quit`; window
+commands (close, zoom, show, hide) are the Mac's.
 
-Everything is available remotely, including plugin installation, approvals and updates.
-Plugin development mode's control plane stays loopback-only: it approves execution of local
-archives and has no reason to be remote.
+## Loopback server published with Tailscale Serve
 
-### Loopback server published with `tailscale serve`
+The app runs the server on `127.0.0.1` at a dedicated port (47380; ToolBelt Dev uses 47381 so
+both can run), and a Tailscale Serve rule publishes the same port over HTTPS:
+`https://<machine>.<tailnet>.ts.net:<port>/`. A dedicated port leaves 443 to other services;
+Serve rules are per port and coexist.
 
-The app runs an HTTP/WebSocket server bound to `127.0.0.1` on a dedicated, fixed port, and
-a Tailscale Serve rule publishes the same port number over HTTPS:
-`https://<machine>.<tailnet>.ts.net:<port>/`. A dedicated port leaves the default HTTPS port
-443 to other services, so it never conflicts with them. Serve rules are per port, and
-several can coexist.
+- Tailscale obtains and renews the certificate. The service worker and Badging API need a
+  secure context, and ToolBelt never handles certificates or keys.
+- Nothing listens on the LAN, so there is no plain-HTTP exposure on shared Wi-Fi.
+- The rule persists across restarts of Tailscale and ToolBelt.
 
-Rationale:
+Requests through Serve arrive from loopback, so the peer address does not distinguish the
+phone from a local browser; the owner check does. The Mac's own window and popover keep using
+Electrobun RPC and never pass through this server, so it needs no notion of a trusted local
+client.
 
-- Tailscale obtains and renews the HTTPS certificate. The PWA features below (service worker,
-  badging) require a secure context, and the app never handles certificates or keys.
-- Nothing listens on the LAN or other interfaces, so there is no plain-HTTP exposure on café
-  Wi-Fi and no need to choose interfaces.
-- `tailscale serve --bg` persists across restarts of both Tailscale and ToolBelt.
+## The Tailscale CLI
 
-Trade-offs: requests through `tailscale serve` arrive from loopback, so the client address
-does not distinguish the phone from a local browser; the owner check does. Tailscale's HTTPS
-certificates appear in public Certificate Transparency logs, which publishes the machine and
-tailnet names (not content); the setup documentation recommends a nondescript machine name.
-
-### Finding the Tailscale CLI
-
-Apps opened from Finder do not inherit the login shell's `PATH`, and the App Store build of
-Tailscale does not put `tailscale` on `PATH` at all. ToolBelt looks for the CLI on its own
-`PATH`, then in `/opt/homebrew/bin`, `/usr/local/bin` and
-`/Applications/Tailscale.app/Contents/MacOS/Tailscale`, and shows which one it uses. If none
-exists or it fails to run, the Remote Access tab shows a warning explaining how to install
-Tailscale or its CLI, and every Tailscale-dependent control is disabled.
+Apps opened from Finder don't inherit the login shell's `PATH`, and the App Store build of
+Tailscale doesn't put `tailscale` on `PATH` at all. `findTailscaleCli` checks `PATH`, then
+`/opt/homebrew/bin`, `/usr/local/bin` and `/Applications/Tailscale.app/Contents/MacOS/Tailscale`,
+and the tab shows which one it uses. Without one, the tab explains how to install it and nothing
+Tailscale-dependent is offered.
 
 Calling the CLI from another app can trigger a macOS privacy prompt with the App Store build,
-so ToolBelt runs it only while remote access is on or the Remote Access tab is open.
+so ToolBelt runs it only while remote access is on (a status refresh every 30 seconds) or when
+the Remote Access tab reads or refreshes. Every call has a 15-second timeout. Tests inject a
+fake runner and never touch a real Tailscale configuration.
 
-### The Serve rule
+## The Serve rule
 
-ToolBelt creates the Serve rule only after the owner confirms it, and can remove it again.
-Both happen in the Remote Access tab.
+ToolBelt changes Tailscale's configuration only after the owner confirms, in the Remote Access
+tab.
 
-- **Create.** If no rule exists for ToolBelt's port, the tab shows what is missing and a
-  "Create Tailscale rule" button. The confirmation states the exact change: HTTPS on tailnet
-  port `<port>` forwards to `http://127.0.0.1:<port>`, reachable by devices on the tailnet and
-  persisting in Tailscale until removed. On confirmation ToolBelt runs
+- **Create.** With no rule on the port, the tab offers **Create Tailscale rule…**. The
+  confirmation states the exact change (HTTPS on tailnet port `<port>` → `http://127.0.0.1:<port>`)
+  and that it persists until removed. ToolBelt then runs
   `tailscale serve --bg --https=<port> http://127.0.0.1:<port>`.
-- **Conflict.** If the port already has a Serve rule that forwards anywhere else, ToolBelt
-  never changes it. The tab names the conflict and asks for a different port.
-- **Remove.** "Remove Tailscale rule" with a confirmation runs
-  `tailscale serve --https=<port> off`. ToolBelt removes a rule only while it still forwards
-  to ToolBelt's own address.
-- **Verify.** After creating the rule, and on each status refresh while remote access is on,
-  ToolBelt requests `/.well-known/toolbelt` through the `ts.net` address. The response carries
-  a random instance ID generated at startup, so the tab reports "Reachable" only when the
-  address really reaches this server. The probe passes through Serve from the Mac itself, so
-  it carries the owner's login and passes the owner check.
-- **HTTPS not enabled.** If the tailnet does not allow HTTPS certificates (`https` missing
-  from `Self.CapMap`), the tab links to the Tailscale admin console setting instead of
-  offering to create the rule.
-- **Port change.** The port has a fixed default and can be edited. Changing it while a rule
-  exists offers to remove the old rule and create the new one, with the same confirmations.
+- **Conflict.** If the port already has any other Serve configuration (another target, another
+  mount, files, text, TCP forwarding or plain HTTP), ToolBelt never changes it; the tab names
+  the target and asks for a different port.
+- **Remove.** **Remove rule…** with a confirmation runs `tailscale serve --https=<port> off`, and
+  only while the rule still forwards to ToolBelt's own address.
+- **Verify.** While remote access is on and the rule is ToolBelt's, each refresh requests
+  `/.well-known/toolbelt` through the `ts.net` address. The response carries a random ID
+  generated at startup, so "Reachable" means the address really reaches this ToolBelt. This
+  endpoint skips the owner requirement (it reveals only that ID) but keeps the other checks.
+- **HTTPS not enabled.** Without `https` in `Self.CapMap`, the tab links to the admin console
+  instead of offering the rule. MagicDNS off is reported the same way.
+- **Port change.** Changing the port while ToolBelt's rule exists offers **Move the rule**
+  (remove the old rule, create the new one) or **Change port only**.
 
-Quitting ToolBelt leaves the rule in place with nothing to forward to; Tailscale answers with
-an error until ToolBelt runs again with remote access on.
+Quitting ToolBelt leaves the rule with nothing to forward to; Tailscale answers with an error
+until ToolBelt runs again with remote access on.
 
-### Settings: Remote Access tab
+## Settings → Remote Access
 
-Remote access gets its own Settings tab, beside Appearance, Keyboard, Plugins and About:
+- **Serve ToolBelt to your devices**: off by default. Off stops the server, closing every
+  remote connection with the "off" close code; on starts it. Errors such as a port in use show
+  here.
+- **Open on your phone**: the address, a copy button and a QR code holding only the URL (no
+  secret). Shown once the rule is ToolBelt's.
+- **Port**.
+- **Tailscale**: labelled rows from `tailscale status --json` and `tailscale serve status
+  --json` (CLI location, running state, account, MagicDNS name, HTTPS certificates, Serve rule,
+  reachability), each problem with what to do, and the device-security reminder.
+- **Connected devices** (below).
+- **Home-screen badge**: which plugins count toward the badge, and on a device that needs it,
+  the button that asks for badge permission.
 
-- **Remote access** switch, off by default. Off stops the HTTP server and closes every
-  remote connection. On starts the server.
-- **Tailscale status**, rendered from `tailscale status --json` and
-  `tailscale serve status --json` as labelled rows, never as raw JSON: CLI location;
-  Tailscale not installed, stopped or running; signed-in login (the owner the check compares
-  with); MagicDNS name; whether HTTPS is enabled for the tailnet; the Serve rule's state
-  (missing, ToolBelt's, conflicting); and reachability. Each problem state says what to do.
-- **Serve rule** controls: create, remove and port, as above.
-- **Address** with a copy button and a QR code that opens it on a phone. The QR code holds
-  only the URL; there is no secret to leak.
-- **Badge total**: the plugins whose badges count toward the PWA's home-screen badge.
-- **Connected devices** with live bandwidth figures and Disconnect (below).
+The tab works remotely too. Turning remote access off, removing the rule or changing the port
+from a remote device cuts that device's own connection, so those confirmations add that access
+stays lost until it is set up again at the Mac.
 
-The tab works remotely like the rest of the app. Turning remote access off, removing the
-rule or changing the port from a remote device cuts that device's own connection, so the
-confirmation there adds that access stays lost until someone turns it back on at the Mac.
+## Connected devices
 
-### One server and dispatcher, shared with preview
+A device appears while it has a live connection and disappears when it closes. There is no
+enrollment: any of the owner's devices that opens the address and passes the owner check shows
+up. Its name, OS and path come from the peer in `tailscale status --json` whose tailnet IP Serve
+forwarded; several windows on one device group under it.
 
-The Electrobun RPC handlers in `src/bun/index.ts` and the WebSocket handlers in
-`scripts/preview.ts` become one dispatcher that both transports call. The remote server and
-preview use the same connection model rather than diverging copies. Preview keeps its
-in-memory settings and simulated updates by injecting them into the dispatcher. Unknown
-methods fail closed with an error, unlike preview's current switch, which ignores them; a test
-checks that every RPC method is handled.
+Per device: connected since; bytes sent (and an estimate after compression, from sampling
+every eighth larger message with deflate) and received; screens sent and stale screens skipped;
+the heartbeat round trip; and whether Tailscale reaches it directly or through a DERP relay
+(`CurAddr`/`Relay`). A relay is often the real cause of slowness on cellular.
 
-The Mac's own window and popover keep using Electrobun RPC and never pass through the HTTP
-server, so the server needs no notion of a trusted local client.
+**Disconnect** closes the device's connections with close code 4001. The client stops
+reconnecting and shows "Disconnected from your Mac" with **Reconnect**. ToolBelt stores no block
+list: Disconnect ends a session left open; removing a device belongs in Tailscale.
 
-### Connected devices
+## Multiple clients
 
-A device appears in the list while it has a live connection and disappears when it closes.
-There is no enrollment. Any of the owner's devices that opens the address and passes the
-owner check simply shows up. Device name and OS come from `tailscale whois` on the tailnet
-IP that Serve forwards in `X-Forwarded-For`. Several tabs on one device group under it.
+The Mac window, popover and any number of remote connections share one host. Each remote
+connection is a view of its own in `index.ts`: it receives every broadcast, tracks the surfaces
+it opened and closes them when it goes away.
 
-Per device the list shows: connected since; bytes sent and received on the wire (after
-compression) and before compression; render trees sent and stale trees skipped (the "newest
-tree wins" counter); round-trip time from the heartbeat; and whether Tailscale reaches it
-directly or through a DERP relay (from the peer's `CurAddr`/`Relay` in `tailscale status
---json`).
+- A plugin's navigation goes back to the remote view whose event triggered it (the host honors
+  navigation only within 10 seconds of an event); otherwise it opens the Mac window as before.
+- The shared selection relay includes remote views, with the existing timestamp ordering.
+- Renderer-local state (typing, scroll, widths, zoom, column layouts) stays per device.
+- The client sends one `open` per surface however many components watch it, and one `close`
+  when the last one stops, matching the server's per-view surface set.
 
-**Disconnect** closes that device's connections with a dedicated close code. The client then
-stops reconnecting and shows "Disconnected from your Mac" with a Reconnect button. ToolBelt
-stores no block list. Disconnect ends a session left open, for example on an iPad; it is not
-revocation. A lost or untrusted device is removed in the Tailscale admin console, which takes
-it off the tailnet entirely.
+## Renderer adaptation, invisible to plugins
 
-### Multiple clients
+Plugins don't learn that a client is remote or touch-based, and the protocol doesn't change.
 
-The Mac window, popover and any number of remote clients share one host. Each connection
-tracks the surfaces it has open (preview already does) and closes them when it disconnects.
-Rules:
+1. **Main window only.** Remote clients (a browser not on `localhost`) and touch-first devices
+   never get the popover: `#popover` is replaced by the main window.
+2. **No key hints without a keyboard.** When the primary pointer is touch
+   (`(hover: none) and (pointer: coarse)`), `html[data-keyboard="none"]` hides `Kbd`, `KeyHint`
+   and menu shortcuts. The Keyboard settings tab's reference list keeps them (`data-keep-keys`).
+   Hints return on the first physical-keyboard evidence: iOS fires `keydown` for the on-screen
+   keyboard too, so only keys it can't produce count (Tab, Escape, arrows, Page keys, F6, ⌘/⌃
+   combinations, ⌥ outside text fields). `aria-keyshortcuts` is unaffected.
+3. **Narrow screens.** Below 768 px the sidebar is a sheet: the pane header shows a **Show
+   tools** button, and choosing a tool closes the sheet. Without window buttons (remote and
+   touch devices) the header doesn't reserve their room, and the preview's stand-in buttons
+   aren't drawn.
 
-- A plugin's navigation request is routed to the client whose event triggered it, since the
-  host only honors navigation within 10 seconds of delivering an event.
-- The shared selection relay includes remote clients, with the existing timestamp ordering so
-  late deliveries cannot move a highlight back.
-- Renderer-local state (typing, scroll, widths, zoom) stays per device. Column layout
-  preferences are saved per device, because a phone and a Mac want different widths.
+Plugin screens otherwise rely on the existing narrow-layout behavior.
 
-### Renderer adaptation, invisible to plugins
+## Web app: manifest and service worker, no push
 
-Plugins do not learn that a client is remote or touch-based, and the protocol does not
-change. The renderer makes exactly two adaptations:
+**Manifest.** `manifest.webmanifest` (standalone display, icons copied from the app's icon set
+into `views/ui/pwa/`) and the iOS meta tags in `index.html` make ToolBelt installable on the
+home screen and full screen without browser bars.
 
-1. **Main window only.** Remote and touch clients always load the main window. The popover
-   and quick views are a menu-bar concept and are skipped (`#popover` redirects to the main
-   window).
-2. **No key hints without a keyboard.** When the primary input is touch
-   (`(hover: none) and (pointer: coarse)`), key hints (`KeyHint`, `Kbd` and shortcut text in
-   menus) are hidden. They reappear after the first physical keyboard use, such as an iPad
-   with a Magic Keyboard. iOS fires `keydown` for the on-screen keyboard too, so only keys it
-   does not produce count: Tab, Escape, arrows and modifier combinations, outside editable
-   fields. Accessible names (`aria-keyshortcuts`) are unaffected.
+**Service worker** (`sw.js`, registered only on remote clients in a secure context):
 
-Screen layout on narrow screens relies on the existing narrow-layout behavior; porting
-screens is out of scope.
+- hashed build files under `/assets/` come from the cache once fetched; when a page with a new
+  main script arrives, the asset cache starts over, so old builds don't pile up;
+- the page itself is network-first, falling back to the cached copy (whose connection banner
+  explains the Mac can't be reached) or, with nothing cached, a static "Can't reach your Mac"
+  page;
+- `/rpc` and `/.well-known/` are never intercepted.
 
-### Progressive web app: manifest and service worker, no push
+**Version safety.** The build ID is the main script's hashed file name. After each connection
+the client asks the server for its build (`buildId`); on a mismatch it updates the service
+worker and reloads once per build. The server sends `index.html`, `sw.js` and the manifest with
+`no-cache` and `/assets/` as immutable.
 
-**Manifest (yes).** A web manifest with icons and `display: standalone` gives a home-screen
-icon and full-screen use without browser bars. It costs a JSON file and icons.
+**Push notifications: no.** ToolBelt has no notifications (plugins send badges and in-window
+toasts, mostly replies to the person's own actions). Push would need a protocol message for
+plugins to mark interruptions, contradicting plugins not needing to care, and would be the only
+traffic leaving the tailnet (through Apple's push service).
 
-**Service worker (yes).** It caches the app shell (HTML, hashed JS/CSS chunks, fonts) so
-the app starts without downloading code over a slow link, and it shows a "Mac unreachable"
-page instead of a browser error when the Mac is asleep or offline. It is part of the
-bandwidth work.
+**Home-screen badge.** `BadgeSync` sets the icon's badge with the Badging API from the chosen
+plugins: the sum of their numeric badges (digit strings count), a plain dot when they only have
+text badges, nothing otherwise (`badgeTotal`). The choice lives in the host's `settings.json`
+(`remote.badgePlugins`) and arrives with `settings`, so every device shows the same total.
+Accepted limits: without push the badge only updates while the app runs; on iOS it needs
+notification permission, which the tab asks for on that device, although nothing is ever sent.
 
-Version safety: a cached shell can be older than the host after an app update. The RPC
-handshake carries the app build ID; on a mismatch the client updates the service worker and
-reloads. `index.html` is served `no-cache`; hashed assets are immutable.
+## Bandwidth
 
-**Push notifications (no).** ToolBelt has no notifications today (plugins send badges and
-in-window toasts, and toasts are mostly replies to the person's own actions). Push would need
-a new protocol message for plugins to mark interruptions, which contradicts plugins not
-needing to care, and it is the only feature that would send anything outside the tailnet
-(through Apple's push service).
+Every render message is a complete tree for its surface, so any message other than the newest
+for a surface can be dropped without losing information, and a reconnect only needs the current
+trees.
 
-**Home-screen badge (yes).** The PWA shows a total on its home-screen icon using the
-Badging API (`navigator.setAppBadge`). The Remote Access tab has a "Badge total" choice of zero
-or more plugins; the total adds their numeric badges. If the selected plugins have only
-non-numeric badges (strings), the icon shows a plain dot (`setAppBadge()` without a count).
-Zero selected plugins or a total of zero clears the badge. The choice lives in the host's
-`settings.json`, so every device shows the same total.
-
-Limits, accepted: without push, the badge only updates while the PWA is running, and shows
-the last value when it was suspended. On iOS the Badging API needs notification permission
-even when no notification is ever sent; the app asks only when the owner turns the badge on.
-
-### Bandwidth
-
-The protocol has a useful property: every render message is a complete tree for its
-surface. Any message other than the newest for a surface can be dropped without losing
-information, and a reconnect only needs the current trees.
-
-Phase 1:
-
-1. **Measure.** Count bytes and messages per connection and surface, readable from the
-   diagnostics/debug API, and test over a throttled link. Check whether the phone reaches the
-   Mac directly or through a Tailscale DERP relay, which is often the real cause of slowness
-   on cellular.
-2. **Send only visible surfaces.** Clients close their surfaces when the page is hidden
-   (`visibilitychange`) and reopen them when it becomes visible; the host replays the current
-   tree on open.
-3. **Compression.** Enable WebSocket `permessage-deflate` (Bun's `perMessageDeflate`). Render
-   trees are repetitive JSON and should compress roughly tenfold.
-4. **Newest tree wins.** When a connection's send buffer is backed up (Bun's `send` reports
-   backpressure; `drain` reports recovery), the server keeps only the newest pending tree per
-   surface and sends it when the socket drains. The data rate then adapts to the link instead
-   of queueing stale screens. Non-render messages (responses, toasts, badges) are never
+1. **Measure.** The devices list shows bytes, screens, skipped screens, round trip and relay
+   per device; `remote` in the debug channel's `/state` has the same.
+2. **Only visible surfaces.** When the page is hidden the client closes its surfaces; when it
+   is shown again on a live socket it reopens them and receives their current trees.
+3. **Compression.** WebSocket `permessage-deflate`.
+4. **Newest tree wins.** `OutboundQueue` sends straight through until the socket has more than
+   256 KiB buffered. Then messages wait in order, a waiting tree is replaced by a newer one for
+   the same surface (counted as skipped), and the queue flushes on `drain`. Nothing else is
    dropped.
-5. **Caching.** Hashed UI assets and versioned plugin asset references
-   (`asset:<id>@<version>/<name>`) are served immutable; the service worker serves the shell
-   locally.
-6. **Reconnect.** One connection owner per client. The server sends a heartbeat about every
-   20 seconds. On `visibilitychange` and `online` the client first probes the existing socket
-   and replaces it only if the probe fails, since mobile browsers often keep sockets that
-   look alive but are dead. Reconnects use jittered, capped exponential backoff that resets
-   only after the connection has stayed up for a while. After reconnecting, the client
-   reopens its surfaces and receives their current trees. Pending actions are never
-   replayed.
+5. **Caching.** Immutable hashed assets and the service worker's shell cache.
+6. **Reconnect.** One connection owner per page (`createSocketTransport`). The server sends a
+   heartbeat every 20 seconds; 50 seconds of silence counts as a dead socket. On becoming
+   visible the client first probes the existing socket (any message within 3 seconds) and
+   replaces it only if the probe fails; `online` reconnects at once. Reconnects use jittered,
+   capped exponential backoff (1 s doubling to 30 s) that resets only after the connection has
+   stayed up for 10 seconds; after "off" (4002) it retries every 15 seconds or more. Requests in
+   flight when the socket drops fail; plugin events are refused while offline and never queued,
+   so an action taken offline can't run later. Other requests wait up to 15 seconds for the
+   connection.
 
-Latency matters as much as bandwidth. Instant state already stays in the renderer. Phase 1
-also audits events that fire per keystroke (search and fields) to make sure each round trip
-is not visible as lag.
-
-Phase 2: **tree diffs.** The server sends a patch against the last tree the client
-acknowledged, falling back to a full tree on mismatch. This is the most effective and most
-complex step, and it is built only if measurements after phase 1 show the need.
+The connection banner reports connecting (after 800 ms), offline with **Retry now**, remote
+access off, and the Disconnect dialog.
 
 ## Deferred
 
-- **Clipboard and links.** Under the remote-control model, a plugin's clipboard request
-  writes the Mac's clipboard and host-opened URLs open on the Mac. Not in this phase.
-- **Mac asleep.** Tailscale cannot wake a sleeping Mac. v1 shows the unreachable page.
+- **Tree diffs (phase 2).** Patches against the last tree the client acknowledged, falling back
+  to a full tree on mismatch. Built only if measurements show the need.
+- **Plugin images over HTTP.** `pluginAsset` still returns data URLs over the RPC, so plugin
+  images aren't HTTP-cached on remote devices.
+- **Per-keystroke events.** Search and field events cost a round trip each; not yet audited
+  for latency on slow links.
+- **Clipboard and links.** A plugin's clipboard request writes the Mac's clipboard, and
+  host-opened URLs open on the Mac.
+- **Mac asleep.** Tailscale can't wake a sleeping Mac; the banner or the offline page shows.
 
 ## Prior art: T3 Code
 
-T3 Code (`pingdotgg/t3code`) publishes its server the same way: loopback plus
-`tailscale serve`. Unlike this design, it does not trust the network. Every client, including
-its own desktop renderer, pairs with a single-use 5-minute code (QR link with the code in the
-URL fragment) and receives a revocable session. Each RPC method requires a scope, and
-revoking a session closes its live sockets immediately. That fits its use: multiple users,
-plain-HTTP LAN access, a cloud relay, a native iOS app and MCP clients. For one owner who
-reaches the Mac only over Tailscale, pairing would mostly re-implement Tailscale's device
-identity and revocation. The difference accepted here: any device signed in to the owner's
-Tailscale account has full control, with no second factor. T3 Code does not use Tailscale
-identity headers; this design uses them instead of pairing.
-
-## Implementation outline
-
-1. Extract the shared RPC dispatcher; move preview onto it.
-2. Add the remote server (loopback, dedicated port, owner check, Host/Origin checks,
-   `/.well-known/toolbelt`, per-connection surfaces, navigation routing, selection relay,
-   heartbeat, Disconnect close code).
-3. Tailscale integration: CLI discovery, status reading, Serve rule create/remove/verify.
-   Tests use a fake CLI; nothing touches the real Tailscale configuration.
-4. Remote Access tab: switch, status rows, Serve rule controls, port, address with QR code,
-   badge total, connected devices with bandwidth figures and Disconnect.
-5. Renderer: main window only on remote/touch clients; key hints hidden without a keyboard.
-6. PWA: manifest, icons, service worker, build-ID handshake, unreachable page, Badging API.
-7. Bandwidth phase 1 (items 1–6 above).
-8. Documentation: setup (`tailscale serve`, ACL, machine name), architecture and maintenance
-   updates, CHANGELOG.
-
-Verification follows AGENTS.md: preview and `chrome-devtools-axi` with touch emulation and
-network throttling, an isolated profile, and a real phone over a disposable tailnet setup.
+T3 Code (`pingdotgg/t3code`) publishes its server the same way: loopback plus `tailscale
+serve`. Unlike this design, it does not trust the network. Every client, including its own
+desktop renderer, pairs with a single-use five-minute code (a QR link with the code in the URL
+fragment) and receives a revocable session; each RPC method requires a scope, and revoking a
+session closes its live sockets. That fits its use: multiple users, plain-HTTP LAN access, a
+cloud relay, a native iOS app and MCP clients. For one owner reaching the Mac only over
+Tailscale, pairing would mostly re-implement Tailscale's device identity and revocation. The
+difference accepted here: any device signed in to the owner's Tailscale account has full
+control, with no second factor. T3 Code does not use Tailscale identity headers; this design
+uses them instead of pairing. Borrowed from it: the Serve-based publishing, the
+`/.well-known/` reachability probe, never touching a rule that isn't ToolBelt's, running the
+CLI only while needed, and the reconnect policy.

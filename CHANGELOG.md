@@ -6,6 +6,9 @@
 - Toasts have an X button to dismiss them.
 - Plugins can offer a duration field: a length of time edited in place as days, hours and minutes, with arrow keys, typing and a menu of presets.
 - A plugin's filter menu can follow the plugin's own structure: sections with a name and a divider between them, instead of moving options with no matches below a divider.
+- Settings → Remote Access serves ToolBelt and its plugins to your phone or tablet through Tailscale. ToolBelt creates the Tailscale Serve rule after you confirm, and can remove it. Only your Tailscale account can connect. The tab shows Tailscale's status, the address with a QR code, and connected devices with their data use, and can disconnect a device.
+- On a phone, ToolBelt installs to the home screen as a web app: it reconnects by itself, starts without re-downloading the app over slow links, and can show the total of chosen plugins' badges on its icon.
+- On touch screens, key hints stay hidden until you use a keyboard. Narrow windows get a button to show the tools list.
 
 ## 0.3.23 — 2026-11-24
 - Fixed: the selected item of a plugin list (such as a related task in a details drawer) hid its pills, the id and state, behind the selection color.
