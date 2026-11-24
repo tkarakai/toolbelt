@@ -197,6 +197,9 @@ export function TagsField({ id, field, onChange, onOpen }: { id: string; field: 
 	);
 }
 
+/** A pill part that follows a link: underlined on hover and focus. */
+const LINK = "flex h-full items-center gap-1 pl-2 outline-none hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
+
 function TagPillEditor({ k, tag, onSet, onOpen, onRemove }: { k: TagKey; tag: TagValue; onSet: (v: string) => void; onOpen?: () => void; onRemove: () => void }) {
 	const [open, setOpen] = useState(false);
 	const text = k.flag ? k.label : `${k.label}: ${tag.value ?? ""}`;
@@ -204,25 +207,36 @@ function TagPillEditor({ k, tag, onSet, onOpen, onRemove }: { k: TagKey; tag: Ta
 	const shaded = tag.value === undefined ? undefined : shadeStyle(color, k.shades?.[tag.value]);
 	return (
 		<span style={shaded} className={cn("inline-flex h-7 items-center overflow-hidden rounded-md text-xs font-medium", !shaded && pillClass(color ?? "default"))}>
-			{onOpen ? (
-				// `open`: the pill's text is a link to what it names.
-				<button type="button" onClick={onOpen} aria-label={`Open ${text}`} className="flex h-full items-center gap-1 rounded-l-md pl-2 outline-none hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-					{text}
-					<ArrowUpRight className="size-3 opacity-60" />
-				</button>
-			) : k.flag ? (
-				<span className="pl-2">{text}</span>
+			{k.flag ? (
+				onOpen ? (
+					// `open`: a flag has no value to change, so its whole text is the link.
+					<button type="button" onClick={onOpen} aria-label={`Open ${text}`} className={LINK}>
+						{text}
+						<ArrowUpRight className="size-3 opacity-60" />
+					</button>
+				) : (
+					<span className="pl-2">{text}</span>
+				)
 			) : (
-				<Popover open={open} onOpenChange={setOpen}>
-					<PopoverTrigger asChild>
-						<button type="button" aria-label={`Change ${k.label}`} className="h-full rounded-l-md pl-2 outline-none hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-							{text}
+				<>
+					<Popover open={open} onOpenChange={setOpen}>
+						<PopoverTrigger asChild>
+							<button type="button" aria-label={`Change ${k.label}`} className={cn("h-full rounded-l-md pl-2 outline-none hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", onOpen && "pr-1")}>
+								{/* With `open`, the key picks another value and the value is the link. */}
+								{onOpen ? `${k.label}:` : text}
+							</button>
+						</PopoverTrigger>
+						<PopoverContent className="w-64 p-0" align="start">
+							<Picker options={valueOptions(k)} value={tag.value ?? ""} freeform={anyText(k)} placeholder={`${k.label}…`} onPick={(v) => (setOpen(false), onSet(v))} />
+						</PopoverContent>
+					</Popover>
+					{onOpen && (
+						<button type="button" onClick={onOpen} aria-label={`Open ${tag.value ?? ""}`} className={cn(LINK, "pl-0")}>
+							{tag.value ?? ""}
+							<ArrowUpRight className="size-3 opacity-60" />
 						</button>
-					</PopoverTrigger>
-					<PopoverContent className="w-64 p-0" align="start">
-						<Picker options={valueOptions(k)} value={tag.value ?? ""} freeform={anyText(k)} placeholder={`${k.label}…`} onPick={(v) => (setOpen(false), onSet(v))} />
-					</PopoverContent>
-				</Popover>
+					)}
+				</>
 			)}
 			<button type="button" aria-label={`Remove ${k.label}`} onClick={onRemove} className="flex h-full items-center rounded-r-md px-1.5 opacity-70 outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
 				<X className="size-3" />

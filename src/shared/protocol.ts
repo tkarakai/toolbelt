@@ -438,9 +438,9 @@ export type Field = (
 	 * value is picked from them (any text too with `freeform`); otherwise it's free text.
 	 */
 	/**
-	 * With `open` (capability `ui.tag-open`), each pill's text is a link: clicking it sends that
-	 * action with `{ form, field, key, value }` instead of opening the value picker (change a
-	 * value by removing the pill and adding another).
+	 * With `open` (capability `ui.tag-open`), each pill's value is a link: clicking it sends that
+	 * action with `{ form, field, key, value }`. The pill's key still opens the value picker. A
+	 * flag pill, having no value, is a link as a whole.
 	 */
 	| { type: "tags"; id: string; label: string; value: TagValue[]; keys: TagKey[]; description?: string; open?: Action }
 	/**

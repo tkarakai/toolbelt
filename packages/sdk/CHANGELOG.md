@@ -1,6 +1,7 @@
 # SDK changelog
 
 ## Unreleased
+- `ui.tag-open` (docs): on hosts from 0.3.22, only a pill's value is the link; its key ("Blocks:") opens the value picker again, so a value can be changed in place.
 
 ## 0.3.15 — 2026-11-24
 - A heading field's `note` is drawn as a small neutral pill, like a cell's `prefix`, instead of plain monospaced text.

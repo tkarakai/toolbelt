@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Fixed: the page toolbar's scroll strip showed a scrollbar while scrolling, and the scrollbar made the header taller.
+- Fixed: hovering an item of a list in the details drawer (such as a task's Parent or Blocks) closed the drawer and cleared the table's selection.
+- In plugin forms whose pills link to what they name, only the value is the link now; the pill's name (such as "Blocks:") opens the picker to change the value again.
 
 ## 0.3.21 — 2026-11-24
 - Plugin page toolbars stay on one row at any width. When the search, filters and other controls don't fit, they scroll sideways with a trackpad swipe or touch, with no scrollbar: a fade and a ‹ or › button show where controls are cut off (click it to scroll), and a control you Tab to, or search via /, scrolls into view. Dragging a filter to an edge scrolls too. On narrow windows, toolbar buttons such as New task become icon buttons with their name and key in a tooltip.

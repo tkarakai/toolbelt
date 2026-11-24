@@ -64,8 +64,9 @@ export function ScrollStrip({ label, className, children }: { label?: string; cl
 				aria-label={label}
 				onScroll={update}
 				onFocus={reveal}
-				// Room for focus rings, which the scrolling box would clip.
-				className="-m-1 flex min-w-0 items-center gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+				// Room for focus rings, which the scrolling box would clip. `scroll-strip` (index.css)
+				// hides the scrollbar: the app's global scrollbar rules outrank utility classes.
+				className="scroll-strip -m-1 flex min-w-0 items-center gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain p-1"
 				style={{ maskImage: mask, WebkitMaskImage: mask }}
 			>
 				{children}
