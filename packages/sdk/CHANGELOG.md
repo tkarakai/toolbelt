@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+- Add `ui.row-tree`: the table's `reorderOnto` (text) lets rows at any depth be dragged and makes the middle of each row a drop target, sending `reorder` with `onto` (that row's id) and its top-level row's section; the text names the drop. Such tables count rows at any depth. `Row.context` (a row id) makes a row a dimmed stand-in for another row: not counted, not draggable, a drop onto it means the row it names, and selecting it selects that row when shown.
+- Add `ui.choice-control`: the `choice` page control, a toolbar button showing "<label> · <chosen>" with a menu of radio options (`section` headings, `description` lines). Changes arrive as `field` events.
 
 ## 0.3.12 — 2026-11-24
 - Add `ui.nested-sections`: a declared section's `sections` can have their own, up to `MAX_SECTION_DEPTH` (10, exported) levels counting the top, drawn like sections at every depth. Rows join any of them with `group: "<id>"` (or a path starting with it); a drop sends that section's id. Ids stay unique across the table. Validation rejects an eleventh level and repeated ids at any depth. `Section.muted` dims a section and its rows (an archive shelf).

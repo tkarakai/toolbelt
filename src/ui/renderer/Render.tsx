@@ -40,7 +40,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
@@ -269,6 +269,57 @@ function Segmented({ node, emit }: { node: Extract<Node, { type: "segmented" }>;
 	);
 }
 
+/**
+ * A choice from a menu (`ui.choice-control`): a toolbar button showing "Label · chosen", and a
+ * menu of radio items, grouped under their `section` headings, each with an optional quieter
+ * description. Changes arrive as `field` events, like a segmented control.
+ */
+function Choice({ node, emit }: { node: Extract<Node, { type: "choice" }>; emit: Emit }) {
+	const [value, setValue] = useState(node.value);
+	useEffect(() => setValue(node.value), [node.value]);
+	const chosen = node.options.find((o) => o.value === value);
+	// Options in order, a heading before the first of each section.
+	const groups: { section?: string; options: typeof node.options }[] = [];
+	for (const o of node.options) {
+		const last = groups.at(-1);
+		if (last && last.section === o.section) last.options.push(o);
+		else groups.push({ section: o.section, options: [o] });
+	}
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button variant="outline" size="sm" data-view-control className="h-8 shrink-0 gap-1.5">
+					{node.icon && <Icon name={node.icon} />}
+					{node.label}
+					{chosen && <span className="max-w-48 truncate font-normal text-muted-foreground">· {chosen.label}</span>}
+					<ChevronDown className="size-3.5 opacity-60" />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent data-view-control align="start" className="w-72" onCloseAutoFocus={toTable}>
+				<DropdownMenuRadioGroup value={value} onValueChange={(v) => { setValue(v); emit("field", { form: node.id, field: node.id, value: v }); }}>
+					{groups.map((g, i) => (
+						<Fragment key={i}>
+							{i > 0 && <DropdownMenuSeparator />}
+							{g.section && <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{g.section}</DropdownMenuLabel>}
+							{g.options.map((o) => (
+								<DropdownMenuRadioItem key={o.value} value={o.value} className="items-start py-1.5">
+									<span className="flex min-w-0 flex-col">
+										<span className="truncate">{o.label}</span>
+										{o.description && <span className="text-xs text-muted-foreground">{o.description}</span>}
+									</span>
+								</DropdownMenuRadioItem>
+							))}
+						</Fragment>
+					))}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+/** A page toolbar control: segmented, or a choice from a menu. */
+const Control = ({ node, emit }: { node: Extract<Node, { type: "segmented" | "choice" }>; emit: Emit }) => (node.type === "choice" ? <Choice node={node} emit={emit} /> : <Segmented node={node} emit={emit} />);
+
 export function Render({ node, emit }: { node: Node; emit: Emit }): ReactNode {
 	switch (node.type) {
 		case "page":
@@ -317,6 +368,8 @@ export function Render({ node, emit }: { node: Node; emit: Emit }): ReactNode {
 			return <Composer node={node} emit={emit} />;
 		case "segmented":
 			return <Segmented node={node} emit={emit} />;
+		case "choice":
+			return <Choice node={node} emit={emit} />;
 		default:
 			return <EmptyState title="Unknown component" description={`This ToolBelt can't draw “${(node as { type: string }).type}” yet.`} icon="puzzle" />;
 	}
@@ -436,11 +489,11 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 							{/* Arranged filters come first; controls follow after a divider. */}
 							<FilterRow filters={node.filters!} emit={emit} />
 							{!!node.controls?.length && <span aria-hidden className="h-5 w-px shrink-0 bg-border" />}
-							{node.controls?.map((control) => <Segmented key={control.id} node={control} emit={emit} />)}
+							{node.controls?.map((control) => <Control key={control.id} node={control} emit={emit} />)}
 						</>
 					) : (
 						<>
-							{node.controls?.map((control) => <Segmented key={control.id} node={control} emit={emit} />)}
+							{node.controls?.map((control) => <Control key={control.id} node={control} emit={emit} />)}
 							{node.filters?.map((f) => (
 								<FilterMenu key={f.id} filter={f} emit={emit} />
 							))}
@@ -1254,7 +1307,7 @@ type Item =
 	| { kind: "row"; id: string; v: Visible; muted: boolean };
 
 const TableRow = memo(
-	function TableRow({ domPrefix, v, muted, leaving, doc, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, onDragStart, dragging, run, ready }: { domPrefix: string; v: Visible; muted?: boolean; leaving?: boolean; doc?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; onDragStart?: (e: React.PointerEvent, row: Row) => void; dragging?: boolean; run: Run; ready: { current: boolean } }) {
+	function TableRow({ domPrefix, v, muted, leaving, doc, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, onDragStart, dragDeep, dragging, run, ready }: { domPrefix: string; v: Visible; muted?: boolean; leaving?: boolean; doc?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; onDragStart?: (e: React.PointerEvent, row: Row) => void; dragDeep?: boolean; dragging?: boolean; run: Run; ready: { current: boolean } }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
 		// Rows that appear after the table is up (expanded, new processes) fade in. The class goes
@@ -1278,7 +1331,8 @@ const TableRow = memo(
 				style={leaving ? leavingProps.style : fresh ? enterStyle : undefined}
 				onClick={(e) => (onSelect(row.id), refocusTable(e.currentTarget))}
 				onDoubleClick={() => hasChildren && onToggle(row.id)}
-				onPointerDown={onDragStart && depth === 0 ? (e) => onDragStart(e, row) : undefined}
+				onPointerDown={onDragStart && !row.context && (depth === 0 || dragDeep) ? (e) => onDragStart(e, row) : undefined}
+				data-context={row.context ? "" : undefined}
 				data-unread={row.unread || undefined}
 				className={cn(
 					"group/row cursor-default transition-[background-color,opacity] duration-200",
@@ -1288,6 +1342,8 @@ const TableRow = memo(
 						? cn(DOC_ROW, selected ? "text-selected-foreground *:bg-selected" : "hover:*:bg-accent")
 						: cn("[&>td]:border-b [&>td]:border-border/50", selected ? "bg-selected text-selected-foreground" : "hover:bg-accent", depth > 0 && !selected && "bg-muted/20"),
 					muted && !selected && "text-muted-foreground",
+					// A context row only stands in for another row: quieter still.
+					row.context && !selected && "italic text-muted-foreground/80",
 					fresh && !leaving && ENTERING,
 					leaving && LEAVING,
 				)}
@@ -1631,7 +1687,11 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 			}
 			at.rows.push(r);
 		}
-		const count = (n: GNode): number => n.rows.length + n.order.reduce((s, k) => s + count(k), 0);
+		// Context rows (`Row.context`) aren't counted; the rows nested under them are. Tables that
+		// arrange rows into a tree (`reorderOnto`) count every row at any depth.
+		const deep = !!node.reorderOnto;
+		const real = (r: Row): number => (r.context ? 0 : 1) + (r.context || deep ? (r.children ?? []).reduce((s, c) => s + real(c), 0) : 0);
+		const count = (n: GNode): number => n.rows.reduce((s, r) => s + real(r), 0) + n.order.reduce((s, k) => s + count(k), 0);
 		const out: Item[] = [];
 		// Each top-level row's innermost group, and the collapsed header hiding it, if any.
 		const placed = new Map<string, { group: string; hiddenBy?: string }>();
@@ -1662,7 +1722,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		add(root);
 		placement.current = placed;
 		return out;
-	}, [rows, sections, parents, expanded, isCollapsed, hasBulk]);
+	}, [rows, sections, parents, expanded, isCollapsed, hasBulk, node.reorderOnto]);
 	// A row that moves into a collapsed group (archived onto a closed shelf, say) can't be seen
 	// arriving: that group's header flashes instead. Collapsing a group yourself doesn't count.
 	const [received, setReceived] = useState<Set<string>>(() => new Set());
@@ -1700,6 +1760,12 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	// Expandable rows or groups make it a tree grid (rows announce their level and state).
 	const tree = items.some((it) => it.kind === "header" || it.v.depth > 0 || !!it.v.row.children?.length);
 
+	// A context row stands in for another row: selecting it selects that one, when it's shown.
+	useEffect(() => {
+		const stand = current?.kind === "row" ? current.v.row.context : undefined;
+		if (stand && items.some((it) => it.id === stand)) select(stand);
+	}, [current, items]);
+
 	// `selectEvents`: tell the plugin which row the person is looking at, once it rests there.
 	const selectedRow = current?.kind === "row" ? current.v.row.id : null;
 	// Nothing selected at first needs no event.
@@ -1736,10 +1802,11 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	}, [items, selected, select]);
 
 	// ── dragging rows within and between sections (`reorder`) ──
-	type RowDropTarget = (Omit<RowMove, "rowId"> & { whole: boolean }) | null;
+	/** `onto`: a drop onto a row (`reorderOnto`), sent as `reorder` with that row's id. */
+	type RowDropTarget = (Omit<RowMove, "rowId"> & { whole: boolean; onto?: string }) | null;
 	const [rowDrag, setRowDrag] = useState<{ rowId: string; title: string; x: number; y: number; target?: RowDropTarget; label?: string; mark?: { top: number; left: number; width: number; height: number } } | null>(null);
-	const live = useRef({ items, rows, nodeRows: node.rows, sections, columns: allColumns, hidesDrops });
-	live.current = { items, rows, nodeRows: node.rows, sections, columns: allColumns, hidesDrops };
+	const live = useRef({ items, rows, nodeRows: node.rows, sections, columns: allColumns, hidesDrops, onto: node.reorderOnto });
+	live.current = { items, rows, nodeRows: node.rows, sections, columns: allColumns, hidesDrops, onto: node.reorderOnto };
 	// A dropped row slides from under the pointer (set once the row motion below exists).
 	const landDrop = useRef((_id: string, _y: number) => {});
 	const suppressRowClick = useRef(false);
@@ -1776,11 +1843,33 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 					index = els.length - 1;
 					lower = true;
 				}
-				const next = resolveDrop(slots, index, lower, live.current.sections, row.id);
+				// Onto a row (`reorderOnto`): the middle half of any row but the dragged one and those
+				// nested under it. A context row stands for the row it names.
+				const box = wrap.current?.getBoundingClientRect();
+				let onto: { id: string; el: HTMLElement; section: string } | undefined;
+				if (live.current.onto && index >= 0) {
+					const el = els[index]!;
+					const r = el.getBoundingClientRect();
+					const it = byId.get(el.dataset.rowId!);
+					if (it?.kind === "row" && y > r.top + r.height / 4 && y < r.bottom - r.height / 4) {
+						let top = it, inside = it.v.row.id === row.id;
+						while (top.v.parent && !inside) {
+							const up = byId.get(top.v.parent);
+							if (up?.kind !== "row") break;
+							top = up;
+							inside = top.v.row.id === row.id;
+						}
+						if (!inside) onto = { id: it.v.row.context ?? it.v.row.id, el, section: rowSection(top.v.row, live.current.sections) };
+						if (onto?.id === row.id) onto = undefined;
+					}
+				}
+				const next = onto ? { section: onto.section, before: null, whole: false, onto: onto.id } : resolveDrop(slots, index, lower, live.current.sections, row.id);
 				if (next !== undefined) target = next;
 				let mark: { top: number; left: number; width: number; height: number } | undefined;
-				const box = wrap.current?.getBoundingClientRect();
-				if (target && box) {
+				if (onto && box) {
+					const r = onto.el.getBoundingClientRect();
+					mark = { top: r.top, left: box.left, width: box.width, height: r.height };
+				} else if (target && box) {
 					const t = target;
 					const inSection = els.filter((_, i) => { const sl = slots[i]!; return sl.kind !== "other" && sl.section === t.section; });
 					const header = els.find((_, i) => { const sl = slots[i]!; return sl.kind === "header" && sl.section === t.section; });
@@ -1795,7 +1884,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 					}
 				}
 				const sec = target ? flatSections(live.current.sections).find((s) => s.id === target!.section) : undefined;
-				const label = target === null ? "Can't drop here" : target && target.section !== from ? (sec?.dropLabel ?? `Move to ${sec?.label ?? target.section}`) : undefined;
+				const label = target === null ? "Can't drop here" : target?.onto ? live.current.onto : target && target.section !== from ? (sec?.dropLabel ?? `Move to ${sec?.label ?? target.section}`) : undefined;
 				setRowDrag({ rowId: row.id, title, x, y, target, label, mark });
 			};
 			const scrollEdge = () => {
@@ -1832,7 +1921,16 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				setTimeout(() => (suppressRowClick.current = false));
 				setRowDrag(null);
 				if (!commit || !target) return;
+				if (target.onto) {
+					emit("reorder", { table: node.id, rowId: row.id, section: target.section, before: null, onto: target.onto });
+					return;
+				}
 				const m: RowMove = { rowId: row.id, section: target.section, before: target.before };
+				// A nested row has no place of its own among the top-level rows to show early.
+				if (!live.current.rows.some((r) => r.id === row.id)) {
+					emit("reorder", { table: node.id, rowId: m.rowId, section: m.section, before: m.before });
+					return;
+				}
 				if (isNoopMove(live.current.rows, m, live.current.sections)) return;
 				landDrop.current(row.id, y);
 				addPending(live.current.nodeRows, m);
@@ -2229,6 +2327,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 										checked={checked.has(it.v.row.id)}
 										onCheck={bulk.length ? check : undefined}
 										onDragStart={node.reorder ? startRowDrag : undefined}
+										dragDeep={!!node.reorderOnto}
 										dragging={rowDrag?.rowId === it.v.row.id}
 										run={runRow}
 										ready={ready}

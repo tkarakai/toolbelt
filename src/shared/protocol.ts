@@ -266,6 +266,12 @@ export type Row = {
 	stats?: { label: string; value: string; spark?: number[]; tone?: Tone }[];
 	/** Rows nested under this one (a process's children); the person expands them. */
 	children?: Row[];
+	/**
+	 * Capability `ui.row-tree`: this row stands in for row `context`, shown here so rows nested
+	 * under it keep their place (a parent task listed in another group). It's drawn dimmed, isn't
+	 * counted or dragged, and selecting it selects that row when it's shown.
+	 */
+	context?: string;
 	/** Per action id: what it can apply to. With two or more, the action asks which one. */
 	targets?: Record<string, Target[]>;
 	/** Something happened since the person last looked: a bold title and a dot. */
@@ -489,7 +495,7 @@ export type Node =
 			 * Segmented choices beside the search box; changes arrive as `field` events. When the
 			 * filters are arranged (`Filter.group`), they follow the filters, after a divider.
 			 */
-			controls?: Extract<Node, { type: "segmented" }>[];
+			controls?: Extract<Node, { type: "segmented" | "choice" }>[];
 			/** Muted text in the toolbar ("12 processes"). */
 			summary?: string;
 			/** Multi-select filters, after the search box. */
@@ -534,6 +540,12 @@ export type Node =
 			 * id for a drop into a sub-section, and `before` the next row in it (null: its end).
 			 */
 			reorder?: boolean;
+			/**
+			 * Capability `ui.row-tree`: with `reorder`, rows at any depth can be dragged, and a drop
+			 * onto a row (its middle) sends `reorder` with `onto`: that row's id (for a context row,
+			 * the row it stands for) and its section. This names that drop ("Make it a subtask").
+			 */
+			reorderOnto?: string;
 			/**
 			 * Send `select` with `{ table, rowId }` (null when cleared) once the person's selection
 			 * has rested on a row for a moment (capability `ui.row-select`).
@@ -617,6 +629,13 @@ export type Node =
 	| { type: "composer"; id: string; action: Action; placeholder?: string; single?: boolean; key?: string }
 	/** One choice of a few, as a segmented control; changes arrive as `field` events. */
 	| { type: "segmented"; id: string; value: string; label?: string; options: { value: string; label: string; icon?: string; tooltip?: string }[] }
+	/**
+	 * Capability `ui.choice-control`: one choice from a menu, as a toolbar button showing
+	 * "<label> · <chosen>". Options with the same `section` are listed under it as a heading, in
+	 * order of first appearance; `description` is a quieter second line. Changes arrive as `field`
+	 * events, like `segmented`.
+	 */
+	| { type: "choice"; id: string; value: string; label: string; icon?: string; options: { value: string; label: string; description?: string; section?: string }[] }
 	/** `value` from 0 to 1; without one, "working…". `at`: when it started (shows elapsed time). */
 	| { type: "progress"; label?: string; value?: number; at?: number; tone?: Tone }
 	/**

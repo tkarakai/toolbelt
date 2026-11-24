@@ -531,6 +531,31 @@ matches it, the button shows the label ("Status · Ongoing") without the filteri
 otherwise the menu offers **Reset to <label>** beside Show all. Selection still follows the
 usual rule: nothing checked means no filtering.
 
+### Row trees and context rows
+
+With `ui.row-tree`, a table can let people arrange rows into a tree:
+
+- `reorderOnto` (text, with `reorder`) lets rows at any depth be dragged, not only top-level
+  ones, and makes the middle half of each row a drop target. A drop there sends `reorder` with
+  `onto`: that row's id, its top-level row's section, and `before: null`. The chip under the
+  pointer shows the text ("Make it a subtask"). Rows can't be dropped onto themselves or rows
+  nested under them. Between rows, drops work as before; a nested row's drop isn't shown early.
+  Such tables count every row in a group at any depth.
+- `Row.context` (a row id) makes a row stand in for another row, shown here so the rows nested
+  under it keep their place (a parent task listed in another group). It's drawn dimmed and in
+  italics, isn't counted, can't be dragged or dropped onto as itself (a drop onto it means the
+  row it names), and selecting it selects that row when it's shown. Give it no actions.
+
+Nest rows with `Row.children` as usual, `open: true` to start expanded.
+
+### Choice controls
+
+With `ui.choice-control`, a page's `controls` can hold `{ type: "choice", id, label, icon?,
+value, options }`: a toolbar button reading "<label> · <chosen>" that opens a menu of radio
+items. Options with the same `section` sit under that heading, in order of first appearance,
+and `description` adds a quieter second line. Changes arrive as `field` events with `form` and
+`field` set to the control's id, like a segmented control.
+
 ### Modifier shortcuts
 
 With `ui.modifier-keys`, `Action.key` may put `alt+` and/or `shift+` (in that order) before a

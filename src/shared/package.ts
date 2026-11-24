@@ -25,6 +25,8 @@ export const CAPABILITIES = [
   "ui.options-field",
   "ui.nested-sections",
   "ui.filter-group",
+  "ui.row-tree",
+  "ui.choice-control",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,
