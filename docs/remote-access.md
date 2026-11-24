@@ -241,11 +241,18 @@ with touch points) and whether ToolBelt already runs standalone:
 - **Installed, or a computer:** nothing.
 - **Android with a deferred `beforeinstallprompt`** (Chrome, Edge, Samsung Internet): an
   **Install ToolBelt** button that opens the browser's dialog.
-- **iPhone/iPad Safari:** Share → Add to Home Screen → Add, with Share placed for the device.
-  Chrome and Edge on iOS get the same steps from their address bar, with Safari as the fallback;
-  other iOS browsers are sent to Safari.
-- **Android without a prompt** (Firefox, or before Chrome offers it): the browser menu's
-  Install / Add to Home screen.
+- **iPhone/iPad Safari:** Share → Add to Home Screen → Add, with Share placed for the device
+  and hints where people get stuck (Share hidden behind **More** in Safari's compact layout,
+  Add to Home Screen further down the action list). Chrome and Edge on iOS get their own
+  first step, with Safari as the fallback; other iOS browsers get **Copy address** (with
+  `?install`, so Safari shows the steps on arrival).
+- **Android without a prompt** (Firefox, Samsung Internet, Edge, or Chrome before it offers
+  one): that browser's menu and the exact name of its item (Add to home screen / Install app,
+  Add app to Home screen, Add page to → Home screen, Add to phone).
+
+Steps are written with markers that `stepSegments` turns into pieces: `[icon:Label]` is what to
+tap, drawn as a button-like chip with the icon people look for (Share, ⋯ More, ⋮ Menu, ≡ Menu,
+Add); `**word**` is emphasis; a step's `hint` is a muted line under it.
 
 `InstallCard` shows this once per device at the bottom of the screen (dismissal is kept in
 local storage). The QR code links to `…/?install`, which shows it again on arrival and is

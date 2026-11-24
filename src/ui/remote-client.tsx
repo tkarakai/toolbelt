@@ -2,11 +2,12 @@
 // home-screen badge, the service worker and help installing to the home screen. Inside the app
 // none of this renders.
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Bell, EllipsisVertical, RefreshCw, Share, SquarePlus, Unplug, WifiOff, X } from "lucide-react";
+import { Bell, Copy, Ellipsis, EllipsisVertical, Menu, RefreshCw, Share, SquarePlus, Unplug, WifiOff, X } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { usePlugins, useConnection, useSettings } from "@/lib/store";
 import { inApp, remoteClient } from "@/lib/device";
-import { INSTALL_PARAM, installContext, installHelp, installTitle, type InstallStep } from "@/lib/install";
+import { INSTALL_PARAM, installContext, installHelp, installTitle, stepSegments, stepText, type InstallStep } from "@/lib/install";
 import { badgeTotal } from "../shared/remote";
 
 /** Registers the service worker that caches the app shell (remote devices only). */
@@ -169,23 +170,63 @@ const remember = (key: string) => {
 const INSTALL_DISMISSED = "toolbelt.install-dismissed";
 const BADGE_OFFER_DISMISSED = "toolbelt.badge-offer-dismissed";
 
-const STEP_ICONS = { share: Share, menu: EllipsisVertical, plus: SquarePlus };
+const STEP_ICONS = { share: Share, more: Ellipsis, dots: EllipsisVertical, menu: Menu, add: SquarePlus };
 
-/** Numbered install steps, with the icon the person looks for. */
-export function InstallSteps({ steps }: { steps: InstallStep[] }) {
+/** A step's text: what to tap as a button-like chip (with the icon people look for), emphasis in bold. */
+export function StepText({ text }: { text: string }) {
 	return (
-		<ol className="space-y-2 text-sm">
-			{steps.map((step, i) => {
-				const Icon = step.icon ? STEP_ICONS[step.icon] : null;
+		<>
+			{stepSegments(text).map((segment, i) => {
+				if (segment.kind === "text") return <span key={i}>{segment.text}</span>;
+				if (segment.kind === "strong") return <strong key={i} className="font-semibold">{segment.text}</strong>;
+				const Icon = segment.icon ? STEP_ICONS[segment.icon] : null;
 				return (
-					<li key={step.text} className="flex items-center gap-2.5">
-						<span className="grid size-5 shrink-0 place-items-center rounded-full bg-muted text-xs font-medium tabular-nums" aria-hidden="true">{i + 1}</span>
-						<span className="min-w-0">{step.text}</span>
-						{Icon && <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
-					</li>
+					<span key={i} className="mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-md border bg-background px-1.5 py-0.5 align-middle text-[0.8125rem] font-semibold leading-none shadow-xs">
+						{Icon && <Icon className="size-3.5" aria-hidden="true" />}
+						{segment.label}
+					</span>
 				);
 			})}
+		</>
+	);
+}
+
+/** Numbered install steps; a hint under a step covers where people get stuck. */
+export function InstallSteps({ steps }: { steps: InstallStep[] }) {
+	return (
+		<ol className="space-y-3 text-sm">
+			{steps.map((step, i) => (
+				<li key={step.text} className="flex gap-3">
+					<span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-primary text-xs font-semibold tabular-nums text-primary-foreground" aria-hidden="true">{i + 1}</span>
+					<div className="min-w-0 space-y-1 leading-6">
+						<p aria-label={stepText(step.text)}><StepText text={step.text} /></p>
+						{step.hint && <p className="text-xs leading-5 text-muted-foreground"><StepText text={step.hint} /></p>}
+					</div>
+				</li>
+			))}
 		</ol>
+	);
+}
+
+/** For browsers that can't install: the address, to paste into Safari. */
+export function CopyAddressButton() {
+	const copy = async () => {
+		// With `?install`, Safari shows the steps as soon as the page opens.
+		const url = new URL(location.href);
+		url.hash = "";
+		url.search = `?${INSTALL_PARAM}`;
+		try {
+			await navigator.clipboard.writeText(url.href);
+			toast.success("Address copied: paste it into Safari");
+		} catch {
+			toast.error("Couldn’t copy. Copy it from the address bar instead.");
+		}
+	};
+	return (
+		<Button size="sm" onClick={() => void copy()}>
+			<Copy />
+			Copy address
+		</Button>
 	);
 }
 
@@ -239,21 +280,25 @@ export function InstallCard() {
 	const close = () => (remember(INSTALL_DISMISSED), setClosed(true));
 	return (
 		<Card title={installTitle(context)} onClose={close}>
+			<p className="text-sm text-muted-foreground">
+				{help.kind === "steps" && help.copyAddress && help.note ? <StepText text={help.note} /> : "It then opens like an app: full screen, one tap from your home screen."}
+			</p>
 			{help.kind === "prompt" ? (
-				<>
-					<p className="text-sm text-muted-foreground">Open ToolBelt from your home screen like an app, full screen and quick to start.</p>
-					<div className="flex justify-end gap-2">
-						<Button variant="outline" size="sm" onClick={close}>Not now</Button>
-						<Button size="sm" onClick={() => void install.prompt().then((accepted) => accepted && setClosed(true))}>
-							<SquarePlus />
-							Install ToolBelt
-						</Button>
-					</div>
-				</>
+				<div className="flex justify-end gap-2">
+					<Button variant="outline" size="sm" onClick={close}>Not now</Button>
+					<Button size="sm" onClick={() => void install.prompt().then((accepted) => accepted && setClosed(true))}>
+						<SquarePlus />
+						Install ToolBelt
+					</Button>
+				</div>
 			) : (
 				<>
 					<InstallSteps steps={help.steps} />
-					{help.note && <p className="text-xs text-muted-foreground">{help.note}</p>}
+					{help.note && !help.copyAddress && <p className="text-xs text-muted-foreground"><StepText text={help.note} /></p>}
+					<div className="flex justify-end gap-2">
+						{help.copyAddress && <CopyAddressButton />}
+						<Button variant={help.copyAddress ? "outline" : "default"} size="sm" onClick={close}>Got it</Button>
+					</div>
 				</>
 			)}
 		</Card>

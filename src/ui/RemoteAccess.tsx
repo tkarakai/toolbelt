@@ -14,7 +14,7 @@ import { SettingsGroup, SettingsRow } from "./components/settings-layout";
 import { remoteAccessRequest, usePlugins, useRemoteAccess, openUrl } from "./lib/store";
 import { inApp, remoteClient } from "./lib/device";
 import { installLink } from "./lib/install";
-import { badgePermission, badgeSupported, InstallSteps, useInstall } from "./remote-client";
+import { badgePermission, badgeSupported, CopyAddressButton, InstallSteps, StepText, useInstall } from "./remote-client";
 import { pillClass, textClass } from "./renderer/colors";
 import { cn } from "./lib/utils";
 import { validPort, type RemoteAccessRequest, type RemoteAccessState, type RemoteDevice } from "../shared/remote";
@@ -138,14 +138,15 @@ function ThisDeviceGroup() {
 			{install.installed ? (
 				<SettingsRow title="Home screen" description="ToolBelt is installed on this device’s home screen." />
 			) : help.kind === "prompt" ? (
-				<SettingsRow title="Home screen" description="Install ToolBelt to open it from the home screen like an app.">
+				<SettingsRow title="Home screen" description="Install ToolBelt to open it like an app: full screen, one tap from your home screen.">
 					<Button size="sm" onClick={() => void install.prompt()}>Install ToolBelt</Button>
 				</SettingsRow>
 			) : help.kind === "steps" ? (
 				<div className="space-y-3 px-5 py-4">
 					<h3 className="text-sm font-medium">Add ToolBelt to the home screen</h3>
 					<InstallSteps steps={help.steps} />
-					{help.note && <p className="text-xs text-muted-foreground">{help.note}</p>}
+					{help.note && <p className="text-xs text-muted-foreground"><StepText text={help.note} /></p>}
+					{help.copyAddress && <CopyAddressButton />}
 				</div>
 			) : null}
 		</SettingsGroup>
