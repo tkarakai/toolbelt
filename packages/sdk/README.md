@@ -53,6 +53,11 @@ and declare a `default` selection; the toolbar then arranges them and sends `fil
 `ui.row-tree` adds `Row.context` (a dimmed stand-in for another row) and the table's
 `reorderOnto` (drag rows at any depth, and drop onto a row: `reorder` with `onto`).
 `ui.choice-control` adds the `choice` toolbar control, a menu of radio choices with sections.
+`ui.context-select` lets context rows be selected in place, acting as the row they stand for
+(table `contextSelect`). `ui.row-dot` adds `Row.dot`, in the leading slot beside the unread
+dot. `ui.section-pill` adds `Section.pill`, a section label drawn as a colored pill.
+`ui.pane-buttons` puts a pane row's actions in buttons at the bottom of its drawer (table
+`paneButtons`).
 `ui.options-field` adds the `options` form field, an editable list of choices (`OptionItem`)
 with optional reordering and a color per item; `leastUsedHue` picks colors for new items the
 same way. `TagKey.colors` gives `tags` values colors of their own; older hosts ignore it. A dot can be

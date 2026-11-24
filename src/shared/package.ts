@@ -27,6 +27,10 @@ export const CAPABILITIES = [
   "ui.filter-group",
   "ui.row-tree",
   "ui.choice-control",
+  "ui.context-select",
+  "ui.section-pill",
+  "ui.row-dot",
+  "ui.pane-buttons",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

@@ -272,6 +272,12 @@ export type Row = {
 	 * counted or dragged, and selecting it selects that row when it's shown.
 	 */
 	context?: string;
+	/**
+	 * Capability `ui.row-dot`: a status dot in the row's leading slot (the one the unread dot
+	 * uses), so the first column's text lines up whether or not a row has one. With the unread
+	 * dot too, the dots sit side by side, ending where the slot does: this one to the left.
+	 */
+	dot?: Dot;
 	/** Per action id: what it can apply to. With two or more, the action asks which one. */
 	targets?: Record<string, Target[]>;
 	/** Something happened since the person last looked: a bold title and a dot. */
@@ -316,6 +322,11 @@ export type Section = {
 	order?: "manual" | "fixed" | false;
 	dropLabel?: string;
 	dropIcon?: string;
+	/**
+	 * Capability `ui.section-pill`: draw the label as a colored pill, sized to the header, the
+	 * way rows show the same value as a `Tag` (a label's value as a group). `shade` as on a tag.
+	 */
+	pill?: { color?: Tone | Hue; shade?: number };
 	/**
 	 * Sections nested in this one: sub-sections (capability `ui.sub-sections`), which can have
 	 * their own with capability `ui.nested-sections`, up to `MAX_SECTION_DEPTH` (10) levels
@@ -546,6 +557,22 @@ export type Node =
 			 * the row it stands for) and its section. This names that drop ("Make it a subtask").
 			 */
 			reorderOnto?: string;
+			/**
+			 * Capability `ui.context-select`: context rows (`Row.context`) are selected like other
+			 * rows instead of handing the selection to the row they stand for. A context row then
+			 * shows its own `actions`, `targets` and `pane` (send that row's), and its events
+			 * (actions, pane events, `select`) carry `rowId`: the row it stands for, so it acts as
+			 * that row. While either is selected, the row and its other context rows are softly
+			 * highlighted.
+			 */
+			contextSelect?: boolean;
+			/**
+			 * Capability `ui.pane-buttons`: a row's drawer (`Row.pane`) shows its actions as buttons
+			 * at the bottom, as a details drawer does (the first group as buttons, the ↵ action
+			 * filled; other groups as quieter rows; destructive ones last, apart), instead of the
+			 * slim bar of icons and ⋯ on top.
+			 */
+			paneButtons?: boolean;
 			/**
 			 * Send `select` with `{ table, rowId }` (null when cleared) once the person's selection
 			 * has rested on a row for a moment (capability `ui.row-select`).

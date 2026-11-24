@@ -228,6 +228,7 @@ const row: Schema = (v, p) =>
     stats: optional(array(stat)),
     children: optional(array(row)),
     context: optional(text),
+    dot: optional(dot),
     targets: optional(record(array(target))),
     unread: optional(bool),
     pane: optional(array(node)),
@@ -263,6 +264,7 @@ const sectionFields = {
   order: optional(enumeration("manual", "fixed", false)),
   dropLabel: optional(text),
   dropIcon: optional(text),
+  pill: optional(object({ color: optional(color), shade: optional(shade) })),
 };
 /** Nested sections (`Section.sections`) go at most `MAX_SECTION_DEPTH` levels deep, counting the top. */
 const sectionAt = (depth: number): Schema => (v, p) => {
@@ -490,6 +492,8 @@ const node: Schema = (v, p) => {
       sections: optional(sections),
       reorder: optional(bool),
       reorderOnto: optional(text),
+      contextSelect: optional(bool),
+      paneButtons: optional(bool),
       selectEvents: optional(bool),
       enter: optional(text),
       appearance: optional(enumeration("grid", "document")),

@@ -1,6 +1,10 @@
 # SDK changelog
 
 ## Unreleased
+- Add `ui.context-select`: the table's `contextSelect` lets context rows be selected in place. A context row then shows its own `actions`, `targets` and `pane`, and its events carry `rowId`: the row it stands for. The selected row and its other copies are highlighted softly.
+- Add `ui.row-dot`: `Row.dot` sits in the row's leading slot beside the unread dot (to its left), so text lines up.
+- Add `ui.section-pill`: `Section.pill` (`{ color?, shade? }`) draws a section's label as a colored pill.
+- Add `ui.pane-buttons`: the table's `paneButtons` shows a pane row's actions as buttons at the bottom of its drawer, as for `details`, instead of the bar on top.
 
 ## 0.3.13 — 2026-11-24
 - Add `ui.row-tree`: the table's `reorderOnto` (text) lets rows at any depth be dragged and makes the middle of each row a drop target, sending `reorder` with `onto` (that row's id) and its top-level row's section; the text names the drop. Such tables count rows at any depth. `Row.context` (a row id) makes a row a dimmed stand-in for another row: not counted, not draggable, a drop onto it means the row it names, and selecting it selects that row when shown.

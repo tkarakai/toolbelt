@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Plugins can let you move through dimmed stand-in rows with the keyboard and act on them as the real row, with every copy of the selected row softly highlighted.
+- Plugins can put a status dot beside the unread dot, draw a group's title as a colored pill, and show a details drawer's actions as buttons at its bottom.
+- The unread dot of a row with nested rows sits left of its chevron, so titles line up.
+- Form labels in plugin dialogs line up across the whole dialog; long labels wrap.
 
 ## 0.3.18 — 2026-11-24
 - Plugins can nest rows under rows from other groups with a dimmed stand-in, let you drag nested rows and drop a row onto another, and offer a menu of choices in the toolbar.
