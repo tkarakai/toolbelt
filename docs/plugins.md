@@ -571,8 +571,8 @@ selection color, showing they're the same thing.
   ↵), other groups as quieter rows, destructive actions last, apart. Order and group actions
   with that in mind.
 
-- `ui.heading-note`: a `heading` text field's `note` (text) is a quiet monospaced line above
-  the heading: an id over the title.
+- `ui.heading-note`: a `heading` text field's `note` (text) is a small neutral pill above the
+  heading, drawn like a cell's `prefix`: an id over the title.
 - `ui.cell-prefix`: `Cell.prefix` (a `Tag`) is a pill before the cell's text, on its line: an
   id in front of a title.
 - `ui.tag-multiple`: `TagKey.multiple` lets a `tags` field hold a key several times, once per

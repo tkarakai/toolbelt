@@ -3190,8 +3190,8 @@ function InlineForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emi
 				if (!f.label || (f.type === "text" && f.heading))
 					return (
 						<div key={f.id} data-pane-id={f.id} className={cn("col-span-2 min-w-0", f.type === "text" && f.heading ? "mb-1.5" : "mt-1.5")}>
-							{/* `note`: a quiet line above the heading (an id). */}
-							{f.type === "text" && f.heading && f.note && <div className="mb-0.5 font-mono text-xs text-muted-foreground select-text">{f.note}</div>}
+							{/* `note`: a small pill above the heading (an id), like a cell's `prefix`. */}
+							{f.type === "text" && f.heading && f.note && <div className="mb-1 flex select-text"><TagPill tag={{ text: f.note }} /></div>}
 							{control}
 						</div>
 					);

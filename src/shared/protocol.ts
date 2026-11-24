@@ -415,7 +415,8 @@ export type Field = (
 	| { type: "switch"; id: string; label: string; value: boolean; description?: string }
 	/**
 	 * `heading`: the title of what's edited, drawn large (inline forms). `note` (capability
-	 * `ui.heading-note`): a quiet monospaced line above the heading, such as an id.
+	 * `ui.heading-note`): a small neutral pill above the heading, such as an id (drawn like a
+	 * cell's `prefix`).
 	 */
 	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean; heading?: boolean; note?: string }
 	// The fields below need the `ui.rich-fields` capability.

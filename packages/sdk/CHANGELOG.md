@@ -1,6 +1,7 @@
 # SDK changelog
 
 ## Unreleased
+- A heading field's `note` is drawn as a small neutral pill, like a cell's `prefix`, instead of plain monospaced text.
 - Add `ui.list-open`: a `list`'s `open` action makes items links (click or ↵ sends it with `{ list, item }`), and items take `prefix` and `tags` pills.
 - Add `ui.tag-open`: a `tags` field's `open` action makes each pill's text a link (sends `{ form, field, key, value }`).
 
