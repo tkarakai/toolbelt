@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.3.17 — 2026-11-24
 - Add `ui.list-inset`: a `list`'s `inset: true` keeps an icon's space before items without an `icon`, so they read as indented.
 
 ## 0.3.16 — 2026-11-24
