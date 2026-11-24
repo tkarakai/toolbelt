@@ -23,7 +23,8 @@ notifications, mobile-specific plugin screens.
 | App wiring: remote views, allowed methods, navigation | `src/bun/index.ts` (remote access section) |
 | Browser connection: reconnects, heartbeat, visibility | `src/ui/lib/connection.ts`, `src/ui/lib/store.ts` |
 | Device detection, key hints | `src/ui/lib/device.ts`, `index.css` |
-| Connection banner, badge, service worker registration | `src/ui/remote-client.tsx` |
+| Connection banner, badge, service worker, install card | `src/ui/remote-client.tsx` |
+| Install help rules (device, browser, steps) | `src/ui/lib/install.ts` |
 | Settings → Remote Access | `src/ui/RemoteAccess.tsx` |
 | Web app shell | `src/ui/public/sw.js`, `manifest.webmanifest`, `index.html`, copies in `electrobun.config.ts` |
 
@@ -33,8 +34,8 @@ notifications, mobile-specific plugin screens.
    MagicDNS and HTTPS certificates for the tailnet in the Tailscale admin console.
 2. In ToolBelt, open Settings → Remote Access, check the Tailscale rows, choose **Create
    Tailscale rule…** and confirm, then turn remote access on.
-3. On the phone, scan the QR code or open the address in Safari, then Share → Add to Home
-   Screen.
+3. On the phone, scan the QR code with the camera. The page shows how to add ToolBelt to the
+   home screen (on Android, an **Install ToolBelt** button).
 
 Recommended tailnet hygiene (the tab repeats it):
 
@@ -226,9 +227,31 @@ Plugin screens otherwise rely on the existing narrow-layout behavior.
 
 ## Web app: manifest and service worker, no push
 
-**Manifest.** `manifest.webmanifest` (standalone display, icons copied from the app's icon set
-into `views/ui/pwa/`) and the iOS meta tags in `index.html` make ToolBelt installable on the
-home screen and full screen without browser bars.
+**Manifest.** `manifest.webmanifest` (standalone display; 192 and 512 px icons, the 512 also
+maskable) and the iOS meta tags in `index.html` (a 180 px `apple-touch-icon`) make ToolBelt
+installable on the home screen and full screen without browser bars. The icons are full-bleed
+renders of the app artwork (`bun run icons` writes `assets/web-app-icon{,-dev}-{180,192,512}.png`):
+the macOS icon's transparent margin and shadow would show as a black frame on iOS. The build
+copies the official or dev set into `views/ui/pwa/`; the preview serves them from `assets/`.
+
+**Installing.** Web pages can't install themselves on iOS, and only Chromium on Android offers
+a prompt, so `lib/install.ts` decides what to show from the user agent (iPadOS reports a Mac
+with touch points) and whether ToolBelt already runs standalone:
+
+- **Installed, or a computer:** nothing.
+- **Android with a deferred `beforeinstallprompt`** (Chrome, Edge, Samsung Internet): an
+  **Install ToolBelt** button that opens the browser's dialog.
+- **iPhone/iPad Safari:** Share → Add to Home Screen → Add, with Share placed for the device.
+  Chrome and Edge on iOS get the same steps from their address bar, with Safari as the fallback;
+  other iOS browsers are sent to Safari.
+- **Android without a prompt** (Firefox, or before Chrome offers it): the browser menu's
+  Install / Add to Home screen.
+
+`InstallCard` shows this once per device at the bottom of the screen (dismissal is kept in
+local storage). The QR code links to `…/?install`, which shows it again on arrival and is
+removed from the address. Settings → Remote Access on the phone has a **This device** section
+with the same help. In the installed app's first launch, the card instead offers the badge
+permission when the Mac has chosen badge plugins (iOS only asks from an installed app).
 
 **Service worker** (`sw.js`, registered only on remote clients in a secure context):
 

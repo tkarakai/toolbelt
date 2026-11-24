@@ -41,7 +41,10 @@ To see devices, connect WebSockets to the pretend server's `/rpc` with
 `Tailscale-User-Login: owner@example.com` and an `X-Forwarded-For` tailnet IP (100.64.0.2 and
 100.64.0.3 are known peers). Check phone layouts with `chrome-devtools-axi emulate --viewport
 "390x844x3,mobile,touch"`: no popover, no key hints, the **Show tools** sheet, no horizontal
-overflow, the connection banner when the server stops.
+overflow, the connection banner when the server stops. Add `--user-agent` with an iPhone or
+Android string and open `/?install` to see the install card; desktop Chrome fires
+`beforeinstallprompt` on localhost, so Android shows the button (don't press it in the
+automation browser).
 
 For a native check, run ToolBelt Dev with a temporary `TOOLBELT_CONFIG_DIR` whose
 `settings.json` has `"remote": {"enabled": true, "port": <free port>}` and a distinct debug port.

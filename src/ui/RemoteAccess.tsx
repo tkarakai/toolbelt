@@ -12,8 +12,9 @@ import { Checkbox } from "./components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog";
 import { SettingsGroup, SettingsRow } from "./components/settings-layout";
 import { remoteAccessRequest, usePlugins, useRemoteAccess, openUrl } from "./lib/store";
-import { remoteClient } from "./lib/device";
-import { badgePermission, badgeSupported } from "./remote-client";
+import { inApp, remoteClient } from "./lib/device";
+import { installLink } from "./lib/install";
+import { badgePermission, badgeSupported, InstallSteps, useInstall } from "./remote-client";
 import { pillClass, textClass } from "./renderer/colors";
 import { cn } from "./lib/utils";
 import { validPort, type RemoteAccessRequest, type RemoteAccessState, type RemoteDevice } from "../shared/remote";
@@ -51,6 +52,7 @@ export function RemoteAccessSettings() {
 	if (!state) return <p className="px-1 text-sm text-muted-foreground">Reading remote access…</p>;
 	return (
 		<div className="space-y-8">
+			{!inApp && <ThisDeviceGroup />}
 			<AccessGroup state={state} confirm={setConfirming} />
 			<TailscaleGroup state={state} confirm={setConfirming} />
 			<DevicesGroup state={state} />
@@ -96,7 +98,8 @@ function AccessGroup({ state, confirm }: { state: RemoteAccessState; confirm: (c
 }
 
 function AddressRow({ url, reachable }: { url: string; reachable: RemoteAccessState["reachable"] }) {
-	const svg = useMemo(() => qrSvg(url), [url]);
+	// The code adds `?install`, so the phone shows how to install as soon as it opens.
+	const svg = useMemo(() => qrSvg(installLink(url)), [url]);
 	const copy = async () => {
 		try {
 			await navigator.clipboard.writeText(url);
@@ -111,7 +114,7 @@ function AddressRow({ url, reachable }: { url: string; reachable: RemoteAccessSt
 				<h3 className="text-sm font-medium">Open on your phone</h3>
 				<p className="break-all font-mono text-sm">{url}</p>
 				<p className="text-sm text-muted-foreground">
-					Scan the code, or open the address in Safari, then choose Share → Add to Home Screen to install ToolBelt as an app.
+					Scan the code with your phone’s camera. The page that opens shows how to add ToolBelt to the home screen, so it opens like an app.
 					{reachable === "no" && <span className="text-destructive"> The address doesn’t answer yet; see Tailscale below.</span>}
 				</p>
 				<Button size="sm" variant="outline" onClick={() => void copy()}>
@@ -122,6 +125,30 @@ function AddressRow({ url, reachable }: { url: string; reachable: RemoteAccessSt
 			{/* Dark modules on white, in both themes: scanners need the contrast. */}
 			<div className="shrink-0 rounded-lg bg-white p-2 text-black" role="img" aria-label={`QR code for ${url}`} dangerouslySetInnerHTML={{ __html: svg }} />
 		</div>
+	);
+}
+
+/** On a phone or tablet: whether ToolBelt is on its home screen, and how to put it there. */
+function ThisDeviceGroup() {
+	const install = useInstall();
+	const { help, context } = install;
+	if (context.device === "desktop") return null;
+	return (
+		<SettingsGroup title="This device">
+			{install.installed ? (
+				<SettingsRow title="Home screen" description="ToolBelt is installed on this device’s home screen." />
+			) : help.kind === "prompt" ? (
+				<SettingsRow title="Home screen" description="Install ToolBelt to open it from the home screen like an app.">
+					<Button size="sm" onClick={() => void install.prompt()}>Install ToolBelt</Button>
+				</SettingsRow>
+			) : help.kind === "steps" ? (
+				<div className="space-y-3 px-5 py-4">
+					<h3 className="text-sm font-medium">Add ToolBelt to the home screen</h3>
+					<InstallSteps steps={help.steps} />
+					{help.note && <p className="text-xs text-muted-foreground">{help.note}</p>}
+				</div>
+			) : null}
+		</SettingsGroup>
 	);
 }
 

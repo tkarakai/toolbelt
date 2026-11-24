@@ -329,6 +329,9 @@ const server = startRemoteServer({
   route: (_req, url) => {
     if (url.pathname === "/update") return updateRoute(url);
     if (url.pathname === "/remote") return remoteRoute(url);
+    // The app bundle copies the home-screen icons; the preview serves them from assets/.
+    const icon = url.pathname.match(/^\/pwa\/icon-(180|192|512)\.png$/)?.[1];
+    if (icon) return new Response(Bun.file(`assets/web-app-icon-${icon}.png`), { headers: { "content-type": "image/png" } });
   },
   request: (client, method, params) => {
     const handler = (handlers as Record<string, ((p: unknown, c: RemoteClient) => unknown) | undefined>)[method];
