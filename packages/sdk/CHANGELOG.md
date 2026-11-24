@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.3.12 — 2026-11-24
 - Add `ui.nested-sections`: a declared section's `sections` can have their own, up to `MAX_SECTION_DEPTH` (10, exported) levels counting the top, drawn like sections at every depth. Rows join any of them with `group: "<id>"` (or a path starting with it); a drop sends that section's id. Ids stay unique across the table. Validation rejects an eleventh level and repeated ids at any depth. `Section.muted` dims a section and its rows (an archive shelf).
 - Add `ui.filter-group`: `Filter.group` (true while the filter groups the page's rows) makes the toolbar arrange the filters: grouping ones first in level order, numbered, with › between them, a divider, then the rest, then `controls` after another divider. A filter's menu opens with a Group by switch; people drag filters to reorder them and across the divider to group or stop grouping, or press ⌥← / ⌥→ on one. Every change is one `filter-arrange` event, `{ order, grouped }`. `Filter.groupDisabled` says why the switch can't turn on; `Filter.default` (`{ values, label }`) names the starting selection: the button shows its label while it's selected, and the menu offers Reset to it.
 
