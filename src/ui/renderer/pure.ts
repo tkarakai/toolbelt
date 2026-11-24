@@ -1,7 +1,7 @@
 // The renderer's pure parts — layout decisions and text helpers — kept free of React and the
 // web view, so the tests can import them.
-import type { Action, Column, DetailItem, Row, Section } from "../../shared/protocol";
-import { flatSections, groupKey, sectionDepth, sectionGroup, subSectionParents } from "../../shared/sections";
+import type { Action, Column, DetailItem, Filter, Row, Section } from "../../shared/protocol";
+import { flatSections, groupKey, sectionAncestors, sectionDepth, sectionGroup } from "../../shared/sections";
 
 /**
  * Actions in their groups (`Action.group`), groups in order of first appearance. Without any
@@ -385,7 +385,7 @@ export type RowMove = { rowId: string; section: string; before: string | null };
  * one of the table's declared `sections`, else its top-level group key.
  */
 export function rowSection(row: Row, sections?: Section[]): string {
-	const parents = subSectionParents(sections);
+	const parents = sectionAncestors(sections);
 	const path = sectionGroup(row.group, parents);
 	const depth = sectionDepth(path, parents);
 	return depth ? groupKey(path[depth - 1]!) : "";
@@ -394,7 +394,7 @@ export function rowSection(row: Row, sections?: Section[]): string {
 /** The group a row gets when it moves into `section`, keeping any groups it has inside its section. */
 function withSection(group: Row["group"], section: string, sections: Section[]): Row["group"] {
 	if (section === "") return undefined;
-	const parents = subSectionParents(sections);
+	const parents = sectionAncestors(sections);
 	const path = sectionGroup(group, parents);
 	const inner = path.slice(sectionDepth(path, parents));
 	return inner.length ? [section, ...inner] : section;
@@ -507,4 +507,63 @@ export function newOptionTexts(input: string, existing: readonly string[]): stri
 		if (t && !seen.has(t.toLowerCase())) (seen.add(t.toLowerCase()), out.push(t));
 	}
 	return out;
+}
+
+// ── arranged filters (`Filter.group`, capability `ui.filter-group`) ─────
+
+/** The toolbar's filters in order with the divider (`FILTER_DIVIDER`) between grouping and other filters. */
+export const FILTER_DIVIDER = "\u0000divider";
+/** What a `filter-arrange` event carries: every filter id in order, and the grouping ones in level order. */
+export type FilterArrangement = { order: string[]; grouped: string[] };
+
+/** Whether the page's filters are arranged: any of them can group. */
+export const arrangesFilters = (filters: readonly Filter[] | undefined): boolean => !!filters?.some((f) => f.group !== undefined);
+
+/** The filters as a sequence: grouping ones first (in the plugin's order), the divider, then the rest. */
+export function filterSequence(filters: readonly Pick<Filter, "id" | "group">[]): string[] {
+	return [...filters.filter((f) => f.group).map((f) => f.id), FILTER_DIVIDER, ...filters.filter((f) => !f.group).map((f) => f.id)];
+}
+
+/** The event for a sequence: the ids in order, and those before the divider. */
+export function sequenceArrangement(seq: readonly string[]): FilterArrangement {
+	const at = seq.indexOf(FILTER_DIVIDER);
+	return { order: seq.filter((id) => id !== FILTER_DIVIDER), grouped: seq.slice(0, at) };
+}
+
+/** `seq` with filter `id` placed at `index` (counted in `seq` as it is, before the move). */
+export function placeFilter(seq: readonly string[], id: string, index: number): string[] {
+	const from = seq.indexOf(id);
+	if (from < 0) return [...seq];
+	const rest = seq.filter((x) => x !== id);
+	const to = Math.max(0, Math.min(index > from ? index - 1 : index, rest.length));
+	return [...rest.slice(0, to), id, ...rest.slice(to)];
+}
+
+/** Turning grouping on adds a filter as the last level; turning it off puts it first among the rest. */
+export function toggleFilterGroup(seq: readonly string[], id: string): string[] {
+	const divider = seq.indexOf(FILTER_DIVIDER);
+	const grouped = seq.indexOf(id) < divider;
+	return placeFilter(seq, id, grouped ? divider + 1 : divider);
+}
+
+/** ⌥← / ⌥→: one step along the sequence; stepping over the divider turns grouping on or off. */
+export function stepFilter(seq: readonly string[], id: string, dir: -1 | 1): string[] {
+	const from = seq.indexOf(id);
+	const to = from + dir;
+	if (from < 0 || to < 0 || to >= seq.length) return [...seq];
+	const next = [...seq];
+	[next[from], next[to]] = [next[to]!, next[from]!];
+	return next;
+}
+
+/** Whether a new sequence is allowed: a filter whose grouping can't turn on (`groupDisabled`) stays out of the grouping. */
+export function allowsSequence(filters: readonly Pick<Filter, "id" | "group" | "groupDisabled">[], seq: readonly string[]): boolean {
+	const grouped = new Set(sequenceArrangement(seq).grouped);
+	return filters.every((f) => f.group || !f.groupDisabled || !grouped.has(f.id));
+}
+
+/** Whether a filter's selection is its declared default (any order). */
+export function atFilterDefault(filter: Pick<Filter, "default">, selected: readonly string[]): boolean {
+	const d = filter.default?.values;
+	return !!d && d.length === selected.length && d.every((v) => selected.includes(v));
 }

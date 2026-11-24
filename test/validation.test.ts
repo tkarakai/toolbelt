@@ -201,16 +201,29 @@ test("tables accept sections, reorder, select events and unread rows", () => {
   expect(() => validateTree({ ...tree, rows: [{ id: "a", cells: { x: "A" }, unread: "yes" }] })).toThrow();
   expect(() => validateTree({ type: "list", id: "l", items: [{ id: "1", title: "T", unread: true }] })).not.toThrow();
 });
-test("sections take sub-sections one level deep, with ids unique in the table", () => {
+test("sections nest up to MAX_SECTION_DEPTH levels, with ids unique in the table", () => {
   const table = (sections: unknown) => ({ type: "table", id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "a", cells: { x: "A" }, group: "snoozed" }], sections });
   const sub = { id: "snoozed", label: "Snoozed", empty: "Nothing snoozed", collapsed: true, order: "fixed", dropLabel: "Snooze", dropIcon: "alarm-clock" };
   expect(() => validateTree(table([{ id: "progressing", label: "Progressing", sections: [{ id: "working", label: "Working" }, sub] }, { id: "settled", label: "Settled", sections: [] }]))).not.toThrow();
-  expect(() => validateTree(table([{ id: "progressing", label: "Progressing", sections: [{ ...sub, sections: [{ id: "deeper", label: "Deeper" }] }] }]))).toThrow("sections[0].sections[0].sections");
+  expect(() => validateTree(table([{ id: "progressing", label: "Progressing", sections: [{ ...sub, sections: [{ id: "deeper", label: "Deeper" }] }] }]))).not.toThrow();
+  // Ten levels are fine; an eleventh is refused where it starts.
+  const chain = (n: number, at = 1): unknown => ({ id: `s${at}`, label: `S${at}`, ...(at < n && { sections: [chain(n, at + 1)] }) });
+  expect(() => validateTree(table([chain(10)]))).not.toThrow();
+  expect(() => validateTree(table([chain(11)]))).toThrow(`sections${"[0].sections".repeat(10)}[0]`);
+  expect(() => validateTree(table([{ id: "a", label: "A", sections: [{ id: "b", label: "B", sections: [{ id: "a", label: "A again" }] }] }]))).toThrow("sections[0].sections[0].sections[0].id");
   expect(() => validateTree(table([{ id: "progressing", label: "Progressing", sections: [{ ...sub, order: "random" }] }]))).toThrow();
   expect(() => validateTree(table([{ id: "progressing", label: "Progressing", sections: { id: "x", label: "X" } }]))).toThrow();
   expect(() => validateTree(table([{ id: "snoozed", label: "Snoozed" }, { id: "progressing", label: "Progressing", sections: [sub] }]))).toThrow("sections[1].sections[0].id");
   expect(() => validateTree(table([{ id: "progressing", label: "Progressing", sections: [sub, sub] }]))).toThrow();
   expect(() => validateTree(table([{ id: "inbox", label: "Inbox" }, { id: "inbox", label: "Inbox again" }]))).toThrow("sections[1].id");
+});
+test("filters can group and declare a default selection", () => {
+  const page = (filter: Record<string, unknown>) => ({ type: "page", children: [], filters: [{ id: "status", label: "Status", options: [{ value: "inbox", label: "Inbox" }], selected: ["inbox"], ...filter }] });
+  expect(() => validateTree(page({ group: true, default: { values: ["inbox"], label: "Ongoing" } }))).not.toThrow();
+  expect(() => validateTree(page({ group: false, groupDisabled: "Up to 10 levels" }))).not.toThrow();
+  expect(() => validateTree(page({ group: "yes" }))).toThrow();
+  expect(() => validateTree(page({ default: { values: "inbox", label: "Ongoing" } }))).toThrow();
+  expect(() => validateTree(page({ default: { values: [] } }))).toThrow();
 });
 test("action keys are one key, or alt/shift before a key or arrow", () => {
   const withKey = (key: string) => ({ type: "page", actions: [{ id: "a", label: "A", key }], children: [] });

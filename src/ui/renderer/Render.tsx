@@ -17,19 +17,19 @@ import { Composer, InlineMarkdown, MarkdownBox, PaneRow, leaveToCollection } fro
 // keyboard's home: menus hand focus back to it when they close. Pages: ⌘F or / to filter, esc
 // back to the list, toolbar actions' own keys. Dialogs: the first field has focus; ↵ / ⌘↵ save.
 import { createContext, Fragment, lazy, memo, Suspense, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, PanelRight, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Copy, Maximize2, Minimize2, MoreHorizontal, PanelRight, PanelRightClose, PanelRightOpen, RotateCcw, Search, X } from "lucide-react";
 import type { EnvironmentEntry, Action, Cell, Column, DetailItem, Dialog as DialogNode, Dot as DotNode, Field, Filter, GroupLabel, Mark, Node, Row, Section, Tag, TagValue, OptionItem, Target, Tone } from "../../shared/protocol";
 import { dotClass, dotSpec, pillClass, shadeStyle, styleClass, textClass } from "./colors";
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { selectionKey } from "../../shared/navigation";
-import { flatSections, sectionGroup, subSectionParents } from "../../shared/sections";
-import { ENTER_MS, ENTERING, enterStyle, LEAVING, leavingProps, useRowMotion } from "./row-motion";
+import { flatSections, sectionAncestors, sectionGroup } from "../../shared/sections";
+import { changesView, ENTER_MS, ENTERING, enterStyle, LEAVING, leavingProps, useRowMotion } from "./row-motion";
 import { cn } from "@/lib/utils";
 import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
 import { SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { ariaShortcut, stepIndex } from "@/lib/keys";
-import { keyboardMove } from "./pure";
+import { allowsSequence, arrangesFilters, atFilterDefault, FILTER_DIVIDER, filterSequence, keyboardMove, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup } from "./pure";
 import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_SLOT, ROW_STEP, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
@@ -431,10 +431,21 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 							</InputGroupAddon>
 						</InputGroup>
 					)}
-					{node.controls?.map((control) => <Segmented key={control.id} node={control} emit={emit} />)}
-					{node.filters?.map((f) => (
-						<FilterMenu key={f.id} filter={f} emit={emit} />
-					))}
+					{arrangesFilters(node.filters) ? (
+						<>
+							{/* Arranged filters come first; controls follow after a divider. */}
+							<FilterRow filters={node.filters!} emit={emit} />
+							{!!node.controls?.length && <span aria-hidden className="h-5 w-px shrink-0 bg-border" />}
+							{node.controls?.map((control) => <Segmented key={control.id} node={control} emit={emit} />)}
+						</>
+					) : (
+						<>
+							{node.controls?.map((control) => <Segmented key={control.id} node={control} emit={emit} />)}
+							{node.filters?.map((f) => (
+								<FilterMenu key={f.id} filter={f} emit={emit} />
+							))}
+						</>
+					)}
 					{node.summary && <span className="truncate text-sm text-muted-foreground tabular-nums">{node.summary}</span>}
 					<div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-2">
 						<ActionButtons actions={node.actions ?? []} onRun={(a) => run(a)} keys />
@@ -455,19 +466,37 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 	);
 }
 
+/** What an arranged filter (`Filter.group`) gets from its row: its level, grouping and moving. */
+type Arranged = {
+	/** Its grouping level (1, 2, …) while it groups. */
+	tier?: number;
+	toggleGroup: () => void;
+	step: (dir: -1 | 1) => void;
+	/** A press that may become a drag; returns whether it did (then it isn't a click). */
+	press: (e: React.PointerEvent<HTMLElement>) => void;
+	dragging: boolean;
+	/** The button, for the row's animation. */
+	ref: (el: HTMLElement | null) => void;
+	/** The press turned into a drag: the click that follows doesn't open the menu. */
+	dragged: () => boolean;
+};
+
 /**
  * A multi-select filter: a toolbar button ("Agent", or "Agent · Claude Code" / "Agent · 2") and
  * a menu of checkboxes that stays open while you tick. The choice shows at once; the plugin
- * hears it as a `filter` event and filters.
+ * hears it as a `filter` event and filters. Arranged (`arranged`), it also shows its grouping
+ * level and opens with a Group by switch, and the row moves it.
  */
-function FilterMenu({ filter, emit }: { filter: Filter; emit: Emit }) {
+function FilterMenu({ filter, emit, arranged }: { filter: Filter; emit: Emit; arranged?: Arranged }) {
 	// Ticks show immediately; the plugin's next render confirms them.
 	const [picked, setPicked] = useState(filter.selected);
-    const searchInput = useRef<HTMLInputElement>(null);
-    const [query, setQuery] = useState("");
-    const matches = filter.options.filter(o => o.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-    const present = matches.filter(o => (o.count ?? 1) > 0);
-    const absent = matches.filter(o => o.count === 0);
+	const searchInput = useRef<HTMLInputElement>(null);
+	const [query, setQuery] = useState("");
+	const [open, setOpen] = useState(false);
+	const openAtPress = useRef(false);
+	const matches = filter.options.filter((o) => o.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+	const present = matches.filter((o) => (o.count ?? 1) > 0);
+	const absent = matches.filter((o) => o.count === 0);
 	const sent = JSON.stringify(filter.selected);
 	useEffect(() => setPicked(filter.selected), [sent]);
 	const set = (values: string[]) => {
@@ -476,52 +505,274 @@ function FilterMenu({ filter, emit }: { filter: Filter; emit: Emit }) {
 	};
 	const on = new Set(picked);
 	const names = filter.options.filter((o) => on.has(o.value)).map((o) => o.label);
+	const atDefault = atFilterDefault(filter, picked);
+	const filtering = picked.length > 0 && !atDefault;
+	const grouping = !!filter.group;
+	const blocked = !grouping && !!filter.groupDisabled;
 	return (
-		<DropdownMenu>
+		<DropdownMenu open={open} onOpenChange={setOpen}>
 			<DropdownMenuTrigger asChild>
-				<Button variant="outline" size="sm" data-view-control data-filtering={picked.length > 0} className={cn("h-8 shrink-0 gap-1.5 transition-colors duration-200", picked.length > 0 && ACTIVE_QUERY)}>
+				<Button
+					ref={arranged?.ref}
+					variant="outline"
+					size="sm"
+					data-view-control
+					data-filter-id={filter.id}
+					data-filtering={filtering}
+					data-grouping={grouping || undefined}
+					aria-keyshortcuts={arranged ? "Alt+ArrowLeft Alt+ArrowRight" : undefined}
+					className={cn(
+						"h-8 shrink-0 gap-1.5 transition-colors duration-200",
+						grouping && "border-primary/40 bg-primary/5",
+						filtering && ACTIVE_QUERY,
+						arranged && "touch-none select-none",
+						arranged?.dragging && "z-10 cursor-grabbing shadow-md ring-2 ring-ring",
+					)}
+					onPointerDown={arranged ? (e) => {
+						// The row decides between a click and a drag; the menu opens on the click.
+						if (e.button !== 0 || e.ctrlKey) return;
+						openAtPress.current = open;
+						e.preventDefault();
+						arranged.press(e);
+					} : undefined}
+					onClick={arranged ? () => {
+						if (arranged.dragged() || openAtPress.current) return;
+						setOpen(true);
+					} : undefined}
+					onKeyDown={arranged ? (e) => {
+						if (!e.altKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+						e.preventDefault();
+						e.stopPropagation();
+						arranged.step(e.key === "ArrowLeft" ? -1 : 1);
+					} : undefined}
+				>
+					{arranged?.tier !== undefined && (
+						<span aria-label={`Grouping level ${arranged.tier}`} className="-ml-1 grid size-4 place-items-center rounded-[4px] bg-primary font-mono text-[10px] font-semibold leading-none text-primary-foreground tabular-nums">
+							{arranged.tier}
+						</span>
+					)}
 					{filter.icon && <Icon name={filter.icon} />}
 					{filter.label}
-					{names.length > 0 && <span className="max-w-36 truncate font-normal text-muted-foreground">· {names.length === 1 ? names[0] : names.length}</span>}
+					{atDefault && filter.default ? (
+						<span className="max-w-36 truncate font-normal text-muted-foreground">· {filter.default.label}</span>
+					) : names.length > 0 && <span className="max-w-36 truncate font-normal text-muted-foreground">· {names.length === 1 ? names[0] : names.length}</span>}
 					<ChevronDown className="size-3.5 opacity-60" />
 				</Button>
 			</DropdownMenuTrigger>
-            <DropdownMenuContent data-view-control align="start" className="w-64 overflow-x-hidden" onCloseAutoFocus={toTable}>
-                <div className="px-2 pt-2 pb-1">
-                    <Input ref={searchInput} className={cn("min-w-0 transition-colors duration-200", !!query && ACTIVE_QUERY)} autoFocus aria-label={`Search ${filter.label} options`} placeholder="Search options…" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => {
-                        if (e.key === "Escape") return;
-                        // Stop at the input: stopping on Content is too late to prevent Radix's
-                        // typeahead handler on that same element from moving focus to an item.
-                        e.stopPropagation();
-                        if (e.key === "ArrowDown") {
-                            e.preventDefault();
-                            (e.currentTarget.closest('[role=menu]')?.querySelector('[role=menuitemcheckbox]') as HTMLElement)?.focus();
-                        }
-                    }} />
-                </div>
-				<DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{filter.label}: show only…</DropdownMenuLabel>
-                <div className="max-h-72 min-w-0 overflow-x-hidden overflow-y-auto">
-                    {[present, absent].map((group, i) => <div key={i}>
-                        {i === 1 && present.length > 0 && absent.length > 0 && <DropdownMenuSeparator />}
-                        {group.map(o => <DropdownMenuCheckboxItem key={o.value} checked={on.has(o.value)} onSelect={e => e.preventDefault()} onCheckedChange={c => set(c ? [...picked, o.value] : picked.filter(v => v !== o.value))}>
-                        {o.dot && <Dot dot={typeof o.dot === "string" ? o.dot : { ...o.dot, label: undefined }} />}
-                        <span className="min-w-0 flex-1 truncate">{o.label}</span>
-                        <span className="text-xs text-muted-foreground tabular-nums">{o.count}</span>
-                    </DropdownMenuCheckboxItem>)}
-                    </div>)}
-                    {!matches.length && <p className="px-2 py-4 text-sm text-muted-foreground">No matching options.</p>}
-                </div>
-				{picked.length > 0 && (
+			{/* Arranged, the menu follows its button while the row slides it to a new place. */}
+			<DropdownMenuContent data-view-control align="start" className="w-64 overflow-x-hidden" onCloseAutoFocus={toTable} updatePositionStrategy={arranged ? "always" : undefined}>
+				{arranged && (
 					<>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem onSelect={e => { e.preventDefault(); set([]); searchInput.current?.focus(); }}>
-							<X />
-							Show all
+						<DropdownMenuItem
+							role="menuitemcheckbox"
+							aria-checked={grouping}
+							data-group-switch
+							disabled={blocked}
+							className={cn("gap-3 py-2 transition-colors duration-200", grouping && "bg-primary/10 focus:bg-primary/15")}
+							onSelect={(e) => {
+								e.preventDefault();
+								arranged.toggleGroup();
+							}}
+						>
+							<span className="flex min-w-0 flex-1 flex-col">
+								<span className="truncate font-medium">Group by {filter.label}</span>
+								<span className={cn("truncate text-xs text-muted-foreground", grouping && "text-primary")}>
+									{grouping && arranged.tier !== undefined ? `Level ${arranged.tier}` : blocked ? filter.groupDisabled : "Off"}
+								</span>
+							</span>
+							<Switch checked={grouping} disabled={blocked} tabIndex={-1} aria-hidden className="pointer-events-none" />
 						</DropdownMenuItem>
+						<DropdownMenuSeparator />
 					</>
+				)}
+				<div className="px-2 pt-2 pb-1">
+					<Input ref={searchInput} className={cn("min-w-0 transition-colors duration-200", !!query && ACTIVE_QUERY)} autoFocus aria-label={`Search ${filter.label} options`} placeholder="Search options…" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => {
+						if (e.key === "Escape") return;
+						// Stop at the input: stopping on Content is too late to prevent Radix's
+						// typeahead handler on that same element from moving focus to an item.
+						e.stopPropagation();
+						if (e.key === "ArrowDown") {
+							e.preventDefault();
+							(e.currentTarget.closest("[role=menu]")?.querySelector("[role=menuitemcheckbox]:not([data-group-switch])") as HTMLElement)?.focus();
+						}
+						if (e.key === "ArrowUp" && arranged) {
+							e.preventDefault();
+							(e.currentTarget.closest("[role=menu]")?.querySelector("[data-group-switch]") as HTMLElement)?.focus();
+						}
+					}} />
+				</div>
+				<DropdownMenuLabel className="text-xs font-normal text-muted-foreground">{filter.label}: show only…</DropdownMenuLabel>
+				<div className="max-h-72 min-w-0 overflow-x-hidden overflow-y-auto">
+					{[present, absent].map((group, i) => <div key={i}>
+						{i === 1 && present.length > 0 && absent.length > 0 && <DropdownMenuSeparator />}
+						{group.map((o) => <DropdownMenuCheckboxItem key={o.value} checked={on.has(o.value)} onSelect={(e) => e.preventDefault()} onCheckedChange={(c) => set(c ? [...picked, o.value] : picked.filter((v) => v !== o.value))}>
+							{o.dot && <Dot dot={typeof o.dot === "string" ? o.dot : { ...o.dot, label: undefined }} />}
+							<span className="min-w-0 flex-1 truncate">{o.label}</span>
+							<span className="text-xs text-muted-foreground tabular-nums">{o.count}</span>
+						</DropdownMenuCheckboxItem>)}
+					</div>)}
+					{!matches.length && <p className="px-2 py-4 text-sm text-muted-foreground">No matching options.</p>}
+				</div>
+				{(picked.length > 0 || (filter.default && !atDefault)) && <DropdownMenuSeparator />}
+				{filter.default && !atDefault && (
+					<DropdownMenuItem onSelect={(e) => { e.preventDefault(); set([...filter.default!.values]); searchInput.current?.focus(); }}>
+						<RotateCcw />
+						Reset to {filter.default.label}
+					</DropdownMenuItem>
+				)}
+				{picked.length > 0 && (
+					<DropdownMenuItem onSelect={(e) => { e.preventDefault(); set([]); searchInput.current?.focus(); }}>
+						<X />
+						Show all
+					</DropdownMenuItem>
 				)}
 			</DropdownMenuContent>
 		</DropdownMenu>
+	);
+}
+
+/** How far a press moves before it's a drag rather than a click (px). */
+const FILTER_DRAG_SLOP = 4;
+/** Arranged filters slide to their new places this fast (the 200 ms house easing). */
+const FILTER_MOVE_MS = 200;
+
+/**
+ * Arranged filters (capability `ui.filter-group`): the grouping filters first, numbered by level
+ * with › between them, a divider, then the rest. A filter moves by its Group by switch (on: the
+ * last level; off: first of the rest), by dragging (across the divider groups or stops
+ * grouping), or by ⌥← / ⌥→. Each move shows at once, slides into place with focus and any open
+ * menu staying with it, and is sent as one `filter-arrange` event.
+ */
+function FilterRow({ filters, emit }: { filters: Filter[]; emit: Emit }) {
+	const sentSeq = useMemo(() => filterSequence(filters), [filters]);
+	const sentKey = sentSeq.join("\n");
+	const [seq, setSeq] = useState(sentSeq);
+	useEffect(() => setSeq(sentSeq), [sentKey]);
+	const byId = useMemo(() => new Map(filters.map((f) => [f.id, f])), [filters]);
+	// Every element that slides: the filters and the divider.
+	const els = useRef(new Map<string, HTMLElement>());
+	const refFor = useCallback((id: string) => (el: HTMLElement | null) => {
+		if (el) els.current.set(id, el);
+		else els.current.delete(id);
+	}, []);
+	const first = useRef<{ rects: Map<string, DOMRect>; focus: string | null } | null>(null);
+	const [dragging, setDragging] = useState<string | null>(null);
+	const draggedAt = useRef(0);
+	const live = useRef({ seq, filters });
+	live.current = { seq, filters };
+
+	/** Shows `next` at once, sliding everything from where it was. */
+	const show = useCallback((next: string[]) => {
+		if (next.join("\n") === live.current.seq.join("\n") || !allowsSequence(live.current.filters, next)) return false;
+		const focused = (document.activeElement as HTMLElement | null)?.closest?.<HTMLElement>("[data-filter-id]")?.dataset.filterId ?? null;
+		first.current = { rects: new Map([...els.current].map(([id, el]) => [id, el.getBoundingClientRect()])), focus: focused };
+		setSeq(next);
+		return true;
+	}, []);
+	const send = useCallback((next: string[]) => emit("filter-arrange", sequenceArrangement(next)), [emit]);
+	const move = useCallback((next: string[]) => show(next) && send(next), [show, send]);
+
+	useLayoutEffect(() => {
+		const f = first.current;
+		if (!f) return;
+		first.current = null;
+		// Reordering can drop focus from the moved filter; it keeps it, and stays in view.
+		if (f.focus) {
+			const el = els.current.get(f.focus);
+			if (el && document.activeElement !== el && !document.activeElement?.closest("[role=menu]")) el.focus({ preventScroll: true });
+			el?.scrollIntoView({ block: "nearest", inline: "nearest" });
+		}
+		if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+		for (const [id, el] of els.current) {
+			const was = f.rects.get(id);
+			if (!was) continue;
+			const now = el.getBoundingClientRect();
+			const dx = was.left - now.left, dy = was.top - now.top;
+			if (dx || dy) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: FILTER_MOVE_MS, easing: "ease-out" });
+		}
+	}, [seq]);
+
+	const press = (id: string) => (e: React.PointerEvent<HTMLElement>) => {
+		const x0 = e.clientX, y0 = e.clientY;
+		const before = live.current.seq;
+		let active = false;
+		const over = (x: number, y: number) => {
+			for (const [other, el] of els.current) {
+				if (other === id) continue;
+				const r = el.getBoundingClientRect();
+				// The divider is thin: it takes the gap around it too.
+				const pad = other === FILTER_DIVIDER ? 8 : 0;
+				if (y >= r.top - 4 && y <= r.bottom + 4 && x >= r.left - pad && x <= r.right + pad) return { other, after: x > r.left + r.width / 2 };
+			}
+			return null;
+		};
+		const pointermove = (ev: PointerEvent) => {
+			if (!active && Math.hypot(ev.clientX - x0, ev.clientY - y0) < FILTER_DRAG_SLOP) return;
+			if (!active) {
+				active = true;
+				setDragging(id);
+			}
+			const hit = over(ev.clientX, ev.clientY);
+			if (!hit) return;
+			const cur = live.current.seq;
+			show(placeFilter(cur, id, cur.indexOf(hit.other) + (hit.after ? 1 : 0)));
+		};
+		const end = (commit: boolean) => {
+			window.removeEventListener("pointermove", pointermove);
+			window.removeEventListener("pointerup", up);
+			window.removeEventListener("pointercancel", cancel);
+			window.removeEventListener("keydown", key, true);
+			if (!active) return;
+			draggedAt.current = performance.now();
+			setDragging(null);
+			const now = live.current.seq;
+			if (!commit) show(before);
+			else if (now.join("\n") !== before.join("\n")) send(now);
+		};
+		const up = () => end(true);
+		const cancel = () => end(false);
+		const key = (ev: KeyboardEvent) => {
+			if (ev.key !== "Escape" || !active) return;
+			ev.preventDefault();
+			ev.stopPropagation();
+			end(false);
+		};
+		window.addEventListener("pointermove", pointermove);
+		window.addEventListener("pointerup", up);
+		window.addEventListener("pointercancel", cancel);
+		window.addEventListener("keydown", key, true);
+	};
+
+	const divider = seq.indexOf(FILTER_DIVIDER);
+	return (
+		<div className="contents" role="toolbar" aria-label="Filters and grouping">
+			{seq.map((id, i) => {
+				if (id === FILTER_DIVIDER) return <span key={id} ref={refFor(id)} aria-hidden className="h-5 w-px shrink-0 bg-border" />;
+				const filter = byId.get(id);
+				if (!filter) return null;
+				const grouped = i < divider;
+				// The row draws grouping from where the filter is now, not the plugin's last tree.
+				const shown = grouped === !!filter.group ? filter : { ...filter, group: grouped };
+				return (
+					<Fragment key={id}>
+						{grouped && i > 0 && <ChevronRight aria-hidden className="-mx-2 size-3.5 shrink-0 text-muted-foreground" />}
+						<FilterMenu
+							filter={shown}
+							emit={emit}
+							arranged={{
+								tier: grouped ? i + 1 : undefined,
+								toggleGroup: () => move(toggleFilterGroup(live.current.seq, id)),
+								step: (dir) => move(stepFilter(live.current.seq, id, dir)),
+								press: press(id),
+								dragging: dragging === id,
+								ref: refFor(id),
+								dragged: () => performance.now() - draggedAt.current < 300,
+							}}
+						/>
+					</Fragment>
+				);
+			})}
+		</div>
 	);
 }
 
@@ -982,8 +1233,12 @@ const DOC_ROW = "*:first:rounded-l-md *:last:rounded-r-md";
 
 
 /** A declared section's group key (top-level groups are keyed under the root's empty key; a
- *  sub-section under its parent's). */
-const sectionKey = (id: string, parent?: Section) => `${parent ? `\u0000${parent.id}` : ""}\u0000${id}`;
+ *  nested section under its ancestors'). */
+const sectionKey = (id: string, ancestors: Section[] = []) => `${ancestors.map((a) => `\u0000${a.id}`).join("")}\u0000${id}`;
+/** How long a collapsed group's header flashes when a row moves into it. */
+const RECEIVE_MS = 900;
+/** Refreshes this soon after using a view control (filters, search) belong to that change of view. */
+const VIEW_QUIET_MS = 1_500;
 /** How soon after an action its refresh counts as the action's result (see `lastAction`). */
 const ACTION_REFRESH_MS = 3_000;
 /** How long the selection rests on a row before a `select` event (arrowing past doesn't count). */
@@ -1135,19 +1390,21 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	);
 	const toggle = useCallback((id: string) => setOverrides((o) => ({ ...o, [id]: !openIds.has(id) })), [setOverrides, openIds]);
 	const sections = useMemo(() => node.sections ?? [], [JSON.stringify(node.sections ?? [])]);
-	// Sub-sections (`Section.sections`): which section each belongs to, and every declared
-	// section's group key.
-	const parents = useMemo(() => subSectionParents(sections), [sections]);
+	// Nested sections (`Section.sections`): each one's ancestors, and every declared section's
+	// group key.
+	const parents = useMemo(() => sectionAncestors(sections), [sections]);
 	const declaredKeys = useMemo(() => new Map(flatSections(sections).map((sec) => [sec.id, sectionKey(sec.id, parents.get(sec.id))])), [sections, parents]);
 	const startsCollapsed = useMemo(() => new Set(flatSections(sections).filter((sec) => sec.collapsed).map((sec) => declaredKeys.get(sec.id)!)), [sections, declaredKeys]);
 	// A section can start collapsed; the person's choice wins once they make one.
 	const isCollapsed = useCallback((key: string) => owned(collapsedGroups, key) ?? startsCollapsed.has(key), [collapsedGroups, startsCollapsed]);
 	const toggleGroup = useCallback((key: string) => setCollapsedGroups((c) => ({ ...c, [key]: !(owned(c, key) ?? startsCollapsed.has(key)) })), [setCollapsedGroups, startsCollapsed]);
-	/** A drop into this section (or sub-section) leaves the row out of sight. */
-	const hidesDrops = useCallback((id: string) => {
-		const parent = parents.get(id);
-		return isCollapsed(declaredKeys.get(id) ?? sectionKey(id)) || (!!parent && isCollapsed(sectionKey(parent.id)));
-	}, [parents, declaredKeys, isCollapsed]);
+	/** The group keys of a section and every section around it: all must be open to see it. */
+	const openingKeys = useCallback((id: string) => {
+		const above = parents.get(id) ?? [];
+		return [declaredKeys.get(id) ?? sectionKey(id), ...above.map((a, i) => sectionKey(a.id, above.slice(0, i)))];
+	}, [parents, declaredKeys]);
+	/** A drop into this section (at any depth) leaves the row out of sight. */
+	const hidesDrops = useCallback((id: string) => openingKeys(id).some(isCollapsed), [openingKeys, isCollapsed]);
 
 	// Checked rows (tables with bulk actions): only top-level rows that still exist count.
 	const bulk = useMemo(() => node.bulkActions ?? [], [JSON.stringify(node.bulkActions ?? [])]);
@@ -1345,26 +1602,24 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	// A dropped row shows in its new place until the plugin's next tree arrives.
 	// Moves made before the plugin answers pile up (⌘↓ ⌘↓ ⌘↓), each shown on top of the last.
 	const [pending, setPending] = useState<{ rows: Row[]; moves: RowMove[] } | null>(null);
+	const placement = useRef(new Map<string, { group: string; hiddenBy?: string }>());
 	const rows = useMemo(() => (pending && pending.rows === node.rows ? pending.moves.reduce((r, m) => applyMove(r, m, sections), node.rows) : node.rows), [node.rows, pending, sections]);
 	const addPending = useCallback((base: Row[], m: RowMove) => setPending((p) => ({ rows: base, moves: [...(p && p.rows === base ? p.moves : []), m] })), []);
 	const items = useMemo(() => {
 		type GNode = { group: GroupLevel; key: string; level: number; rows: Row[]; kids: Map<string, GNode>; order: GNode[]; muted: boolean; parent?: GNode; section?: Section; /** where its chevron starts */ chevron?: number };
 		const root: GNode = { group: { key: "", label: "" }, key: "", level: -1, rows: [], kids: new Map(), order: [], muted: false };
-		// Declared sections come first, in order, even without rows; so do their sub-sections
-		// inside them.
+		// Declared sections come first, in order, even without rows; so do the sections nested
+		// in them, at every depth.
 		const declare = (sec: Section, parent: GNode) => {
-			const n: GNode = { group: { key: sec.id, label: sec.label, icon: sec.icon }, key: `${parent.key}\u0000${sec.id}`, level: parent.level + 1, rows: [], kids: new Map(), order: [], muted: false, parent, section: sec };
+			const n: GNode = { group: { key: sec.id, label: sec.label, icon: sec.icon }, key: `${parent.key}\u0000${sec.id}`, level: parent.level + 1, rows: [], kids: new Map(), order: [], muted: parent.muted || !!sec.muted, parent, section: sec };
 			parent.kids.set(sec.id, n);
 			parent.order.push(n);
-			return n;
-		};
-		for (const sec of sections) {
-			const n = declare(sec, root);
 			for (const sub of sec.sections ?? []) declare(sub, n);
-		}
+		};
+		for (const sec of sections) declare(sec, root);
 		for (const r of rows) {
 			let at = root;
-			// A row in a sub-section goes under its parent too.
+			// A row in a nested section goes under its ancestors too.
 			for (const [i, g] of groupPath(sectionGroup(r.group, parents)).entries()) {
 				let next = at.kids.get(g.key);
 				if (!next) {
@@ -1378,8 +1633,16 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		}
 		const count = (n: GNode): number => n.rows.length + n.order.reduce((s, k) => s + count(k), 0);
 		const out: Item[] = [];
+		// Each top-level row's innermost group, and the collapsed header hiding it, if any.
+		const placed = new Map<string, { group: string; hiddenBy?: string }>();
+		const hide = (n: GNode, by: string) => {
+			for (const r of n.rows) placed.set(r.id, { group: n.key, hiddenBy: by });
+			for (const k of n.order) hide(k, by);
+		};
 		const add = (n: GNode) => {
 			const collapsed = n.level >= 0 && isCollapsed(n.key);
+			if (collapsed) hide(n, headerId(n.key));
+			else for (const r of n.rows) placed.set(r.id, { group: n.key });
 			if (n.level >= 0) {
 				// A header's chevron starts where its parent's icon or title does: one step in.
 				const offset = n.parent?.chevron === undefined ? 0 : n.parent.chevron + INDENT;
@@ -1397,8 +1660,39 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 			for (const k of n.order) add(k);
 		};
 		add(root);
+		placement.current = placed;
 		return out;
 	}, [rows, sections, parents, expanded, isCollapsed, hasBulk]);
+	// A row that moves into a collapsed group (archived onto a closed shelf, say) can't be seen
+	// arriving: that group's header flashes instead. Collapsing a group yourself doesn't count.
+	const [received, setReceived] = useState<Set<string>>(() => new Set());
+	const lastPlacement = useRef<Map<string, { group: string; hiddenBy?: string }> | null>(null);
+	// Regrouping, filtering or searching moves rows too, but that's a new view, not an arrival.
+	const viewChangedAt = useRef(0);
+	useEffect(() => {
+		const mark = (e: Event) => changesView(e.target as Element | null) && (viewChangedAt.current = performance.now());
+		window.addEventListener("pointerdown", mark, true);
+		window.addEventListener("keydown", mark, true);
+		return () => {
+			window.removeEventListener("pointerdown", mark, true);
+			window.removeEventListener("keydown", mark, true);
+		};
+	}, []);
+	useEffect(() => {
+		const before = lastPlacement.current;
+		const now = placement.current;
+		lastPlacement.current = now;
+		if (!before || performance.now() - viewChangedAt.current < VIEW_QUIET_MS) return;
+		const flash = new Set<string>();
+		for (const [id, at] of now) {
+			const was = before.get(id);
+			if (at.hiddenBy && was && !was.hiddenBy && was.group !== at.group) flash.add(at.hiddenBy);
+		}
+		if (!flash.size) return;
+		setReceived(flash);
+		const timer = setTimeout(() => setReceived(new Set()), RECEIVE_MS);
+		return () => clearTimeout(timer);
+	}, [items]);
 	useEffect(() => setPending((p) => (p && p.rows !== node.rows ? null : p)), [node.rows]);
 
 	const current = items.find((it) => it.id === selected) ?? null;
@@ -1572,10 +1866,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		const m: RowMove = { rowId: row.id, ...to };
 		if (isNoopMove(rows, m, sections)) return;
 		// A collapsed section opens to show the row arriving.
-		if (hidesDrops(m.section)) {
-			const parent = parents.get(m.section);
-			setCollapsedGroups((c) => ({ ...c, [declaredKeys.get(m.section) ?? sectionKey(m.section)]: false, ...(parent && { [sectionKey(parent.id)]: false }) }));
-		}
+		if (hidesDrops(m.section)) setCollapsedGroups((c) => ({ ...c, ...Object.fromEntries(openingKeys(m.section).map((k) => [k, false])) }));
 		addPending(node.rows, m);
 		emit("reorder", { table: node.id, rowId: m.rowId, section: m.section, before: m.before });
 		requestAnimationFrame(() => rowElement(wrap.current, row.id)?.scrollIntoView({ block: "nearest" }));
@@ -1914,7 +2205,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						<tbody ref={body} role="rowgroup">
 							{shown.map((it) =>
 								it.kind === "header" ? (
-									<GroupHeader key={it.id} domPrefix={domPrefix} item={it} doc={doc} columns={columns} bulk={bulk.length > 0} selected={!it.leaving && it.id === selected} leaving={it.leaving} onSelect={() => select(it.id)} onToggle={() => toggleGroup(it.key)} />
+									<GroupHeader key={it.id} domPrefix={domPrefix} item={it} doc={doc} columns={columns} bulk={bulk.length > 0} selected={!it.leaving && it.id === selected} leaving={it.leaving} received={received.has(it.id)} onSelect={() => select(it.id)} onToggle={() => toggleGroup(it.key)} />
 								) : (
 									<TableRow
 										key={it.v.row.id}
@@ -2025,7 +2316,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 /** A group header: a section (level 0: where jobs run), a declared sub-section (drawn like a
  *  section, indented under it) or a group inside them (a folder). It can be selected (and moved
  *  through with the keyboard) and collapsed. */
-function GroupHeader({ domPrefix, item, doc, columns, bulk, selected, leaving, onSelect, onToggle }: { domPrefix: string; item: Extract<Item, { kind: "header" }>; doc?: boolean; columns: Column[]; bulk: boolean; selected: boolean; leaving?: boolean; onSelect: () => void; onToggle: () => void }) {
+function GroupHeader({ domPrefix, item, doc, columns, bulk, selected, leaving, received, onSelect, onToggle }: { domPrefix: string; item: Extract<Item, { kind: "header" }>; doc?: boolean; columns: Column[]; bulk: boolean; selected: boolean; leaving?: boolean; received?: boolean; onSelect: () => void; onToggle: () => void }) {
 	const { group: g, level, count, muted, collapsed } = item;
 	const top = level === 0 || !!item.section;
 	const { index, labelSpan: colSpan } = groupSummaryLayout(columns, g.summary?.column, bulk);
@@ -2041,6 +2332,7 @@ function GroupHeader({ domPrefix, item, doc, columns, bulk, selected, leaving, o
 					"transition-colors duration-200",
                     background,
 					top ? "py-2" : "py-1",
+					received && "tb-received",
 				)}
 				style={{ paddingLeft: 12 + item.offset, paddingRight: index === 0 ? 12 : 24 }}
 			>

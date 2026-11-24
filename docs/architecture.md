@@ -120,11 +120,17 @@ loaded on first use, behind same-size placeholders, to keep the main bundle smal
 `rowId` to its events and draws cards as sections; inline forms get their text-like controls
 from `[data-inline-form]` rules in `index.css`. The table ignores keys from inside the drawer
 (`[data-inspector]`), whose Esc hands the keyboard back to the table.
-Tables can declare `sections` (and sub-sections inside them), mark rows `unread`, send `select`
-once the selection rests 400 ms, and let people drag rows between sections. `shared/sections.ts`
-places a row whose group names a sub-section under its parent (`[parent, sub, …]`), for both the
-renderer and the selection handoff. The drag logic (where a drop lands, which drops change
-nothing, the optimistic move shown until the next tree) is pure code in `renderer/pure.ts`.
+Tables can declare `sections`, nested up to `MAX_SECTION_DEPTH` levels, mark rows `unread`, send
+`select` once the selection rests 400 ms, and let people drag rows between sections.
+`shared/sections.ts` places a row whose group names a nested section under its ancestors
+(`[top, …, id, …]`), for both the renderer and the selection handoff. The drag logic (where a
+drop lands, which drops change nothing, the optimistic move shown until the next tree) is pure
+code in `renderer/pure.ts`. When a row moves into a collapsed group, that group's header flashes
+(`tb-received`) instead of the row vanishing; refreshes right after a view control don't count.
+Arranged filters (`Filter.group`) render as one `FilterRow` in the page toolbar: the sequence
+logic (divider, toggling, stepping, dragging, the depth refusal) is pure code in
+`renderer/pure.ts`, and the row slides filters to their new places (FLIP), keeping focus and an
+open menu with the moved filter.
 Action keys may carry `alt+`/`shift+`; `keyNames` reads the physical key because ⌥ changes the
 typed character on macOS. Open action menus (row ⋯, drawer ⋯, split-button alternatives) run an
 action from its key in their own `onKeyDown` (`menuActionForEvent`), preventing Radix typeahead

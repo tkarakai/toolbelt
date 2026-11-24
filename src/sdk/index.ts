@@ -57,7 +57,7 @@ export type {
   PluginMessage,
   ToastAction,
 } from "../shared/protocol";
-export { HUES } from "../shared/protocol";
+export { HUES, MAX_SECTION_DEPTH } from "../shared/protocol";
 export { leastUsedHue } from "../shared/hues";
 export { duration, relative } from "../shared/time";
 

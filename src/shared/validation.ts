@@ -1,5 +1,5 @@
 import { LIMITS } from "./package";
-import type { Node, PluginMessage } from "./protocol";
+import { MAX_SECTION_DEPTH, type Node, type PluginMessage } from "./protocol";
 
 type Schema = (value: unknown, path: string) => void;
 const fail = (path: string): never => {
@@ -258,27 +258,27 @@ const sectionFields = {
   icon: optional(text),
   empty: optional(text),
   collapsed: optional(bool),
+  muted: optional(bool),
   order: optional(enumeration("manual", "fixed", false)),
   dropLabel: optional(text),
   dropIcon: optional(text),
 };
-/** Sub-sections are one level deep: they can't declare their own. */
-const nothing: Schema = (v, p) => {
-  if (v !== undefined) fail(p);
+/** Nested sections (`Section.sections`) go at most `MAX_SECTION_DEPTH` levels deep, counting the top. */
+const sectionAt = (depth: number): Schema => (v, p) => {
+  if (depth > MAX_SECTION_DEPTH) fail(p);
+  object({ ...sectionFields, sections: optional(array(sectionAt(depth + 1))) })(v, p);
 };
-const subSection = object({ ...sectionFields, sections: nothing });
-const section = object({ ...sectionFields, sections: optional(array(subSection)) });
-/** A table's sections: every section and sub-section id appears once. */
+/** A table's sections: every section id appears once, at whatever depth. */
 const sections: Schema = (v, p) => {
-  array(section)(v, p);
+  array(sectionAt(1))(v, p);
   const seen = new Set<string>();
-  (v as { id: string; sections?: { id: string }[] }[]).forEach((s, i) => {
-    const ids = [[`${p}[${i}].id`, s.id], ...(s.sections ?? []).map((sub, j) => [`${p}[${i}].sections[${j}].id`, sub.id])];
-    for (const [path, id] of ids) {
-      if (seen.has(id!)) fail(path!);
-      seen.add(id!);
-    }
-  });
+  const visit = (list: { id: string; sections?: { id: string }[] }[], at: string) =>
+    list.forEach((s, i) => {
+      if (seen.has(s.id)) fail(`${at}[${i}].id`);
+      seen.add(s.id);
+      if (s.sections) visit(s.sections, `${at}[${i}].sections`);
+    });
+  visit(v as { id: string }[], p);
 };
 const empty = object({
   title: text,
@@ -432,6 +432,9 @@ const filter = object({
     }),
   ),
   selected: array(text),
+  group: optional(bool),
+  groupDisabled: optional(text),
+  default: optional(object({ values: array(text), label: text })),
 });
 const dialog: Schema = (v, p) =>
   object({

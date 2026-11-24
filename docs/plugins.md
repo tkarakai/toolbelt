@@ -449,8 +449,8 @@ the next tree pile up in the renderer.
 ### Sub-sections
 
 With `ui.sub-sections`, a declared section can have `sections` of its own: sub-sections, one
-level deep (a sub-section can't declare more). Every section and sub-section id is unique in
-the table; validation rejects deeper nesting and repeated ids.
+level deep (deeper needs `ui.nested-sections`, below). Every section and sub-section id is
+unique in the table; validation rejects repeated ids.
 
 ```ts
 sections: [
@@ -492,6 +492,44 @@ top-level sections. Require the capability, or when it is absent send a flat lay
 promote the sub-sections to top-level sections, or keep the rows in the parent with a nested
 group path such as `["progressing", { id: "snoozed", label: "Snoozed" }]` (shown as a folder
 pill, never when empty, with drops reported as the parent).
+
+### Nested sections
+
+With `ui.nested-sections`, a sub-section can declare `sections` too, and so on, up to
+`MAX_SECTION_DEPTH` (10) levels counting the top. Every level works like a sub-section: drawn
+with the section-header style, shown even when empty, collapsing on its own, taking drops by its
+own `order`, `dropLabel` and `dropIcon`, and named by its id in `reorder`. Rows join one with
+`group: "<id>"` or a path starting with it. Ids are unique across the whole table, so a plugin
+grouping by several things gives each section an id built from its path (`"web/inbox"`).
+Validation rejects an eleventh level and repeated ids at any depth. `Section.muted` dims the
+section, its sections and their rows (an archive). When a row moves into a collapsed section
+(or one inside a collapsed section), that collapsed header flashes once.
+
+### Filters that group
+
+With `ui.filter-group`, a page's `Filter` can carry `group`: true while it groups the page's
+rows, false while it could. When any filter has it, the toolbar arranges the filters in one row:
+the grouping ones first, in level order, numbered and joined by ›, a divider, then the others,
+then the page's `controls` after another divider. A filter's menu opens with a **Group by**
+switch above its search. Turning it on makes the filter the last level; off, the first of the
+others. People can also drag a filter to reorder it, or across the divider to group or stop
+grouping, and press ⌥← / ⌥→ on a focused filter to step it along the row (over the divider
+groups or ungroups). The row shows each move at once, sliding the filters and keeping focus and
+an open menu with the moved one, and sends one event:
+
+```ts
+{ name: "filter-arrange", payload: { order: string[]; grouped: string[] } }
+```
+
+`order` has every filter id in its new order; `grouped` the grouping ones, in level order. The
+plugin regroups and sends the filters in that order. Drawing the groups is the plugin's: it
+declares sections for them. `groupDisabled` (text) keeps a filter's switch off and says why,
+for a plugin with a depth limit; a drag that would group it is refused in place.
+
+`Filter.default` (`{ values, label }`) names a filter's starting selection. While `selected`
+matches it, the button shows the label ("Status · Ongoing") without the filtering highlight;
+otherwise the menu offers **Reset to <label>** beside Show all. Selection still follows the
+usual rule: nothing checked means no filtering.
 
 ### Modifier shortcuts
 

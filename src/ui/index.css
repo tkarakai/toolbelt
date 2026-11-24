@@ -206,6 +206,15 @@ mark.hit {
   animation: tb-pulse 2.4s ease-in-out infinite;
 }
 
+/* A collapsed group's header when a row moves into it: one soft flash of the primary color. */
+@keyframes tb-received {
+  from { box-shadow: inset 0 0 0 999px color-mix(in oklab, var(--primary) 24%, transparent); }
+  to { box-shadow: inset 0 0 0 999px transparent; }
+}
+.tb-received {
+  animation: tb-received 900ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tb-pulse { animation: none !important; }
   *, ::before, ::after {
