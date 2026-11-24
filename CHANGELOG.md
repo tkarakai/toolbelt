@@ -5,6 +5,8 @@
 - On a phone, ToolBelt installs to the home screen as a web app: it reconnects by itself, starts without re-downloading the app over slow links, and can show the total of chosen plugins' badges on its icon.
 - Scanning the QR code opens install help for that phone: the exact Add to Home Screen steps on iPhone and iPad, or an Install ToolBelt button on Android.
 - On touch screens, key hints stay hidden until you use a keyboard. Narrow windows get a button to show the tools list.
+- Focus rings appear only when you use the keyboard: opening a window, the popover, a dialog or a quick view, or clicking, no longer outlines what has focus.
+- The page toolbar's scroll buttons look like the tab strip's.
 
 ## 0.3.24 — 2026-11-24
 - Toasts have an X button to dismiss them.
