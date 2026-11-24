@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Plugin lists can link each item to what it names (click or ↵), with pills before the title and on the second line, and a form's pills can link to what they name.
 
 ## 0.3.19 — 2026-11-24
 - Plugins can let you move through dimmed stand-in rows with the keyboard and act on them as the real row, with every copy of the selected row softly highlighted.

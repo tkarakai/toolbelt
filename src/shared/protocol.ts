@@ -436,7 +436,12 @@ export type Field = (
 	 * Key/value pills, at most one per key. A key with `flag` has no value; with `values`, its
 	 * value is picked from them (any text too with `freeform`); otherwise it's free text.
 	 */
-	| { type: "tags"; id: string; label: string; value: TagValue[]; keys: TagKey[]; description?: string }
+	/**
+	 * With `open` (capability `ui.tag-open`), each pill's text is a link: clicking it sends that
+	 * action with `{ form, field, key, value }` instead of opening the value picker (change a
+	 * value by removing the pill and adding another).
+	 */
+	| { type: "tags"; id: string; label: string; value: TagValue[]; keys: TagKey[]; description?: string; open?: Action }
 	/**
 	 * An editable list of choices (capability `ui.options-field`): add, rename, remove and, with
 	 * `reorder`, move items; with `colors`, each item has a color of its own. See `OptionItem`.
@@ -605,8 +610,16 @@ export type Node =
 			 * `unread` dot sit before the title, after the icon. `titleStyle` draws the title in a
 			 * color, bold or italic (older hosts ignore it).
 			 */
-			items: { id: string; title: string; titleStyle?: TextStyle; subtitle?: string; icon?: string; dot?: Dot; meta?: string; metaAt?: number; actions?: Action[]; unread?: boolean }[];
+			items: { id: string; title: string; titleStyle?: TextStyle; subtitle?: string; icon?: string; dot?: Dot; meta?: string; metaAt?: number; actions?: Action[]; unread?: boolean; prefix?: Tag; tags?: Tag[] }[];
 			empty?: { title: string; description?: string; icon?: string };
+			/**
+			 * Capability `ui.list-open`: clicking an item (or ↵ on it) sends this action with
+			 * `{ list, item }` (the item's id) instead of only selecting it: a link to what the item
+			 * names. Its own `actions` keep their buttons and keys. With it, items also take
+			 * `prefix` (a pill before the title) and `tags` (pills on the second line, before the
+			 * subtitle), drawn as in tables.
+			 */
+			open?: Action;
 	  }
 	/** `at` shows a moment (epoch ms) relative to now instead of `value`. */
 	| { type: "stats"; items: { label: string; value: string; at?: number; hint?: string; tone?: Tone }[] }
