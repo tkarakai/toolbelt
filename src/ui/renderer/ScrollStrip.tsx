@@ -88,10 +88,11 @@ function EdgeButton({ side, shown, onPress }: { side: "left" | "right"; shown: b
 			onClick={onPress}
 			// Don't take focus from what has it.
 			onMouseDown={(e) => e.preventDefault()}
+			// The same edge button as a scrolling tab strip's (components/ui/tabs.tsx).
 			className={cn(
-				"absolute top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-full border bg-background text-foreground shadow-sm",
-				"transition-opacity duration-200 ease-out hover:bg-accent hover:text-accent-foreground motion-reduce:transition-none",
-				side === "left" ? "left-0" : "right-0",
+				"absolute inset-y-0 z-10 flex w-6 items-center justify-center bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
+				"transition-opacity duration-200 ease-out motion-reduce:transition-none",
+				side === "left" ? "left-0 rounded-l-lg" : "right-0 rounded-r-lg",
 				shown ? "opacity-100" : "pointer-events-none opacity-0 duration-150",
 			)}
 		>

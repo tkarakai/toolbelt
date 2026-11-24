@@ -267,7 +267,12 @@ without focus use the inactive selection fill everywhere. Page Up/Down move a sc
 column header moves the column. Key hints (`KeyHint`) are hidden from assistive technology; the
 control carries `aria-keyshortcuts` (`ariaShortcut`). All controls draw a full-strength `--ring`
 focus indicator (text fields keep a ring-colored border); `:focus-visible` falls back to a 2 px
-outline. The read-only terminal lets Tab, Esc and F6 leave and scrolls with the arrow and Page keys.
+outline. Focus indicators wait for the keyboard: `lib/input-modality.ts` sets
+`html[data-input-modality]` to `keyboard` on a key press (not a modifier held alone), `pointer` on
+a click or tap, and `none` when a view is shown (window focus, the popover opening), and
+`index.css` hides rings and outlines unless it is `keyboard`, so focus placed by opening a window,
+dialog, popover or quick view draws nothing until a key is pressed. Text fields keep their focus
+border. The read-only terminal lets Tab, Esc and F6 leave and scrolls with the arrow and Page keys.
 
 ## Installation, updates and recovery
 

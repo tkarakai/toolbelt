@@ -29,3 +29,12 @@ describe("reconnect backoff", () => {
 		expect(backoff(10, () => 0)).toBe(15_000);
 	});
 });
+
+import { modalityForKey } from "../src/ui/lib/input-modality";
+
+describe("input modality", () => {
+	test("any real key means keyboard; a modifier held alone changes nothing", () => {
+		for (const key of ["Tab", "ArrowDown", "Enter", "Escape", "a", "F6"]) expect(modalityForKey(key)).toBe("keyboard");
+		for (const key of ["Meta", "Control", "Alt", "Shift", "CapsLock"]) expect(modalityForKey(key)).toBeNull();
+	});
+});

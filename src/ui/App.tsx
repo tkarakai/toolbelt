@@ -429,8 +429,8 @@ function Loading() {
 const SETTINGS_TABS = [
     {id: "appearance", label: "Appearance", shortcut: "a", icon: "palette"},
     {id: "keyboard", label: "Keyboard", shortcut: "k", icon: "keyboard"},
-    {id: "plugins", label: "Plugins", shortcut: "p", icon: "puzzle"},
     {id: "remote", label: "Remote Access", shortcut: "r", icon: "smartphone"},
+    {id: "plugins", label: "Plugins", shortcut: "p", icon: "puzzle"},
     {id: "about", label: "About", shortcut: "i", icon: "info"},
 ];
 function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: () => void; section?: string }) {

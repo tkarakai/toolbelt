@@ -10,6 +10,7 @@ import { setTheme } from "@/lib/theme";
 import { useSettings } from "@/lib/store";
 import { installToastKeys } from "@/lib/plugin-toast";
 import { inApp, installKeyboardDetection, popoverAllowed, remoteClient } from "@/lib/device";
+import { installInputModality } from "@/lib/input-modality";
 import { BadgeSync, captureInstallPrompt, ConnectionBanner, InstallCard, registerServiceWorker } from "./remote-client";
 
 /** Keeps this view's colors in step with ToolBelt's appearance settings. */
@@ -28,6 +29,7 @@ document.documentElement.dataset.surface = isPopover ? "popover" : "window";
 if (remoteClient) document.documentElement.dataset.remote = "";
 if (!isPopover) installToastKeys();
 installKeyboardDetection();
+installInputModality();
 registerServiceWorker();
 captureInstallPrompt();
 
