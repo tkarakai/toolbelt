@@ -571,6 +571,10 @@ selection color, showing they're the same thing.
   ↵), other groups as quieter rows, destructive actions last, apart. Order and group actions
   with that in mind.
 
+- `ui.tag-multiple`: `TagKey.multiple` lets a `tags` field hold a key several times, once per
+  value (Blocks: #3, Blocks: #7), for many-valued keys such as relations. The Add menu keeps
+  offering it; each value appears once per key.
+
 In dialogs, form labels take one column width (7rem) across every form of the dialog, so
 stacked forms line up; longer labels wrap.
 

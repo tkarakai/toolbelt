@@ -3,6 +3,7 @@
 ## Unreleased
 - Plugins can let you move through dimmed stand-in rows with the keyboard and act on them as the real row, with every copy of the selected row softly highlighted.
 - Plugins can put a status dot beside the unread dot, draw a group's title as a colored pill, and show a details drawer's actions as buttons at its bottom.
+- Plugin forms can add the same kind of tag several times, such as several tasks a task blocks.
 - The unread dot of a row with nested rows sits left of its chevron, so titles line up.
 - Form labels in plugin dialogs line up across the whole dialog; long labels wrap.
 

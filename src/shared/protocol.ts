@@ -449,9 +449,10 @@ export type Field = (
 /**
  * `shades` gives values a `Tag.shade` (value → 0…1), used for their pills and in the picker.
  * `colors` gives values a color of their own (value → hue), which wins over `color`; without a
- * `color`, the key itself shows a rainbow dot.
+ * `color`, the key itself shows a rainbow dot. With `multiple` (capability `ui.tag-multiple`), the
+ * key can be added again for each of several values (Blocks: #3, Blocks: #7); each value once.
  */
-export type TagKey = { key: string; label: string; color?: Tone | Hue; values?: string[]; freeform?: boolean; flag?: boolean; shades?: Record<string, number>; colors?: Record<string, Hue> };
+export type TagKey = { key: string; label: string; color?: Tone | Hue; values?: string[]; freeform?: boolean; flag?: boolean; shades?: Record<string, number>; colors?: Record<string, Hue>; multiple?: boolean };
 
 /**
  * One item of an `options` field. `key` is the plugin's stable id for it: renaming keeps the key,

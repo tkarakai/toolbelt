@@ -245,6 +245,12 @@ test("context rows can be selected, rows carry a leading dot, sections a pill an
   expect(() => validateTree(table({}, {}, { pill: { color: "chartreuse" } }))).toThrow();
   expect(() => validateTree(table({}, {}, { pill: { shade: 2 } }))).toThrow();
 });
+test("a multiple tag key holds several values, each once", () => {
+  const form = (value: unknown[], multiple = true) => ({ type: "form", id: "f", fields: [{ type: "tags", id: "related", label: "Related", value, keys: [{ key: "blocks", label: "Blocks", values: ["#3", "#7"], multiple }] }] });
+  expect(() => validateTree(form([{ key: "blocks", value: "#3" }, { key: "blocks", value: "#7" }]))).not.toThrow();
+  expect(() => validateTree(form([{ key: "blocks", value: "#3" }, { key: "blocks", value: "#3" }]))).toThrow();
+  expect(() => validateTree(form([{ key: "blocks", value: "#3" }, { key: "blocks", value: "#7" }], false))).toThrow();
+});
 test("action keys are one key, or alt/shift before a key or arrow", () => {
   const withKey = (key: string) => ({ type: "page", actions: [{ id: "a", label: "A", key }], children: [] });
   for (const key of ["j", "alt+up", "alt+shift+down", "shift+s", "alt+1"]) expect(() => validateTree(withKey(key))).not.toThrow();

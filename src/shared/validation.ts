@@ -396,13 +396,16 @@ const field: Schema = (v, p) => {
             flag: optional(bool),
             shades: optional(record(shade)),
             colors: optional(record(hue)),
+            multiple: optional(bool),
           }),
         ),
       })(v, p);
       const keys = (v as any).keys.map((k: { key: string }) => k.key);
       if (new Set(keys).size !== keys.length) fail(`${p}.keys`);
-      const used = (v as any).value.map((t: { key: string }) => t.key);
-      if (new Set(used).size !== used.length || used.some((k: string) => !keys.includes(k))) fail(`${p}.value`);
+      // A key appears once, unless it's `multiple` (then once per value).
+      const multiple = new Set((v as any).keys.filter((k: { multiple?: boolean }) => k.multiple).map((k: { key: string }) => k.key));
+      const used = (v as any).value.map((t: { key: string; value?: string }) => (multiple.has(t.key) ? `${t.key}\u0000${t.value ?? ""}` : t.key));
+      if (new Set(used).size !== used.length || (v as any).value.some((t: { key: string }) => !keys.includes(t.key))) fail(`${p}.value`);
       break;
     }
     case "options": {

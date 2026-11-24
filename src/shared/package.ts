@@ -31,6 +31,7 @@ export const CAPABILITIES = [
   "ui.section-pill",
   "ui.row-dot",
   "ui.pane-buttons",
+  "ui.tag-multiple",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,
