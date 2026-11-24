@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { HUES, type Action, type Column } from "../src/shared/protocol";
-import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_STEP, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth, leastUsedHue, moveItem, newOptionTexts, allowsSequence, arrangesFilters, atFilterDefault, FILTER_DIVIDER, filterSequence, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup } from "../src/ui/renderer/pure";
+import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_STEP, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth, leastUsedHue, moveItem, newOptionTexts, allowsSequence, arrangesFilters, atFilterDefault, FILTER_DIVIDER, filterSequence, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup, filterOptionGroups, splitMinutes, joinMinutes, stepMinutes, durationWords } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -517,5 +517,38 @@ describe("options field", () => {
 		expect(moveItem(["a", "b", "c"], 0, 2)).toEqual(["b", "c", "a"]);
 		expect(moveItem(["a", "b", "c"], 2, 0)).toEqual(["c", "a", "b"]);
 		expect(newOptionTexts(" High \n\nlow\nMedium\thigh", ["Low"])).toEqual(["High", "Medium"]);
+	});
+});
+
+describe("filter option groups", () => {
+	const o = (value: string, count: number, section?: string) => ({ value, label: value, count, ...(section !== undefined && { section }) });
+	test("without sections: options with something to show, then those counted 0", () => {
+		expect(filterOptionGroups([o("a", 1), o("b", 0), o("c", 2)]).map((g) => g.options.map((x) => x.value))).toEqual([["a", "c"], ["b"]]);
+		expect(filterOptionGroups([o("a", 1)]).length).toBe(1);
+	});
+	test("with sections: the plugin's order, a group per run of the same section", () => {
+		const groups = filterOptionGroups([o("inbox", 1), o("working", 0, "Progressing"), o("snoozed", 2, "Progressing"), o("settled", 0), o("archived", 0)]);
+		expect(groups.map((g) => [g.section, g.options.map((x) => x.value)])).toEqual([
+			[undefined, ["inbox"]],
+			["Progressing", ["working", "snoozed"]],
+			[undefined, ["settled", "archived"]],
+		]);
+	});
+});
+
+describe("durations", () => {
+	test("minutes split into days, hours and minutes, and join back", () => {
+		expect(splitMinutes(3 * 1440 + 4 * 60 + 30)).toEqual({ d: 3, h: 4, m: 30 });
+		expect(joinMinutes({ d: 0, h: 36, m: 90 })).toBe(36 * 60 + 90);
+		expect(splitMinutes(-5)).toEqual({ d: 0, h: 0, m: 0 });
+	});
+	test("a step carries into the next part and stays within bounds", () => {
+		expect(stepMinutes(59, "m", 1)).toBe(60);
+		expect(stepMinutes(23 * 60, "h", 1)).toBe(1440);
+		expect(stepMinutes(30, "h", -1, 15)).toBe(15);
+		expect(stepMinutes(1440, "d", 5, 0, 2880)).toBe(2880);
+	});
+	test("read aloud", () => {
+		expect([durationWords(0), durationWords(1), durationWords(45), durationWords(90), durationWords(2 * 1440 + 240)]).toEqual(["0 minutes", "1 minute", "45 minutes", "1 hour 30 minutes", "2 days 4 hours"]);
 	});
 });

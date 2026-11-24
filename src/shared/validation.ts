@@ -304,6 +304,14 @@ const rowCount: Schema = (v, p) => {
   number(v, p);
   if (!Number.isInteger(v) || (v as number) < 1 || (v as number) > 40) fail(p);
 };
+/** The longest duration a `duration` field holds: 999 days, in minutes. */
+export const MAX_MINUTES = 999 * 24 * 60;
+/** Whole minutes, 0 to `MAX_MINUTES`. */
+const minutes: Schema = (v, p) => {
+  number(v, p);
+  if (!Number.isInteger(v) || (v as number) < 0 || (v as number) > MAX_MINUTES) fail(p);
+};
+const nullableMinutes: Schema = (v, p) => (v === null ? undefined : minutes(v, p));
 /** "" (no date), a real local date, or a date and time. */
 const localDateTime: Schema = (v, p) => {
   text(v, p);
@@ -424,6 +432,26 @@ const field: Schema = (v, p) => {
       if (new Set(keys).size !== keys.length) fail(`${p}.value`);
       break;
     }
+    case "duration": {
+      object({
+        ...base,
+        type: literal("duration"),
+        value: nullableMinutes,
+        min: optional(minutes),
+        max: optional(minutes),
+        presets: optional(array(object({ label: optional(text), value: nullableMinutes }))),
+        none: optional(text),
+      })(v, p);
+      const f = v as { value: number | null; min?: number; max?: number; none?: string; presets?: { value: number | null }[] };
+      const lo = f.min ?? 0;
+      const hi = f.max ?? MAX_MINUTES;
+      if (lo > hi) fail(`${p}.max`);
+      // `null` means "none", so it needs `none` to name it; numbers stay within the bounds.
+      const fits = (m: number | null) => (m === null ? f.none !== undefined : m >= lo && m <= hi);
+      if (!fits(f.value)) fail(`${p}.value`);
+      (f.presets ?? []).forEach((x, i) => !fits(x.value) && fail(`${p}.presets[${i}].value`));
+      break;
+    }
     default:
       fail(p);
   }
@@ -438,6 +466,7 @@ const filter = object({
       label: text,
       dot: optional(dot),
       count: optional(number),
+      section: optional(text),
     }),
   ),
   selected: array(text),

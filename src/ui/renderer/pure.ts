@@ -601,3 +601,63 @@ export function edgeScrollSpeed(x: number, left: number, right: number, zone = 4
 	if (x > right - zone) return Math.ceil(max * Math.min(1, (x - (right - zone)) / zone));
 	return 0;
 }
+
+// ── filter sections ─────────────────────────────────────────────────────
+
+type FilterOption = Filter["options"][number];
+
+/**
+ * A filter menu's options as the menu draws them. With sections (capability
+ * `ui.filter-sections`): consecutive options sharing a `section` form a group, in the plugin's
+ * order. Without: options with something to show, then those counted 0.
+ */
+export function filterOptionGroups(options: FilterOption[]): { section?: string; options: FilterOption[] }[] {
+	if (options.some((o) => o.section !== undefined)) {
+		const groups: { section?: string; options: FilterOption[] }[] = [];
+		for (const o of options) {
+			const last = groups.at(-1);
+			if (last && last.section === o.section) last.options.push(o);
+			else groups.push({ section: o.section, options: [o] });
+		}
+		return groups;
+	}
+	return [options.filter((o) => (o.count ?? 1) > 0), options.filter((o) => o.count === 0)].filter((g) => g.length).map((options) => ({ options }));
+}
+
+// ── durations ───────────────────────────────────────────────────────────
+
+/** The parts a `duration` field edits, largest first, with their length in minutes. */
+export const DURATION_PARTS = [
+	{ unit: "d", minutes: 1440, digits: 3, name: "days" },
+	{ unit: "h", minutes: 60, digits: 2, name: "hours" },
+	{ unit: "m", minutes: 1, digits: 2, name: "minutes" },
+] as const;
+export type DurationUnit = (typeof DURATION_PARTS)[number]["unit"];
+
+/** Minutes as days, hours and minutes. */
+export function splitMinutes(total: number): Record<DurationUnit, number> {
+	const t = Math.max(0, Math.round(total));
+	return { d: Math.floor(t / 1440), h: Math.floor((t % 1440) / 60), m: t % 60 };
+}
+
+export const joinMinutes = (p: Record<DurationUnit, number>) => p.d * 1440 + p.h * 60 + p.m;
+
+/** Minutes within `min`…`max`. */
+export const clampMinutes = (m: number, min = 0, max = Infinity) => Math.min(max, Math.max(min, Math.round(m)));
+
+/** One step of `unit` up or down from `total`, carrying across parts and staying within bounds. */
+export const stepMinutes = (total: number, unit: DurationUnit, by: number, min = 0, max = Infinity) =>
+	clampMinutes(total + by * DURATION_PARTS.find((p) => p.unit === unit)!.minutes, min, max);
+
+/** "2 days 4 hours", "45 minutes", "1 hour 30 minutes", "0 minutes": a duration read aloud. */
+export function durationWords(total: number): string {
+	const p = splitMinutes(total);
+	const words = [
+		[p.d, "day"],
+		[p.h, "hour"],
+		[p.m, "minute"],
+	]
+		.filter(([n]) => n)
+		.map(([n, w]) => `${n} ${w}${n === 1 ? "" : "s"}`);
+	return words.join(" ") || "0 minutes";
+}

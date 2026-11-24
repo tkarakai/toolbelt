@@ -61,6 +61,9 @@ dot. `ui.section-pill` adds `Section.pill`, a section label drawn as a colored p
 `ui.list-open` makes list items links (`open`) with `prefix` and `tags` pills; `ui.tag-open`
 makes a `tags` field's pill values links (`open`); the key still opens the picker.
 `ui.list-inset` indents a list's icon-less items by an icon's width (`inset`).
+`ui.duration-field` adds the `duration` form field: whole minutes edited as days, hours and
+minutes, with presets and an optional none value (`null`). `ui.filter-sections` groups a
+filter's menu by each option's `section`.
 `ui.tag-multiple` lets a `tags` key hold several values (`TagKey.multiple`).
 `ui.pane-buttons` puts a pane row's actions in buttons at the bottom of its drawer (table
 `paneButtons`).
