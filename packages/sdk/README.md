@@ -56,7 +56,8 @@ and declare a `default` selection; the toolbar then arranges them and sends `fil
 `ui.context-select` lets context rows be selected in place, acting as the row they stand for
 (table `contextSelect`). `ui.row-dot` adds `Row.dot`, in the leading slot beside the unread
 dot. `ui.section-pill` adds `Section.pill`, a section label drawn as a colored pill.
-`ui.heading-aside` adds a heading field's `aside` (an id at its right end).
+`ui.heading-note` adds a heading field's `note` (an id above it). `ui.cell-prefix` adds
+`Cell.prefix`, a pill before a cell's text.
 `ui.tag-multiple` lets a `tags` key hold several values (`TagKey.multiple`).
 `ui.pane-buttons` puts a pane row's actions in buttons at the bottom of its drawer (table
 `paneButtons`).

@@ -32,7 +32,8 @@ export const CAPABILITIES = [
   "ui.row-dot",
   "ui.pane-buttons",
   "ui.tag-multiple",
-  "ui.heading-aside",
+  "ui.heading-note",
+  "ui.cell-prefix",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

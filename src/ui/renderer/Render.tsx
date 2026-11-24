@@ -985,6 +985,13 @@ function CellView({ cell, col, measure }: { cell: Cell | undefined; col: Column;
 			<div className={measure ? "shrink-0" : spark ? "min-w-0" : "min-w-0 flex-1"} title={[cell.text, cell.sub].filter(Boolean).join("\n")}>
 				{cell.at !== undefined ? (
 					<When at={cell.at} className={cn("block truncate", mono && "font-mono text-[0.8rem] tabular-nums", styleClass(cell.style, cell.tone ?? "default"))} />
+				) : cell.text && cell.prefix && !cell.badge ? (
+					// `prefix`: a pill before the text (a task's id), on its line.
+					<div className="flex min-w-0 items-center gap-1.5">
+						<TagPill tag={cell.prefix} />
+						<div className={cn("min-w-0 truncate", mono && "font-mono text-[0.8rem] tabular-nums", styleClass(cell.style, cell.tone ?? "default"))}><Strong text={cell.text} strong={cell.strong} /></div>
+						{cell.marks?.map((m) => <MarkIcon key={m.icon + m.tooltip} mark={m} />)}
+					</div>
 				) : cell.text &&
 					(cell.badge ? (
 						<Badge variant="secondary"><Hl text={cell.text} /></Badge>
@@ -3167,10 +3174,10 @@ function InlineForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emi
 					);
 				if (!f.label || (f.type === "text" && f.heading))
 					return (
-						<div key={f.id} data-pane-id={f.id} className={cn("col-span-2 min-w-0", f.type === "text" && f.heading ? "mb-1.5" : "mt-1.5", f.type === "text" && f.aside && "flex items-start gap-3")}>
-							{f.type === "text" && f.aside ? <div className="min-w-0 flex-1">{control}</div> : control}
-							{/* `aside`: a quiet note in line with the heading's first line (an id). */}
-							{f.type === "text" && f.aside && <span className="mt-1.5 shrink-0 font-mono text-xs text-muted-foreground select-text">{f.aside}</span>}
+						<div key={f.id} data-pane-id={f.id} className={cn("col-span-2 min-w-0", f.type === "text" && f.heading ? "mb-1.5" : "mt-1.5")}>
+							{/* `note`: a quiet line above the heading (an id). */}
+							{f.type === "text" && f.heading && f.note && <div className="mb-0.5 font-mono text-xs text-muted-foreground select-text">{f.note}</div>}
+							{control}
 						</div>
 					);
 				return (

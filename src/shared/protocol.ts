@@ -101,6 +101,8 @@ export type Cell =
 			dot?: Dot;
 			/** The part of `text` that matters most (a path's project folder): drawn stronger. */
 			strong?: string;
+			/** Capability `ui.cell-prefix`: a pill before the text, on its line (an id). */
+			prefix?: Tag;
 			/** Pills at the start of the second line, before `sub` (agent, state). */
 			tags?: Tag[];
 			/** Icons right after the text, each with an instant tooltip. */
@@ -412,10 +414,10 @@ export type Field = (
 	| { type: "select"; id: string; label: string; value: string; options: { value: string; label: string }[]; description?: string }
 	| { type: "switch"; id: string; label: string; value: boolean; description?: string }
 	/**
-	 * `heading`: the title of what's edited, drawn large (inline forms). `aside` (capability
-	 * `ui.heading-aside`): a quiet monospaced note at the heading's right end, such as an id.
+	 * `heading`: the title of what's edited, drawn large (inline forms). `note` (capability
+	 * `ui.heading-note`): a quiet monospaced line above the heading, such as an id.
 	 */
-	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean; heading?: boolean; aside?: string }
+	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean; heading?: boolean; note?: string }
 	// The fields below need the `ui.rich-fields` capability.
 	/** Several lines; with `markdown`, an editor that styles Markdown as it's typed. Sent on blur and ⌘↵. */
 	| { type: "textarea"; id: string; label: string; value: string; placeholder?: string; description?: string; markdown?: boolean; rows?: number }

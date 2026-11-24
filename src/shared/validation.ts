@@ -168,6 +168,7 @@ const cell = union(
     style: optional(textStyle),
     dot: optional(dot),
     strong: optional(text),
+    prefix: optional(tag),
     tags: optional(array(tag)),
     marks: optional(array(mark)),
     chips: optional(array(text)),
@@ -342,7 +343,7 @@ const field: Schema = (v, p) => {
         placeholder: optional(text),
         sensitive: optional(bool),
         heading: optional(bool),
-        aside: optional(text),
+        note: optional(text),
       })(v, p);
       break;
     case "textarea":

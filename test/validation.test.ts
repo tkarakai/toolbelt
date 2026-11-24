@@ -245,8 +245,11 @@ test("context rows can be selected, rows carry a leading dot, sections a pill an
   expect(() => validateTree(table({}, {}, { pill: { color: "chartreuse" } }))).toThrow();
   expect(() => validateTree(table({}, {}, { pill: { shade: 2 } }))).toThrow();
 });
-test("a heading field can carry an aside", () => {
-  const form = (aside: unknown) => ({ type: "form", id: "f", appearance: "inline", fields: [{ type: "text", id: "name", label: "Name", value: "Plan", heading: true, aside }] });
+test("a heading field can carry a note, and a cell a prefix pill", () => {
+  const cell = (prefix: unknown) => ({ type: "table", id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "1", cells: { x: { text: "Plan", prefix } } }] });
+  expect(() => validateTree(cell({ text: "#12" }))).not.toThrow();
+  expect(() => validateTree(cell("#12"))).toThrow();
+  const form = (note: unknown) => ({ type: "form", id: "f", appearance: "inline", fields: [{ type: "text", id: "name", label: "Name", value: "Plan", heading: true, note }] });
   expect(() => validateTree(form("#12"))).not.toThrow();
   expect(() => validateTree(form(12))).toThrow();
 });
