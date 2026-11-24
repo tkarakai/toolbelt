@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { HUES, type Action, type Column } from "../src/shared/protocol";
-import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_STEP, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth, leastUsedHue, moveItem, newOptionTexts } from "../src/ui/renderer/pure";
+import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_STEP, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth, leastUsedHue, moveItem, newOptionTexts, allowsSequence, arrangesFilters, atFilterDefault, FILTER_DIVIDER, filterSequence, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -388,6 +388,75 @@ describe("dragging rows into sub-sections", () => {
 		expect(isNoopMove(rows, { rowId: "w1", section: "working", before: "w2" }, sections)).toBe(true);
 		expect(isNoopMove(rows, { rowId: "w1", section: "progressing", before: null }, sections)).toBe(false);
 		expect(isNoopMove(rows, { rowId: "s", section: "snoozed", before: null }, sections)).toBe(true);
+	});
+});
+
+describe("nested sections at any depth", () => {
+	// Project › Status, with Progressing's states one level further in: three declared levels.
+	const sections = [
+		{ id: "p:web", label: "Website", sections: [
+			{ id: "p:web/inbox", label: "Inbox" },
+			{ id: "p:web/progressing", label: "Progressing", sections: [
+				{ id: "p:web/working", label: "Working" },
+				{ id: "p:web/snoozed", label: "Snoozed", order: "fixed" as const },
+			] },
+		] },
+		{ id: "p:none", label: "No Project" },
+	];
+	const rows = [
+		{ id: "a", cells: {}, group: "p:web/inbox" },
+		{ id: "b", cells: {}, group: "p:web/working" },
+		{ id: "c", cells: {}, group: ["p:web/snoozed", "Folder"] },
+		{ id: "d", cells: {}, group: ["p:web", "p:web/progressing", "p:web/working"] },
+		{ id: "e", cells: {}, group: "p:none" },
+	];
+	test("a row belongs to its deepest declared section, by its id or a full path", () => {
+		expect(rows.map((r) => rowSection(r, sections))).toEqual(["p:web/inbox", "p:web/working", "p:web/snoozed", "p:web/working", "p:none"]);
+	});
+	test("a move into a deep section keeps the groups inside it", () => {
+		const moved = applyMove(rows, { rowId: "c", section: "p:web/working", before: "d" }, sections);
+		expect(moved.find((r) => r.id === "c")!.group).toEqual(["p:web/working", "Folder"]);
+		expect(moved.map((r) => r.id)).toEqual(["a", "b", "c", "d", "e"]);
+		expect(isNoopMove(rows, { rowId: "b", section: "p:web/working", before: "d" }, sections)).toBe(true);
+		expect(isNoopMove(rows, { rowId: "a", section: "p:web/progressing", before: null }, sections)).toBe(false);
+	});
+});
+
+describe("arranged filters", () => {
+	const filters = [
+		{ id: "project", group: true },
+		{ id: "status", group: true },
+		{ id: "due", group: false },
+		{ id: "priority", group: false, groupDisabled: "Up to 10 levels" },
+	];
+	const seq = filterSequence(filters);
+	test("grouping filters come first, then the divider and the rest", () => {
+		expect(seq).toEqual(["project", "status", FILTER_DIVIDER, "due", "priority"]);
+		expect(sequenceArrangement(seq)).toEqual({ order: ["project", "status", "due", "priority"], grouped: ["project", "status"] });
+		expect(arrangesFilters([{ id: "x", label: "X", options: [], selected: [] }])).toBe(false);
+		expect(arrangesFilters([{ id: "x", label: "X", options: [], selected: [], group: false }])).toBe(true);
+	});
+	test("grouping on adds the last level; off puts the filter first among the rest", () => {
+		expect(sequenceArrangement(toggleFilterGroup(seq, "due"))).toEqual({ order: ["project", "status", "due", "priority"], grouped: ["project", "status", "due"] });
+		expect(sequenceArrangement(toggleFilterGroup(seq, "project"))).toEqual({ order: ["status", "project", "due", "priority"], grouped: ["status"] });
+	});
+	test("dragging and ⌥←/⌥→ move along the row; crossing the divider groups or ungroups", () => {
+		expect(placeFilter(seq, "status", 0)).toEqual(["status", "project", FILTER_DIVIDER, "due", "priority"]);
+		expect(placeFilter(seq, "project", 5)).toEqual(["status", FILTER_DIVIDER, "due", "priority", "project"]);
+		expect(stepFilter(seq, "status", 1)).toEqual(["project", FILTER_DIVIDER, "status", "due", "priority"]);
+		expect(stepFilter(seq, "due", -1)).toEqual(["project", "status", "due", FILTER_DIVIDER, "priority"]);
+		expect(stepFilter(seq, "project", -1)).toEqual(seq);
+	});
+	test("a filter that can't group stays out of the grouping; one already grouping may stay", () => {
+		expect(allowsSequence(filters, stepFilter(seq, "due", -1))).toBe(true);
+		expect(allowsSequence(filters, placeFilter(seq, "priority", 0))).toBe(false);
+		expect(allowsSequence([{ id: "a", group: true, groupDisabled: "No" }], ["a", FILTER_DIVIDER])).toBe(true);
+	});
+	test("a default selection matches in any order", () => {
+		const f = { default: { values: ["inbox", "working"], label: "Ongoing" } };
+		expect(atFilterDefault(f, ["working", "inbox"])).toBe(true);
+		expect(atFilterDefault(f, ["inbox"])).toBe(false);
+		expect(atFilterDefault({}, [])).toBe(false);
 	});
 });
 

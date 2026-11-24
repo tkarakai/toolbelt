@@ -47,6 +47,9 @@ with `appearance: "inline"`, `text` fields with `heading`), `Action.focus` and t
 pressed while the toast shows; older hosts ignore it.
 `ui.sub-sections` lets a table section declare `sections` of its own (one level), shown even
 when empty; rows join them with `group: "<sub id>"` and `reorder` names them in `section`.
+`ui.nested-sections` lets those nest further, up to `MAX_SECTION_DEPTH` (10) levels, and adds
+`Section.muted`. `ui.filter-group` lets filters also group (`Filter.group`, `groupDisabled`)
+and declare a `default` selection; the toolbar then arranges them and sends `filter-arrange`.
 `ui.options-field` adds the `options` form field, an editable list of choices (`OptionItem`)
 with optional reordering and a color per item; `leastUsedHue` picks colors for new items the
 same way. `TagKey.colors` gives `tags` values colors of their own; older hosts ignore it. A dot can be

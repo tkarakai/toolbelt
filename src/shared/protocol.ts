@@ -289,6 +289,9 @@ export type Row = {
  * when empty, collapses on its own and takes drops by its own `order`. Every section and
  * sub-section id is unique in the table.
  */
+/** How many levels of declared sections a table may nest, counting the top level (`Section.sections`). */
+export const MAX_SECTION_DEPTH = 10;
+
 export type Section = {
 	id: string;
 	label: string;
@@ -297,6 +300,8 @@ export type Section = {
 	empty?: string;
 	/** Start collapsed (until the person opens it). */
 	collapsed?: boolean;
+	/** Capability `ui.nested-sections`: draw the section and its rows dimmed (an archive shelf). */
+	muted?: boolean;
 	/**
 	 * Dragging rows (`reorder`): `"manual"` (default) drops between rows at a position;
 	 * `"fixed"` takes a drop anywhere in it and the plugin decides the position; `false`
@@ -305,7 +310,11 @@ export type Section = {
 	order?: "manual" | "fixed" | false;
 	dropLabel?: string;
 	dropIcon?: string;
-	/** Sub-sections (capability `ui.sub-sections`); a sub-section can't have its own. */
+	/**
+	 * Sections nested in this one: sub-sections (capability `ui.sub-sections`), which can have
+	 * their own with capability `ui.nested-sections`, up to `MAX_SECTION_DEPTH` (10) levels
+	 * counting the top. Ids are unique across the whole table.
+	 */
 	sections?: Section[];
 };
 
@@ -353,7 +362,31 @@ export type TimelineEntry = {
  * A multi-select filter in a page's toolbar (zero or more options checked; none checked means
  * no filtering). Changes arrive as `filter` events; the plugin applies them and sends `selected`.
  */
-export type Filter = { id: string; label: string; icon?: string; options: { value: string; label: string; dot?: Dot; count?: number }[]; selected: string[] };
+export type Filter = {
+	id: string;
+	label: string;
+	icon?: string;
+	options: { value: string; label: string; dot?: Dot; count?: number }[];
+	selected: string[];
+	/**
+	 * Capability `ui.filter-group`: the filter can also group the page's rows, and is grouping
+	 * them while true. When any filter has `group`, the toolbar arranges the filters: the
+	 * grouping ones first, in level order (numbered, with › between them), a divider, then the
+	 * rest. People flip the Group by switch at the top of a filter's menu, drag filters to
+	 * reorder them and across the divider to group or stop grouping, or press ⌥← / ⌥→ on one.
+	 * Every change arrives as a `filter-arrange` event, `{ order, grouped }`: every filter id in
+	 * its new order, and the grouping ones in level order. Grouping is the plugin's to draw.
+	 */
+	group?: boolean;
+	/** Why the Group by switch can't turn on now ("Up to 10 levels"), shown beside it. */
+	groupDisabled?: string;
+	/**
+	 * Capability `ui.filter-group`: the selection the filter starts with and its name
+	 * ("Ongoing"). While `selected` matches it the button shows the name without the
+	 * filtering highlight; otherwise the menu offers "Reset to <label>".
+	 */
+	default?: { values: string[]; label: string };
+};
 
 export type EnvironmentEntry = { key: string; value: string; selected: boolean; secret: boolean };
 
@@ -452,7 +485,10 @@ export type Node =
 			search?: { placeholder: string };
 			/** Buttons in the page toolbar. */
 			actions?: Action[];
-			/** Segmented choices beside the search box; changes arrive as `field` events. */
+			/**
+			 * Segmented choices beside the search box; changes arrive as `field` events. When the
+			 * filters are arranged (`Filter.group`), they follow the filters, after a divider.
+			 */
 			controls?: Extract<Node, { type: "segmented" }>[];
 			/** Muted text in the toolbar ("12 processes"). */
 			summary?: string;

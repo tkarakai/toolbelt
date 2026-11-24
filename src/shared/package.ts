@@ -23,6 +23,8 @@ export const CAPABILITIES = [
   "ui.sub-sections",
   "ui.toast-key",
   "ui.options-field",
+  "ui.nested-sections",
+  "ui.filter-group",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

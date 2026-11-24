@@ -109,6 +109,30 @@ test("navigate is sent only when the host offers it", async () => {
 	expect(h.out).toEqual([{ type: "navigate", screen: "main", select: "row-1" }, { type: "navigate", screen: "other" }]);
 });
 
+test("SDK carries nested sections, arranged filters and filter-arrange through the fake host", async () => {
+	const h = harness();
+	const events: [string, unknown][] = [];
+	const tree = {
+		type: "page" as const,
+		filters: [
+			{ id: "project", label: "Project", options: [{ value: "Web", label: "Web" }], selected: [], group: true },
+			{ id: "status", label: "Status", options: [{ value: "inbox", label: "Inbox" }, { value: "archived", label: "Archived" }], selected: ["inbox"], group: true, default: { values: ["inbox"], label: "Ongoing" } },
+			{ id: "due", label: "Due", options: [{ value: "today", label: "Today" }], selected: [], group: false, groupDisabled: "Up to 10 levels" },
+		],
+		controls: [{ type: "segmented" as const, id: "sub", value: "off", options: [{ value: "off", label: "Off" }] }],
+		children: [{ type: "table" as const, id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "a", cells: { x: "A" }, group: "web/working" }], sections: [{ id: "web", label: "Web", sections: [{ id: "web/inbox", label: "Inbox" }, { id: "web/progressing", label: "Progressing", sections: [{ id: "web/working", label: "Working" }] }] }], reorder: true }],
+	};
+	definePlugin({ render: { "screen:a": () => tree }, onEvent: (_s, name, payload) => { events.push([name, payload]); } }, { write: h.write, input: h.input });
+	await tick();
+	h.send({ type: "hello", protocol: 1, capabilities: ["ui.core", "ui.row-reorder", "ui.sub-sections", "ui.nested-sections", "ui.filter-group"], plugin: { id: "t" }, host: { name: "test", version: "0.3.17" } });
+	h.send({ type: "open", surface: "screen:a" });
+	h.send({ type: "event", surface: "screen:a", name: "filter-arrange", payload: { order: ["status", "project", "due"], grouped: ["status"] } });
+	h.send({ type: "event", surface: "screen:a", name: "reorder", payload: { table: "t", rowId: "a", section: "web/inbox", before: null } });
+	await tick();
+	expect(h.out.find((m: any) => m.type === "render")).toEqual({ type: "render", surface: "screen:a", tree });
+	expect(events).toEqual([["filter-arrange", { order: ["status", "project", "due"], grouped: ["status"] }], ["reorder", { table: "t", rowId: "a", section: "web/inbox", before: null }]]);
+	expect(validateTree(tree)).toBeUndefined();
+});
 test("SDK carries sections, sub-sections, reorder, rich fields and their events through the fake host", async () => {
 	const h = harness();
 	const events: [string, unknown][] = [];

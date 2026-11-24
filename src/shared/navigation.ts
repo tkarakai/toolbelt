@@ -1,5 +1,5 @@
 import type { Node, Row } from "./protocol";
-import { flatSections, groupKey, sectionGroup, subSectionParents } from "./sections";
+import { flatSections, groupKey, sectionAncestors, sectionGroup } from "./sections";
 
 /** Renderer selection, carried by the host when a quick-view item opens the main window. */
 export type NavigationSelection = { item: string; collection?: string };
@@ -20,8 +20,8 @@ export function findSelectionTarget(tree: Node, selection: NavigationSelection):
       matches.push({ ...selection, collection: `list:${node.id}`, ancestors: [], groups: [] });
     }
     if (node.type === "table") {
-      // A row in a sub-section sits under its parent section too (`["progressing", "snoozed"]`).
-      const parents = subSectionParents(node.sections);
+      // A row in a nested section sits under its ancestors too (`["progressing", "snoozed"]`).
+      const parents = sectionAncestors(node.sections);
       const rows = (items: Row[], ancestors: string[], groups: string[]) => {
         for (const row of items) {
           let key = "";
@@ -37,11 +37,11 @@ export function findSelectionTarget(tree: Node, selection: NavigationSelection):
         }
       };
       rows(node.rows, [], []);
-      // Declared sections and sub-sections are headers even with no rows (an empty Pinned, say).
+      // Declared sections at any depth are headers even with no rows (an empty Pinned, say).
       for (const section of flatSections(node.sections)) {
-        const parent = parents.get(section.id);
-        const groups = parent ? [`\0${parent.id}`] : [];
-        if (selection.item === `\u0001group:${groups[0] ?? ""}\0${section.id}`) matches.push({ ...selection, collection: `table:${node.id}`, ancestors: [], groups });
+        let key = "";
+        const groups = (parents.get(section.id) ?? []).map(above => (key += `\0${above.id}`));
+        if (selection.item === `\u0001group:${key}\0${section.id}`) matches.push({ ...selection, collection: `table:${node.id}`, ancestors: [], groups });
       }
     }
     if ("children" in node) node.children.forEach(visit);

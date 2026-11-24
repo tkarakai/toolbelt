@@ -52,3 +52,12 @@ test("rows and empty headers in sub-sections open their parent section", () => {
   });
   expect(findSelectionTarget(tree, { item: "\u0001group:\0snoozed" })).toBeNull();
 });
+test("rows and empty headers in deeply nested sections open every section around them", () => {
+  const tree: Node = { type: "table", id: "tasks", columns: [], sections: [{ id: "web", label: "Website", sections: [{ id: "web/progressing", label: "Progressing", sections: [{ id: "web/working", label: "Working" }, { id: "web/snoozed", label: "Snoozed" }] }] }], rows: [
+    { id: "7", cells: {}, group: "web/working" },
+  ] };
+  expect(findSelectionTarget(tree, { item: "7" })).toEqual({ item: "7", collection: "table:tasks", ancestors: [], groups: ["\0web", "\0web\0web/progressing", "\0web\0web/progressing\0web/working"] });
+  expect(findSelectionTarget(tree, { item: "\u0001group:\0web\0web/progressing\0web/snoozed" })).toEqual({
+    item: "\u0001group:\0web\0web/progressing\0web/snoozed", collection: "table:tasks", ancestors: [], groups: ["\0web", "\0web\0web/progressing"],
+  });
+});
