@@ -58,6 +58,8 @@ and declare a `default` selection; the toolbar then arranges them and sends `fil
 dot. `ui.section-pill` adds `Section.pill`, a section label drawn as a colored pill.
 `ui.heading-note` adds a heading field's `note` (an id above it). `ui.cell-prefix` adds
 `Cell.prefix`, a pill before a cell's text.
+`ui.list-open` makes list items links (`open`) with `prefix` and `tags` pills; `ui.tag-open`
+makes a `tags` field's pills links (`open`).
 `ui.tag-multiple` lets a `tags` key hold several values (`TagKey.multiple`).
 `ui.pane-buttons` puts a pane row's actions in buttons at the bottom of its drawer (table
 `paneButtons`).

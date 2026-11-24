@@ -4,7 +4,7 @@
 // (capability `ui.options-field`) is in OptionsField.tsx. Typing stays here; the plugin hears
 // committed values (blur, ⌘↵, a pick).
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Check, ChevronsUpDown, Plus, X } from "lucide-react";
+import { ArrowUpRight, Check, ChevronsUpDown, Plus, X } from "lucide-react";
 import { HUES, type Field, type Hue, type TagKey, type TagValue } from "../../shared/protocol";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -169,7 +169,7 @@ const valueColor = (k: TagKey, v?: string) => (v !== undefined && k.colors?.[v])
 /** A key's values as picker options, each shown as its pill when the key shades or colors values. */
 const valueOptions = (k: TagKey) => (k.values ?? []).map((v) => ({ value: v, label: v, swatch: shadeStyle(valueColor(k, v), k.shades?.[v]), pill: k.colors?.[v] && pillTint(k.colors[v]) }));
 
-export function TagsField({ id, field, onChange }: { id: string; field: Of<"tags">; onChange: (v: TagValue[]) => void }) {
+export function TagsField({ id, field, onChange, onOpen }: { id: string; field: Of<"tags">; onChange: (v: TagValue[]) => void; onOpen?: (tag: TagValue) => void }) {
 	const [tags, setTags] = useState(field.value);
 	useEffect(() => setTags(field.value), [JSON.stringify(field.value)]);
 	const commit = (next: TagValue[]) => (setTags(next), onChange(next));
@@ -189,7 +189,7 @@ export function TagsField({ id, field, onChange }: { id: string; field: Of<"tags
 			{tags.map((tag, i) => {
 				const k = keyOf(tag.key);
 				if (!k) return null;
-				return <TagPillEditor key={k.multiple ? `${tag.key}\u0000${tag.value ?? ""}` : tag.key} k={k} tag={tag} onSet={(v) => set(tag.key, v, i)} onRemove={() => commit(tags.filter((_, n) => n !== i))} />;
+				return <TagPillEditor key={k.multiple ? `${tag.key}\u0000${tag.value ?? ""}` : tag.key} k={k} tag={tag} onSet={(v) => set(tag.key, v, i)} onOpen={onOpen && (() => onOpen(tag))} onRemove={() => commit(tags.filter((_, n) => n !== i))} />;
 			})}
 			{unused.length > 0 && <AddTag keys={unused} onAdd={set} />}
 			{!tags.length && !unused.length && <span className="text-sm text-muted-foreground">No keys to add</span>}
@@ -197,14 +197,20 @@ export function TagsField({ id, field, onChange }: { id: string; field: Of<"tags
 	);
 }
 
-function TagPillEditor({ k, tag, onSet, onRemove }: { k: TagKey; tag: TagValue; onSet: (v: string) => void; onRemove: () => void }) {
+function TagPillEditor({ k, tag, onSet, onOpen, onRemove }: { k: TagKey; tag: TagValue; onSet: (v: string) => void; onOpen?: () => void; onRemove: () => void }) {
 	const [open, setOpen] = useState(false);
 	const text = k.flag ? k.label : `${k.label}: ${tag.value ?? ""}`;
 	const color = valueColor(k, tag.value);
 	const shaded = tag.value === undefined ? undefined : shadeStyle(color, k.shades?.[tag.value]);
 	return (
 		<span style={shaded} className={cn("inline-flex h-7 items-center overflow-hidden rounded-md text-xs font-medium", !shaded && pillClass(color ?? "default"))}>
-			{k.flag ? (
+			{onOpen ? (
+				// `open`: the pill's text is a link to what it names.
+				<button type="button" onClick={onOpen} aria-label={`Open ${text}`} className="flex h-full items-center gap-1 rounded-l-md pl-2 outline-none hover:underline focus-visible:underline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+					{text}
+					<ArrowUpRight className="size-3 opacity-60" />
+				</button>
+			) : k.flag ? (
 				<span className="pl-2">{text}</span>
 			) : (
 				<Popover open={open} onOpenChange={setOpen}>

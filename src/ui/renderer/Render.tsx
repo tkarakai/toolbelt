@@ -3006,13 +3006,15 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 				}
             } else if (i >= 0) {
                 const item = node.items[i]!;
+                // `open`: ↵ follows the item's link.
+                if (e.key === "Enter" && node.open && !node.open.disabled) { e.preventDefault(); emit(node.open.id, { list: node.id, item: item.id }); return; }
                 const action = e.key === "Enter" ? item.actions?.find(a => !a.disabled) : actionForEvent(item.actions ?? [], e);
                 if (action) { e.preventDefault(); runItem(action, item.id); }
             }
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [keyboard, node.items, active, setActive, runItem]);
+	}, [keyboard, node.items, node.open, node.id, emit, active, setActive, runItem]);
     const revealedTarget = useRef<string | null>(null);
     useLayoutEffect(() => {
         const key = selectionKey(sharedTarget);
@@ -3048,16 +3050,29 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 				<Fragment key={it.id}>
 				<div id={itemDomId(domPrefix, it.id)} role={keyboard ? "option" : "listitem"} aria-selected={keyboard ? it.id === active : undefined} data-item-id={it.id} data-active={it.id === active} {...(it.leaving ? leavingProps : motion.entering.has(it.id) ? { style: enterStyle } : {})} onMouseEnter={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e)) { focusPopoverCollection(self.current); setActive(it.id); } }}
                     onMouseMove={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e) && (active !== it.id || !self.current?.contains(document.activeElement))) { focusPopoverCollection(self.current); setActive(it.id); } }}
-                    onPointerDown={() => { focusPopoverCollection(self.current); setActive(it.id); }} className={cn("group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground", it.leaving ? LEAVING : motion.entering.has(it.id) && ENTERING)}>
+                    onPointerDown={() => { focusPopoverCollection(self.current); setActive(it.id); }}
+                    // `open`: the item is a link; its action buttons stop the click themselves.
+                    onClick={node.open && !node.open.disabled ? (e) => { if (!(e.target as HTMLElement).closest("button")) emit(node.open!.id, { list: node.id, item: it.id }); } : undefined}
+                    title={node.open?.label}
+                    className={cn("group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground", node.open && "cursor-pointer hover:bg-accent", it.leaving ? LEAVING : motion.entering.has(it.id) && ENTERING)}>
                     {it.icon && <Icon name={it.icon} className="size-4 shrink-0" />}
 					<div className="min-w-0 flex-1">
-						{/* Every dot sits before the title, the unread one first, as in tables. */}
+						{/* Every dot sits before the title, the unread one nearest it, as in tables. */}
 						<div className={cn("flex items-center gap-1.5 text-sm", it.unread ? "font-semibold" : "font-medium")}>
-							{it.unread && <UnreadDot />}
 							{it.dot && <Dot dot={it.dot} />}
+							{it.unread && <UnreadDot />}
+							{it.prefix && <TagPill tag={it.prefix} />}
 							<span className={cn("truncate", styleClass(it.titleStyle))}>{it.title}</span>
 						</div>
-						{it.subtitle && <div className="truncate font-mono text-xs text-muted-foreground">{it.subtitle}</div>}
+						{it.tags?.length ? (
+							// Pills on the second line, before the subtitle, as in a table's cell.
+							<div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+								{it.tags.map((t) => <TagPill key={t.text} tag={t} />)}
+								{it.subtitle && <span className="truncate">{it.subtitle}</span>}
+							</div>
+						) : (
+							it.subtitle && <div className="truncate font-mono text-xs text-muted-foreground">{it.subtitle}</div>
+						)}
 					</div>
 					{(it.meta || it.metaAt !== undefined) && <span className="text-xs text-muted-foreground tabular-nums group-data-[active=true]/row:hidden">{it.metaAt !== undefined ? <When at={it.metaAt} /> : it.meta}</span>}
 					{it.actions && it.actions.length > 0 && (
@@ -3170,13 +3185,13 @@ function InlineForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emi
 					) : f.type === "textarea" && f.markdown ? (
 						<InlineMarkdown id={id} field={f} onChange={(v) => change(f, v)} />
 					) : (
-						<FieldControl id={id} field={f} onChange={(v) => change(f, v)} fill />
+						<FieldControl id={id} field={f} onChange={(v) => change(f, v)} onOpen={openTag(node.id, f, emit)} fill />
 					);
 				if (!f.label || (f.type === "text" && f.heading))
 					return (
 						<div key={f.id} data-pane-id={f.id} className={cn("col-span-2 min-w-0", f.type === "text" && f.heading ? "mb-1.5" : "mt-1.5")}>
-							{/* `note`: a quiet line above the heading (an id). */}
-							{f.type === "text" && f.heading && f.note && <div className="mb-0.5 font-mono text-xs text-muted-foreground select-text">{f.note}</div>}
+							{/* `note`: a small pill above the heading (an id), like a cell's `prefix`. */}
+							{f.type === "text" && f.heading && f.note && <div className="mb-1 flex select-text"><TagPill tag={{ text: f.note }} /></div>}
 							{control}
 						</div>
 					);
@@ -3261,14 +3276,14 @@ function BoxedForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emit
 							<div key={f.id} className="space-y-2 sm:col-span-2">
 								{label(f)}
 								{f.description && <p className="text-sm text-muted-foreground">{f.description}</p>}
-								<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} />
+								<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} onOpen={openTag(node.id, f, emit)} />
 							</div>
 						) : (
 							<div key={f.id} className="contents">
 								{label(f, cn("sm:flex sm:min-h-8 sm:items-center sm:self-start sm:leading-snug sm:break-words", f.type === "textarea" && "sm:items-start sm:pt-2"))}
 								<AutoFocus on={!!f.autofocus} className="min-w-0 space-y-1.5">
 									<div className={cn("flex min-h-8 items-center *:max-w-full", f.type === "textarea" && "*:w-full", (f.type === "tags" || f.type === "color") && "py-1", f.type === "options" && "self-start")}>
-										<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} fill />
+										<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} onOpen={openTag(node.id, f, emit)} fill />
 									</div>
 									{f.description && <p className="text-xs text-muted-foreground">{f.description}</p>}
 								</AutoFocus>
@@ -3293,7 +3308,7 @@ function BoxedForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emit
 							{label(f)}
 							{f.description && <p className="text-sm text-muted-foreground">{f.description}</p>}
 						</div>
-						<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} />
+						<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} onOpen={openTag(node.id, f, emit)} />
 					</div>
 				))}
 			</CardContent>
@@ -3323,7 +3338,10 @@ function AutoFocus({ on, className, children }: { on: boolean; className?: strin
 
 type FieldValue = string | boolean | EnvironmentEntry[] | TagValue[] | OptionItem[];
 /** `fill`: as wide as the space it's given (dialog forms), instead of the control's usual width. */
-function FieldControl({ id, field, onChange, fill }: { id: string; field: Field; onChange: (v: FieldValue) => void; fill?: boolean }) {
+/** A `tags` field's `open`: a pill's text sends it with the pill's key and value. */
+const openTag = (form: string, f: Field, emit: Emit) => (f.type === "tags" && f.open && !f.open.disabled ? (t: TagValue) => emit(f.open!.id, { form, field: f.id, key: t.key, value: t.value }) : undefined);
+
+function FieldControl({ id, field, onChange, onOpen, fill }: { id: string; field: Field; onChange: (v: FieldValue) => void; onOpen?: (tag: TagValue) => void; fill?: boolean }) {
 	switch (field.type) {
 		case "environment":
             return <EnvironmentEditor value={field.value} onChange={onChange} />;
@@ -3355,7 +3373,7 @@ function FieldControl({ id, field, onChange, fill }: { id: string; field: Field;
 		case "combobox":
 			return <ComboboxField id={id} field={field} onChange={onChange} className={fill ? "w-full" : undefined} />;
 		case "tags":
-			return <TagsField id={id} field={field} onChange={onChange} />;
+			return <TagsField id={id} field={field} onChange={onChange} onOpen={onOpen} />;
 		case "options":
 			return <OptionsField id={id} field={field} onChange={onChange} />;
 	}

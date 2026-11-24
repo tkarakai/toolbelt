@@ -571,13 +571,22 @@ selection color, showing they're the same thing.
   ↵), other groups as quieter rows, destructive actions last, apart. Order and group actions
   with that in mind.
 
-- `ui.heading-note`: a `heading` text field's `note` (text) is a quiet monospaced line above
-  the heading: an id over the title.
+- `ui.heading-note`: a `heading` text field's `note` (text) is a small neutral pill above the
+  heading, drawn like a cell's `prefix`: an id over the title.
 - `ui.cell-prefix`: `Cell.prefix` (a `Tag`) is a pill before the cell's text, on its line: an
   id in front of a title.
 - `ui.tag-multiple`: `TagKey.multiple` lets a `tags` field hold a key several times, once per
   value (Blocks: #3, Blocks: #7), for many-valued keys such as relations. The Add menu keeps
   offering it; each value appears once per key.
+
+- `ui.list-open`: a `list`'s `open` (an `Action`) makes its items links: clicking an item, or ↵
+  on it, sends that action with `{ list, item }` instead of only selecting it (its own actions
+  keep their buttons and keys). Items then also take `prefix` (a pill before the title) and
+  `tags` (pills on the second line, before the subtitle). In a drawer pane the event carries
+  the pane's `rowId` too; to go to another row, answer with `navigate(screen, { select })`.
+- `ui.tag-open`: a `tags` field's `open` (an `Action`) makes each pill's text a link: clicking
+  it sends that action with `{ form, field, key, value }` instead of opening the value picker.
+  Values are then changed by removing a pill and adding another.
 
 In dialogs, form labels take one column width (7rem) across every form of the dialog, so
 stacked forms line up; longer labels wrap.

@@ -34,6 +34,8 @@ export const CAPABILITIES = [
   "ui.tag-multiple",
   "ui.heading-note",
   "ui.cell-prefix",
+  "ui.list-open",
+  "ui.tag-open",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

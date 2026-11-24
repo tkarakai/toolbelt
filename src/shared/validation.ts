@@ -387,6 +387,7 @@ const field: Schema = (v, p) => {
       object({
         ...base,
         type: literal("tags"),
+        open: optional(action),
         value: array(object({ key: text, value: optional(text) })),
         keys: array(
           object({
@@ -518,9 +519,12 @@ const node: Schema = (v, p) => {
           metaAt: optional(timestamp),
           actions,
           unread: optional(bool),
+          prefix: optional(tag),
+          tags: optional(array(tag)),
         }),
       ),
       empty: optional(empty),
+      open: optional(action),
     }),
     stats: object({
       ...base,

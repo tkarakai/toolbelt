@@ -253,6 +253,15 @@ test("a heading field can carry a note, and a cell a prefix pill", () => {
   expect(() => validateTree(form("#12"))).not.toThrow();
   expect(() => validateTree(form(12))).toThrow();
 });
+test("lists can open their items, and tags fields their pills", () => {
+  const list = (extra: Record<string, unknown>, item: Record<string, unknown> = {}) => ({ type: "list", id: "children", items: [{ id: "rel:2", title: "Write notes", prefix: { text: "#2" }, tags: [{ text: "High", color: "orange" }], ...item }], ...extra });
+  expect(() => validateTree(list({ open: { id: "open-task", label: "Open" } }))).not.toThrow();
+  expect(() => validateTree(list({ open: "open-task" }))).toThrow();
+  expect(() => validateTree(list({}, { tags: "High" }))).toThrow();
+  const form = (open: unknown) => ({ type: "form", id: "f", fields: [{ type: "tags", id: "related", label: "Related", value: [], keys: [{ key: "blocks", label: "Blocks" }], open }] });
+  expect(() => validateTree(form({ id: "open-related", label: "Open" }))).not.toThrow();
+  expect(() => validateTree(form(true))).toThrow();
+});
 test("a multiple tag key holds several values, each once", () => {
   const form = (value: unknown[], multiple = true) => ({ type: "form", id: "f", fields: [{ type: "tags", id: "related", label: "Related", value, keys: [{ key: "blocks", label: "Blocks", values: ["#3", "#7"], multiple }] }] });
   expect(() => validateTree(form([{ key: "blocks", value: "#3" }, { key: "blocks", value: "#7" }]))).not.toThrow();

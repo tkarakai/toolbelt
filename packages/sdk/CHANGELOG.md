@@ -1,6 +1,9 @@
 # SDK changelog
 
 ## Unreleased
+- A heading field's `note` is drawn as a small neutral pill, like a cell's `prefix`, instead of plain monospaced text.
+- Add `ui.list-open`: a `list`'s `open` action makes items links (click or ↵ sends it with `{ list, item }`), and items take `prefix` and `tags` pills.
+- Add `ui.tag-open`: a `tags` field's `open` action makes each pill's text a link (sends `{ form, field, key, value }`).
 
 ## 0.3.14 — 2026-11-24
 - Add `ui.context-select`: the table's `contextSelect` lets context rows be selected in place. A context row then shows its own `actions`, `targets` and `pane`, and its events carry `rowId`: the row it stands for. The selected row and its other copies are highlighted softly.
