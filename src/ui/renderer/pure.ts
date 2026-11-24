@@ -567,3 +567,37 @@ export function atFilterDefault(filter: Pick<Filter, "default">, selected: reado
 	const d = filter.default?.values;
 	return !!d && d.length === selected.length && d.every((v) => selected.includes(v));
 }
+
+// ── the toolbar's scroll strip ──────────────────────────────────────────
+
+/** Below this width (px) the page toolbar shows its actions as icon buttons. */
+export const COMPACT_TOOLBAR = 640;
+/** How wide the strip's edge fade and ‹ › buttons are (px): what's under them counts as hidden. */
+export const STRIP_EDGE = 32;
+
+/** Which sides of a scrolled strip hide content (a pixel of rounding doesn't count). */
+export function stripEdges(scrollLeft: number, clientWidth: number, scrollWidth: number): { left: boolean; right: boolean } {
+	return { left: scrollLeft > 1, right: scrollLeft + clientWidth < scrollWidth - 1 };
+}
+
+/** How far a ‹ or › press scrolls: most of the strip, keeping a little of what was showing. */
+export const stripStep = (clientWidth: number) => Math.max(1, Math.round(clientWidth * 0.8));
+
+/**
+ * The scroll position that shows an item (`start`/`end` relative to the strip's content) clear of
+ * the edge fades, moving as little as possible; the current position when it already shows.
+ */
+export function revealScroll(scrollLeft: number, clientWidth: number, scrollWidth: number, start: number, end: number, edge = STRIP_EDGE): number {
+	const max = Math.max(0, scrollWidth - clientWidth);
+	let next = scrollLeft;
+	if (end > scrollLeft + clientWidth - edge) next = end - clientWidth + edge;
+	if (start < next + edge) next = start - edge;
+	return Math.min(max, Math.max(0, next));
+}
+
+/** How fast (px per frame) a drag near the strip's edge scrolls it: faster the closer it gets. */
+export function edgeScrollSpeed(x: number, left: number, right: number, zone = 48, max = 14): number {
+	if (x < left + zone) return -Math.ceil(max * Math.min(1, (left + zone - x) / zone));
+	if (x > right - zone) return Math.ceil(max * Math.min(1, (x - (right - zone)) / zone));
+	return 0;
+}

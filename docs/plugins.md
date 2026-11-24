@@ -617,6 +617,14 @@ the button. It runs while the page has the keyboard and no field, menu or dialog
 row's action with the same key comes first. Older hosts show the button without the hint and
 ignore the key.
 
+### Page toolbar layout
+
+A page's toolbar is always one row. Its search, `controls`, `filters` and `summary` sit in a
+strip that scrolls sideways when they don't fit (trackpad, touch, or a control taking focus),
+with no scrollbar; a cut-off edge fades and shows a ‹ or › button. Page `actions` stay at the
+right. Below 640 px of toolbar width, actions with an `icon` show as icon buttons, their label and
+key in a tooltip. No plugin change is needed; older hosts wrap the toolbar instead.
+
 ### Timelines
 
 With `ui.timeline`, a `timeline` node shows dated Markdown notes in the order given (put the

@@ -29,10 +29,11 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
 import { SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { ariaShortcut, stepIndex } from "@/lib/keys";
-import { allowsSequence, arrangesFilters, atFilterDefault, FILTER_DIVIDER, filterSequence, keyboardMove, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup } from "./pure";
+import { allowsSequence, arrangesFilters, atFilterDefault, COMPACT_TOOLBAR, edgeScrollSpeed, FILTER_DIVIDER, filterSequence, keyboardMove, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup } from "./pure";
 import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_SLOT, ROW_STEP, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
+import { ScrollStrip, SCROLL_STRIP } from "./ScrollStrip";
 import { parseMarkdown, safeHref, type Block, type Inline } from "./markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -174,7 +175,8 @@ function Elapsed({ at }: { at: number }) {
 
 /** Buttons for toolbar, card and dialog actions; `checked` actions are switches, actions with a
  *  `menu` are split buttons. */
-function ActionButtons({ actions, onRun, size = "sm", enter, enterKeys = { hint: "↵", ariaKeys: "Enter" }, keys }: { actions: Action[]; onRun: (a: Action) => void; size?: "sm" | "default"; enter?: Action; enterKeys?: { hint: string; ariaKeys: string }; keys?: boolean }) {
+/** `compact` draws actions that have an icon as icon buttons, their label (and key) in a tooltip. */
+function ActionButtons({ actions, onRun, size = "sm", enter, enterKeys = { hint: "↵", ariaKeys: "Enter" }, keys, compact }: { actions: Action[]; onRun: (a: Action) => void; size?: "sm" | "default"; enter?: Action; enterKeys?: { hint: string; ariaKeys: string }; keys?: boolean; compact?: boolean }) {
 	return (
 		<>
 			{actions.map((a) =>
@@ -184,7 +186,7 @@ function ActionButtons({ actions, onRun, size = "sm", enter, enterKeys = { hint:
 						{a.label}
 					</label>
 				) : (
-					<SplitButton key={a.id} a={a} size={size} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onRun={onRun} hints={a === enter ? <KeyHint keys={enterKeys.hint} /> : keys && a.key && <KeyHint keys={formatKey(a.key)} />} ariaKeys={a === enter ? enterKeys.ariaKeys : keys && a.key ? ariaShortcut(a.key) : undefined} />
+					<SplitButton key={a.id} a={a} size={size} variant={a.tone === "destructive" ? "destructive" : a.primary ? "default" : "outline"} onRun={onRun} hints={a === enter ? <KeyHint keys={enterKeys.hint} /> : keys && a.key && <KeyHint keys={formatKey(a.key)} />} ariaKeys={a === enter ? enterKeys.ariaKeys : keys && a.key ? ariaShortcut(a.key) : undefined} iconOnly={compact && !!a.icon} />
 				),
 			)}
 		</>
@@ -208,9 +210,16 @@ function AlternativeItem({ a, onRun, inset }: { a: Action; onRun: (a: Action) =>
  * A button; with `menu`, a split button: the main part runs the action, the joined chevron opens
  * its alternatives. Both halves share the variant and a 1 px divider separates them.
  */
-function SplitButton({ a, size, variant, onRun, hints, ariaKeys, className }: { a: Action; size: "sm" | "default"; variant: ButtonVariant; onRun: (a: Action) => void; hints?: ReactNode; ariaKeys?: string; className?: string }) {
+function SplitButton({ a, size, variant, onRun, hints, ariaKeys, className, iconOnly }: { a: Action; size: "sm" | "default"; variant: ButtonVariant; onRun: (a: Action) => void; hints?: ReactNode; ariaKeys?: string; className?: string; iconOnly?: boolean }) {
 	const [open, setOpen] = useState(false);
-	const main = (
+	const main = iconOnly ? (
+		// Its label and key move to a tooltip.
+		<ShortcutTooltip label={a.label} keys={a.key ? formatKey(a.key) : undefined}>
+			<Button size={size === "sm" ? "icon-sm" : "icon"} disabled={a.disabled} variant={variant} aria-label={a.label} aria-keyshortcuts={ariaKeys} onClick={() => onRun(a)} className={cn(a.menu?.length && "rounded-r-none", className)}>
+				<Icon name={a.icon!} />
+			</Button>
+		</ShortcutTooltip>
+	) : (
 		<Button size={size} disabled={a.disabled} variant={variant} aria-keyshortcuts={ariaKeys} onClick={() => onRun(a)} className={cn(a.menu?.length && "rounded-r-none", className)}>
 			{a.icon && <Icon name={a.icon} />}
 			{a.label}
@@ -441,15 +450,29 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 	const { run, dialog: confirm } = useConfirm(emit);
 	runRef.current = (a) => run(a);
 	const hasToolbar = node.search || node.controls?.length || node.actions?.length || node.summary;
+	// A narrow toolbar shows its actions as icon buttons.
+	const toolbar = useRef<HTMLDivElement>(null);
+	const [compact, setCompact] = useState(false);
+	useLayoutEffect(() => {
+		const el = toolbar.current;
+		if (!el) return;
+		const measure = () => setCompact(el.clientWidth < COMPACT_TOOLBAR);
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, [!!hasToolbar]);
 	// Pages without a table read better as a centered column.
 	const narrow = !node.children.some((c) => c.type === "table");
 	return (
 		<HighlightContext.Provider value={highlight}>
 		<div ref={root} className="flex h-full min-h-0 min-w-0 flex-col">
 			{hasToolbar && (
-				<div className={cn("flex w-full min-w-0 shrink-0 flex-wrap items-center gap-3 px-6 pt-4 pb-3", narrow && "mx-auto max-w-4xl")}>
+				<div ref={toolbar} className={cn("flex w-full min-w-0 shrink-0 items-center gap-3 px-6 pt-4 pb-3", narrow && "mx-auto max-w-4xl")}>
+					{/* One row at any width: what doesn't fit scrolls sideways; the actions stay put. */}
+					<ScrollStrip className="flex-1">
 					{node.search && (
-						<InputGroup data-view-control data-filtering={!!query} className={cn("w-64 max-w-full min-w-0 transition-colors duration-200", !!query && ACTIVE_QUERY)}>
+						<InputGroup data-view-control data-filtering={!!query} className={cn("w-64 shrink-0 transition-colors duration-200", !!query && ACTIVE_QUERY)}>
 							<InputGroupAddon>
 								<Search />
 							</InputGroupAddon>
@@ -499,10 +522,13 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 							))}
 						</>
 					)}
-					{node.summary && <span className="truncate text-sm text-muted-foreground tabular-nums">{node.summary}</span>}
-					<div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-2">
-						<ActionButtons actions={node.actions ?? []} onRun={(a) => run(a)} keys />
-					</div>
+					{node.summary && <span className="shrink-0 text-sm whitespace-nowrap text-muted-foreground tabular-nums">{node.summary}</span>}
+					</ScrollStrip>
+					{!!node.actions?.length && (
+						<div className="ml-auto flex shrink-0 items-center gap-2">
+							<ActionButtons actions={node.actions} onRun={(a) => run(a)} keys compact={compact} />
+						</div>
+					)}
 				</div>
 			)}
 			<div className={cn("min-h-0 flex-1", narrow ? "overflow-auto" : "flex")}>
@@ -759,18 +785,37 @@ function FilterRow({ filters, emit }: { filters: Filter[]; emit: Emit }) {
 			}
 			return null;
 		};
-		const pointermove = (ev: PointerEvent) => {
-			if (!active && Math.hypot(ev.clientX - x0, ev.clientY - y0) < FILTER_DRAG_SLOP) return;
-			if (!active) {
-				active = true;
-				setDragging(id);
-			}
-			const hit = over(ev.clientX, ev.clientY);
+		const hover = (x: number, y: number) => {
+			const hit = over(x, y);
 			if (!hit) return;
 			const cur = live.current.seq;
 			show(placeFilter(cur, id, cur.indexOf(hit.other) + (hit.after ? 1 : 0)));
 		};
+		// Held near an edge of the toolbar's scroll strip, a drag scrolls it to reach what's hidden.
+		const strip = e.currentTarget.closest<HTMLElement>(`[${SCROLL_STRIP}]`);
+		let at = { x: x0, y: y0 };
+		let frame = 0;
+		const edgeScroll = () => {
+			if (strip) {
+				const r = strip.getBoundingClientRect();
+				const was = strip.scrollLeft;
+				strip.scrollLeft += edgeScrollSpeed(at.x, r.left, r.right);
+				if (strip.scrollLeft !== was) hover(at.x, at.y);
+			}
+			frame = requestAnimationFrame(edgeScroll);
+		};
+		const pointermove = (ev: PointerEvent) => {
+			if (!active && Math.hypot(ev.clientX - x0, ev.clientY - y0) < FILTER_DRAG_SLOP) return;
+			at = { x: ev.clientX, y: ev.clientY };
+			if (!active) {
+				active = true;
+				setDragging(id);
+				frame = requestAnimationFrame(edgeScroll);
+			}
+			hover(ev.clientX, ev.clientY);
+		};
 		const end = (commit: boolean) => {
+			cancelAnimationFrame(frame);
 			window.removeEventListener("pointermove", pointermove);
 			window.removeEventListener("pointerup", up);
 			window.removeEventListener("pointercancel", cancel);
