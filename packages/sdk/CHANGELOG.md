@@ -1,6 +1,7 @@
 # SDK changelog
 
 ## Unreleased
+- Add `ui.list-inset`: a `list`'s `inset: true` keeps an icon's space before items without an `icon`, so they read as indented.
 
 ## 0.3.16 — 2026-11-24
 - `ui.tag-open` (docs): on hosts from 0.3.22, only a pill's value is the link; its key ("Blocks:") opens the value picker again, so a value can be changed in place.

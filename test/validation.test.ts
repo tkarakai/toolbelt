@@ -262,6 +262,11 @@ test("lists can open their items, and tags fields their pills", () => {
   expect(() => validateTree(form({ id: "open-related", label: "Open" }))).not.toThrow();
   expect(() => validateTree(form(true))).toThrow();
 });
+test("a list can be inset", () => {
+  const list = (inset: unknown) => ({ type: "list", id: "children", inset, items: [{ id: "rel:2", title: "Write notes" }] });
+  expect(() => validateTree(list(true))).not.toThrow();
+  expect(() => validateTree(list("yes"))).toThrow();
+});
 test("a multiple tag key holds several values, each once", () => {
   const form = (value: unknown[], multiple = true) => ({ type: "form", id: "f", fields: [{ type: "tags", id: "related", label: "Related", value, keys: [{ key: "blocks", label: "Blocks", values: ["#3", "#7"], multiple }] }] });
   expect(() => validateTree(form([{ key: "blocks", value: "#3" }, { key: "blocks", value: "#7" }]))).not.toThrow();
