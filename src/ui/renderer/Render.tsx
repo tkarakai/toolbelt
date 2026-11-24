@@ -2887,9 +2887,13 @@ function RowPane({ row, pane, actions, buttons, enter, run, emit }: { row: Row; 
 			)}
 			<div data-pane className="min-h-0 flex-1 space-y-5 overflow-auto px-4 pt-3 pb-8">
 				<PaneRow.Provider value={row.id}>
-					{pane.map((n, i) => (
-						<Render key={(n as { id?: string }).id ?? `${n.type}${i}`} node={n} emit={paneEmit} />
-					))}
+					{/* The drawer's lists choose within the drawer: hovering or picking one of their
+					    items must not replace the table's selected row, which would close the drawer. */}
+					<LocalSelectionProvider>
+						{pane.map((n, i) => (
+							<Render key={(n as { id?: string }).id ?? `${n.type}${i}`} node={n} emit={paneEmit} />
+						))}
+					</LocalSelectionProvider>
 				</PaneRow.Provider>
 			</div>
 			{buttons && groups.length > 0 && <InspectorActions groups={groups} main={enter ? actions.find((a) => a.id === enter && !a.disabled) : actions.find((a) => a.inline)} row={row} run={runAction} />}

@@ -381,6 +381,9 @@ mark.hit {
 /* Tab strips retain trackpad, touch and wheel scrolling without scrollbar chrome. */
 .tab-viewport { scrollbar-width: none; overscroll-behavior-y: none; touch-action: pan-x pinch-zoom; }
 .tab-viewport::-webkit-scrollbar { display: none; }
+/* The page toolbar's scroll strip: no scrollbar, even while scrolling, and none taking height. */
+.scroll-strip { scrollbar-width: none; touch-action: pan-x pinch-zoom; }
+.scroll-strip::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
 /* Keep Settings geometry independent of each pane’s content height. */
 .settings-scroll { overflow-x: hidden; overflow-y: scroll; scrollbar-gutter: stable; }

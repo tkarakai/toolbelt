@@ -584,9 +584,9 @@ selection color, showing they're the same thing.
   keep their buttons and keys). Items then also take `prefix` (a pill before the title) and
   `tags` (pills on the second line, before the subtitle). In a drawer pane the event carries
   the pane's `rowId` too; to go to another row, answer with `navigate(screen, { select })`.
-- `ui.tag-open`: a `tags` field's `open` (an `Action`) makes each pill's text a link: clicking
-  it sends that action with `{ form, field, key, value }` instead of opening the value picker.
-  Values are then changed by removing a pill and adding another.
+- `ui.tag-open`: a `tags` field's `open` (an `Action`) makes each pill's value a link: clicking
+  it sends that action with `{ form, field, key, value }`. The pill's key ("Blocks:") still opens
+  the value picker to change it. A flag pill, having no value, is a link as a whole.
 
 In dialogs, form labels take one column width (7rem) across every form of the dialog, so
 stacked forms line up; longer labels wrap.
