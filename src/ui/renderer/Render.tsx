@@ -3057,10 +3057,10 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
                     className={cn("group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground", node.open && "cursor-pointer hover:bg-accent", it.leaving ? LEAVING : motion.entering.has(it.id) && ENTERING)}>
                     {it.icon && <Icon name={it.icon} className="size-4 shrink-0" />}
 					<div className="min-w-0 flex-1">
-						{/* Every dot sits before the title, the unread one first, as in tables. */}
+						{/* Every dot sits before the title, the unread one nearest it, as in tables. */}
 						<div className={cn("flex items-center gap-1.5 text-sm", it.unread ? "font-semibold" : "font-medium")}>
-							{it.unread && <UnreadDot />}
 							{it.dot && <Dot dot={it.dot} />}
+							{it.unread && <UnreadDot />}
 							{it.prefix && <TagPill tag={it.prefix} />}
 							<span className={cn("truncate", styleClass(it.titleStyle))}>{it.title}</span>
 						</div>

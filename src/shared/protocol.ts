@@ -608,7 +608,8 @@ export type Node =
 			id: string;
 			/**
 			 * `metaAt` shows a moment (epoch ms) relative to now instead of `meta`. `dot` and the
-			 * `unread` dot sit before the title, after the icon. `titleStyle` draws the title in a
+			 * `unread` dot sit before the title, after the icon, the unread one nearest the title
+			 * (as `Row.dot` and the unread dot in tables). `titleStyle` draws the title in a
 			 * color, bold or italic (older hosts ignore it).
 			 */
 			items: { id: string; title: string; titleStyle?: TextStyle; subtitle?: string; icon?: string; dot?: Dot; meta?: string; metaAt?: number; actions?: Action[]; unread?: boolean; prefix?: Tag; tags?: Tag[] }[];
