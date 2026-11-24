@@ -227,6 +227,7 @@ const row: Schema = (v, p) =>
     details: optional(array(detail)),
     stats: optional(array(stat)),
     children: optional(array(row)),
+    context: optional(text),
     targets: optional(record(array(target))),
     unread: optional(bool),
     pane: optional(array(node)),
@@ -450,6 +451,10 @@ const segmented = object({
   type: literal("segmented"), id: text, value: text, label: optional(text),
   options: array(object({ value: text, label: text, icon: optional(text), tooltip: optional(text) })),
 });
+const choice = object({
+  type: literal("choice"), id: text, value: text, label: text, icon: optional(text),
+  options: array(object({ value: text, label: text, description: optional(text), section: optional(text) })),
+});
 const node: Schema = (v, p) => {
   const base = { type: text };
   const children = array(node);
@@ -463,7 +468,7 @@ const node: Schema = (v, p) => {
     page: object({
       ...base,
       search: optional(object({ placeholder: text })),
-      controls: optional(array(segmented)),
+      controls: optional(array(union(segmented, choice))),
       actions,
       summary: optional(text),
       filters: optional(array(filter)),
@@ -484,6 +489,7 @@ const node: Schema = (v, p) => {
       layoutVersion: optional(number),
       sections: optional(sections),
       reorder: optional(bool),
+      reorderOnto: optional(text),
       selectEvents: optional(bool),
       enter: optional(text),
       appearance: optional(enumeration("grid", "document")),
@@ -619,6 +625,7 @@ const node: Schema = (v, p) => {
       }),
     }),
     segmented,
+    choice,
     progress: object({
       ...base,
       label: optional(text),

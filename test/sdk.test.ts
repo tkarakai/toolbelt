@@ -109,6 +109,25 @@ test("navigate is sent only when the host offers it", async () => {
 	expect(h.out).toEqual([{ type: "navigate", screen: "main", select: "row-1" }, { type: "navigate", screen: "other" }]);
 });
 
+test("SDK carries context rows, drops onto rows and choice controls through the fake host", async () => {
+	const h = harness();
+	const events: [string, unknown][] = [];
+	const tree = {
+		type: "page" as const,
+		controls: [{ type: "choice" as const, id: "subtasks", label: "Subtasks", value: "off", options: [{ value: "off", label: "Off" }, { value: "parent", label: "Follow their parent", section: "Subtask hierarchy" }] }],
+		children: [{ type: "table" as const, id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "c1@working", cells: { x: "Parent" }, group: "working", context: "1", open: true, children: [{ id: "2", cells: { x: "Child" } }] }], sections: [{ id: "working", label: "Working" }], reorder: true, reorderOnto: "Make it a subtask" }],
+	};
+	definePlugin({ render: { "screen:a": () => tree }, onEvent: (_s, name, payload) => { events.push([name, payload]); } }, { write: h.write, input: h.input });
+	await tick();
+	h.send({ type: "hello", protocol: 1, capabilities: ["ui.core", "ui.row-reorder", "ui.row-tree", "ui.choice-control"], plugin: { id: "t" }, host: { name: "test", version: "0.3.18" } });
+	h.send({ type: "open", surface: "screen:a" });
+	h.send({ type: "event", surface: "screen:a", name: "reorder", payload: { table: "t", rowId: "2", section: "working", before: null, onto: "1" } });
+	h.send({ type: "event", surface: "screen:a", name: "field", payload: { form: "subtasks", field: "subtasks", value: "parent" } });
+	await tick();
+	expect(h.out.find((m: any) => m.type === "render")).toEqual({ type: "render", surface: "screen:a", tree });
+	expect(events.map(([n]) => n)).toEqual(["reorder", "field"]);
+	expect(validateTree(tree)).toBeUndefined();
+});
 test("SDK carries nested sections, arranged filters and filter-arrange through the fake host", async () => {
 	const h = harness();
 	const events: [string, unknown][] = [];

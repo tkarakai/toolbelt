@@ -130,7 +130,9 @@ code in `renderer/pure.ts`. When a row moves into a collapsed group, that group'
 Arranged filters (`Filter.group`) render as one `FilterRow` in the page toolbar: the sequence
 logic (divider, toggling, stepping, dragging, the depth refusal) is pure code in
 `renderer/pure.ts`, and the row slides filters to their new places (FLIP), keeping focus and an
-open menu with the moved filter.
+open menu with the moved filter. With `reorderOnto`, rows at any depth drag and the middle of a
+row is an `onto` target; `Row.context` rows are dimmed, uncounted and pass selection to the row
+they stand for. The `choice` control is `Choice` in `Render.tsx`.
 Action keys may carry `alt+`/`shift+`; `keyNames` reads the physical key because ⌥ changes the
 typed character on macOS. Open action menus (row ⋯, drawer ⋯, split-button alternatives) run an
 action from its key in their own `onKeyDown` (`menuActionForEvent`), preventing Radix typeahead

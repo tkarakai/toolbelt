@@ -225,6 +225,16 @@ test("filters can group and declare a default selection", () => {
   expect(() => validateTree(page({ default: { values: "inbox", label: "Ongoing" } }))).toThrow();
   expect(() => validateTree(page({ default: { values: [] } }))).toThrow();
 });
+test("rows can stand in for another row, tables take drops onto rows, and toolbars a choice", () => {
+  const table = (extra: Record<string, unknown>, row: Record<string, unknown> = {}) => ({ type: "table", id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "c1@inbox", cells: { x: "Parent" }, context: "1", children: [{ id: "2", cells: { x: "Child" } }], ...row }], reorder: true, ...extra });
+  expect(() => validateTree(table({ reorderOnto: "Make it a subtask" }))).not.toThrow();
+  expect(() => validateTree(table({}, { context: 1 }))).toThrow();
+  expect(() => validateTree(table({ reorderOnto: true }))).toThrow();
+  const page = (control: Record<string, unknown>) => ({ type: "page", children: [], controls: [{ type: "choice", id: "subtasks", label: "Subtasks", value: "off", options: [{ value: "off", label: "Off" }, { value: "own", label: "Stay in their own group", section: "Subtask hierarchy", description: "Parents show as context" }], ...control }] });
+  expect(() => validateTree(page({}))).not.toThrow();
+  expect(() => validateTree(page({ label: undefined }))).toThrow();
+  expect(() => validateTree(page({ options: [{ value: "off" }] }))).toThrow();
+});
 test("action keys are one key, or alt/shift before a key or arrow", () => {
   const withKey = (key: string) => ({ type: "page", actions: [{ id: "a", label: "A", key }], children: [] });
   for (const key of ["j", "alt+up", "alt+shift+down", "shift+s", "alt+1"]) expect(() => validateTree(withKey(key))).not.toThrow();
