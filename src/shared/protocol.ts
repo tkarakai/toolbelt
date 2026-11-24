@@ -101,6 +101,8 @@ export type Cell =
 			dot?: Dot;
 			/** The part of `text` that matters most (a path's project folder): drawn stronger. */
 			strong?: string;
+			/** Capability `ui.cell-prefix`: a pill before the text, on its line (an id). */
+			prefix?: Tag;
 			/** Pills at the start of the second line, before `sub` (agent, state). */
 			tags?: Tag[];
 			/** Icons right after the text, each with an instant tooltip. */
@@ -272,6 +274,12 @@ export type Row = {
 	 * counted or dragged, and selecting it selects that row when it's shown.
 	 */
 	context?: string;
+	/**
+	 * Capability `ui.row-dot`: a status dot in the row's leading slot (the one the unread dot
+	 * uses), so the first column's text lines up whether or not a row has one. With the unread
+	 * dot too, the dots sit side by side, ending where the slot does: this one to the left.
+	 */
+	dot?: Dot;
 	/** Per action id: what it can apply to. With two or more, the action asks which one. */
 	targets?: Record<string, Target[]>;
 	/** Something happened since the person last looked: a bold title and a dot. */
@@ -316,6 +324,11 @@ export type Section = {
 	order?: "manual" | "fixed" | false;
 	dropLabel?: string;
 	dropIcon?: string;
+	/**
+	 * Capability `ui.section-pill`: draw the label as a colored pill, sized to the header, the
+	 * way rows show the same value as a `Tag` (a label's value as a group). `shade` as on a tag.
+	 */
+	pill?: { color?: Tone | Hue; shade?: number };
 	/**
 	 * Sections nested in this one: sub-sections (capability `ui.sub-sections`), which can have
 	 * their own with capability `ui.nested-sections`, up to `MAX_SECTION_DEPTH` (10) levels
@@ -400,8 +413,11 @@ export type Field = (
 	| { type: "environment"; id: string; label: string; value: EnvironmentEntry[]; description?: string }
 	| { type: "select"; id: string; label: string; value: string; options: { value: string; label: string }[]; description?: string }
 	| { type: "switch"; id: string; label: string; value: boolean; description?: string }
-	/** `heading`: the title of what's edited, drawn large (inline forms). */
-	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean; heading?: boolean }
+	/**
+	 * `heading`: the title of what's edited, drawn large (inline forms). `note` (capability
+	 * `ui.heading-note`): a quiet monospaced line above the heading, such as an id.
+	 */
+	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean; heading?: boolean; note?: string }
 	// The fields below need the `ui.rich-fields` capability.
 	/** Several lines; with `markdown`, an editor that styles Markdown as it's typed. Sent on blur and ⌘↵. */
 	| { type: "textarea"; id: string; label: string; value: string; placeholder?: string; description?: string; markdown?: boolean; rows?: number }
@@ -438,9 +454,10 @@ export type Field = (
 /**
  * `shades` gives values a `Tag.shade` (value → 0…1), used for their pills and in the picker.
  * `colors` gives values a color of their own (value → hue), which wins over `color`; without a
- * `color`, the key itself shows a rainbow dot.
+ * `color`, the key itself shows a rainbow dot. With `multiple` (capability `ui.tag-multiple`), the
+ * key can be added again for each of several values (Blocks: #3, Blocks: #7); each value once.
  */
-export type TagKey = { key: string; label: string; color?: Tone | Hue; values?: string[]; freeform?: boolean; flag?: boolean; shades?: Record<string, number>; colors?: Record<string, Hue> };
+export type TagKey = { key: string; label: string; color?: Tone | Hue; values?: string[]; freeform?: boolean; flag?: boolean; shades?: Record<string, number>; colors?: Record<string, Hue>; multiple?: boolean };
 
 /**
  * One item of an `options` field. `key` is the plugin's stable id for it: renaming keeps the key,
@@ -546,6 +563,22 @@ export type Node =
 			 * the row it stands for) and its section. This names that drop ("Make it a subtask").
 			 */
 			reorderOnto?: string;
+			/**
+			 * Capability `ui.context-select`: context rows (`Row.context`) are selected like other
+			 * rows instead of handing the selection to the row they stand for. A context row then
+			 * shows its own `actions`, `targets` and `pane` (send that row's), and its events
+			 * (actions, pane events, `select`) carry `rowId`: the row it stands for, so it acts as
+			 * that row. While either is selected, the row and its other context rows are softly
+			 * highlighted.
+			 */
+			contextSelect?: boolean;
+			/**
+			 * Capability `ui.pane-buttons`: a row's drawer (`Row.pane`) shows its actions as buttons
+			 * at the bottom, as a details drawer does (the first group as buttons, the ↵ action
+			 * filled; other groups as quieter rows; destructive ones last, apart), instead of the
+			 * slim bar of icons and ⋯ on top.
+			 */
+			paneButtons?: boolean;
 			/**
 			 * Send `select` with `{ table, rowId }` (null when cleared) once the person's selection
 			 * has rested on a row for a moment (capability `ui.row-select`).

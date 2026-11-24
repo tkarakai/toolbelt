@@ -548,6 +548,40 @@ With `ui.row-tree`, a table can let people arrange rows into a tree:
 
 Nest rows with `Row.children` as usual, `open: true` to start expanded.
 
+With `ui.context-select`, the table's `contextSelect: true` lets people select context rows
+like any other, so the keyboard moves through them in place. Give a context row the actions,
+`targets` and `pane` of the row it stands for: they show as usual, and every event from it
+(actions, pane events, `select`) carries `rowId`: that row's id, so it acts as that row. While
+a row or one of its context rows is selected, the others are drawn with a soft version of the
+selection color, showing they're the same thing.
+
+### Row dots, section pills and pane buttons
+
+- `ui.row-dot`: `Row.dot` (a `Dot`) sits in the row's leading slot, the one the unread dot uses,
+  so the first column's text lines up whether a row has dots or not. With the unread dot too,
+  they sit side by side ending where the slot does, this one on the left; on a row whose slot
+  holds its expand chevron, dots sit just left of it. A first cell's `dot` still draws before
+  its text.
+- `ui.section-pill`: `Section.pill` (`{ color?, shade? }`, as on a `Tag`) draws a section's
+  label as a colored pill sized to its header: the same look rows give that value as a tag
+  (a label's value used as a group).
+- `ui.pane-buttons`: the table's `paneButtons: true` moves a pane row's actions from the slim
+  bar on top of its drawer to buttons at the bottom, laid out as for `details`: the first
+  action group as buttons (the table's `enter` action, else the first inline one, filled with
+  ↵), other groups as quieter rows, destructive actions last, apart. Order and group actions
+  with that in mind.
+
+- `ui.heading-note`: a `heading` text field's `note` (text) is a quiet monospaced line above
+  the heading: an id over the title.
+- `ui.cell-prefix`: `Cell.prefix` (a `Tag`) is a pill before the cell's text, on its line: an
+  id in front of a title.
+- `ui.tag-multiple`: `TagKey.multiple` lets a `tags` field hold a key several times, once per
+  value (Blocks: #3, Blocks: #7), for many-valued keys such as relations. The Add menu keeps
+  offering it; each value appears once per key.
+
+In dialogs, form labels take one column width (7rem) across every form of the dialog, so
+stacked forms line up; longer labels wrap.
+
 ### Choice controls
 
 With `ui.choice-control`, a page's `controls` can hold `{ type: "choice", id, label, icon?,

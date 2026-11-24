@@ -985,6 +985,13 @@ function CellView({ cell, col, measure }: { cell: Cell | undefined; col: Column;
 			<div className={measure ? "shrink-0" : spark ? "min-w-0" : "min-w-0 flex-1"} title={[cell.text, cell.sub].filter(Boolean).join("\n")}>
 				{cell.at !== undefined ? (
 					<When at={cell.at} className={cn("block truncate", mono && "font-mono text-[0.8rem] tabular-nums", styleClass(cell.style, cell.tone ?? "default"))} />
+				) : cell.text && cell.prefix && !cell.badge ? (
+					// `prefix`: a pill before the text (a task's id), on its line.
+					<div className="flex min-w-0 items-center gap-1.5">
+						<TagPill tag={cell.prefix} />
+						<div className={cn("min-w-0 truncate", mono && "font-mono text-[0.8rem] tabular-nums", styleClass(cell.style, cell.tone ?? "default"))}><Strong text={cell.text} strong={cell.strong} /></div>
+						{cell.marks?.map((m) => <MarkIcon key={m.icon + m.tooltip} mark={m} />)}
+					</div>
 				) : cell.text &&
 					(cell.badge ? (
 						<Badge variant="secondary"><Hl text={cell.text} /></Badge>
@@ -1265,7 +1272,7 @@ function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setCho
  *  headers it sits under (for indentation). */
 type Visible = { row: Row; depth: number; parent?: string; /** where its chevron/unread slot starts (`rowOffset`) */ offset: number; group?: string };
 
-type GroupLevel = { summary?: { label: string; value: string; description?: string; column?: string }; key: string; label: string; strong?: string; sub?: string; tag?: string; muted?: boolean; icon?: string };
+type GroupLevel = { summary?: { label: string; value: string; description?: string; column?: string }; key: string; label: string; strong?: string; sub?: string; tag?: string; muted?: boolean; icon?: string; pill?: Section["pill"] };
 const groupPath = (g: Row["group"]): GroupLevel[] =>
 	g === undefined ? [] : (typeof g === "string" ? [g] : g).map((l: GroupLabel) => (typeof l === "string" ? { key: l, label: l } : { key: l.id ?? l.label, label: l.label, strong: l.strong, sub: l.sub, tag: l.tag, muted: l.muted, icon: l.icon, summary: l.summary }));
 
@@ -1307,7 +1314,7 @@ type Item =
 	| { kind: "row"; id: string; v: Visible; muted: boolean };
 
 const TableRow = memo(
-	function TableRow({ domPrefix, v, muted, leaving, doc, columns, roomy, actions, selected, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, onDragStart, dragDeep, dragging, run, ready }: { domPrefix: string; v: Visible; muted?: boolean; leaving?: boolean; doc?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; onDragStart?: (e: React.PointerEvent, row: Row) => void; dragDeep?: boolean; dragging?: boolean; run: Run; ready: { current: boolean } }) {
+	function TableRow({ domPrefix, v, muted, leaving, doc, columns, roomy, actions, selected, echo, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, onDragStart, dragDeep, dragging, run, ready }: { domPrefix: string; v: Visible; muted?: boolean; leaving?: boolean; doc?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; echo?: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; onDragStart?: (e: React.PointerEvent, row: Row) => void; dragDeep?: boolean; dragging?: boolean; run: Run; ready: { current: boolean } }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
 		// Rows that appear after the table is up (expanded, new processes) fade in. The class goes
@@ -1333,14 +1340,15 @@ const TableRow = memo(
 				onDoubleClick={() => hasChildren && onToggle(row.id)}
 				onPointerDown={onDragStart && !row.context && (depth === 0 || dragDeep) ? (e) => onDragStart(e, row) : undefined}
 				data-context={row.context ? "" : undefined}
+				data-echo={echo || undefined}
 				data-unread={row.unread || undefined}
 				className={cn(
 					"group/row cursor-default transition-[background-color,opacity] duration-200",
 					dragging && "opacity-40",
 					// A document: no lines, and the cells carry the fill so the row's ends can round.
 					doc
-						? cn(DOC_ROW, selected ? "text-selected-foreground *:bg-selected" : "hover:*:bg-accent")
-						: cn("[&>td]:border-b [&>td]:border-border/50", selected ? "bg-selected text-selected-foreground" : "hover:bg-accent", depth > 0 && !selected && "bg-muted/20"),
+						? cn(DOC_ROW, selected ? "text-selected-foreground *:bg-selected" : echo ? "*:bg-selected/15 hover:*:bg-selected/25" : "hover:*:bg-accent")
+						: cn("[&>td]:border-b [&>td]:border-border/50", selected ? "bg-selected text-selected-foreground" : echo ? "bg-selected/15 hover:bg-selected/25" : "hover:bg-accent", depth > 0 && !selected && !echo && "bg-muted/20"),
 					muted && !selected && "text-muted-foreground",
 					// A context row only stands in for another row: quieter still.
 					row.context && !selected && "italic text-muted-foreground/80",
@@ -1356,7 +1364,14 @@ const TableRow = memo(
 				{columns.map((c, i) => (
 					<td key={c.key} role="gridcell" className={cn("h-12 overflow-hidden px-3 align-middle text-sm", c.align === "right" && "text-right", !growOf(c) && "whitespace-nowrap", roomy.split(",").includes(c.key) && "tb-cell-roomy")} style={i === 0 ? { paddingLeft: 12 + v.offset } : undefined}>
 						{i === 0 ? (
-							<div className="flex min-w-0 items-center">
+							<div className="relative flex min-w-0 items-center">
+								{/* Dots that don't fit the slot (`Row.dot` beside the unread dot, or any dot on a
+								    row whose slot holds its chevron) sit to its left, in the indent, so text lines up. */}
+								{(() => {
+									const dots = [row.dot && <Dot key="dot" dot={row.dot} />, row.unread && <UnreadDot key="unread" />].filter(Boolean);
+									const outside = hasChildren ? dots : dots.slice(0, -1);
+									return outside.length > 0 && <span className="absolute top-1/2 right-full flex -translate-y-1/2 items-center gap-1 pr-[3px]" style={{ marginRight: hasChildren ? 0 : -6 }}>{outside}</span>;
+								})()}
 								{hasChildren ? (
 									<button
 										tabIndex={-1}
@@ -1367,10 +1382,9 @@ const TableRow = memo(
 										<ChevronRight className={cn("size-3.5 transition-transform duration-200", expanded && "rotate-90")} />
 									</button>
 								) : (
-									// No children: the chevron's slot holds the unread dot.
-									<span className="mr-1 flex size-5 shrink-0 items-center justify-center">{row.unread && <UnreadDot />}</span>
+									// No children: the chevron's slot holds the rightmost dot (unread, else `Row.dot`).
+									<span className="mr-1 flex size-5 shrink-0 items-center justify-center">{row.unread ? <UnreadDot /> : row.dot && <Dot dot={row.dot} />}</span>
 								)}
-								{hasChildren && row.unread && <UnreadDot className="mr-1.5" />}
 								<div className={cn("min-w-0 flex-1", row.unread && "font-semibold")}>
 									<CellView cell={owned(row.cells,c.key)} col={c} />
 								</div>
@@ -1386,7 +1400,7 @@ const TableRow = memo(
 			</tr>
 		);
 	},
-	(a, b) => a.sig === b.sig && a.doc === b.doc && a.dragging === b.dragging && a.onDragStart === b.onDragStart && a.leaving === b.leaving && a.muted === b.muted && a.selected === b.selected && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.choosing === b.choosing && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.roomy === b.roomy && a.actions === b.actions && a.run === b.run,
+	(a, b) => a.sig === b.sig && a.doc === b.doc && a.dragging === b.dragging && a.onDragStart === b.onDragStart && a.leaving === b.leaving && a.muted === b.muted && a.selected === b.selected && a.echo === b.echo && a.expanded === b.expanded && a.menuOpen === b.menuOpen && a.choosing === b.choosing && a.checked === b.checked && a.onCheck === b.onCheck && a.columns === b.columns && a.roomy === b.roomy && a.actions === b.actions && a.run === b.run,
 );
 
 function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emit: Emit }) {
@@ -1415,7 +1429,23 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	// When the person last ran an action here: if its refresh takes the selected row away
 	// (settled into a collapsed section, deleted), the selection moves to its neighbor.
 	const lastAction = useRef(0);
-	const emitAction = useCallback<Emit>((name, payload) => ((lastAction.current = Date.now()), emit(name, payload)), [emit]);
+	// `contextSelect`: a context row acts as the row it stands for, so its events name that row.
+	const contextOf = useMemo(() => {
+		const out = new Map<string, string>();
+		if (!node.contextSelect) return out;
+		const walk = (rows: Row[]) => rows.forEach((r) => (r.context !== undefined && out.set(r.id, r.context), r.children && walk(r.children)));
+		walk(node.rows);
+		return out;
+	}, [node.rows, node.contextSelect]);
+	const standFor = useCallback((id: string) => contextOf.get(id) ?? id, [contextOf]);
+	const emitAction = useCallback<Emit>(
+		(name, payload) => {
+			lastAction.current = Date.now();
+			const p = payload as { rowId?: unknown } | undefined;
+			emit(name, typeof p?.rowId === "string" && contextOf.has(p.rowId) ? { ...p, rowId: standFor(p.rowId) } : payload);
+		},
+		[emit, contextOf, standFor],
+	);
 	const { run, dialog } = useConfirm(emitAction);
 	// An action with `focus` goes into the drawer instead, when the drawer can show (set below).
 	const focusInPane = useRef<(a: Action, rowId: string) => boolean>(() => false);
@@ -1667,7 +1697,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		// Declared sections come first, in order, even without rows; so do the sections nested
 		// in them, at every depth.
 		const declare = (sec: Section, parent: GNode) => {
-			const n: GNode = { group: { key: sec.id, label: sec.label, icon: sec.icon }, key: `${parent.key}\u0000${sec.id}`, level: parent.level + 1, rows: [], kids: new Map(), order: [], muted: parent.muted || !!sec.muted, parent, section: sec };
+			const n: GNode = { group: { key: sec.id, label: sec.label, icon: sec.icon, pill: sec.pill }, key: `${parent.key}\u0000${sec.id}`, level: parent.level + 1, rows: [], kids: new Map(), order: [], muted: parent.muted || !!sec.muted, parent, section: sec };
 			parent.kids.set(sec.id, n);
 			parent.order.push(n);
 			for (const sub of sec.sections ?? []) declare(sub, n);
@@ -1760,11 +1790,15 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	// Expandable rows or groups make it a tree grid (rows announce their level and state).
 	const tree = items.some((it) => it.kind === "header" || it.v.depth > 0 || !!it.v.row.children?.length);
 
-	// A context row stands in for another row: selecting it selects that one, when it's shown.
+	// A context row stands in for another row: selecting it selects that one, when it's shown
+	// (unless `contextSelect`: then it's selected itself and acts as that row).
 	useEffect(() => {
+		if (node.contextSelect) return;
 		const stand = current?.kind === "row" ? current.v.row.context : undefined;
 		if (stand && items.some((it) => it.id === stand)) select(stand);
-	}, [current, items]);
+	}, [current, items, node.contextSelect]);
+	// The row the selection stands for: it and its context rows are highlighted softly.
+	const echoOf = current?.kind === "row" && (current.v.row.context !== undefined || items.some((it) => it.kind === "row" && it.v.row.context === current.v.row.id)) ? (current.v.row.context ?? current.v.row.id) : null;
 
 	// `selectEvents`: tell the plugin which row the person is looking at, once it rests there.
 	const selectedRow = current?.kind === "row" ? current.v.row.id : null;
@@ -1774,10 +1808,10 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		if (!node.selectEvents || sentSelection.current === selectedRow) return;
 		const t = setTimeout(() => {
 			sentSelection.current = selectedRow;
-			emit("select", { table: node.id, rowId: selectedRow });
+			emit("select", { table: node.id, rowId: selectedRow === null ? null : standFor(selectedRow) });
 		}, SELECT_SETTLE_MS);
 		return () => clearTimeout(t);
-	}, [node.selectEvents, node.id, selectedRow, emit]);
+	}, [node.selectEvents, node.id, selectedRow, emit, standFor]);
 
 	const select = useCallback(
 		(id: string | null) => {
@@ -2317,6 +2351,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 											roomy={roomy}
 											actions={actionsFor(it.v.row)}
 										selected={!it.leaving && it.v.row.id === selected}
+										echo={echoOf !== null && it.v.row.id !== selected && (it.v.row.context ?? it.v.row.id) === echoOf}
 										expanded={expanded.has(it.v.row.id)}
 										menuOpen={menuFor === it.v.row.id}
 										choosing={choosing?.row === it.v.row.id ? choosing.action : null}
@@ -2393,6 +2428,8 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 					selected={!!current}
 					item={current?.kind === "row" && (current.v.row.details || current.v.row.pane) ? current : current?.kind === "header" ? current : null}
 					actions={current?.kind === "row" ? actionsFor(current.v.row) : []}
+					paneButtons={!!node.paneButtons}
+					enter={node.enter}
 					run={runRow}
 					emit={emitAction}
 					onLeave={() => wrap.current?.focus({ preventScroll: true })}
@@ -2447,7 +2484,12 @@ function GroupHeader({ domPrefix, item, doc, columns, bulk, selected, leaving, r
 						<ChevronRight className={cn("size-3.5 transition-transform duration-200", !collapsed && "rotate-90")} />
 					</button>
 					{g.icon && <Icon name={g.icon} className={cn("shrink-0 text-muted-foreground", isFileIcon(g.icon) ? (top ? "size-7" : "size-5") : top ? "size-5" : "size-4")} />}
-					{top ? (
+					{g.pill ? (
+						// `Section.pill`: the label as the pill rows show for the same value, at the header's size.
+						<span style={shadeStyle(g.pill.color, g.pill.shade)} className={cn("min-w-0 truncate rounded-md font-semibold", top ? "px-2 py-0.5 text-[13px] leading-5" : "px-1.5 py-0.5 text-[11px] leading-4", !shadeStyle(g.pill.color, g.pill.shade) && pillClass(g.pill.color))}>
+							<Strong text={g.label} strong={g.strong} />
+						</span>
+					) : top ? (
 						<span className={cn("truncate font-semibold", selected ? "text-selected-foreground" : "text-group")}>
 							<Strong text={g.label} strong={g.strong} />
 						</span>
@@ -2491,7 +2533,7 @@ type InspectorItem = Extract<Item, { kind: "row" }> | Extract<Item, { kind: "hea
  * sectioned details and grouped actions; a group header shows what it holds and collapse /
  * expand; with nothing to show it says so.
  */
-function Inspector({ open, item, selected, actions, run, emit, onLeave, onToggleGroup }: { open: boolean; item: InspectorItem | null; selected: boolean; actions: Action[]; run: Run; emit: Emit; onLeave: () => void; onToggleGroup: (key: string) => void }) {
+function Inspector({ open, item, selected, actions, paneButtons, enter, run, emit, onLeave, onToggleGroup }: { open: boolean; item: InspectorItem | null; selected: boolean; actions: Action[]; paneButtons?: boolean; enter?: string; run: Run; emit: Emit; onLeave: () => void; onToggleGroup: (key: string) => void }) {
 	const [width, setWidth] = usePersisted("toolbelt.inspectorWidth", 340);
 	const [dragging, setDragging] = useState(false);
 	const onPointerDown = (e: React.PointerEvent) => {
@@ -2540,7 +2582,7 @@ function Inspector({ open, item, selected, actions, run, emit, onLeave, onToggle
 				) : item.kind === "header" ? (
 					<GroupSummary item={item} onToggle={() => onToggleGroup(item.key)} />
 				) : item.v.row.pane ? (
-					<RowPane key={item.v.row.id} row={item.v.row} pane={item.v.row.pane} actions={actions} run={run} emit={emit} />
+					<RowPane key={item.v.row.id} row={item.v.row} pane={item.v.row.pane} actions={actions} buttons={paneButtons} enter={enter} run={run} emit={emit} />
 				) : (
 					<RowDetails row={item.v.row} actions={actions} run={run} />
 				)}
@@ -2675,9 +2717,10 @@ const paneMenuClosed = (e: Event) => {
 
 /**
  * A row's own drawer (`Row.pane`): a slim bar of its actions — the first group as icon buttons,
- * everything in the ⋯ menu — above the plugin's nodes. Events from the nodes carry the row.
+ * everything in the ⋯ menu — above the plugin's nodes, or (`paneButtons`) the details drawer's
+ * buttons below them. Events from the nodes carry the row.
  */
-function RowPane({ row, pane, actions, run, emit }: { row: Row; pane: Node[]; actions: Action[]; run: Run; emit: Emit }) {
+function RowPane({ row, pane, actions, buttons, enter, run, emit }: { row: Row; pane: Node[]; actions: Action[]; buttons?: boolean; enter?: string; run: Run; emit: Emit }) {
 	const paneEmit = useCallback<Emit>((name, payload) => emit(name, { ...(payload as object | undefined), rowId: row.id }), [emit, row.id]);
 	const groups = groupActions(actions);
 	const first = groups[0] ?? [];
@@ -2700,7 +2743,7 @@ function RowPane({ row, pane, actions, run, emit }: { row: Row; pane: Node[]; ac
 	);
 	return (
 		<>
-			{actions.length > 0 && (
+			{actions.length > 0 && !buttons && (
 				<div className="flex shrink-0 items-center gap-0.5 border-b px-2 py-1.5">
 					{first.map((a) => {
 						const targets = choicesFor(row, a);
@@ -2804,6 +2847,7 @@ function RowPane({ row, pane, actions, run, emit }: { row: Row; pane: Node[]; ac
 					))}
 				</PaneRow.Provider>
 			</div>
+			{buttons && groups.length > 0 && <InspectorActions groups={groups} main={enter ? actions.find((a) => a.id === enter && !a.disabled) : actions.find((a) => a.inline)} row={row} run={runAction} />}
 		</>
 	);
 }
@@ -3131,6 +3175,8 @@ function InlineForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emi
 				if (!f.label || (f.type === "text" && f.heading))
 					return (
 						<div key={f.id} data-pane-id={f.id} className={cn("col-span-2 min-w-0", f.type === "text" && f.heading ? "mb-1.5" : "mt-1.5")}>
+							{/* `note`: a quiet line above the heading (an id). */}
+							{f.type === "text" && f.heading && f.note && <div className="mb-0.5 font-mono text-xs text-muted-foreground select-text">{f.note}</div>}
 							{control}
 						</div>
 					);
@@ -3207,7 +3253,9 @@ function BoxedForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emit
 						{node.description && <p className="text-sm text-muted-foreground">{node.description}</p>}
 					</div>
 				)}
-				<div data-form-fields className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-[minmax(5.5rem,max-content)_minmax(0,1fr)]">
+				{/* One label width for every form in a dialog, so forms stacked in it line up; longer
+				    labels wrap. */}
+				<div data-form-fields className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-[7rem_minmax(0,1fr)]">
 					{node.fields.map((f) =>
 						f.type === "environment" ? (
 							<div key={f.id} className="space-y-2 sm:col-span-2">
@@ -3217,7 +3265,7 @@ function BoxedForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emit
 							</div>
 						) : (
 							<div key={f.id} className="contents">
-								{label(f, cn("sm:flex sm:min-h-8 sm:items-center sm:self-start", f.type === "textarea" && "sm:items-start sm:pt-2"))}
+								{label(f, cn("sm:flex sm:min-h-8 sm:items-center sm:self-start sm:leading-snug sm:break-words", f.type === "textarea" && "sm:items-start sm:pt-2"))}
 								<AutoFocus on={!!f.autofocus} className="min-w-0 space-y-1.5">
 									<div className={cn("flex min-h-8 items-center *:max-w-full", f.type === "textarea" && "*:w-full", (f.type === "tags" || f.type === "color") && "py-1", f.type === "options" && "self-start")}>
 										<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} fill />

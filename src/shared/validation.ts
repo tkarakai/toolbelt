@@ -168,6 +168,7 @@ const cell = union(
     style: optional(textStyle),
     dot: optional(dot),
     strong: optional(text),
+    prefix: optional(tag),
     tags: optional(array(tag)),
     marks: optional(array(mark)),
     chips: optional(array(text)),
@@ -228,6 +229,7 @@ const row: Schema = (v, p) =>
     stats: optional(array(stat)),
     children: optional(array(row)),
     context: optional(text),
+    dot: optional(dot),
     targets: optional(record(array(target))),
     unread: optional(bool),
     pane: optional(array(node)),
@@ -263,6 +265,7 @@ const sectionFields = {
   order: optional(enumeration("manual", "fixed", false)),
   dropLabel: optional(text),
   dropIcon: optional(text),
+  pill: optional(object({ color: optional(color), shade: optional(shade) })),
 };
 /** Nested sections (`Section.sections`) go at most `MAX_SECTION_DEPTH` levels deep, counting the top. */
 const sectionAt = (depth: number): Schema => (v, p) => {
@@ -340,6 +343,7 @@ const field: Schema = (v, p) => {
         placeholder: optional(text),
         sensitive: optional(bool),
         heading: optional(bool),
+        note: optional(text),
       })(v, p);
       break;
     case "textarea":
@@ -394,13 +398,16 @@ const field: Schema = (v, p) => {
             flag: optional(bool),
             shades: optional(record(shade)),
             colors: optional(record(hue)),
+            multiple: optional(bool),
           }),
         ),
       })(v, p);
       const keys = (v as any).keys.map((k: { key: string }) => k.key);
       if (new Set(keys).size !== keys.length) fail(`${p}.keys`);
-      const used = (v as any).value.map((t: { key: string }) => t.key);
-      if (new Set(used).size !== used.length || used.some((k: string) => !keys.includes(k))) fail(`${p}.value`);
+      // A key appears once, unless it's `multiple` (then once per value).
+      const multiple = new Set((v as any).keys.filter((k: { multiple?: boolean }) => k.multiple).map((k: { key: string }) => k.key));
+      const used = (v as any).value.map((t: { key: string; value?: string }) => (multiple.has(t.key) ? `${t.key}\u0000${t.value ?? ""}` : t.key));
+      if (new Set(used).size !== used.length || (v as any).value.some((t: { key: string }) => !keys.includes(t.key))) fail(`${p}.value`);
       break;
     }
     case "options": {
@@ -490,6 +497,8 @@ const node: Schema = (v, p) => {
       sections: optional(sections),
       reorder: optional(bool),
       reorderOnto: optional(text),
+      contextSelect: optional(bool),
+      paneButtons: optional(bool),
       selectEvents: optional(bool),
       enter: optional(text),
       appearance: optional(enumeration("grid", "document")),

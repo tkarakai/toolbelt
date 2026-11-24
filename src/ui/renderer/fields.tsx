@@ -174,19 +174,22 @@ export function TagsField({ id, field, onChange }: { id: string; field: Of<"tags
 	useEffect(() => setTags(field.value), [JSON.stringify(field.value)]);
 	const commit = (next: TagValue[]) => (setTags(next), onChange(next));
 	const keyOf = (key: string) => field.keys.find((k) => k.key === key);
-	const set = (key: string, value?: string) => {
+	// Sets the value of the pill at `at`, or adds one; a key that isn't `multiple` has one pill.
+	const set = (key: string, value?: string, at?: number) => {
 		const k = keyOf(key)!;
 		const entry: TagValue = k.flag ? { key } : { key, value: value ?? "" };
-		const i = tags.findIndex((x) => x.key === key);
+		const i = at ?? (k.multiple ? -1 : tags.findIndex((x) => x.key === key));
+		// A `multiple` key holds each value once: picking one it has keeps the list as it is.
+		if (k.multiple && tags.some((x, n) => n !== i && x.key === key && x.value === entry.value)) return;
 		commit(i < 0 ? [...tags, entry] : tags.map((x, n) => (n === i ? entry : x)));
 	};
-	const unused = field.keys.filter((k) => !tags.some((x) => x.key === k.key));
+	const unused = field.keys.filter((k) => k.multiple || !tags.some((x) => x.key === k.key));
 	return (
 		<div id={id} role="group" aria-label={field.label} className="flex flex-wrap items-center gap-1.5">
-			{tags.map((tag) => {
+			{tags.map((tag, i) => {
 				const k = keyOf(tag.key);
 				if (!k) return null;
-				return <TagPillEditor key={tag.key} k={k} tag={tag} onSet={(v) => set(tag.key, v)} onRemove={() => commit(tags.filter((x) => x.key !== tag.key))} />;
+				return <TagPillEditor key={k.multiple ? `${tag.key}\u0000${tag.value ?? ""}` : tag.key} k={k} tag={tag} onSet={(v) => set(tag.key, v, i)} onRemove={() => commit(tags.filter((_, n) => n !== i))} />;
 			})}
 			{unused.length > 0 && <AddTag keys={unused} onAdd={set} />}
 			{!tags.length && !unused.length && <span className="text-sm text-muted-foreground">No keys to add</span>}

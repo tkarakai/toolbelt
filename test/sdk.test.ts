@@ -128,6 +128,20 @@ test("SDK carries context rows, drops onto rows and choice controls through the 
 	expect(events.map(([n]) => n)).toEqual(["reorder", "field"]);
 	expect(validateTree(tree)).toBeUndefined();
 });
+test("SDK carries selectable context rows, row dots, section pills and pane buttons through the fake host", async () => {
+	const h = harness();
+	const tree = {
+		type: "page" as const,
+		children: [{ type: "table" as const, id: "t", columns: [{ key: "x", title: "X" }], contextSelect: true, paneButtons: true, rows: [{ id: "c1@l1=a", cells: { x: "Parent" }, group: "l1=a", context: "1", dot: { color: "danger" as const, label: "Overdue" }, actions: ["settle"], pane: [{ type: "text" as const, text: "Parent" }] }], actions: [{ id: "settle", label: "Settle" }], sections: [{ id: "l1=a", label: "a", pill: { color: "orange" as const, shade: 1 } }] }],
+	};
+	definePlugin({ render: { "screen:a": () => tree } }, { write: h.write, input: h.input });
+	await tick();
+	h.send({ type: "hello", protocol: 1, capabilities: ["ui.core", "ui.row-tree", "ui.context-select", "ui.row-dot", "ui.section-pill", "ui.pane-buttons"], plugin: { id: "t" }, host: { name: "test", version: "0.3.19" } });
+	h.send({ type: "open", surface: "screen:a" });
+	await tick();
+	expect(h.out.find((m: any) => m.type === "render")).toEqual({ type: "render", surface: "screen:a", tree });
+	expect(validateTree(tree)).toBeUndefined();
+});
 test("SDK carries nested sections, arranged filters and filter-arrange through the fake host", async () => {
 	const h = harness();
 	const events: [string, unknown][] = [];

@@ -132,7 +132,11 @@ logic (divider, toggling, stepping, dragging, the depth refusal) is pure code in
 `renderer/pure.ts`, and the row slides filters to their new places (FLIP), keeping focus and an
 open menu with the moved filter. With `reorderOnto`, rows at any depth drag and the middle of a
 row is an `onto` target; `Row.context` rows are dimmed, uncounted and pass selection to the row
-they stand for. The `choice` control is `Choice` in `Render.tsx`.
+they stand for, unless the table's `contextSelect` keeps it: then `DataTable` rewrites `rowId`
+in their events (`emitAction`, `select`) to that row, and `TableRow`'s `echo` tints the
+selection's other copies. `Row.dot` and the unread dot share the leading slot; dots that don't
+fit sit absolutely to its left, in the indent. `paneButtons` makes `RowPane` end with the
+details drawer's `InspectorActions`. The `choice` control is `Choice` in `Render.tsx`.
 Action keys may carry `alt+`/`shift+`; `keyNames` reads the physical key because ⌥ changes the
 typed character on macOS. Open action menus (row ⋯, drawer ⋯, split-button alternatives) run an
 action from its key in their own `onKeyDown` (`menuActionForEvent`), preventing Radix typeahead

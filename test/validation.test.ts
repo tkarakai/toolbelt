@@ -235,6 +235,30 @@ test("rows can stand in for another row, tables take drops onto rows, and toolba
   expect(() => validateTree(page({ label: undefined }))).toThrow();
   expect(() => validateTree(page({ options: [{ value: "off" }] }))).toThrow();
 });
+test("context rows can be selected, rows carry a leading dot, sections a pill and panes buttons", () => {
+  const table = (extra: Record<string, unknown>, row: Record<string, unknown> = {}, section: Record<string, unknown> = {}) => ({ type: "table", id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "c1@l1=a", cells: { x: "Parent" }, context: "1", group: "l1=a", ...row }], sections: [{ id: "l1=a", label: "a", ...section }], ...extra });
+  expect(() => validateTree(table({ contextSelect: true, paneButtons: true }, { dot: { color: "danger", label: "Overdue" } }, { pill: { color: "orange", shade: 0.5 } }))).not.toThrow();
+  expect(() => validateTree(table({}, {}, { pill: {} }))).not.toThrow();
+  expect(() => validateTree(table({ contextSelect: "yes" }))).toThrow();
+  expect(() => validateTree(table({ paneButtons: 1 }))).toThrow();
+  expect(() => validateTree(table({}, { dot: "chartreuse" }))).toThrow();
+  expect(() => validateTree(table({}, {}, { pill: { color: "chartreuse" } }))).toThrow();
+  expect(() => validateTree(table({}, {}, { pill: { shade: 2 } }))).toThrow();
+});
+test("a heading field can carry a note, and a cell a prefix pill", () => {
+  const cell = (prefix: unknown) => ({ type: "table", id: "t", columns: [{ key: "x", title: "X" }], rows: [{ id: "1", cells: { x: { text: "Plan", prefix } } }] });
+  expect(() => validateTree(cell({ text: "#12" }))).not.toThrow();
+  expect(() => validateTree(cell("#12"))).toThrow();
+  const form = (note: unknown) => ({ type: "form", id: "f", appearance: "inline", fields: [{ type: "text", id: "name", label: "Name", value: "Plan", heading: true, note }] });
+  expect(() => validateTree(form("#12"))).not.toThrow();
+  expect(() => validateTree(form(12))).toThrow();
+});
+test("a multiple tag key holds several values, each once", () => {
+  const form = (value: unknown[], multiple = true) => ({ type: "form", id: "f", fields: [{ type: "tags", id: "related", label: "Related", value, keys: [{ key: "blocks", label: "Blocks", values: ["#3", "#7"], multiple }] }] });
+  expect(() => validateTree(form([{ key: "blocks", value: "#3" }, { key: "blocks", value: "#7" }]))).not.toThrow();
+  expect(() => validateTree(form([{ key: "blocks", value: "#3" }, { key: "blocks", value: "#3" }]))).toThrow();
+  expect(() => validateTree(form([{ key: "blocks", value: "#3" }, { key: "blocks", value: "#7" }], false))).toThrow();
+});
 test("action keys are one key, or alt/shift before a key or arrow", () => {
   const withKey = (key: string) => ({ type: "page", actions: [{ id: "a", label: "A", key }], children: [] });
   for (const key of ["j", "alt+up", "alt+shift+down", "shift+s", "alt+1"]) expect(() => validateTree(withKey(key))).not.toThrow();
