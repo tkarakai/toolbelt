@@ -36,6 +36,7 @@ export const CAPABILITIES = [
   "ui.cell-prefix",
   "ui.list-open",
   "ui.tag-open",
+  "ui.list-inset",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

@@ -525,6 +525,7 @@ const node: Schema = (v, p) => {
       ),
       empty: optional(empty),
       open: optional(action),
+      inset: optional(bool),
     }),
     stats: object({
       ...base,

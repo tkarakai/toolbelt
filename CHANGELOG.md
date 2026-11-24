@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Fixed: the selected item of a plugin list (such as a related task in a details drawer) hid its pills, the id and state, behind the selection color.
+- Plugin lists can indent items that have no icon by an icon's width.
 
 ## 0.3.22 — 2026-11-24
 - Fixed: the page toolbar's scroll strip showed a scrollbar while scrolling, and the scrollbar made the header taller.

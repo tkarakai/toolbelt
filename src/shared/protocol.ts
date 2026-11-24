@@ -622,6 +622,12 @@ export type Node =
 			 * subtitle), drawn as in tables.
 			 */
 			open?: Action;
+			/**
+			 * Capability `ui.list-inset`: items without an `icon` keep its space empty, so their text
+			 * starts where an icon's would end: the list reads as indented under its heading.
+			 * Older hosts ignore it.
+			 */
+			inset?: boolean;
 	  }
 	/** `at` shows a moment (epoch ms) relative to now instead of `value`. */
 	| { type: "stats"; items: { label: string; value: string; at?: number; hint?: string; tone?: Tone }[] }
