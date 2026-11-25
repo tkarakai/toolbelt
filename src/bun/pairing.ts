@@ -17,9 +17,9 @@ const token = () => randomBytes(32).toString("base64url");
 /** Written at most this often per device just to move "last used" along. */
 const LAST_SEEN_WRITE_MS = 10 * 60_000;
 
-export const NO_PAIRING = "No pairing is in progress on your Mac. Open ToolBelt’s Settings → Remote Access there and choose Pair a device.";
-export const TOO_MANY = "Too many wrong codes. Start pairing again on your Mac.";
-export const WRONG_CODE = "That code doesn’t match. Check the code on your Mac.";
+export const NO_PAIRING = "No code is being shown right now. On your Mac or a paired device, open ToolBelt’s Settings → Remote Access and choose Pair a device.";
+export const TOO_MANY = "Too many wrong codes, so that code stopped working. Enter the new code ToolBelt shows.";
+export const WRONG_CODE = "That code doesn’t match. Check the code ToolBelt shows and try again.";
 
 export class DeviceRegistry {
 	private devices: Stored[];

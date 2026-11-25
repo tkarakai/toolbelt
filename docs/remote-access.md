@@ -38,8 +38,9 @@ notifications, mobile-specific plugin screens.
    Tailscale rule…** and confirm, then turn remote access on.
 3. Choose **Pair a device** and scan its QR code with the phone's camera. The page opens
    already paired and shows how to add ToolBelt to the home screen (on Android, an **Install
-   ToolBelt** button). Opened from the home screen, the app pairs once more with the six-digit
-   code, which stays valid for the rest of the five minutes.
+   ToolBelt** button). Opened from the home screen, the app pairs once more: choose **Type a
+   code instead** and enter the code it shows. Later devices can be paired from the Mac or from
+   a device that is already paired.
 
 Recommended tailnet hygiene (the tab repeats it):
 
@@ -64,9 +65,9 @@ view RPC over a WebSocket, the way the browser preview always has.
 ## Security: Tailscale, then pairing
 
 Tailscale decides who can reach ToolBelt: device identity, encryption and the owner's account.
-Pairing then decides which of the owner's browsers may use it, so a work laptop, an old tablet
-or a lost phone that is still signed in to the account gets nothing without the Mac's approval.
-There is no ToolBelt password.
+Pairing then decides which of the owner's browsers may use it: a work laptop, an old tablet or
+a lost phone that is still signed in to the account gets nothing until it is approved, on the
+Mac or from a device that is already paired (see Pairing). There is no ToolBelt password.
 
 **Owner check.** `tailscale serve` adds a `Tailscale-User-Login` header to every request it
 forwards and removes any copy the client sent. The server accepts a request only when that
@@ -130,26 +131,37 @@ Every browser connection must present a paired device's token, or pair, before a
 works. The owner and peer-owner checks still come first; pairing is a second gate, not a
 replacement.
 
-- **Showing a code.** Settings → Remote Access → **Pair a device** (enabled once the server
+- **Who approves.** ToolBelt on the Mac, or on any device that is already paired: **Pair a
+  device** works remotely too. That is deliberate. A paired device already has full control
+  (it can install plugins, which run code on the Mac), so letting it approve more of the owner's
+  devices adds no power, and it lets the owner pair a tablet away from the Mac. The new device
+  must still be signed in to the owner's Tailscale account and pass the owner check, so a paired
+  device can't let anyone else in. **Remove…** takes approval back from any device, including
+  ones another device approved. Pairing proves possession of the Mac or of a paired device, not
+  presence at the Mac.
+- **Showing a code.** **Pair a device** in Settings → Remote Access (enabled once the server
   runs and the rule is ToolBelt's) starts a pairing: a six-digit code and a QR code linking to
   `…/?install#pair=<secret>`, a 256-bit one-time secret in the fragment, which browsers never
   send to the server. It lasts five minutes (`PAIRING_TTL_MS`); while the dialog is open, an
-  expired or ended pairing is replaced by a new one. **Done** ends it, and so does turning remote
-  access off. Five wrong codes end it too (`PAIRING_MAX_FAILURES`), which caps guessing at five
-  tries per code the Mac shows.
+  expired or ended pairing is replaced by a new one. **Done** ends it, and so does turning
+  remote access off. Five wrong codes end it too (`PAIRING_MAX_FAILURES`), which caps guessing
+  at five tries per code shown.
 - **The dialog.** It opens on the QR code alone, with one instruction: point the phone's camera
-  at it and tap the link. The digits appear only after **Type a code instead** (for a device
-  that can't scan, or the home-screen app), as two steps: open ToolBelt on the device, from its
-  home screen or by opening the address shown (with **Copy**) in its browser; then type the code,
-  shown as six tiles with when it is replaced. Devices paired meanwhile are listed in both views. A paired
-  remote device can also show a code; it is already trusted.
-- **Pairing.** Scanning the QR code is the pairing: the page takes the secret out of the
-  address before the router reads it and pairs at once, with nothing to type. The six digits
-  are for a device that can't scan, typed on its pairing screen, which points to **Type a code
-  instead** on the Mac. Within the
-  five minutes any number of devices may pair, so a phone can pair its browser and then its
-  home-screen app (iOS gives them separate storage), which types the code. Requests made meanwhile wait, and
-  the page carries on once paired. The dialog on the Mac lists each device as it pairs.
+  (on a remote device, the other device's) at it and tap the link. The digits appear only after
+  **Type a code instead** (for a device that can't scan, or the home-screen app), as two steps:
+  open ToolBelt on the device, from its home screen or by opening the address shown (with
+  **Copy**) in its browser; then type the code, shown as six tiles with when it is replaced.
+  Devices paired meanwhile are listed in both views.
+- **Pairing.** Scanning the QR code is the pairing: the page takes the secret out of the address
+  before the router reads it and pairs at once, with nothing to type. Otherwise the device shows
+  its pairing screen: three steps (open Settings → Remote Access on the Mac or a paired device,
+  choose **Pair a device** then **Type a code instead**, enter the code) above a six-tile code
+  field. The field has focus at once, so the code can be typed or pasted right away, and a
+  six-digit code pasted anywhere on the screen counts; iOS shows its keyboard only after a tap,
+  so the tiles are one large target. The sixth digit submits; a wrong code clears the field and
+  says why. Within the five minutes any number of devices may pair, so a phone can pair its
+  browser and then its home-screen app (iOS gives them separate storage), which types the code.
+  Requests made meanwhile wait, and the page carries on once paired.
 - **Tokens.** A paired device gets a random 256-bit token, kept in its local storage (in memory
   only if storage is refused, so it lasts until the page closes). ToolBelt stores only SHA-256
   hashes, with the name, pairing time and last use, in `remote-devices.json` beside
@@ -158,9 +170,9 @@ replacement.
 - **Names.** The device's Tailscale name plus how ToolBelt runs there, e.g.
   `iphone (Home Screen app)` or `ipad (Safari)`, made unique with a number.
 - **Removing.** In **Devices**, **Remove…** forgets a device and closes its connections with
-  close code 4003: the client forgets its token and shows the pairing screen. From the device itself, the
-  confirmation says that it loses access. Disconnect (4001) only ends a session; the pairing
-  stays.
+  close code 4003: the client forgets its token and shows the pairing screen. From the device
+  itself, the confirmation says that it loses access. Disconnect (4001) only ends a session; the
+  pairing stays.
 
 Protocol: after the socket opens, the client sends `{ kind: "hello", token? }`; the server
 answers `{ kind: "paired", device }` and only then treats the connection as opened (it joins the

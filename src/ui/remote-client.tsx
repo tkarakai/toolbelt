@@ -6,7 +6,6 @@ import { Bell, Copy, Ellipsis, EllipsisVertical, KeyRound, Loader2, Menu, PowerO
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { pairDevice, usePlugins, useConnection, useSettings } from "@/lib/store";
 import { inApp, remoteClient } from "@/lib/device";
 import { INSTALL_PARAM, installContext, installHelp, installTitle, stepSegments, stepText, type InstallStep } from "@/lib/install";
@@ -98,14 +97,15 @@ export function ConnectionBanner() {
 // ── pairing (docs/remote-access.md, "Pairing") ─────────────────────────────────
 
 /**
- * This browser isn't paired with the Mac. Arriving from the pairing QR code pairs by itself;
- * otherwise the person types the six digits the Mac shows.
+ * This browser isn't paired. Arriving from the pairing QR code pairs by itself; otherwise the
+ * person types the code shown by ToolBelt on the Mac or on a device that's already paired.
  */
 function PairingScreen() {
 	const [code, setCode] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [pairing, setPairing] = useState(false);
 	const input = useRef<HTMLInputElement>(null);
+	const focus = () => input.current?.focus({ preventScroll: true });
 	const pair = async (secret: string) => {
 		setPairing(true);
 		setError(null);
@@ -115,7 +115,7 @@ function PairingScreen() {
 			setError(e instanceof Error ? e.message : String(e));
 			setCode("");
 			setPairing(false);
-			requestAnimationFrame(() => input.current?.focus());
+			requestAnimationFrame(focus);
 		}
 	};
 	useEffect(() => {
@@ -124,43 +124,118 @@ function PairingScreen() {
 		arrivalSecret = null;
 		void pair(secret);
 	}, []);
+	// Ready to type or paste at once (iOS shows its keyboard only after a tap, so the field is a
+	// large target), and a code pasted anywhere on the screen counts.
+	useEffect(() => {
+		const frame = requestAnimationFrame(focus);
+		const onPaste = (e: ClipboardEvent) => {
+			if (e.target === input.current) return;
+			const digits = e.clipboardData?.getData("text").replace(/\D/g, "") ?? "";
+			if (digits.length !== 6) return;
+			e.preventDefault();
+			setCode(digits);
+			void pair(digits);
+		};
+		document.addEventListener("paste", onPaste);
+		return () => (cancelAnimationFrame(frame), document.removeEventListener("paste", onPaste));
+	}, []);
 	const change = (value: string) => {
 		const digits = value.replace(/\D/g, "").slice(0, 6);
 		setCode(digits);
+		if (error && digits) setError(null);
 		if (digits.length === 6) void pair(digits);
 	};
 	return (
-		<div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-background p-4 animate-in fade-in-0 duration-200" role="dialog" aria-modal="true" aria-labelledby="tb-pair-title" aria-describedby="tb-pair-text">
-			<form className="w-full max-w-sm space-y-5 rounded-xl border bg-card p-6 text-center shadow-lg" onSubmit={(e) => (e.preventDefault(), code.length === 6 && void pair(code))}>
-				<KeyRound className="mx-auto size-8 text-muted-foreground" aria-hidden="true" />
-				<div className="space-y-2">
-					<h2 id="tb-pair-title" className="text-base font-semibold">Pair with your Mac</h2>
-					<p id="tb-pair-text" className="text-sm text-muted-foreground">
-						On your Mac, open ToolBelt’s <strong className="font-semibold text-foreground">Settings → Remote Access</strong>, choose <strong className="font-semibold text-foreground">Pair a device</strong>, then <strong className="font-semibold text-foreground">Type a code instead</strong>. Enter the six digits it shows.
-					</p>
-				</div>
-				<Input
-					ref={input}
-					value={code}
-					onChange={(e) => change(e.target.value)}
-					inputMode="numeric"
-					autoComplete="one-time-code"
-					autoFocus
-					maxLength={7}
-					placeholder="000000"
-					aria-label="Pairing code"
-					aria-invalid={!!error}
-					aria-describedby={error ? "tb-pair-error" : undefined}
-					disabled={pairing}
-					className="mx-auto h-12 w-44 text-center font-mono text-2xl tracking-[0.3em]"
-				/>
-				{error && <p id="tb-pair-error" role="alert" className="text-sm text-destructive">{error}</p>}
-				<Button type="submit" className="w-full" disabled={pairing || code.length !== 6}>
-					{pairing && <Loader2 className="animate-spin" />}
-					{pairing ? "Pairing…" : "Pair"}
-				</Button>
-				<p className="text-xs text-muted-foreground">In a browser, scanning the QR code on your Mac with the camera pairs too.</p>
-			</form>
+		<div className="fixed inset-0 z-50 overflow-y-auto bg-background animate-in fade-in-0 duration-200" role="dialog" aria-modal="true" aria-labelledby="tb-pair-title">
+			<div className="flex min-h-full items-center justify-center p-4" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+				<form className="w-full max-w-sm space-y-6 rounded-2xl border bg-card p-6 shadow-lg" onSubmit={(e) => (e.preventDefault(), code.length === 6 && void pair(code))}>
+					<div className="space-y-2">
+						<span className="grid size-10 place-items-center rounded-xl bg-selected text-selected-foreground">
+							<KeyRound className="size-5" aria-hidden="true" />
+						</span>
+						<h2 id="tb-pair-title" className="pt-2 text-lg font-semibold">Pair this device</h2>
+						<p className="text-sm text-muted-foreground">Approve it from ToolBelt on your Mac, or on a device that’s already paired.</p>
+					</div>
+					<ol className="space-y-3 text-sm">
+						<PairStep n={1}>Open <strong className="font-semibold">Settings → Remote Access</strong>.</PairStep>
+						<PairStep n={2}>Choose <strong className="font-semibold">Pair a device</strong>, then <strong className="font-semibold">Type a code instead</strong>.</PairStep>
+						<PairStep n={3}>Enter the code it shows:</PairStep>
+					</ol>
+					<div className="space-y-3">
+						<CodeField value={code} onChange={change} inputRef={input} disabled={pairing} invalid={!!error} />
+						<p id="tb-pair-status" role={error ? "alert" : "status"} className={cn("min-h-5 text-center text-sm", error ? "text-destructive" : "text-muted-foreground")}>
+							{pairing ? (
+								<span className="inline-flex items-center gap-2">
+									<Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+									Pairing…
+								</span>
+							) : (
+								error ?? ""
+							)}
+						</p>
+					</div>
+					<p className="border-t pt-4 text-xs text-muted-foreground">In a browser, scanning the QR code instead pairs without typing.</p>
+				</form>
+			</div>
+		</div>
+	);
+}
+
+function PairStep({ n, children }: { n: number; children: React.ReactNode }) {
+	return (
+		<li className="flex gap-3">
+			<span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold tabular-nums" aria-hidden="true">{n}</span>
+			<span className="min-w-0 pt-0.5">{children}</span>
+		</li>
+	);
+}
+
+/**
+ * Six tiles, three and three, like the code on the Mac. One real input lies over them (16 px, so
+ * iOS doesn't zoom), so typing, pasting and one-time-code autofill all work; the tiles show its
+ * value and where the next digit goes.
+ */
+function CodeField({ value, onChange, inputRef, disabled, invalid }: { value: string; onChange: (value: string) => void; inputRef: React.RefObject<HTMLInputElement | null>; disabled: boolean; invalid: boolean }) {
+	const [focused, setFocused] = useState(false);
+	const active = Math.min(value.length, 5);
+	return (
+		<div className="relative mx-auto w-fit">
+			<div className="flex items-center gap-1.5" aria-hidden="true">
+				{Array.from({ length: 6 }, (_, i) => {
+					const digit = value[i];
+					const current = focused && !disabled && i === active && value.length < 6;
+					return (
+						<span
+							key={i}
+							className={cn(
+								"relative grid h-14 w-11 place-items-center rounded-lg border bg-background font-mono text-2xl font-semibold tabular-nums shadow-xs transition-colors duration-150",
+								i === 3 && "ml-3",
+								current && "border-ring ring-[3px] ring-ring/40",
+								invalid && "border-destructive",
+								disabled && "opacity-60",
+							)}
+						>
+							{digit ?? (current && <span className="h-6 w-0.5 animate-pulse rounded-full bg-foreground motion-reduce:animate-none" />)}
+						</span>
+					);
+				})}
+			</div>
+			<input
+				ref={inputRef}
+				value={value}
+				onChange={(e) => onChange(e.target.value)}
+				onFocus={() => setFocused(true)}
+				onBlur={() => setFocused(false)}
+				inputMode="numeric"
+				autoComplete="one-time-code"
+				pattern="[0-9]*"
+				maxLength={6}
+				disabled={disabled}
+				aria-label="Pairing code"
+				aria-invalid={invalid}
+				aria-describedby="tb-pair-status"
+				className="absolute inset-0 h-full w-full cursor-text bg-transparent text-base text-transparent caret-transparent outline-none selection:bg-transparent"
+			/>
 		</div>
 	);
 }

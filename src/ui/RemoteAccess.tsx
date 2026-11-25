@@ -189,7 +189,7 @@ function DevicesGroup({ state, confirm }: { state: RemoteAccessState; confirm: (
 	return (
 		<SettingsGroup
 			title="Devices"
-			description="Besides being signed in to your Tailscale account, a device needs this Mac’s approval: pair each phone, tablet or browser once. A home-screen app pairs separately from its browser. Disconnect ends a session; Remove takes the approval back."
+			description="Besides being signed in to your Tailscale account, each phone, tablet or browser pairs once, approved here on the Mac or from a device that’s already paired. A home-screen app pairs separately from its browser. Disconnect ends a session; Remove takes the approval back."
 			actions={
 				<Button size="sm" disabled={!ready} onClick={() => void start()} title={ready ? undefined : "Turn on remote access and create the Tailscale rule first"}>
 					<KeyRound />
@@ -381,8 +381,10 @@ function PairDialog({ state, open, close }: { state: RemoteAccessState; open: bo
 							{/* Dark modules on white, in both themes: scanners need the contrast. */}
 							<div className={cn("shrink-0 rounded-xl bg-white p-2.5 text-black shadow-sm transition-opacity duration-200", !live && "opacity-30")} role="img" aria-label="Pairing QR code" dangerouslySetInnerHTML={{ __html: svg }} />
 							<div className="space-y-3 text-sm">
-								<p className="text-base font-medium leading-snug">Point your phone’s camera at the code, then tap the link that appears.</p>
-								<p className="text-muted-foreground">ToolBelt opens on the phone, already paired, and shows how to add it to the home screen.</p>
+								<p className="text-base font-medium leading-snug">
+									{remoteClient ? "Point the other device’s camera at the code, then tap the link that appears." : "Point your phone’s camera at the code, then tap the link that appears."}
+								</p>
+								<p className="text-muted-foreground">ToolBelt opens there, already paired, and shows how to add it to the home screen.</p>
 							</div>
 						</div>
 						<PairedNow names={pairing?.paired ?? []} />
