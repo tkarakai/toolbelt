@@ -19,6 +19,7 @@ JSON-lines and do not inject browser JavaScript, HTML or React components.
 | Public author SDK and fake-host tools | `src/sdk/`, packaged by `scripts/build-sdk.ts` |
 | Main window, popover, manager and renderer | `src/ui/App.tsx`, `Popover.tsx`, `PluginManager.tsx`, `renderer/` |
 | Plugin development mode | `src/bun/development.ts`, `src/shared/development.ts`, `src/ui/Development.tsx` |
+| Remote access (phone/tablet over Tailscale) | `src/bun/remote-access.ts`, `remote-server.ts`, `peer-owner.ts`, `tailscale.ts`, `src/shared/remote.ts`, `src/ui/RemoteAccess.tsx`, `remote-client.tsx`, `lib/connection.ts`; see [remote-access.md](remote-access.md) |
 
 Processes, Upkeep and SDK Explorer own their implementation, dependencies, UI definitions,
 assets, data schemas and behavior tests in their respective repositories. The host has no
@@ -60,7 +61,7 @@ layout below and shares only `settings.json`; see [plugin-development.md](plugin
 
 | Relative path | Purpose |
 | --- | --- |
-| `settings.json` | Host appearance and shortcut preferences |
+| `settings.json` | Host appearance, shortcut and remote access preferences |
 | `plugins/registry.json` | Source bindings, active selections, channel, enabled/removal/data state, history and update schedule |
 | `plugins/packages/<id>/<version>-<hash>/` | Verified package files; plugins treat them as immutable |
 | `plugins/staging/` | Incomplete package extraction; never runtime discovery |
@@ -202,6 +203,21 @@ the manifest's asset map. The host bounds image bytes, checks supported image co
 rejects unsafe SVG content. Lucide names and Finder `app:`/`file:` icons are also supported.
 Assets cannot supply executable webview code.
 
+## Remote access
+
+Remote access ([remote-access.md](remote-access.md)) serves the same renderer to the owner's
+other devices. `RemoteAccess` runs an HTTP/WebSocket server on `127.0.0.1` at a dedicated port,
+published by a Tailscale Serve rule that ToolBelt creates or removes only after confirmation.
+Requests must come through Serve carrying the Mac owner's `Tailscale-User-Login`, for an allowed
+host and from their own origin. Each connection becomes a view in `index.ts` with the web view's
+request handlers, minus the popover geometry and plugin development mode; unknown methods fail
+closed and a plugin's navigation returns to the view that sent the event. The server keeps only
+the newest render tree per surface while a socket is backed up. The browser preview uses the
+same server module (`remote-server.ts`) with loopback checks and its own handler table. In a
+browser, `lib/connection.ts` reconnects with backoff, follows the server's heartbeat and closes
+surfaces while the page is hidden; remote and touch devices get the main window only and hide
+key hints until a physical keyboard is used.
+
 ## Keyboard
 
 `src/ui/lib/keyboard.tsx` is the shared keyboard layer and `lib/keys.ts` its pure, unit-tested
@@ -251,7 +267,12 @@ without focus use the inactive selection fill everywhere. Page Up/Down move a sc
 column header moves the column. Key hints (`KeyHint`) are hidden from assistive technology; the
 control carries `aria-keyshortcuts` (`ariaShortcut`). All controls draw a full-strength `--ring`
 focus indicator (text fields keep a ring-colored border); `:focus-visible` falls back to a 2 px
-outline. The read-only terminal lets Tab, Esc and F6 leave and scrolls with the arrow and Page keys.
+outline. Focus indicators wait for the keyboard: `lib/input-modality.ts` sets
+`html[data-input-modality]` to `keyboard` on a key press (not a modifier held alone), `pointer` on
+a click or tap, and `none` when a view is shown (window focus, the popover opening), and
+`index.css` hides rings and outlines unless it is `keyboard`, so focus placed by opening a window,
+dialog, popover or quick view draws nothing until a key is pressed. Text fields keep their focus
+border. The read-only terminal lets Tab, Esc and F6 leave and scrolls with the arrow and Page keys.
 
 ## Installation, updates and recovery
 

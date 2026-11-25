@@ -3,6 +3,7 @@ import pkg from "./package.json" with { type: "json" };
 
 import { appVariant } from "./src/shared/variant";
 const variant = appVariant(process.env.TOOLBELT_VARIANT === "dev");
+const webAppIcon = process.env.TOOLBELT_VARIANT === "dev" ? "assets/web-app-icon-dev" : "assets/web-app-icon";
 
 export default {
 	app: {
@@ -21,6 +22,13 @@ export default {
 		copy: {
 			"dist/index.html": "views/ui/index.html",
 			"dist/assets": "views/ui/assets",
+			// Remote access serves views/ui to other devices as an installable web app.
+			"dist/sw.js": "views/ui/sw.js",
+			"dist/manifest.webmanifest": "views/ui/manifest.webmanifest",
+			// Full-bleed home-screen icons (bun run icons), official or dev artwork.
+			[`${webAppIcon}-180.png`]: "views/ui/pwa/icon-180.png",
+			[`${webAppIcon}-192.png`]: "views/ui/pwa/icon-192.png",
+			[`${webAppIcon}-512.png`]: "views/ui/pwa/icon-512.png",
 			"assets/tray-icon-dev@2x.png": "views/assets/tray-icon-dev@2x.png",
 			"assets/tray-icon@2x.png": "views/assets/tray-icon@2x.png",
 			// With a neutral badge, when an update is available (scripts/make-icons.ts).

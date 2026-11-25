@@ -5,12 +5,15 @@ import { localControlRequest } from "../src/bun/loopback";
 // first) and bridges the web view RPC over a WebSocket. For designing and screenshotting the
 // UI without the app. Run: bun scripts/preview.ts  →  http://localhost:5174 (#popover too)
 import { homedir } from "node:os";
-import { join, normalize } from "node:path";
+import { join } from "node:path";
 import { PluginHost, configDir } from "../src/bun/host";
 import { PackageManager } from "../src/bun/packages";
 import { PluginManagerService } from "../src/bun/plugin-manager-service";
 import { pluginAsset } from "../src/bun/plugin-assets";
-import type { ServerWebSocket } from "bun";
+import { buildIdOf, startRemoteServer, type RemoteClient } from "../src/bun/remote-server";
+import type { ToolbeltRPC } from "../src/shared/rpc";
+import { RemoteAccess } from "../src/bun/remote-access";
+import type { Runner } from "../src/bun/tailscale";
 import { DEFAULTS, type Settings } from "../src/bun/settings";
 import { displayAccelerator } from "../src/bun/hotkey";
 import { FileIcons } from "../src/bun/file-icon";
@@ -27,7 +30,11 @@ import {
 } from "../src/bun/development";
 
 // Settings live in memory here (the preview doesn't touch the app's settings file).
-let settings: Settings = { ...DEFAULTS };
+// The preview's pretend remote access listens away from the app's port.
+let settings: Settings = {
+  ...DEFAULTS,
+  remote: { ...DEFAULTS.remote, port: Number(process.env.REMOTE_PORT ?? 47389) },
+};
 
 process.env.TOOLBELT_CONFIG_DIR ??= join(
   homedir(),
@@ -70,11 +77,8 @@ await packages.recover();
 const manager = new PluginManagerService(packages, host);
 
 const icons = new FileIcons(join(root, "cache/icons"));
-const clients = new Set<ServerWebSocket<{ opened: Set<string> }>>();
-const broadcast = (name: string, payload: unknown) =>
-  clients.forEach((c) =>
-    c.send(JSON.stringify({ kind: "message", name, payload })),
-  );
+// Replaced by the server's broadcast once it listens.
+let broadcast: (name: string, payload: unknown) => void = () => {};
 const localArchives = developmentProfile
   ? new LocalArchives(packages, developmentLog, () => development.emit())
   : null;
@@ -171,158 +175,186 @@ function simulate() {
   }, 200);
 }
 
-Bun.serve<{ opened: Set<string> }>({
-  port,
-  hostname: "127.0.0.1",
-  fetch(req, server) {
-    if (!localControlRequest(req))
-      return new Response("Forbidden origin", { status: 403 });
-    const url = new URL(req.url);
-    if (url.pathname === "/rpc")
-      return server.upgrade(req, { data: { opened: new Set() } })
-        ? undefined
-        : new Response("no", { status: 400 });
-    if (url.pathname === "/update") {
-      const q = url.searchParams;
-      const kind = q.get("phase");
-      if (kind === "failed")
-        setPhase({
-          kind,
-          message: "The download is damaged (checksum mismatch). Try again.",
-        });
-      else if (kind === "downloading")
-        setPhase({
-          kind,
-          received: 12_400_000,
-          total: release.size,
-          speed: 8_300_000,
-        });
-      else if (kind) setPhase({ kind } as Phase);
-      if (q.has("available"))
-        setUpdate({
-          available: q.get("available") === "0" ? null : release,
-          version: q.get("available") === "0" ? release.version : "0.1.0",
-        });
-      if (q.has("error")) setUpdate({ lastError: q.get("error") || null });
-      if (q.has("recovery")) {
-        const kind = q.get("recovery") as "quota" | "throttled" | "missing" | "network" | "service";
-        const message = kind === "quota" ? "GitHub’s request quota is exhausted." : kind === "throttled" ? "GitHub is temporarily slowing requests." : kind === "missing" ? "No public release was found for this channel." : kind === "network" ? "Couldn’t connect to GitHub. Check your connection and try again." : "GitHub’s release service is having trouble.";
-        const retryAt = kind === "quota" || kind === "throttled" ? Date.now()+12*60000 : undefined;
-        setUpdate({lastError:message, failure:{kind, message, retryAt, retrySource:retryAt ? "quota-reset" : undefined, at:Date.now(), status:kind === "quota" ? 403 : kind === "throttled" ? 429 : kind === "missing" ? 404 : kind === "service" ? 503 : undefined}, retryAt});
-      }
-      if (q.has("channel"))
-        setUpdate({
-          channel: q.get("channel")!,
-          enabled: q.get("channel") === "stable",
-        });
-      return Response.json(update);
-    }
-    const path = normalize(url.pathname === "/" ? "/index.html" : url.pathname);
-    const file = Bun.file(join("dist", path));
-    return file.size
-      ? new Response(file)
-      : new Response("not found", { status: 404 });
+// A pretend Tailscale for the Remote Access tab: never runs the real CLI. GET
+// /remote?scenario=ok|missing|stopped|nohttps|conflict picks what it reports.
+let tailscaleScenario = "ok";
+const fakeRules = new Map<number, string>();
+const fakeTailscale: Runner = async (_cli, args) => {
+  const ok = (stdout: unknown) => ({ code: 0, stderr: "", stdout: typeof stdout === "string" ? stdout : JSON.stringify(stdout) });
+  if (tailscaleScenario === "stopped") return { code: 1, stdout: "", stderr: "Tailscale is stopped." };
+  if (args[0] === "status")
+    return ok({
+      BackendState: "Running",
+      Self: { DNSName: "macbook.example-tailnet.ts.net.", UserID: 1, OS: "macOS", TailscaleIPs: ["100.64.0.1"], CapMap: tailscaleScenario === "nohttps" ? {} : { https: null } },
+      Peer: {
+        a: { DNSName: "iphone.example-tailnet.ts.net.", OS: "iOS", TailscaleIPs: ["100.64.0.2"], CurAddr: "203.0.113.4:41641" },
+        b: { DNSName: "ipad.example-tailnet.ts.net.", OS: "iOS", TailscaleIPs: ["100.64.0.3"], Relay: "fra" },
+      },
+      User: { "1": { LoginName: "owner@example.com" } },
+    });
+  if (args.join(" ") === "serve status --json") {
+    const rules = new Map(fakeRules);
+    if (tailscaleScenario === "conflict") rules.set(settings.remote.port, "http://127.0.0.1:3000");
+    return ok({
+      TCP: Object.fromEntries([...rules.keys()].map((p) => [p, { HTTPS: true }])),
+      Web: Object.fromEntries([...rules].map(([p, target]) => [`macbook.example-tailnet.ts.net:${p}`, { Handlers: { "/": { Proxy: target } } }])),
+    });
+  }
+  const httpsPort = Number(args.find((a) => a.startsWith("--https="))?.slice(8));
+  if (args.at(-1) === "off") fakeRules.delete(httpsPort);
+  else fakeRules.set(httpsPort, args.at(-1)!);
+  return ok("");
+};
+const remoteAccess: RemoteAccess = new RemoteAccess({
+  settings: () => settings.remote,
+  save: (remote) => {
+    settings = { ...settings, remote };
+    broadcast("settingsChanged", {});
   },
-  websocket: {
-    open: (ws) => void clients.add(ws),
-    close: (ws) => {
-      clients.delete(ws);
-      for (const k of ws.data.opened)
-        host.close(...(k.split("\n") as [string, string]));
-    },
-    async message(ws, raw) {
-      const m = JSON.parse(String(raw));
-      if (m.kind !== "request") {
-        if (m.kind === "message" && m.name === "selectionChanged") broadcast("selectionChanged", m.payload);
-        return;
-      }
-      const p = m.params ?? {};
-      const reply = (result: unknown) =>
-        ws.send(JSON.stringify({ kind: "response", id: m.id, result }));
-      try {
-        switch (m.method) {
-          case "pluginAsset":
-            return reply(pluginAsset(packages, p.reference));
-          case "pluginManager":
-            return reply(await manager.handle(p));
-          case "initialNavigation":
-            return reply(null);
-          case "plugins":
-            return reply(host.list());
-          case "open":
-            ws.data.opened.add(`${p.plugin}\n${p.surface}`);
-            return reply(host.open(p.plugin, p.surface));
-          case "close":
-            ws.data.opened.delete(`${p.plugin}\n${p.surface}`);
-            host.close(p.plugin, p.surface);
-            return reply(true);
-          case "event":
-            host.event(p.plugin, p.surface, p.name, p.payload);
-            return reply(true);
-          case "restartPlugin":
-            await host.restart(p.plugin);
-            return reply(true);
-          case "settings":
-            return reply({
-              ...settings,
-              shortcutLabel: displayAccelerator(settings.shortcut),
-              shortcutError: null,
-            });
-          case "setAppearance":
-            settings = {
-              ...settings,
-              ...(p.theme ? { theme: p.theme } : {}),
-              ...(p.mode ? { mode: p.mode } : {}),
-            };
-            broadcast("settingsChanged", {});
-            return reply(true);
-          case "setShortcut":
-            settings = { ...settings, shortcut: p.accelerator };
-            broadcast("settingsChanged", {});
-            return reply({
-              ok: true,
-              label: displayAccelerator(p.accelerator),
-            });
-          case "pauseShortcut":
-            return reply(true);
-          case "fileIcon":
-            return void icons.get(p.path).then(reply);
-          case "openUrl":
-            return reply(false); // the browser opens links itself
-          case "development":
-            return reply(await development.request(p));
-          case "updateState":
-            return reply(update);
-          case "checkForUpdates":
-            setUpdate({ checking: true });
-            setTimeout(
-              () => setUpdate({ checking: false, lastChecked: Date.now() }),
-              1200,
-            );
-            return reply(true);
-          case "installUpdate":
-            simulate();
-            return reply(true);
-          case "cancelUpdate":
-            sim && clearInterval(sim);
-            setPhase({ kind: "idle" });
-            return reply(true);
-          case "dismissUpdate":
-            setPhase({ kind: "idle" });
-            return reply(true);
-        }
-      } catch (e) {
-        ws.send(
-          JSON.stringify({
-            kind: "response",
-            id: m.id,
-            error: (e as Error).message,
-          }),
-        );
-      }
-    },
+  root: "dist",
+  handlers: { request: () => { throw new Error("The preview's remote server serves no RPC"); } },
+  changed: (state) => broadcast("remoteAccessState", state),
+  findCli: () => (tailscaleScenario === "missing" ? null : "/Applications/Tailscale.app/Contents/MacOS/Tailscale"),
+  runner: fakeTailscale,
+  // The pretend ts.net address answers for the preview's own remote server.
+  fetch: async (): Promise<Response> => Response.json({ instance: remoteAccess.instance }),
+});
+function remoteRoute(url: URL): Response {
+  const scenario = url.searchParams.get("scenario");
+  if (scenario) tailscaleScenario = scenario;
+  void remoteAccess.handle({ operation: "refresh" });
+  return Response.json({ scenario: tailscaleScenario });
+}
+
+// The update simulation's controls: GET /update?phase=… (see above).
+function updateRoute(url: URL): Response {
+  const q = url.searchParams;
+  const kind = q.get("phase");
+  if (kind === "failed")
+    setPhase({
+      kind,
+      message: "The download is damaged (checksum mismatch). Try again.",
+    });
+  else if (kind === "downloading")
+    setPhase({
+      kind,
+      received: 12_400_000,
+      total: release.size,
+      speed: 8_300_000,
+    });
+  else if (kind) setPhase({ kind } as Phase);
+  if (q.has("available"))
+    setUpdate({
+      available: q.get("available") === "0" ? null : release,
+      version: q.get("available") === "0" ? release.version : "0.1.0",
+    });
+  if (q.has("error")) setUpdate({ lastError: q.get("error") || null });
+  if (q.has("recovery")) {
+    const kind = q.get("recovery") as "quota" | "throttled" | "missing" | "network" | "service";
+    const message = kind === "quota" ? "GitHub’s request quota is exhausted." : kind === "throttled" ? "GitHub is temporarily slowing requests." : kind === "missing" ? "No public release was found for this channel." : kind === "network" ? "Couldn’t connect to GitHub. Check your connection and try again." : "GitHub’s release service is having trouble.";
+    const retryAt = kind === "quota" || kind === "throttled" ? Date.now()+12*60000 : undefined;
+    setUpdate({lastError:message, failure:{kind, message, retryAt, retrySource:retryAt ? "quota-reset" : undefined, at:Date.now(), status:kind === "quota" ? 403 : kind === "throttled" ? 429 : kind === "missing" ? 404 : kind === "service" ? 503 : undefined}, retryAt});
+  }
+  if (q.has("channel"))
+    setUpdate({
+      channel: q.get("channel")!,
+      enabled: q.get("channel") === "stable",
+    });
+  return Response.json(update);
+}
+
+// Request handlers, as the app's main process has them (minus the native popover's geometry);
+// the type makes a method the RPC gains fail typecheck here. Unknown methods fail closed.
+type Requests = ToolbeltRPC["bun"]["requests"];
+const handlers: { [K in Exclude<keyof Requests, "popoverLayout">]: (p: Requests[K]["params"], client: RemoteClient) => unknown } = {
+  pluginAsset: (p) => pluginAsset(packages, p.reference),
+  pluginManager: (p) => manager.handle(p),
+  initialNavigation: () => null,
+  plugins: () => host.list(),
+  // One viewer count per connection and surface, however often it opens or closes (as the app).
+  open: (p, client) => {
+    const key = `${p.plugin}\n${p.surface}`;
+    if (client.opened.has(key)) return host.tree(p.plugin, p.surface);
+    client.opened.add(key);
+    return host.open(p.plugin, p.surface);
+  },
+  close: (p, client) => {
+    if (client.opened.delete(`${p.plugin}\n${p.surface}`)) host.close(p.plugin, p.surface);
+    return true;
+  },
+  event: (p) => (host.event(p.plugin, p.surface, p.name, p.payload), true),
+  restartPlugin: async (p) => (await host.restart(p.plugin), true),
+  settings: () => ({
+    ...settings,
+    shortcutLabel: displayAccelerator(settings.shortcut),
+    shortcutError: null,
+    badgePlugins: settings.remote.badgePlugins,
+  }),
+  setAppearance: (p) => {
+    settings = {
+      ...settings,
+      ...(p.theme ? { theme: p.theme } : {}),
+      ...(p.mode ? { mode: p.mode as Settings["mode"] } : {}),
+    };
+    broadcast("settingsChanged", {});
+    return true;
+  },
+  setShortcut: (p) => {
+    settings = { ...settings, shortcut: p.accelerator };
+    broadcast("settingsChanged", {});
+    return { ok: true, label: displayAccelerator(p.accelerator) };
+  },
+  pauseShortcut: () => true,
+  fileIcon: (p) => icons.get(p.path),
+  openUrl: () => false, // the browser opens links itself
+  development: (p) => development.request(p),
+  remoteAccess: (p) => remoteAccess.handle(p),
+  buildId: () => buildIdOf("dist"),
+  updateState: () => update,
+  checkForUpdates: () => {
+    setUpdate({ checking: true });
+    setTimeout(
+      () => setUpdate({ checking: false, lastChecked: Date.now() }),
+      1200,
+    );
+    return true;
+  },
+  installUpdate: () => (simulate(), true),
+  cancelUpdate: () => {
+    sim && clearInterval(sim);
+    setPhase({ kind: "idle" });
+    return true;
+  },
+  dismissUpdate: () => (setPhase({ kind: "idle" }), true),
+};
+
+const server = startRemoteServer({
+  port,
+  root: "dist",
+  check: (req, peer) =>
+    localControlRequest(req) && (peer === "127.0.0.1" || peer === "::1" || peer === "::ffff:127.0.0.1")
+      ? { ok: true, ip: null }
+      : { ok: false, status: 403, reason: "Forbidden origin" },
+  route: (_req, url) => {
+    if (url.pathname === "/update") return updateRoute(url);
+    if (url.pathname === "/remote") return remoteRoute(url);
+    // The app bundle copies the home-screen icons; the preview serves them from assets/.
+    const icon = url.pathname.match(/^\/pwa\/icon-(180|192|512)\.png$/)?.[1];
+    if (icon) return new Response(Bun.file(`assets/web-app-icon-${icon}.png`), { headers: { "content-type": "image/png" } });
+  },
+  request: (client, method, params) => {
+    const handler = (handlers as Record<string, ((p: unknown, c: RemoteClient) => unknown) | undefined>)[method];
+    if (!handler) throw new Error(`Unknown method ${method}`);
+    return handler(params, client);
+  },
+  message: (_client, name, payload) => {
+    if (name === "selectionChanged") broadcast("selectionChanged", payload);
+  },
+  closed: (client) => {
+    for (const k of client.opened) host.close(...(k.split("\n") as [string, string]));
   },
 });
+broadcast = server.broadcast;
 console.log(
   `Toolbelt preview: http://localhost:${port}  (popover: http://localhost:${port}/#popover)`,
 );

@@ -13,6 +13,7 @@ import { popoverLayout, type PopoverLayout } from "../shared/popover";
 import { assignLetters } from "../shared/letters";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
+import { resetInputModality } from "@/lib/input-modality";
 import { rpc, sendEvent, useDevelopment, usePlugins, usePopoverHiding, usePopoverShown, useSettings, useSurface } from "@/lib/store";
 import { SurfaceContext, isTyping, usePersisted } from "@/lib/uistate";
 import { Dot } from "@/renderer/Render";
@@ -66,6 +67,8 @@ export default function Popover() {
     const detail = useRef<HTMLElement>(null);
     const [layout, setLayout] = useState<PopoverLayout>({ x: 0, y: 0, width: 754, height: 520, menuWidth: 380, menuHeight: 520, detailWidth: 380, detailTop: 0, detailHeight: 520, overlap: 6, side: "left" });
     usePopoverShown(useCallback(() => {
+        // Opened by the shortcut or a click elsewhere: no focus ring until a key is pressed here.
+        resetInputModality();
         refreshSharedSelection();
         setActivePane("menu");
         mouseNavigation.current = false;

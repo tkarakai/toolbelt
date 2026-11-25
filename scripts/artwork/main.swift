@@ -6,6 +6,8 @@ func render() throws {
     try AppArt.renderIconset(to: URL(fileURLWithPath: "icon.iconset"), dev: false)
     try AppArt.renderIconset(to: URL(fileURLWithPath: "dev-icon.iconset"), dev: true)
     try FileManager.default.createDirectory(atPath: "assets", withIntermediateDirectories: true)
+    try AppArt.renderWebAppIcons(prefix: "assets/web-app-icon", dev: false)
+    try AppArt.renderWebAppIcons(prefix: "assets/web-app-icon-dev", dev: true)
     for (name, size, alert, tint, appearance) in [
         ("tray-icon.png", 18, false, nil, NSAppearance.Name.aqua),
         ("tray-icon@2x.png", 36, false, nil, NSAppearance.Name.aqua),

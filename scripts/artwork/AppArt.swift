@@ -44,24 +44,35 @@ enum AppArt {
     // ── app icon ──────────────────────────────────────────────────────────
     struct IconView: View {
         var dev = false
+        /// Phone home-screen icons: the background fills the square (the system applies its own
+        /// mask) and the artwork scales up to match; no shadow or edge highlight.
+        var fullBleed = false
         // Official: midnight blue. Dev: warm amber-brown, so the two never look alike.
         var top: Color { dev ? Color(red: 0.42, green: 0.22, blue: 0.05) : Color(red: 0.13, green: 0.16, blue: 0.30) }
         var bottom: Color { dev ? Color(red: 0.16, green: 0.08, blue: 0.02) : Color(red: 0.05, green: 0.06, blue: 0.12) }
         var glow: Color { dev ? Color(red: 1.0, green: 0.62, blue: 0.15) : Color(red: 0.35, green: 0.45, blue: 1.0) }
         var body: some View {
             GeometryReader { g in
-                let s = g.size.width / 1024
+                let s = g.size.width / (fullBleed ? 824 : 1024)
                 ZStack {
-                    // The macOS icon grid: an 824-pt continuous-corner square, centered.
-                    let shape = RoundedRectangle(cornerRadius: 185 * s, style: .continuous)
-                    shape
-                        .fill(LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom))
-                        .overlay(
-                            shape.fill(RadialGradient(colors: [glow.opacity(dev ? 0.55 : 0.45), .clear], center: UnitPoint(x: 0.3, y: 0.15), startRadius: 0, endRadius: 620 * s))
-                        )
-                        .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.35), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom), lineWidth: 5 * s))
-                        .frame(width: 824 * s, height: 824 * s)
-                        .shadow(color: .black.opacity(0.35), radius: 14 * s, y: 10 * s)
+                    if fullBleed {
+                        Rectangle()
+                            .fill(LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom))
+                            .overlay(
+                                Rectangle().fill(RadialGradient(colors: [glow.opacity(dev ? 0.55 : 0.45), .clear], center: UnitPoint(x: 0.3, y: 0.15), startRadius: 0, endRadius: 620 * s))
+                            )
+                    } else {
+                        // The macOS icon grid: an 824-pt continuous-corner square, centered.
+                        let shape = RoundedRectangle(cornerRadius: 185 * s, style: .continuous)
+                        shape
+                            .fill(LinearGradient(colors: [top, bottom], startPoint: .top, endPoint: .bottom))
+                            .overlay(
+                                shape.fill(RadialGradient(colors: [glow.opacity(dev ? 0.55 : 0.45), .clear], center: UnitPoint(x: 0.3, y: 0.15), startRadius: 0, endRadius: 620 * s))
+                            )
+                            .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.35), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom), lineWidth: 5 * s))
+                            .frame(width: 824 * s, height: 824 * s)
+                            .shadow(color: .black.opacity(0.35), radius: 14 * s, y: 10 * s)
+                    }
 
                     VStack(alignment: .leading, spacing: 74 * s) {
                         row(s, dot: Color(red: 0.24, green: 0.92, blue: 0.55), glow: true, width: 400, opacity: 0.95)
@@ -89,6 +100,18 @@ enum AppArt {
                     .fill(LinearGradient(colors: [.white.opacity(opacity), .white.opacity(opacity * 0.78)], startPoint: .leading, endPoint: .trailing))
                     .frame(width: width * s, height: 60 * s)
             }
+        }
+    }
+
+    /// Write the remote-access web app's home-screen icons (docs/remote-access.md).
+    @MainActor
+    static func renderWebAppIcons(prefix: String, dev: Bool) throws {
+        for px in [180, 192, 512] {
+            let r = ImageRenderer(content: IconView(dev: dev, fullBleed: true).frame(width: CGFloat(px), height: CGFloat(px)))
+            r.scale = 1
+            guard let cg = r.cgImage else { throw NSError(domain: "icon", code: 1) }
+            guard let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) else { throw NSError(domain: "icon", code: 2) }
+            try png.write(to: URL(fileURLWithPath: "\(prefix)-\(px).png"))
         }
     }
 

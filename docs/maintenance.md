@@ -32,6 +32,26 @@ Generated apps are unregistered from Launch Services after builds.
 Dev and app builds share a lock. If an existing dev session is running, leave it alone and
 build a disposable source copy with separate config/ports.
 
+## Testing remote access
+
+The browser preview simulates Tailscale: it never runs the real CLI. Its pretend remote server
+listens on `REMOTE_PORT` (default 47389, away from the app's 47380/47381), and
+`/remote?scenario=ok|missing|stopped|nohttps|conflict` chooses what the pretend CLI reports.
+To see devices, connect WebSockets to the pretend server's `/rpc` with
+`Tailscale-User-Login: owner@example.com` and an `X-Forwarded-For` tailnet IP (100.64.0.2 and
+100.64.0.3 are known peers). Check phone layouts with `chrome-devtools-axi emulate --viewport
+"390x844x3,mobile,touch"`: no popover, no key hints, the **Show tools** sheet, no horizontal
+overflow, the connection banner when the server stops. Add `--user-agent` with an iPhone or
+Android string and open `/?install` to see the install card; desktop Chrome fires
+`beforeinstallprompt` on localhost, so Android shows the button (don't press it in the
+automation browser).
+
+For a native check, run ToolBelt Dev with a temporary `TOOLBELT_CONFIG_DIR` whose
+`settings.json` has `"remote": {"enabled": true, "port": <free port>}` and a distinct debug port.
+`/state` reports `remote`; requests to the port need the owner's login header. Never create,
+change or remove Serve rules on a real Tailscale configuration in tests; `test/` uses fake
+runners, and only the owner creates rules, from the Remote Access tab.
+
 ## Previewing app updates
 
 In ToolBelt Dev, open Settings → About → Updates and use **Development preview**.
@@ -52,6 +72,7 @@ or restarts an app. The browser preview also has its existing simulated update f
 | Assets | Asset-path/content validation tests and rendered icons/images on both surfaces |
 | Manager | Real service/RPC/UI review/install, channel/check/cancel/cleanup/remove/recovery and reactive state; backend validation remains authoritative |
 | Development mode | Development tests; preview with `TOOLBELT_DEVELOPMENT_PROFILE`; isolated native enter/exit relaunch, refusal, local load/watch/reset |
+| Remote access | Tailscale, remote-server, remote-access and remote-client tests; preview Tailscale scenarios and phone emulation; isolated native server and owner-check probe |
 | App updater/packaging | Updater unit tests, clean app builds, mounted DMG identity/version/signature and disposable updater rehearsal |
 
 Plugin behavior belongs in plugin repositories. Host tests use generic valid/broken fixtures;

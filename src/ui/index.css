@@ -368,6 +368,13 @@ mark.hit {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
+/* Focus indicators wait for the keyboard (src/ui/lib/input-modality.ts): focus that came from a
+   click or from opening a view draws no ring. Text fields keep theirs: typing needs the caret's place. */
+html:not([data-input-modality="keyboard"]) :focus-visible:not(input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"], [type="range"], [type="color"]), textarea, select, [contenteditable="true"], [contenteditable="true"] *, .cm-editor *) {
+  outline: none !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+}
 
 /* The pane border reinforces keyboard ownership without another outline inside the item. */
 [data-keyboard-pane] {
@@ -441,3 +448,9 @@ mark.hit {
 [data-inline-form] [data-slot="select-trigger"] svg { opacity: 0; transition: opacity 150ms ease; }
 [data-inline-form] [data-slot="select-trigger"]:hover svg,
 [data-inline-form] [data-slot="select-trigger"]:focus-visible svg { opacity: 0.5; }
+
+/* Touch devices without a physical keyboard show no key hints (src/ui/lib/device.ts). The
+   Keyboard settings tab keeps its reference list (`data-keep-keys`). */
+html[data-keyboard="none"] :is([data-slot="kbd"], [data-slot="kbd-group"], [data-slot="dropdown-menu-shortcut"]):not([data-keep-keys] *) {
+	display: none !important;
+}

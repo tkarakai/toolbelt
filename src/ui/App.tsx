@@ -35,6 +35,8 @@ import { KeyHint } from "@/components/key-hint";
 import { ShortcutTooltip } from "@/components/shortcut-tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HeaderTab } from "./components/header-tab";
+import { RemoteAccessSettings } from "./RemoteAccess";
+import { inApp, remoteClient, touchPrimary } from "@/lib/device";
 import { Tabs, TabsList } from "@/components/ui/tabs";
 import { SettingsGroup, SettingsRow } from "./components/settings-layout";
 import {
@@ -59,7 +61,8 @@ const TOOLBELT = "toolbelt";
  *  `trafficLightOffset` of 6 they sit at x 15…69, y 15…29 (measured via the debug channel). */
 const TRAFFIC_LIGHTS_END = 80;
 const RAIL = 48; // --sidebar-width-icon
-const inApp = (window as { __electrobunWebviewId?: number }).__electrobunWebviewId !== undefined;
+/** The real window buttons exist only in the app; the preview draws stand-ins on desktop. */
+const windowButtons = !remoteClient && !touchPrimary;
 /** The active sidebar item uses the selection colors. */
 const ACTIVE = "data-[active=true]:bg-selected data-[active=true]:text-selected-foreground data-[active=true]:hover:bg-selected data-[active=true]:hover:text-selected-foreground";
 
@@ -156,7 +159,7 @@ export default function App() {
 
 	return (
 		<SidebarProvider open={open} onOpenChange={setOpen} style={{ "--sidebar-width": `${width}px` } as CSSProperties}>
-			{!inApp && <FakeTrafficLights />}
+			{!inApp && windowButtons && <FakeTrafficLights />}
 			<FocusRegions />
 			<FocusRescue />
 			<TabbableControls />
@@ -190,8 +193,13 @@ function FakeTrafficLights() {
 }
 
 // ── sidebar ──────────────────────────────────────────────────────────────
-function AppSidebar({ plugins, current, go, width, onResize }: { plugins: PluginInfo[]; current?: string; go: (p: string, s?: string) => void; width: number; onResize: (w: number) => void }) {
-	const { state, setOpen } = useSidebar();
+function AppSidebar({ plugins, current, go: navigate, width, onResize }: { plugins: PluginInfo[]; current?: string; go: (p: string, s?: string) => void; width: number; onResize: (w: number) => void }) {
+	const { state, setOpen, isMobile, setOpenMobile } = useSidebar();
+	// On narrow screens the sidebar is a sheet over the page: choosing closes it.
+	const go = (plugin: string, screen?: string) => {
+		navigate(plugin, screen);
+		if (isMobile) setOpenMobile(false);
+	};
 	// The tools are one Tab stop: ↑/↓ (Home/End) move between them, ↵ opens one.
 	const tools = useRef<HTMLUListElement>(null);
 	const roving = useRovingFocus(tools, { items: "[data-sidebar=menu-button]", current: "[data-active=true]" });
@@ -260,10 +268,11 @@ function AppSidebar({ plugins, current, go, width, onResize }: { plugins: Plugin
 }
 
 function CollapseButton() {
-	const { toggleSidebar, state } = useSidebar();
+	const { toggleSidebar, state, isMobile } = useSidebar();
+	const label = isMobile ? "Show tools" : state === "expanded" ? "Collapse sidebar" : "Expand sidebar";
 	return (
-		<ShortcutTooltip label={state === "expanded" ? "Collapse sidebar" : "Expand sidebar"} keys="⌘B" align="start">
-			<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag text-muted-foreground" onClick={toggleSidebar} aria-label={state === "expanded" ? "Collapse sidebar" : "Expand sidebar"} aria-keyshortcuts="Meta+B">
+		<ShortcutTooltip label={label} keys="⌘B" align="start">
+			<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag text-muted-foreground" onClick={toggleSidebar} aria-label={label} aria-keyshortcuts="Meta+B">
 				<PanelLeft />
 			</Button>
 		</ShortcutTooltip>
@@ -314,10 +323,13 @@ function SidebarResize({ width, onResize, onCollapse, onExpand, collapsed }: { w
 // ── plugin pane ──────────────────────────────────────────────────────────
 /** The pane's top bar. The whole bar drags the window, except its controls. */
 function PaneHeader({ manifest, children }: { manifest: Pick<Manifest, "name" | "icon">; children?: ReactNode }) {
-	const { state } = useSidebar();
-	const collapsed = state === "collapsed";
+	const { state, isMobile } = useSidebar();
+	// Narrow screens show the sidebar as a sheet, opened from here; without window buttons
+	// (remote and touch devices) nothing needs their room.
+	const collapsed = state === "collapsed" || isMobile;
+	const left = isMobile ? (windowButtons ? TRAFFIC_LIGHTS_END : 12) : collapsed ? TRAFFIC_LIGHTS_END - RAIL : 24;
 	return (
-		<header data-focus-region="header" onDoubleClick={zoomOnDoubleClick} className="electrobun-webkit-app-region-drag flex h-12 min-w-0 shrink-0 items-center gap-3 overflow-hidden border-b pr-6" style={{ paddingLeft: collapsed ? TRAFFIC_LIGHTS_END - RAIL : 24 }}>
+		<header data-focus-region="header" onDoubleClick={zoomOnDoubleClick} className="electrobun-webkit-app-region-drag flex h-12 min-w-0 shrink-0 items-center gap-3 overflow-hidden border-b pr-6" style={{ paddingLeft: left }}>
 			{collapsed && (
 				<div className="-ml-1">
 					<CollapseButton />
@@ -417,6 +429,7 @@ function Loading() {
 const SETTINGS_TABS = [
     {id: "appearance", label: "Appearance", shortcut: "a", icon: "palette"},
     {id: "keyboard", label: "Keyboard", shortcut: "k", icon: "keyboard"},
+    {id: "remote", label: "Remote Access", shortcut: "r", icon: "smartphone"},
     {id: "plugins", label: "Plugins", shortcut: "p", icon: "puzzle"},
     {id: "about", label: "About", shortcut: "i", icon: "info"},
 ];
@@ -469,9 +482,11 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
 
                     {tab === "appearance" && <AppearanceSetting />}
                     {tab === "about" && <AboutSettings />}
+                    {tab === "remote" && <RemoteAccessSettings />}
                     {tab === "keyboard" && <>
-                    <SettingsGroup title="Menu bar"><div className={cn("p-5", section === "keyboard-shortcut" && "shortcut-attention")}><ShortcutSetting /></div></SettingsGroup>
-                    <SettingsGroup title="Navigation and actions"><div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 p-5 text-sm">
+                    {/* The global shortcut is the Mac's: remote devices can't change it. */}
+                    {!remoteClient && <SettingsGroup title="Menu bar"><div className={cn("p-5", section === "keyboard-shortcut" && "shortcut-attention")}><ShortcutSetting /></div></SettingsGroup>}
+                    <SettingsGroup title="Navigation and actions"><div data-keep-keys className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 p-5 text-sm">
                             <Shortcut label="Switch tool (hold ⌘ to see the numbers)" keys={["⌘1 … ⌘9"]} />
                             <Shortcut label="Plugin or Settings tabs" keys={["⌘letter", "⌥⌘1 …"]} />
                             <Shortcut label="Next / previous tab" keys={["⌃⇥", "⌃⇧⇥"]} />

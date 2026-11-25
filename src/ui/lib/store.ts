@@ -6,6 +6,9 @@ import { useOrderedPlugins } from "./plugin-order";
 import { Electroview } from "electrobun/view";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { showPluginToast } from "./plugin-toast";
+import { inApp } from "./device";
+import { createSocketTransport, type ConnectionStatus } from "./connection";
+import type { RemoteAccessRequest, RemoteAccessState } from "../../shared/remote";
 import type { Node } from "../../shared/protocol";
 import type { PluginInfo, ToolbeltRPC, UpdateState } from "../../shared/rpc";
 import {
@@ -96,6 +99,7 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
   settingsChanged: () => settingsListeners.forEach((l) => l()),
   updateState: (s) => updateListeners.forEach((l) => l(s)),
   developmentState: (s) => setDevelopment(s),
+  remoteAccessState: (s) => setRemoteAccess(s),
   command: ({ name }) => commandListeners.forEach((l) => l(name)),
   confirmQuit: () => commandListeners.forEach((l) => l("confirmQuit")),
 };
@@ -112,10 +116,8 @@ export type Transport = {
   send: { [K in keyof BunMessages]: (p: BunMessages[K]) => void };
 };
 
-/** Inside Toolbelt: Electrobun's RPC. In a plain browser (scripts/preview.ts): a WebSocket. */
-const inApp =
-  (window as { __electrobunWebviewId?: number }).__electrobunWebviewId !==
-  undefined;
+/** Inside Toolbelt: Electrobun's RPC. In a browser (remote access, the preview): a WebSocket. */
+let socket: ReturnType<typeof createSocketTransport> | null = null;
 
 function connect(): Transport {
   if (inApp) {
@@ -126,20 +128,15 @@ function connect(): Transport {
     new Electroview({ rpc: r });
     return r as unknown as Transport;
   }
-  const ws = new WebSocket(`ws://${location.host}/rpc`);
-  const ready = new Promise((ok) =>
-    ws.addEventListener("open", ok, { once: true }),
-  );
-  let next = 1;
-  const waiting = new Map<
-    number,
-    (m: { result?: unknown; error?: string }) => void
-  >();
-  ws.addEventListener("message", (e) => {
-    const m = JSON.parse(e.data);
-    if (m.kind === "response") (waiting.get(m.id)?.(m), waiting.delete(m.id));
-    else if (m.kind === "message")
-      (handlers as Record<string, (p: unknown) => void>)[m.name]?.(m.payload);
+  socket = createSocketTransport({
+    url: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/rpc`,
+    message: (name, payload) =>
+      (handlers as Record<string, (p: unknown) => void>)[name]?.(payload),
+    connected: (again) => {
+      void checkBuild();
+      if (again) resync();
+    },
+    suspended: (hidden) => (hidden ? suspendSurfaces() : resync()),
   });
   const proxy = <T>(fn: (name: string, p: unknown) => T) =>
     new Proxy(
@@ -147,23 +144,33 @@ function connect(): Transport {
       { get: (_, name: string) => (p: unknown) => fn(name, p) },
     ) as never;
   return {
-    request: proxy(async (method, params) => {
-      await ready;
-      const id = next++;
-      ws.send(JSON.stringify({ kind: "request", id, method, params }));
-      const m = await new Promise<{ result?: unknown; error?: string }>((ok) =>
-        waiting.set(id, ok),
-      );
-      if (m.error) throw new Error(m.error);
-      return m.result;
-    }),
-    send: proxy(
-      (name, payload) =>
-        void ready.then(() =>
-          ws.send(JSON.stringify({ kind: "message", name, payload })),
-        ),
-    ),
+    request: proxy((method, params) => socket!.request(method, params)),
+    send: proxy((name, payload) => socket!.send(name, payload)),
   };
+}
+
+/** The browser connection's state (always "open" inside the app). */
+export function useConnection(): [ConnectionStatus, () => void] {
+  const status = useSyncExternalStore(
+    (l) => socket?.subscribe(l) ?? (() => {}),
+    () => socket?.status() ?? "open",
+  );
+  return [status, () => socket?.reconnect()];
+}
+
+/** A newer UI build on the server: reload once to pick it up (the service worker revalidates). */
+async function checkBuild() {
+  const mine = document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src.split("/").pop() ?? null;
+  const served = await rpc.request.buildId({}).catch(() => null);
+  if (!served || !mine || served === mine) return;
+  try {
+    if (sessionStorage.getItem("toolbelt.reloaded-for") === served) return;
+    sessionStorage.setItem("toolbelt.reloaded-for", served);
+  } catch {
+    return;
+  }
+  await navigator.serviceWorker?.getRegistration().then((r) => r?.update()).catch(() => {});
+  location.reload();
 }
 
 export const rpc = connect();
@@ -187,18 +194,47 @@ export function usePlugins(): PluginInfo[] {
   return useOrderedPlugins(useSyncExternalStore(subscribe, () => state.plugins));
 }
 
+// Surfaces this view watches, with how many components watch each. The main process hears one
+// open per surface; reconnecting or coming back to the foreground opens them again.
+const watched = new Map<string, { plugin: string; surface: string; count: number }>();
+const openSurface = (plugin: string, surface: string) =>
+  rpc.request.open({ plugin, surface }).then((tree) => {
+    const k = key(plugin, surface);
+    if (tree && watched.has(k)) set({ trees: { ...state.trees, [k]: tree } });
+  });
+/** After a reconnect or a return to the foreground: fresh plugins and current trees. */
+function resync() {
+  void rpc.request.plugins({}).then((plugins) => handlers.plugins(plugins)).catch(() => {});
+  // A reconnect while hidden leaves surfaces closed; showing the page opens them.
+  if (document.visibilityState === "hidden") return;
+  for (const { plugin, surface } of watched.values()) void openSurface(plugin, surface).catch(() => {});
+}
+/** The page is hidden: stop receiving trees until it's shown again. */
+function suspendSurfaces() {
+  for (const { plugin, surface } of watched.values())
+    void rpc.request.close({ plugin, surface }).catch(() => {});
+}
+
 /** Watch a surface while mounted; returns its latest UI tree (or null until the first one). */
 export function useSurface(plugin: string, surface: string): Node | null {
   const k = key(plugin, surface);
   useEffect(() => {
     let live = true;
-    void rpc.request.open({ plugin, surface }).then((tree) => {
-      if (live && tree && !state.trees[k])
-        set({ trees: { ...state.trees, [k]: tree } });
-    });
+    const entry = watched.get(k);
+    if (entry) entry.count++;
+    else {
+      watched.set(k, { plugin, surface, count: 1 });
+      void rpc.request.open({ plugin, surface }).then((tree) => {
+        if (live && tree && !state.trees[k])
+          set({ trees: { ...state.trees, [k]: tree } });
+      }).catch(() => {});
+    }
     return () => {
       live = false;
-      void rpc.request.close({ plugin, surface });
+      const current = watched.get(k);
+      if (current && --current.count > 0) return;
+      watched.delete(k);
+      void rpc.request.close({ plugin, surface }).catch(() => {});
     };
   }, [plugin, surface, k]);
   return useSyncExternalStore(subscribe, () => state.trees[k] ?? null);
@@ -362,5 +398,32 @@ export function useDevelopment(): DevelopmentState | null {
       return () => void developmentListeners.delete(l);
     },
     () => development,
+  );
+}
+
+// ── remote access (docs/remote-access.md) ──────────────────────────────────
+let remoteAccess: RemoteAccessState | null = null;
+const remoteAccessListeners = new Set<() => void>();
+function setRemoteAccess(next: RemoteAccessState) {
+  remoteAccess = next;
+  remoteAccessListeners.forEach((l) => l());
+}
+/** Runs a remote access operation; the new state also arrives as a message. */
+export async function remoteAccessRequest(request: RemoteAccessRequest) {
+  const next = await rpc.request.remoteAccess(request);
+  setRemoteAccess(next);
+  return next;
+}
+/** Null until the host answers. Reading it refreshes Tailscale's status. */
+export function useRemoteAccess(): RemoteAccessState | null {
+  useEffect(() => {
+    void remoteAccessRequest({ operation: "read" }).catch(() => {});
+  }, []);
+  return useSyncExternalStore(
+    (l) => {
+      remoteAccessListeners.add(l);
+      return () => void remoteAccessListeners.delete(l);
+    },
+    () => remoteAccess,
   );
 }
