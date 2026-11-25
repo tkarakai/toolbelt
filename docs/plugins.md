@@ -637,11 +637,18 @@ ignore the key.
 
 ### Page toolbar layout
 
-A page's toolbar is always one row. Its search, `controls`, `filters` and `summary` sit in a
+A page's toolbar is one row. Its search, `controls`, `filters` and `summary` sit in a
 strip that scrolls sideways when they don't fit (trackpad, touch, or a control taking focus),
 with no scrollbar; a cut-off edge fades and shows a ‹ or › button. Page `actions` stay at the
 right. Below 640 px of toolbar width, actions with an `icon` show as icon buttons, their label and
-key in a tooltip. No plugin change is needed; older hosts wrap the toolbar instead.
+key in a tooltip. Below 480 px (a phone) the toolbar stacks: the search and the actions on one
+row, the other controls scrolling on a second. No plugin change is needed; older hosts wrap the
+toolbar instead.
+
+On phones and tablets the host also moves screen tabs to a bottom bar (give every screen an
+`icon` and a short `title`), opens row details and panes in a bottom sheet when a row is tapped,
+and shows dialogs as bottom sheets. See [remote-access.md](remote-access.md), "Narrow screens"
+and "Touch".
 
 ### Timelines
 

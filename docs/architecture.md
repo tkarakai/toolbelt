@@ -216,7 +216,10 @@ the newest render tree per surface while a socket is backed up. The browser prev
 same server module (`remote-server.ts`) with loopback checks and its own handler table. In a
 browser, `lib/connection.ts` reconnects with backoff, follows the server's heartbeat and closes
 surfaces while the page is hidden; remote and touch devices get the main window only and hide
-key hints until a physical keyboard is used.
+key hints until a physical keyboard is used. Narrow windows get a phone layout (bottom tab bar,
+details and dialogs as bottom sheets, stacked toolbars) and touch input gets gestures (long
+press, edge swipe, swipe to dismiss), all in the host renderer: see
+[remote-access.md](remote-access.md), "Renderer adaptation" and "Touch".
 
 ## Keyboard
 

@@ -572,6 +572,8 @@ export function atFilterDefault(filter: Pick<Filter, "default">, selected: reado
 
 /** Below this width (px) the page toolbar shows its actions as icon buttons. */
 export const COMPACT_TOOLBAR = 640;
+/** Narrower than this (px), the toolbar stacks: filter box and actions, then the view controls. */
+export const STACK_TOOLBAR = 480;
 /** How wide the strip's edge fade and ‹ › buttons are (px): what's under them counts as hidden. */
 export const STRIP_EDGE = 32;
 

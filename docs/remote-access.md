@@ -25,6 +25,7 @@ notifications, mobile-specific plugin screens.
 | App wiring: remote views, allowed methods, navigation | `src/bun/index.ts` (remote access section) |
 | Browser connection: reconnects, heartbeat, visibility | `src/ui/lib/connection.ts`, `src/ui/lib/store.ts` |
 | Device detection, key hints | `src/ui/lib/device.ts`, `index.css` |
+| Narrow layout, touch gestures | `src/ui/App.tsx`, `components/mobile-tab-bar.tsx`, `lib/touch.ts`, `lib/hide-on-scroll.ts`, `hooks/use-mobile.ts`, `renderer/Render.tsx` |
 | Connection banner, badge, service worker, install card | `src/ui/remote-client.tsx` |
 | Install help rules (device, browser, steps) | `src/ui/lib/install.ts` |
 | Settings → Remote Access | `src/ui/RemoteAccess.tsx` |
@@ -313,12 +314,82 @@ Plugins don't learn that a client is remote or touch-based, and the protocol doe
    Hints return on the first physical-keyboard evidence: iOS fires `keydown` for the on-screen
    keyboard too, so only keys it can't produce count (Tab, Escape, arrows, Page keys, F6, ⌘/⌃
    combinations, ⌥ outside text fields). `aria-keyshortcuts` is unaffected.
-3. **Narrow screens.** Below 768 px the sidebar is a sheet: the pane header shows a **Show
-   tools** button, and choosing a tool closes the sheet. Without window buttons (remote and
-   touch devices) the header doesn't reserve their room, and the preview's stand-in buttons
-   aren't drawn.
+3. **Narrow screens** (below 768 px, `useIsMobile`; `usePhone` and the CSS `phone:` variant add
+   "not the Mac's popover", which is narrow too and keeps its desktop behavior):
+   - The sidebar is a sheet with finger-sized rows and Settings named, opened by the header's
+     **Show tools** button (☰) or a swipe in from the left edge; choosing a tool closes it.
+     Without window buttons (remote and touch devices) the header doesn't reserve their room,
+     and it keeps clear of the notch and status bar (`safe-area-inset-*`).
+   - A plugin's tabs, and Settings' tabs, move from the header to a bar along the bottom
+     (`MobileTabBar`): icon over the screen title, the chosen tab's icon in a selection-color
+     pill, clear of the home indicator. The header keeps the tool's name and the pane actions.
+     The bar publishes its height as `--mobile-tab-bar`, which toasts and the install card sit
+     above.
+   - While the content scrolls down (24 px in one go), the header slides up and the tab bar
+     down, giving their room to the content; scrolling up 12 px, reaching the top, a new tab or
+     focus moving into a bar brings them back (`lib/hide-on-scroll.ts`, `SlideAway`). Content
+     with little to scroll keeps them. Each bar's row collapses over 200 ms, so the content
+     grows as the bar moves out.
+   - Switching tools and tabs on a touch screen replaces the history entry instead of adding
+     one (`setHash` in `App.tsx`): phone tab bars don't stack up Back steps, and with no
+     ToolBelt history iOS's own back swipe from the left edge (in Safari and in home-screen
+     apps) has nothing to go back to, leaving the edge to the tools sheet. Pages can't block
+     that system gesture, so it still wins when the tab came from another page.
+   - Page toolbars narrower than 480 px stack: the filter box (taking the free width) and the
+     actions as larger icon buttons on one row, the filters, controls and summary scrolling
+     sideways on a row of their own.
+   - The details drawer can't fit, so a tapped row opens its details or row pane in a sheet from
+     the bottom (on phone-width windows and touch screens; a medium-width Mac window keeps clicks
+     selecting), sliding its full height in 200 ms (grab handle; a downward swipe, a tap outside or Esc closes it). A tapped row
+     without details opens or closes its children, and a tapped group heading collapses or
+     expands; double clicks then do nothing more.
+   - Dialogs, including resizable ones, are sheets along the bottom, up to 92% of the height,
+     sliding in and out over 200 ms, with stacked full-width buttons in thumb reach. They can't be moved or resized.
+   - Rows in settings, cards, plugin cards and boxed forms wrap or stack before their text gets
+     squeezed: a card's actions wrap below its title, a form field's control goes under its
+     label at full width (switches stay beside it), a status value goes under its label.
 
-Plugin screens otherwise rely on the existing narrow-layout behavior.
+Plugin screens need no changes for any of this (see "Who is responsible" below).
+
+## Touch
+
+`src/ui/lib/touch.ts` holds the gestures, with the decisions as pure functions
+(`test/touch.test.ts`). They apply to touch input only; mouse and trackpad behavior is
+unchanged.
+
+- **Long press** (450 ms, within 8 px): on a table row it opens the row's actions menu. On a row
+  that can be reordered it lifts the row instead; dragging then moves it, releasing in place
+  opens the menu. A long press lifts a sidebar tool or an arranged filter to drag it. A press
+  that moves first is a scroll, so swiping a list or toolbar never starts a drag. While lifted,
+  page scrolling is held off. Android vibrates briefly; iOS has no web haptics.
+- **Edge swipe**: from the left 24 px, 48 px mostly sideways opens the tools sheet. iOS claims
+  the edge for its back gesture when there is a page to go back to; ToolBelt adds no history of
+  its own on touch screens (see "Narrow screens"), so this only happens in a browser tab that
+  came from another page.
+- **Swipe to dismiss**: the tools sheet (swiped left) and the details sheet (swiped down)
+  follow the finger and close when pulled past 30% or flung; otherwise they spring back. A
+  pull starts only where the content can't scroll that way itself.
+- **Targets and text**: row ⋯ and expand buttons get a larger hit area (`data-touch-target`),
+  and text fields use 16 px so iOS doesn't zoom on focus. There's no tap highlight, no
+  double-tap zoom delay on controls, no rubber-banding of the app, and rows don't select text
+  or show the iOS callout on a long press. The document never scrolls, only the panes, and the
+  panes fill the dynamic viewport (`h-dvh`): iOS can't shift the app (and its bottom tab bar)
+  when something takes focus, and no gap opens under the bar as Safari's toolbars resize.
+- On touch screens, Settings → Keyboard starts with a **Touch gestures** list; the keyboard
+  reference follows, for a connected keyboard.
+
+Not adopted: swiping between tabs or across rows (tables scroll sideways and rows already have
+long press), and pull to refresh (plugins push updates themselves).
+
+## Who is responsible: the host
+
+Plugins send declarative trees and never ship browser code, so layout is the host's: every
+adaptation above applies to every plugin, and the protocol has no "narrow" or "touch" signal.
+Plugins help by what they already declare: an `icon` on page actions and screens (icon buttons
+and the tab bar need one), short screen titles, column minimum widths and `overflow` (which
+columns hide first), concise toolbar `summary` text, and a row `pane` or `details` for what
+needs room. Text that names keys ("Press ↵ …") reads oddly on a phone; describe the action
+instead.
 
 ## Web app: manifest and service worker, no push
 

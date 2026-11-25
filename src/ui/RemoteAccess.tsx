@@ -307,7 +307,7 @@ function ConnectionStats({ device, live }: { device: PairedDevice; live: RemoteC
 		</div>
 	);
 	return (
-		<dl className="mt-3 ml-12 grid grid-cols-2 gap-x-4 gap-y-2.5 rounded-lg bg-muted/50 p-3 sm:grid-cols-4">
+		<dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 rounded-lg bg-muted/50 p-3 sm:ml-12 sm:grid-cols-4">
 			{stat("Connected", since(live.connectedAt))}
 			{stat("Tailnet address", live.ip ?? "—")}
 			{stat("System", live.os ?? "—")}
@@ -520,9 +520,10 @@ type Tone = "success" | "warning" | "danger" | "muted";
 function StatusRow({ label, tone, value, help, children }: { label: string; tone: Tone; value: ReactNode; help?: ReactNode; children?: ReactNode }) {
 	const Icon = tone === "success" ? Check : tone === "muted" ? CircleHelp : AlertTriangle;
 	return (
-		<div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3">
+		<div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-3 sm:px-5">
 			<div className="w-44 shrink-0 text-sm text-muted-foreground">{label}</div>
-			<div className="min-w-0 flex-1 space-y-1 text-sm">
+			{/* Too narrow for both side by side (a phone): the value goes under its label. */}
+			<div className="min-w-[min(12rem,100%)] flex-1 space-y-1 text-sm">
 				<div className="flex min-w-0 items-start gap-2">
 					<Icon className={cn("mt-0.5 size-4 shrink-0", textClass(tone))} aria-hidden="true" />
 					<span className="min-w-0 break-words">{value}</span>

@@ -17,3 +17,9 @@ export function useIsMobile() {
 
   return !!isMobile
 }
+
+/** A phone-width main window: narrow, and not the Mac's popover (which is narrow too). The CSS
+ *  `phone:` variant (index.css) matches the same screens. */
+export function usePhone() {
+  return useIsMobile() && document.documentElement.dataset.surface !== "popover"
+}

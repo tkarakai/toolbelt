@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- On a phone, every screen fits and is usable one-handed: plugin and Settings tabs sit in a bar along the bottom, toolbars stack (search and buttons, then filters), and settings, cards and forms stack instead of squeezing their text into a narrow column.
+- On narrow screens, tapping a row opens its details (or its editor, such as an OnTrack task) in a sheet from the bottom; before, details weren't reachable at all. Tapping a group heading collapses or expands it, and dialogs open as bottom sheets with their buttons in reach.
+- Touch gestures: swipe in from the left edge to show your tools, swipe a sheet away to close it, and touch and hold a row for its actions (or to drag it, where rows can be moved). Touch and hold also moves tools in the sidebar and filters in the toolbar, so swiping no longer starts a drag. Settings → Keyboard lists the gestures on touch screens.
+- On touch screens, text fields no longer make iOS zoom in, and small row buttons are easier to hit.
+- On a phone, the header and tab bar slide out of the way while you scroll down and come back when you scroll up, and sheets slide all the way in and out. Switching tools and tabs no longer adds browser history, so iPhone's back swipe doesn't compete with swiping in your tools.
 - Fixed: dragging tools in the sidebar to reorder them did nothing.
 - Settings → Remote Access serves ToolBelt and its plugins to your phone or tablet through Tailscale. ToolBelt creates the Tailscale Serve rule after you confirm, and can remove it. Only your Tailscale account can connect, and each phone, tablet or browser pairs once: choose Pair a device on the Mac (or on a device that's already paired) and scan its QR code, or type its six-digit code. The tab shows the address, your devices (paired ones, with live connection details and data use while connected, which you can disconnect or remove), and Tailscale's status.
 - On a phone, ToolBelt installs to the home screen as a web app: it reconnects by itself, starts without re-downloading the app over slow links, and can show the total of chosen plugins' badges on its icon.

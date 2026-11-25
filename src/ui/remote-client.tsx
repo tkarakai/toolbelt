@@ -457,8 +457,9 @@ function Card({ title, onClose, children }: { title: string; onClose: () => void
 	return (
 		<section
 			aria-label={title}
-			className="fixed inset-x-3 bottom-3 z-40 mx-auto max-w-md space-y-3 rounded-xl border bg-card p-4 shadow-lg animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
-			style={{ marginBottom: "env(safe-area-inset-bottom)" }}
+			className="fixed inset-x-3 z-40 mx-auto max-w-md space-y-3 rounded-xl border bg-card p-4 shadow-lg animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
+			// Above the bottom tab bar where there is one (it already keeps clear of the home indicator).
+			style={{ bottom: "calc(var(--mobile-tab-bar, env(safe-area-inset-bottom)) + 0.75rem)" }}
 		>
 			<div className="flex items-start gap-3">
 				<img src="./pwa/icon-180.png" alt="" className="size-10 shrink-0 rounded-[22%]" onError={(e) => (e.currentTarget.style.display = "none")} />

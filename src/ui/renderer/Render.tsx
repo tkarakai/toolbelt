@@ -30,7 +30,7 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
 import { SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { ariaShortcut, stepIndex } from "@/lib/keys";
-import { allowsSequence, arrangesFilters, atFilterDefault, COMPACT_TOOLBAR, edgeScrollSpeed, FILTER_DIVIDER, filterOptionGroups, filterSequence, keyboardMove, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup } from "./pure";
+import { allowsSequence, arrangesFilters, atFilterDefault, COMPACT_TOOLBAR, STACK_TOOLBAR, edgeScrollSpeed, FILTER_DIVIDER, filterOptionGroups, filterSequence, keyboardMove, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup } from "./pure";
 import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_SLOT, ROW_STEP, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
@@ -42,6 +42,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { useSwipeDismiss, watchHold } from "@/lib/touch";
+import { usePhone } from "@/hooks/use-mobile";
+import { touchPrimary } from "@/lib/device";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -454,10 +458,11 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 	// A narrow toolbar shows its actions as icon buttons.
 	const toolbar = useRef<HTMLDivElement>(null);
 	const [compact, setCompact] = useState(false);
+	const [toolbarWidth, setToolbarWidth] = useState(Infinity);
 	useLayoutEffect(() => {
 		const el = toolbar.current;
 		if (!el) return;
-		const measure = () => setCompact(el.clientWidth < COMPACT_TOOLBAR);
+		const measure = () => (setCompact(el.clientWidth < COMPACT_TOOLBAR), setToolbarWidth(el.clientWidth));
 		measure();
 		const observer = new ResizeObserver(measure);
 		observer.observe(el);
@@ -465,15 +470,12 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 	}, [!!hasToolbar]);
 	// Pages without a table read better as a centered column.
 	const narrow = !node.children.some((c) => c.type === "table");
-	return (
-		<HighlightContext.Provider value={highlight}>
-		<div ref={root} className="flex h-full min-h-0 min-w-0 flex-col">
-			{hasToolbar && (
-				<div ref={toolbar} className={cn("flex w-full min-w-0 shrink-0 items-center gap-3 px-6 pt-4 pb-3", narrow && "mx-auto max-w-4xl")}>
-					{/* One row at any width: what doesn't fit scrolls sideways; the actions stay put. */}
-					<ScrollStrip className="flex-1">
-					{node.search && (
-						<InputGroup data-view-control data-filtering={!!query} className={cn("w-64 shrink-0 transition-colors duration-200", !!query && ACTIVE_QUERY)}>
+	// A phone-width toolbar stacks: the filter box and the actions on one row, the view controls
+	// (filters, segmented controls, summary) scrolling sideways on a row of their own.
+const stacked = compact && toolbarWidth < STACK_TOOLBAR && document.documentElement.dataset.surface !== "popover";
+	const views = !!(node.filters?.length || node.controls?.length || node.summary);
+	const searchBox = node.search ? (
+		<InputGroup data-view-control data-filtering={!!query} className={cn("shrink-0 transition-colors duration-200", stacked ? "min-w-0 flex-1" : "w-64", !!query && ACTIVE_QUERY)}>
 							<InputGroupAddon>
 								<Search />
 							</InputGroupAddon>
@@ -507,11 +509,20 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 								)}
 							</InputGroupAddon>
 						</InputGroup>
-					)}
+	) : null;
+	return (
+		<HighlightContext.Provider value={highlight}>
+<div ref={root} className="@container/page flex h-full min-h-0 min-w-0 flex-col">
+			{hasToolbar && (
+<div ref={toolbar} className={cn("flex w-full min-w-0 shrink-0 items-center", stacked ? "flex-wrap gap-x-2 gap-y-2 px-3 pt-3 pb-2" : "gap-3 px-6 pt-4 pb-3", narrow && "mx-auto max-w-4xl")}>
+						{stacked && searchBox}
+						{/* One row at any width: what doesn't fit scrolls sideways; the actions stay put. */}
+						{(!stacked || views) && <ScrollStrip className={cn("flex-1", stacked && searchBox && "order-last basis-full")}>
+					{!stacked && searchBox}
 					{arrangesFilters(node.filters) ? (
 						<>
 							{/* Arranged filters come first; controls follow after a divider. */}
-							<FilterRow filters={node.filters!} emit={emit} />
+							<FilterRow filters={node.filters!} emit={emit} leading={stacked} />
 							{!!node.controls?.length && <span aria-hidden className="h-5 w-px shrink-0 bg-border" />}
 							{node.controls?.map((control) => <Control key={control.id} node={control} emit={emit} />)}
 						</>
@@ -524,16 +535,16 @@ function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emi
 						</>
 					)}
 					{node.summary && <span className="shrink-0 text-sm whitespace-nowrap text-muted-foreground tabular-nums">{node.summary}</span>}
-					</ScrollStrip>
+						</ScrollStrip>}
 					{!!node.actions?.length && (
-						<div className="ml-auto flex shrink-0 items-center gap-2">
-							<ActionButtons actions={node.actions} onRun={(a) => run(a)} keys compact={compact} />
+						<div className={cn("ml-auto flex shrink-0 items-center", stacked ? "gap-1.5" : "gap-2")}>
+								<ActionButtons actions={node.actions} onRun={(a) => run(a)} keys compact={compact} size={stacked ? "default" : "sm"} />
 						</div>
 					)}
 				</div>
 			)}
 			<div className={cn("min-h-0 flex-1", narrow ? "overflow-auto" : "flex")}>
-				<div className={cn("flex min-h-0 min-w-0 flex-1 flex-col gap-6", narrow && "mx-auto w-full max-w-4xl px-6 py-4")}>
+				<div className={cn("flex min-h-0 min-w-0 flex-1 flex-col gap-6", narrow && "mx-auto w-full max-w-4xl px-3 py-3 @min-[40rem]/page:px-6 @min-[40rem]/page:py-4")}>
 					{node.children.map((c, i) => (
 						<Render key={i} node={c} emit={emit} />
 					))}
@@ -606,16 +617,22 @@ function FilterMenu({ filter, emit, arranged }: { filter: Filter; emit: Emit; ar
 						"h-8 shrink-0 gap-1.5 transition-colors duration-200",
 						grouping && "border-primary/40 bg-primary/5",
 						filtering && ACTIVE_QUERY,
-						arranged && "touch-none select-none",
+						// Touch: a swipe scrolls the toolbar; a long press lifts the filter to move it.
+							arranged && "touch-pan-x select-none",
 						arranged?.dragging && "z-10 cursor-grabbing shadow-md ring-2 ring-ring",
 					)}
-					onPointerDown={arranged ? (e) => {
-						// The row decides between a click and a drag; the menu opens on the click.
-						if (e.button !== 0 || e.ctrlKey) return;
-						openAtPress.current = open;
-						e.preventDefault();
-						arranged.press(e);
-					} : undefined}
+						onPointerDown={arranged ? (e) => {
+							// The row decides between a click and a drag; the menu opens on the click.
+							if (e.button !== 0 || e.ctrlKey) return;
+							openAtPress.current = open;
+							if (e.pointerType === "touch") {
+								const press = { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId, currentTarget: e.currentTarget, target: e.target } as unknown as React.PointerEvent<HTMLElement>;
+								watchHold(e, { onHold: () => arranged.press(press) });
+								return;
+							}
+							e.preventDefault();
+							arranged.press(e);
+						} : undefined}
 					onClick={arranged ? () => {
 						if (arranged.dragged() || openAtPress.current) return;
 						setOpen(true);
@@ -726,7 +743,8 @@ const FILTER_MOVE_MS = 200;
  * grouping), or by ⌥← / ⌥→. Each move shows at once, slides into place with focus and any open
  * menu staying with it, and is sent as one `filter-arrange` event.
  */
-function FilterRow({ filters, emit }: { filters: Filter[]; emit: Emit }) {
+/** `leading`: the row starts its strip (a stacked toolbar), so a divider before every filter is dropped. */
+function FilterRow({ filters, emit, leading }: { filters: Filter[]; emit: Emit; leading?: boolean }) {
 	const sentSeq = useMemo(() => filterSequence(filters), [filters]);
 	const sentKey = sentSeq.join("\n");
 	const [seq, setSeq] = useState(sentSeq);
@@ -849,7 +867,7 @@ function FilterRow({ filters, emit }: { filters: Filter[]; emit: Emit }) {
 	return (
 		<div className="contents" role="toolbar" aria-label="Filters and grouping">
 			{seq.map((id, i) => {
-				if (id === FILTER_DIVIDER) return <span key={id} ref={refFor(id)} aria-hidden className="h-5 w-px shrink-0 bg-border" />;
+				if (id === FILTER_DIVIDER) return leading && i === 0 ? null : <span key={id} ref={refFor(id)} aria-hidden className="h-5 w-px shrink-0 bg-border" />;
 				const filter = byId.get(id);
 				if (!filter) return null;
 				const grouped = i < divider;
@@ -918,7 +936,8 @@ function DialogBody({ d, emit, close, className, style, header, children }: { d:
 				e.preventDefault();
 				const content = e.currentTarget as HTMLElement | null;
 				const field = content?.querySelector<HTMLElement>(`[data-autofocus] :is(${FIRST_FIELD})`) ?? content?.querySelector<HTMLElement>(`[data-form-fields] :is(${FIRST_FIELD})`);
-				(field ?? content)?.focus();
+				// preventScroll: on iOS, focusing something still sliding in scrolls to it and back (a bounce).
+				(field ?? content)?.focus({ preventScroll: true });
 			}}
 		>
 			<DialogHeader className="border-b px-6 pt-6 pb-4 pr-20">
@@ -952,6 +971,7 @@ function DialogBody({ d, emit, close, className, style, header, children }: { d:
  * button, or double-click the title). Size and maximized state are remembered per dialog id.
  */
 function ResizableDialog({ d, emit, close }: { d: DialogNode; emit: Emit; close: () => void }) {
+	const phone = usePhone();
 	const [size, setSize] = usePersisted<{ w: number; h: number } | null>(`toolbelt.dialog.${d.id}`, null);
 	const [max, setMax] = usePersisted(`toolbelt.dialog.${d.id}.max`, false);
 	const [dragging, setDragging] = useState(false);
@@ -984,6 +1004,8 @@ function ResizableDialog({ d, emit, close }: { d: DialogNode; emit: Emit; close:
 		el.addEventListener("pointerup", up);
 	};
 	const edge = "absolute z-20";
+	// On a phone it's a bottom sheet like every dialog, as tall as the screen allows.
+	if (phone) return <DialogBody d={d} emit={emit} close={close} className="phone:h-[88svh]" />;
 	return (
 		<DialogBody
 			d={d}
@@ -1276,7 +1298,7 @@ function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setCho
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<DropdownMenuTrigger asChild>
-							<Button variant="ghost" size="icon-sm" tabIndex={-1} aria-keyshortcuts="." className={cn(ROW_BUTTON, "data-[state=open]:bg-muted data-[state=open]:text-foreground")} aria-label="Row actions">
+							<Button variant="ghost" size="icon-sm" tabIndex={-1} aria-keyshortcuts="." data-touch-target className={cn(ROW_BUTTON, "data-[state=open]:bg-muted data-[state=open]:text-foreground")} aria-label="Row actions">
 								<MoreHorizontal />
 							</Button>
 						</DropdownMenuTrigger>
@@ -1363,9 +1385,10 @@ type Item =
 	| { kind: "row"; id: string; v: Visible; muted: boolean };
 
 const TableRow = memo(
-	function TableRow({ domPrefix, v, muted, leaving, doc, columns, roomy, actions, selected, echo, expanded, menuOpen, choosing, checked, onSelect, onToggle, onMenu, onChoose, onCheck, onDragStart, dragDeep, dragging, run, ready }: { domPrefix: string; v: Visible; muted?: boolean; leaving?: boolean; doc?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; echo?: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void; onDragStart?: (e: React.PointerEvent, row: Row) => void; dragDeep?: boolean; dragging?: boolean; run: Run; ready: { current: boolean } }) {
+	function TableRow({ domPrefix, v, muted, leaving, doc, columns, roomy, actions, selected, echo, expanded, menuOpen, choosing, checked, onSelect, onActivate, onToggle, onMenu, onChoose, onCheck, onDragStart, dragDeep, dragging, run, ready }: { domPrefix: string; v: Visible; muted?: boolean; leaving?: boolean; doc?: boolean; sig: string; columns: Column[]; roomy: string; actions: Action[]; selected: boolean; echo?: boolean; expanded: boolean; menuOpen: boolean; choosing: string | null; checked?: boolean; onSelect: (id: string) => void; /** A tap or double click on a narrow table: returns whether it was handled (stable). */ onActivate: (id: string, kind: "tap" | "double") => boolean; onToggle: (id: string) => void; onMenu: (id: string | null) => void; onChoose: (c: { row: string; action: string } | null) => void; onCheck?: (id: string) => void;onDragStart?: (e: React.PointerEvent, row: Row, onStill?: () => void) => void; dragDeep?: boolean; dragging?: boolean; run: Run; ready: { current: boolean } }) {
 		const { row, depth } = v;
 		const hasChildren = !!row.children?.length;
+		const held = useRef(false);
 		// Rows that appear after the table is up (expanded, new processes) fade in. The class goes
 		// once they have: a row moved in the DOM would replay it over its slide.
 		const [fresh, setFresh] = useState(() => ready.current);
@@ -1385,9 +1408,35 @@ const TableRow = memo(
 				data-selected={selected}
 				{...(leaving ? leavingProps : {})}
 				style={leaving ? leavingProps.style : fresh ? enterStyle : undefined}
-				onClick={(e) => (onSelect(row.id), refocusTable(e.currentTarget))}
-				onDoubleClick={() => hasChildren && onToggle(row.id)}
-				onPointerDown={onDragStart && !row.context && (depth === 0 || dragDeep) ? (e) => onDragStart(e, row) : undefined}
+				onClick={(e) => {
+					// A long press already opened the menu or lifted the row: not also a tap.
+					if (held.current) return void (held.current = false);
+					onSelect(row.id);
+					onActivate(row.id, "tap");
+					refocusTable(e.currentTarget);
+				}}
+				onDoubleClick={() => !onActivate(row.id, "double") && hasChildren && onToggle(row.id)}
+				onPointerDown={(e) => {
+					const draggable = onDragStart && !row.context && (depth === 0 || dragDeep);
+					// Touch: a long press lifts a row that can move (released in place, its menu opens),
+					// else opens its actions menu. A press that moves first is a scroll.
+					if (e.pointerType === "touch" && (draggable || actions.length)) {
+						held.current = false;
+						const press = { clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId, button: 0, target: e.target, currentTarget: e.currentTarget, preventDefault: () => {} };
+						watchHold(e, {
+							onHold: () => {
+								held.current = true;
+								onSelect(row.id);
+								if (draggable) onDragStart!(press as unknown as React.PointerEvent, row, () => actions.length && onMenu(row.id));
+								else onMenu(row.id);
+							},
+						});
+						return;
+					}
+					if (draggable) onDragStart!(e, row);
+				}}
+				// Android also answers a long press with a context menu: the row's own menu opens instead.
+				onContextMenu={(e) => (e.nativeEvent as PointerEvent).pointerType === "touch" && e.preventDefault()}
 				data-context={row.context ? "" : undefined}
 				data-echo={echo || undefined}
 				data-unread={row.unread || undefined}
@@ -1424,6 +1473,7 @@ const TableRow = memo(
 								{hasChildren ? (
 									<button
 										tabIndex={-1}
+										data-touch-target
 										aria-label={expanded ? "Collapse" : "Expand"}
 										onClick={(e) => (e.stopPropagation(), onToggle(row.id))}
 										className="mr-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -1894,7 +1944,8 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const landDrop = useRef((_id: string, _y: number) => {});
 	const suppressRowClick = useRef(false);
 	const startRowDrag = useCallback(
-		(e: React.PointerEvent, row: Row) => {
+		/** `onStill`: a touch lift released without moving (its menu opens instead). */
+		(e: React.PointerEvent, row: Row, onStill?: () => void) => {
 			if (e.button !== 0 || (e.target as HTMLElement).closest("button, a, input, [role=checkbox], [role=menuitem]")) return;
 			const x0 = e.clientX, y0 = e.clientY;
 			let active = false, frame = 0, x = x0, y = y0;
@@ -1997,7 +2048,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				window.removeEventListener("pointercancel", cancel);
 				window.removeEventListener("keydown", key, true);
 				cancelAnimationFrame(frame);
-				if (!active) return;
+				if (!active) return void (commit && onStill?.());
 				document.body.style.cursor = "";
 				document.body.style.userSelect = "";
 				suppressRowClick.current = true;
@@ -2256,6 +2307,25 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		const row = items.find((it) => it.kind === "row" && it.v.row.id === rowId);
 		return !!(row?.kind === "row" && row.v.row.pane && a.focus && focusPane.current(a.focus, rowId));
 	};
+	// Narrower than the drawer needs on a phone or touch screen, a tapped row's details open in a
+	// sheet from the bottom instead; a tapped row without details opens or closes its children, and a tapped
+	// group header collapses or expands. Double clicks then do nothing more.
+	const [sheetOpen, setSheetOpen] = useState(false);
+	const tapLive = useRef({ narrow: false, items, toggle });
+	// Only on a phone-width window or a touch screen: a medium-width Mac window keeps clicks
+	// selecting. The Mac popover is narrow too, but keeps its desktop behavior.
+	const tapScreen = document.documentElement.dataset.surface !== "popover" && (window.innerWidth < 768 || touchPrimary);
+	tapLive.current = { narrow: tapScreen && (drawerUseful ? !drawerFits : (outer.current?.clientWidth ?? Infinity) < 48 * 16), items, toggle };
+	const activate = useCallback((id: string, kind: "tap" | "double") => {
+		const { narrow, items, toggle } = tapLive.current;
+		if (!narrow) return false;
+		if (kind === "double") return true;
+		const it = items.find((x) => x.kind === "row" && x.v.row.id === id);
+		if (it?.kind !== "row") return false;
+		if (it.v.row.details?.length || it.v.row.pane) setSheetOpen(true);
+		else if (it.v.row.children?.length) toggle(id);
+		return true;
+	}, []);
 	useLayoutEffect(() => {
 		const el = outer.current;
 		if (!el) return;
@@ -2386,7 +2456,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 						<tbody ref={body} role="rowgroup">
 							{shown.map((it) =>
 								it.kind === "header" ? (
-									<GroupHeader key={it.id} domPrefix={domPrefix} item={it} doc={doc} columns={columns} bulk={bulk.length > 0} selected={!it.leaving && it.id === selected} leaving={it.leaving} received={received.has(it.id)} onSelect={() => select(it.id)} onToggle={() => toggleGroup(it.key)} />
+									<GroupHeader key={it.id} domPrefix={domPrefix} item={it} doc={doc} columns={columns} bulk={bulk.length > 0} selected={!it.leaving && it.id === selected} leaving={it.leaving} received={received.has(it.id)} onSelect={() => (select(it.id), tapLive.current.narrow && toggleGroup(it.key))} onToggle={() => !tapLive.current.narrow && toggleGroup(it.key)} />
 								) : (
 									<TableRow
 										key={it.v.row.id}
@@ -2406,6 +2476,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 										choosing={choosing?.row === it.v.row.id ? choosing.action : null}
 										onChoose={setChoosing}
 										onSelect={select}
+										onActivate={activate}
 										onToggle={toggle}
 										onMenu={setMenuFor}
 										checked={checked.has(it.v.row.id)}
@@ -2471,6 +2542,17 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 					</>,
 					document.body,
 				)}
+			{drawerUseful && !drawerFits && tapLive.current.narrow && (
+				<DetailSheet
+					open={sheetOpen && current?.kind === "row" && !!(current.v.row.details || current.v.row.pane)}
+					onOpenChange={setSheetOpen}
+					pane={current?.kind === "row" && !!current.v.row.pane}
+				>
+					{current?.kind === "row" && (
+						<InspectorBody item={current} selected actions={actionsFor(current.v.row)} paneButtons={!!node.paneButtons} enter={node.enter} run={runRow} emit={emitAction} onToggleGroup={toggleGroup} />
+					)}
+				</DetailSheet>
+			)}
 			{drawerUseful && (
 				<Inspector
 					open={drawerOpen}
@@ -2623,20 +2705,44 @@ function Inspector({ open, item, selected, actions, paneButtons, enter, run, emi
 		>
 			{open && <ResizeHandle label="Resize details" value={width} min={280} max={720} grows="ArrowLeft" onResize={setWidth} onReset={() => setWidth(340)} onPointerDown={onPointerDown} onDoubleClick={() => setWidth(340)} className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize after:absolute after:inset-y-0 after:left-0 after:w-px after:transition-colors after:duration-200 hover:after:bg-ring/60" />}
 			<div className={cn("flex h-full shrink-0 flex-col transition-opacity duration-200", open ? "opacity-100" : "opacity-0")} style={{ width }}>
-				{!item ? (
-					<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
-						<PanelRight className="size-5 opacity-60" />
-						{selected ? "No details for this row." : "Select a row to see its details."}
-					</div>
-				) : item.kind === "header" ? (
-					<GroupSummary item={item} onToggle={() => onToggleGroup(item.key)} />
-				) : item.v.row.pane ? (
-					<RowPane key={item.v.row.id} row={item.v.row} pane={item.v.row.pane} actions={actions} buttons={paneButtons} enter={enter} run={run} emit={emit} />
-				) : (
-					<RowDetails row={item.v.row} actions={actions} run={run} />
-				)}
+				<InspectorBody item={item} selected={selected} actions={actions} paneButtons={paneButtons} enter={enter} run={run} emit={emit} onToggleGroup={onToggleGroup} />
 			</div>
 		</aside>
+	);
+}
+
+/** What the details drawer (or, on a narrow screen, the details sheet) shows for an item. */
+function InspectorBody({ item, selected, actions, paneButtons, enter, run, emit, onToggleGroup }: { item: InspectorItem | null; selected: boolean; actions: Action[]; paneButtons?: boolean; enter?: string; run: Run; emit: Emit; onToggleGroup: (key: string) => void }) {
+	if (!item)
+		return (
+			<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+				<PanelRight className="size-5 opacity-60" />
+				{selected ? "No details for this row." : "Select a row to see its details."}
+			</div>
+		);
+	if (item.kind === "header") return <GroupSummary item={item} onToggle={() => onToggleGroup(item.key)} />;
+	if (item.v.row.pane) return <RowPane key={item.v.row.id} row={item.v.row} pane={item.v.row.pane} actions={actions} buttons={paneButtons} enter={enter} run={run} emit={emit} />;
+	return <RowDetails row={item.v.row} actions={actions} run={run} />;
+}
+
+/**
+ * A narrow screen's details: a sheet from the bottom with a grab handle, which a downward swipe,
+ * a tap outside or Esc closes. Editable panes get a fixed tall sheet, so it doesn't jump as they
+ * change; details fit their content.
+ */
+function DetailSheet({ open, onOpenChange, pane, children }: { open: boolean; onOpenChange: (open: boolean) => void; pane: boolean; children: ReactNode }) {
+	const swipe = useSwipeDismiss("bottom", () => onOpenChange(false));
+	// Keep the last content while the sheet slides away.
+	const last = useRef(children);
+	if (open) last.current = children;
+	return (
+		<Sheet open={open} onOpenChange={onOpenChange}>
+<SheetContent ref={swipe} side="bottom" showCloseButton={false} aria-describedby={undefined} onOpenAutoFocus={(e) => (e.preventDefault(), (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true }))} className={cn("gap-0 overflow-hidden rounded-t-2xl bg-background p-0 pb-[env(safe-area-inset-bottom)] duration-200 ease-out data-open:slide-in-from-bottom-full! data-closed:slide-out-to-bottom-full!", pane ? "h-[88svh]" : "max-h-[85svh]")}>
+				<SheetTitle className="sr-only">Details</SheetTitle>
+				<div aria-hidden className="mx-auto mt-2 h-1.5 w-10 shrink-0 rounded-full bg-muted-foreground/30" />
+				<div data-detail-sheet className="flex min-h-0 flex-1 flex-col">{open ? children : last.current}</div>
+			</SheetContent>
+		</Sheet>
 	);
 }
 
@@ -3354,10 +3460,12 @@ function BoxedForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emit
 					{node.description && <CardDescription>{node.description}</CardDescription>}
 				</CardHeader>
 			)}
-			<CardContent data-form-fields className="divide-y">
+			<CardContent data-form-fields className="@container/form divide-y">
 				{node.fields.map((f) => (
-					<div key={f.id} className={cn("py-4 first:pt-0 last:pb-0", WIDE_FIELDS.has(f.type) ? "space-y-3" : "flex items-center justify-between gap-6")}>
-						<div className="space-y-1">
+					// Label and control side by side; in a narrow card (a phone) the control goes under
+					// its label at full width. Switches stay beside their label.
+					<div key={f.id} className={cn("py-4 first:pt-0 last:pb-0", WIDE_FIELDS.has(f.type) ? "space-y-3" : f.type === "switch" ? "flex items-center justify-between gap-6" : "flex flex-col items-stretch gap-3 @md/form:flex-row @md/form:items-center @md/form:justify-between @md/form:gap-6 @max-md/form:[&>*:last-child]:w-full")}>
+						<div className={cn("min-w-0 space-y-1 @md/form:flex-1", f.type === "switch" && "flex-1")}>
 							{label(f)}
 							{f.description && <p className="text-sm text-muted-foreground">{f.description}</p>}
 						</div>
@@ -3380,7 +3488,7 @@ function AutoFocus({ on, className, children }: { on: boolean; className?: strin
 		// Children's effects ran first, so an editor control exists by now. When the dialog is
 		// just opening, its own open focus comes after this and prefers this field too.
 		const el = box.current?.querySelector<HTMLElement>(FIRST_FIELD);
-		if (el && box.current?.closest("[role=dialog]")) el.focus();
+		if (el && box.current?.closest("[role=dialog]")) el.focus({ preventScroll: true });
 	}, [on]);
 	return (
 		<div ref={box} data-autofocus={on || undefined} className={className}>
@@ -3485,13 +3593,14 @@ function CardNode({ node, emit }: { node: Extract<Node, { type: "card" }>; emit:
 	return (
 		<Card className={cn("gap-3 py-4", cardTone[node.tone ?? "default"])}>
 			{hasHeader && (
-				<CardHeader className="flex items-start gap-3 px-4">
-					<div className="min-w-0 flex-1 space-y-1">
+				<CardHeader className="flex flex-wrap items-start gap-3 px-4">
+					{/* The title keeps a readable width; actions that don't fit beside it wrap below. */}
+					<div className="min-w-[min(13rem,100%)] flex-1 basis-0 space-y-1">
 						{node.title && <CardTitle className="text-sm">{node.title}</CardTitle>}
 						{node.description && <CardDescription className="text-xs">{node.description}</CardDescription>}
 					</div>
 					{node.actions && node.actions.length > 0 && (
-						<div className="flex shrink-0 items-center gap-2">
+						<div className="flex max-w-full flex-wrap items-center gap-2">
 							<ActionButtons actions={node.actions} onRun={(a) => run(a, node.id)} />
 						</div>
 					)}

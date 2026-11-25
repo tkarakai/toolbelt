@@ -40,8 +40,13 @@ listens on `REMOTE_PORT` (default 47389, away from the app's 47380/47381), and
 To see devices, connect WebSockets to the pretend server's `/rpc` with
 `Tailscale-User-Login: owner@example.com` and an `X-Forwarded-For` tailnet IP (100.64.0.2 and
 100.64.0.3 are known peers). Check phone layouts with `chrome-devtools-axi emulate --viewport
-"390x844x3,mobile,touch"`: no popover, no key hints, the **Show tools** sheet, no horizontal
-overflow, the connection banner when the server stops. Add `--user-agent` with an iPhone or
+"390x844x3,mobile,touch"` (also 375×667): no popover, no key hints, the **Show tools** sheet
+and its edge swipe, the bottom tab bar, stacked toolbars, details and dialogs as bottom sheets,
+no horizontal overflow or squeezed text, the connection banner when the server stops. Check
+every plugin screen and Settings tab with real data (a copy of a Dev profile in a temporary
+`TOOLBELT_CONFIG_DIR`), and check the wide window and the popover haven't changed. Gestures can
+be driven from `chrome-devtools-axi eval` with synthetic `PointerEvent`s (`pointerType:
+"touch"`) and `TouchEvent`s. Add `--user-agent` with an iPhone or
 Android string and open `/?install` to see the install card; desktop Chrome fires
 `beforeinstallprompt` on localhost, so Android shows the button (don't press it in the
 automation browser).

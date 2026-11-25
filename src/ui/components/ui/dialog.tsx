@@ -88,7 +88,9 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-200 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          className
+          className,
+          // Toolbelt: on a phone a dialog is a sheet along the bottom, its buttons in thumb reach.
+          "phone:top-auto! phone:bottom-0! phone:left-0! phone:max-h-[92svh]! phone:w-full! phone:max-w-none! phone:translate-x-0! phone:translate-y-0! phone:rounded-t-2xl! phone:rounded-b-none! phone:ease-out phone:data-open:slide-in-from-bottom-full! phone:data-closed:slide-out-to-bottom-full! phone:data-open:zoom-in-[1]! phone:data-closed:zoom-out-[1]!"
         )}
         onCloseAutoFocus={(event) => {
           onCloseAutoFocus?.(event)
@@ -143,7 +145,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end phone:rounded-b-none phone:pb-[max(1rem,env(safe-area-inset-bottom))]",
         className
       )}
       {...props}
