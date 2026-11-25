@@ -406,10 +406,17 @@ trees.
    stayed up for 10 seconds; after "off" (4002) it retries every 15 seconds or more. Requests in
    flight when the socket drops fail; plugin events are refused while offline and never queued,
    so an action taken offline can't run later. Other requests wait up to 15 seconds for the
-   connection (indefinitely while the pairing screen shows).
+   connection, and indefinitely before the page's first connection or while the pairing screen
+   shows. The first connection fetches the plugin list again if it hasn't arrived.
 
-The connection banner reports connecting (after 800 ms), offline with **Retry now**, remote
-access off, and the Disconnect dialog; an unpaired connection shows the pairing screen.
+Until the page has reached the Mac once (a fresh start, often from the home screen), a start
+screen covers the app, which has no data yet: blank, then "Connecting to your Mac…" after
+800 ms; if an attempt fails, "Can't reach your Mac" with what to check (the Mac awake, ToolBelt
+running with remote access on, Tailscale connected on both devices) and **Try again**, while it
+keeps retrying. The app's "no plugins installed" state appears only once the Mac has sent its
+plugin list. After that first connection, the banner reports reconnecting, "Can't reach your
+Mac" and remote access off (both in red, with **Retry now**), and the Disconnect dialog; an
+unpaired connection shows the pairing screen.
 
 ## Deferred
 

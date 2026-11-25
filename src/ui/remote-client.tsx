@@ -6,7 +6,7 @@ import { Bell, Copy, Ellipsis, EllipsisVertical, KeyRound, Loader2, Menu, PowerO
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { pairDevice, usePlugins, useConnection, useSettings } from "@/lib/store";
+import { pairDevice, usePlugins, useConnection, useEverConnected, useSettings } from "@/lib/store";
 import { inApp, remoteClient } from "@/lib/device";
 import { INSTALL_PARAM, installContext, installHelp, installTitle, stepSegments, stepText, type InstallStep } from "@/lib/install";
 import { badgeTotal, PAIR_PARAM } from "../shared/remote";
@@ -48,8 +48,12 @@ export function ConnectionBanner() {
 		const timer = setTimeout(() => setLate(true), 800);
 		return () => clearTimeout(timer);
 	}, [status]);
-	if (inApp || status === "open" || (status === "connecting" && !late)) return null;
+	const everConnected = useEverConnected();
+	if (inApp || status === "open") return null;
 	if (status === "unpaired") return <PairingScreen />;
+	// Nothing from the Mac yet: a start screen, never an empty app that looks like no plugins.
+	if (!everConnected) return <StartScreen status={status} late={late} reconnect={reconnect} />;
+	if (status === "connecting" && !late) return null;
 	if (status === "disconnected")
 		return (
 			<div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm animate-in fade-in-0 duration-200" role="alertdialog" aria-labelledby="tb-disconnected-title" aria-describedby="tb-disconnected-text">
@@ -92,6 +96,59 @@ export function ConnectionBanner() {
 					Retry now
 				</Button>
 			)}
+		</div>
+	);
+}
+
+/**
+ * Before the page has ever reached the Mac (a fresh start, often from the home screen): what's
+ * happening, and when it can't connect, what to check. It covers the app, which has no data yet.
+ */
+function StartScreen({ status, late, reconnect }: { status: string; late: boolean; reconnect: () => void }) {
+	const failed = status === "offline" || status === "off";
+	return (
+		<div className="fixed inset-0 z-50 overflow-y-auto bg-background" role={failed ? "alert" : "status"} aria-live="polite">
+			<div className="flex min-h-full items-center justify-center p-6" style={{ paddingTop: "max(1.5rem, env(safe-area-inset-top))", paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
+				{failed ? (
+					<div className="w-full max-w-sm space-y-6 animate-in fade-in-0 duration-200">
+						<div className="space-y-2">
+							<span className="grid size-10 place-items-center rounded-xl bg-destructive/15 text-destructive">
+								{status === "off" ? <PowerOff className="size-5" aria-hidden="true" /> : <WifiOff className="size-5" aria-hidden="true" />}
+							</span>
+							<h2 className="pt-2 text-lg font-semibold">{status === "off" ? "Remote access is turned off on your Mac" : "Can’t reach your Mac"}</h2>
+							<p className="text-sm text-muted-foreground">
+								{status === "off" ? "Turn it on in ToolBelt’s Settings → Remote Access on the Mac." : "ToolBelt keeps trying. Check that:"}
+							</p>
+						</div>
+						{status !== "off" && (
+							<ul className="space-y-2.5 text-sm">
+								{["Your Mac is awake.", "ToolBelt is running on it, with remote access turned on in Settings → Remote Access.", "Tailscale is connected on this device and on the Mac."].map((item) => (
+									<li key={item} className="flex gap-3">
+										<span className="mt-2 size-1.5 shrink-0 rounded-full bg-muted-foreground" aria-hidden="true" />
+										<span>{item}</span>
+									</li>
+								))}
+							</ul>
+						)}
+						<Button className="w-full" onClick={reconnect}>
+							<RefreshCw />
+							Try again
+						</Button>
+					</div>
+				) : (
+					// The first attempt usually succeeds within moments: show nothing but the background
+					// until it takes a while.
+					late && (
+						<div className="flex flex-col items-center gap-4 text-center animate-in fade-in-0 duration-200">
+							<img src="./pwa/icon-180.png" alt="" className="size-14 rounded-[22%] shadow-sm" onError={(e) => (e.currentTarget.style.display = "none")} />
+							<p className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+								<Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+								Connecting to your Mac…
+							</p>
+						</div>
+					)
+				)}
+			</div>
 		</div>
 	);
 }

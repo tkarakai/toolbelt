@@ -19,11 +19,12 @@ import {
   type DevelopmentState,
 } from "../../shared/development";
 
-type State = { plugins: PluginInfo[]; trees: Record<string, Node> };
-let state: State = { plugins: [], trees: {} };
+/** `pluginsKnown`: the host has sent the plugin list (an empty list means none installed). */
+type State = { plugins: PluginInfo[]; pluginsKnown: boolean; trees: Record<string, Node> };
+let state: State = { plugins: [], pluginsKnown: false, trees: {} };
 const listeners = new Set<() => void>();
 const set = (next: Partial<State>) => {
-  state = { ...state, ...next };
+  state = { ...state, ...next, ...(next.plugins ? { pluginsKnown: true } : {}) };
   listeners.forEach((l) => l());
 };
 const key = (plugin: string, surface: string) => `${plugin}\n${surface}`;
@@ -135,7 +136,8 @@ function connect(): Transport {
       (handlers as Record<string, (p: unknown) => void>)[name]?.(payload),
     connected: (again) => {
       void checkBuild();
-      if (again) resync();
+      // The first connection resyncs too if the plugin list hasn't arrived yet.
+      if (again || !state.pluginsKnown) resync();
     },
     suspended: (hidden) => (hidden ? suspendSurfaces() : resync()),
     label: () =>
@@ -163,6 +165,14 @@ export function useConnection(): [ConnectionStatus, () => void] {
     () => socket?.status() ?? "open",
   );
   return [status, () => socket?.reconnect()];
+}
+
+/** Whether this page has ever reached the Mac (always true inside the app). */
+export function useEverConnected(): boolean {
+  return useSyncExternalStore(
+    (l) => socket?.subscribe(l) ?? (() => {}),
+    () => socket?.everConnected() ?? true,
+  );
 }
 
 /** Pairs this browser with the Mac (docs/remote-access.md, "Pairing"); see connection.ts. */
@@ -204,9 +214,14 @@ export function usePlugins(): PluginInfo[] {
   useEffect(() => {
     if (loaded) return;
     loaded = true;
-    void rpc.request.plugins({}).then((plugins) => set({ plugins }));
+    void rpc.request.plugins({}).then((plugins) => set({ plugins })).catch(() => {});
   }, []);
   return useOrderedPlugins(useSyncExternalStore(subscribe, () => state.plugins));
+}
+
+/** Whether the host has sent the plugin list yet (until then, "no plugins" means "not known"). */
+export function usePluginsKnown(): boolean {
+  return useSyncExternalStore(subscribe, () => state.pluginsKnown);
 }
 
 // Surfaces this view watches, with how many components watch each. The main process hears one

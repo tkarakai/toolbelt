@@ -122,7 +122,8 @@ export function createSocketTransport(options: SocketTransportOptions) {
 			setStatus("off");
 			return scheduleRetry(true);
 		}
-		setStatus(everConnected ? "offline" : "connecting");
+		// A first attempt that fails is just as unreachable as a lost connection.
+		setStatus("offline");
 		scheduleRetry();
 	}
 
@@ -196,8 +197,9 @@ export function createSocketTransport(options: SocketTransportOptions) {
 			if (status === "open" && ws?.readyState === WebSocket.OPEN) return resolve();
 			let timer: ReturnType<typeof setTimeout>;
 			const expire = () => {
-				// While the person pairs, requests wait: the page reloads once paired.
-				if (status === "unpaired") return void (timer = setTimeout(expire, 1_000));
+				// Before the first connection (there is nothing to show yet) and while the person pairs,
+				// requests wait for the connection instead of failing.
+				if (status === "unpaired" || !everConnected) return void (timer = setTimeout(expire, 1_000));
 				openWaiters.delete(done);
 				reject(new Error("Not connected to your Mac"));
 			};
@@ -300,6 +302,8 @@ export function createSocketTransport(options: SocketTransportOptions) {
 		pair,
 		/** The paired device this connection presented (null in the preview or until paired). */
 		device: () => device,
+		/** Whether this page has ever had an open connection (it has the Mac's data). */
+		everConnected: () => everConnected,
 		status: () => status,
 		subscribe(listener: () => void) {
 			statusListeners.add(listener);
