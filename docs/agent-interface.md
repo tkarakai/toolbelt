@@ -392,6 +392,16 @@ scenario run as Markdown (`<id>.<channel>.md`: the prompt, every step with what 
 back, notifications, failures and the rubric), and `-t <text>` picks scenarios by name, for
 example `AGENT_SCENARIOS_OUT=/tmp/runs bun test test/agent-scenarios.test.ts -t 09-watch`.
 
+### Model evaluation
+
+[`evals/agent-models/`](../evals/agent-models/README.md) measures models as the agent: a model
+(local, served by oMLX) holds conversations through pi-durable with ToolBelt's MCP tools as its only
+tools, against worlds from `createWorld` that run a pinned OnTrack release with seeded data and the
+`kit` and `vault` fixtures. It grades answers with deterministic checks and an optional judge model,
+and records speed, context and memory. It has its own dependencies and is not part of `bun test`
+or CI, except its grading unit tests. `createWorld`'s `WorldOptions` (plugin folders, clock, host
+version, data seeding) exist for it; scenarios use the defaults.
+
 `TOOLBELT_MCP_INSPECTOR=1 bun test test/agent-mcp-conformance.test.ts` also runs the MCP
 Inspector CLI against the shim. It needs the network for `bunx`, so CI doesn't run it.
 

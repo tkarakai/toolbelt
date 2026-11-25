@@ -1,0 +1,12 @@
+{
+	"$comment": "Models `run` and `bench` use without --models. oMLX ids; append :think for thinking on. Update when models are added to oMLX.",
+	"default": [
+		"Qwen3.5-4B-MLX-8bit",
+		"Qwen3.5-9B-MLX-8bit",
+		"gemma-4-E4B-it-MLX-8bit",
+		"gemma-4-12B-it-8bit",
+		"mlx-community--Qwen3.6-35B-A3B-4bit",
+		"Qwen3.8-27B-4bit",
+		"Qwen3.8-27B-8bit"
+	]
+}

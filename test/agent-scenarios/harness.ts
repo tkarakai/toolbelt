@@ -40,11 +40,27 @@ const split = (screen: string) => {
 	return { plugin, surface: `screen:${id}` };
 };
 
+/**
+ * Where a world's plugins come from and what time it is. The scenarios use the defaults; the model
+ * evaluation in evals/agent-models runs real plugin releases with seeded data on the real clock.
+ */
+export type WorldOptions = {
+	/** Plugin folders, or folders of them (default: the fixtures). */
+	dirs?: string[];
+	/** The agent core's clock (default: the fixtures' NOW). */
+	now?: () => number;
+	/** The host version plugins see (default 0.3.24). */
+	hostVersion?: string;
+	/** Writes plugin data into `<data>/<plugin id>/` before the plugins start. */
+	prepare?: (data: string) => void | Promise<void>;
+};
+
 /** ToolBelt with the fixture plugins and the agent interface, in temporary folders. */
-export async function createWorld(setup: Scenario["setup"] = {}) {
+export async function createWorld(setup: Scenario["setup"] = {}, options: WorldOptions = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "tb-sc-"));
+	await options.prepare?.(join(dir, "data"));
 	const views = new ViewStore(join(dir, "views.json"), 0);
-	const host = new PluginHost({ dirs: [FIXTURES], bun: process.execPath, host: { name: "ToolBelt", version: "0.3.24" }, data: join(dir, "data"), views });
+	const host = new PluginHost({ dirs: options.dirs ?? [FIXTURES], bun: process.execPath, host: { name: "ToolBelt", version: options.hostVersion ?? "0.3.24" }, data: join(dir, "data"), views });
 	// The person's screens, as show_screen sees them: the Mac's window and paired devices.
 	const devices = { window: setup.devices?.window ?? true, paired: setup.devices?.paired ?? [] };
 	const navigated: string[] = [];
@@ -74,7 +90,7 @@ export async function createWorld(setup: Scenario["setup"] = {}) {
 		profileRoot: dir,
 		bun: process.execPath,
 		changed: () => {},
-		now: () => NOW,
+		now: options.now ?? (() => NOW),
 		holdMs: 5000,
 		approvalMs: 3000,
 		person: {
