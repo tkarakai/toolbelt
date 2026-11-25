@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Fixed: dragging tools in the sidebar to reorder them did nothing.
 - Settings → Remote Access serves ToolBelt and its plugins to your phone or tablet through Tailscale. ToolBelt creates the Tailscale Serve rule after you confirm, and can remove it. Only your Tailscale account can connect. The tab shows Tailscale's status, the address with a QR code, and connected devices with their data use, and can disconnect a device.
 - On a phone, ToolBelt installs to the home screen as a web app: it reconnects by itself, starts without re-downloading the app over slow links, and can show the total of chosen plugins' badges on its icon.
 - Scanning the QR code opens install help for that phone: the exact Add to Home Screen steps on iPhone and iPad, or an Install ToolBelt button on Android.
