@@ -50,13 +50,24 @@ One ToolBelt process serves a config folder at a time: a socket that still answe
 another process, and the server refuses rather than taking it over. A stale file is replaced.
 Turning the switch off or quitting stops the server and removes the file.
 
-Each connection sends a hello line, `{"toolbelt":1,"client":"…","mode":"interactive"|"autonomous"}`,
+Each connection sends a hello line, `{"toolbelt":1,"client":"…","mode":"interactive"|"autonomous","group":"…"}`,
 then MCP JSON-RPC 2.0, one message per line (1 MiB limit per line). A connection without a
 valid hello is closed. Each connection is one session. Its client name comes from the hello,
-then from MCP `clientInfo`. Requests on one connection are answered in order.
+then from MCP `clientInfo`. Requests on one connection are answered in order. Connections with
+the same client, mode and `group` continue the session id of the last one that ended within 10
+minutes, unless that session is still connected, so short connections from one source read as
+one session in the audit log. The CLI sends `ppid:<parent process id>`: one shell's or script's
+calls group.
 
 `toolbelt mcp` is the stdio shim MCP clients start. It writes the hello and then pipes stdin and
-stdout to the socket unchanged, with `--autonomous` setting the session's mode. The other
+stdout to the socket, with `--autonomous` setting the session's mode. It exits with code 1 if
+the socket can't be reached at start. When the socket goes away later (a ToolBelt update or
+restart, agents turned off), the shim stays up so the client doesn't mark the server failed: it
+answers requests with JSON-RPC error `-32000` (`data.reason: "unreachable"`, saying ToolBelt
+is restarting or off), reconnects with backoff from 250 ms to 5 s and right away when a request
+arrives, replays the client's `initialize` (its reply swallowed), `notifications/initialized`
+and resource subscriptions on the new session, and sends the client
+`notifications/resources/list_changed`. The other
 commands (`status`, `screens`, `read`, `search`, `plugins`) make one MCP tool call each and print
 its text, or with `--json` ask for `format: "json"` and print the structured content. Each command
 accepts only its own options; an unknown option, a missing value or a wrong number is a usage
@@ -64,12 +75,18 @@ error. Exit codes: 1 when the socket can't be reached, 2 when the call was refus
 the command line is wrong. `toolbelt skill` prints `SKILL.md`.
 
 The app bundles the CLI as `Contents/Resources/app/cli/toolbelt.js` (`bun run cli`, copied by
-`electrobun.config.ts`) and runs it with its own Bun. Settings → Agents shows the exact commands
+`electrobun.config.ts`) and runs it with its own Bun. Without `--socket`,
+`TOOLBELT_AGENT_SOCKET` or `TOOLBELT_CONFIG_DIR`, the CLI uses the folder of the app it ships in,
+from the bundle's `Resources/version.json` channel (`bundledSettingsFolder`): ToolBelt Dev's CLI
+talks to ToolBelt Dev. Outside a bundle it uses ToolBelt's folder. Settings → Agents shows the exact commands
 to paste for Claude Code (`claude mcp add|remove --scope user toolbelt`), Codex
 (`codex mcp add|remove toolbelt`), other MCP clients (an `mcpServers` JSON entry and the bare
 server command), a shell alias and the skill file. Each has an Add and a Remove tab (built in
 `src/ui/lib/agent-commands.ts`). The commands stay visible while agents are off, opening on Remove, so the
-person can undo a setup without turning agents back on. ToolBelt never edits shell profiles or
+person can undo a setup without turning agents back on. When the commands run a CLI outside an
+installed app (a development build such as a worktree's `build.noindex`, or the source in the
+browser preview), `AgentsState.commandWarning` says they stop working once that build or folder
+goes, and the Connect tab shows it above the commands. ToolBelt never edits shell profiles or
 agent configuration itself.
 
 ## MCP surface
@@ -80,11 +97,11 @@ The server negotiates protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26`
 
 | Tool | What it returns |
 | --- | --- |
-| `toolbelt_status` | App name, version, channel and development profile, app update availability, visible plugins with state, badge and screens, and the count of hidden plugins |
+| `toolbelt_status` | The runtime view, where agents start: app name, version, channel and development profile, app update availability, visible plugins with state, badge (only while running), screens and available update, and the count of hidden plugins |
 | `list_screens` | Readable screens as plugin and screen ids, optionally for one plugin |
 | `read_screen` | One screen as text (default) or redacted JSON, with `max_rows`, `table` and `offset` paging and `details` |
 | `search_screens` | Content lines containing every query word, across readable screens or one plugin, grouped by row (a row's line with its matching details, each shortened to 300 characters), and the screens that couldn't be read |
-| `list_plugins` | Installed plugins agents may see: version, repository, phase, channel, available update |
+| `list_plugins` | The installation view: every installed plugin agents may see, enabled or not, with version, state (the runtime state while enabled, else `disabled`), access, available update, repository and channel |
 
 Every tool is declared `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`.
 Every tool takes `format`: `text` (default) or `json`. A text result is one text content item
@@ -245,7 +262,8 @@ A scenario (`test/agent-scenarios/format.ts`, one JSON file per case in
 `test/fixtures/agents`, the agent interface with its socket in a temporary folder, and person
 actions applied through the host and the Settings → Agents requests. Adapters in `adapters.ts`
 run steps the way clients do: `McpAdapter` starts the stdio shim (`toolbelt mcp`) and speaks
-JSON-RPC, restarting it after the socket goes away, and `CliAdapter` maps each tool to its
+JSON-RPC (a request the shim answers as unreachable counts as unreachable; it starts the shim
+again if it exits), and `CliAdapter` maps each tool to its
 command (`read_screen` → `toolbelt read`) with exit code 1 as unreachable and 2 as refused.
 Structured output is compared in compact JSON, so facts match on both channels. Another MCP
 server or CLI needs only another adapter.

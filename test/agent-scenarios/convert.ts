@@ -188,8 +188,9 @@ const OVERLAY: Record<string, Overlay> = {
 	"08-toolbelt-updates": {
 		channels: ["mcp", "cli"],
 		expect: {
-			0: { contains: ["ToolBelt 0.3.24 (stable)", "App update available: 0.4.0"] },
-			1: { contains: ["Kit (kit) 0.4.1 from example/kit: enabled; update available: 0.5.0", "Desk (desk) 1.2.0 from example/desk: enabled"] },
+			// Status, the place to start, shows plugin updates too.
+			0: { contains: ["ToolBelt 0.3.24 (stable)", "App update available: 0.4.0", "Kit (kit) 0.4.1: running, badge 2; update available: 0.5.0"] },
+			1: { contains: ["Kit (kit) 0.4.1 from example/kit: running; update available: 0.5.0", "Desk (desk) 1.2.0 from example/desk: running"] },
 		},
 		run: { absent: HIDDEN },
 		rubric: ["Reports ToolBelt 0.4.0 and Kit 0.5.0.", "Says one plugin isn't visible to agents, so the list may be incomplete (finding O4)."],

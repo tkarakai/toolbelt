@@ -2,8 +2,10 @@
 // `toolbelt`: ToolBelt's agent interface from a terminal (docs/agent-interface.md). `toolbelt mcp` is the
 // stdio MCP server agents start; the other commands are for people, scripts and coding agents.
 // Both talk to the running app over its agent socket; nothing here reads plugin data directly.
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { bundledSettingsFolder } from "../shared/variant";
 import skill from "./SKILL.md" with { type: "text" };
 
 const HELP = `toolbelt — read ToolBelt's plugin screens from the terminal or an AI agent.
@@ -22,7 +24,8 @@ Usage:
   toolbelt skill                        Print the agent skill file (SKILL.md)
 
 Options:
-  --socket PATH    ToolBelt's agent socket (default: ToolBelt's folder/agent.sock)
+  --socket PATH    ToolBelt's agent socket (default: agent.sock in the folder of the app this
+                   command ships in, so ToolBelt Dev's command talks to ToolBelt Dev)
   --autonomous     Mark this session as autonomous: nobody is watching it
   --json           Print the structured result as JSON (status, screens, read, search, plugins)
 
@@ -66,7 +69,9 @@ function socketPath(flags: Args["flags"]) {
 	const flag = flags.get("socket");
 	if (typeof flag === "string") return flag;
 	if (process.env.TOOLBELT_AGENT_SOCKET) return process.env.TOOLBELT_AGENT_SOCKET;
-	return join(process.env.TOOLBELT_CONFIG_DIR ?? join(homedir(), "Library/Application Support/Toolbelt"), "agent.sock");
+	if (process.env.TOOLBELT_CONFIG_DIR) return join(process.env.TOOLBELT_CONFIG_DIR, "agent.sock");
+	const folder = bundledSettingsFolder(import.meta.dir, (path) => readFileSync(path, "utf8")) ?? "Toolbelt";
+	return join(homedir(), "Library/Application Support", folder, "agent.sock");
 }
 
 const UNREACHABLE = (path: string) =>
@@ -94,19 +99,115 @@ async function connect(path: string, onLine: (line: string) => void, onClose: ()
 	});
 }
 
-/** `toolbelt mcp`: pipe stdio to the socket, after a hello line. */
+const RESTARTING =
+	"ToolBelt isn't reachable right now: it's restarting or quit, or agents were turned off in Settings → Agents. Try again in a few seconds; if it persists, ask the person to open ToolBelt and turn agents on.";
+
+/**
+ * `toolbelt mcp`: pipe stdio to the socket, after a hello line. When ToolBelt goes away (an
+ * update, a restart, agents turned off), the shim stays up for its MCP client: it answers
+ * requests with a "not reachable" error, reconnects with backoff (and right away when a request
+ * arrives), replays the client's `initialize`, `initialized` and resource subscriptions on the
+ * new session, and tells the client the resource list may have changed.
+ */
 async function mcp(path: string, autonomous: boolean) {
-	let socket: Awaited<ReturnType<typeof connect>>;
-	try {
-		socket = await connect(path, (line) => process.stdout.write(line + "\n"), () => process.exit(0));
-	} catch {
+	const hello = JSON.stringify({ toolbelt: 1, client: "mcp", mode: autonomous ? "autonomous" : "interactive" }) + "\n";
+	type Conn = Awaited<ReturnType<typeof connect>>;
+	let socket: Conn | null = null;
+	// Read through a function: callbacks change `socket`, which narrowing can't see.
+	const current = (): Conn | null => socket;
+	let ended = false;
+	let initialize: Record<string, unknown> | null = null;
+	let initialized = false;
+	const subscriptions = new Set<string>();
+	// Replies to the shim's own replayed requests aren't the client's.
+	const own = new Set<string>();
+	let seq = 0;
+	const out = (message: unknown) => process.stdout.write(JSON.stringify(message) + "\n");
+	const fromServer = (line: string) => {
+		if (own.size)
+			try {
+				const m = JSON.parse(line);
+				if (typeof m.id === "string" && own.delete(m.id)) return;
+			} catch {}
+		process.stdout.write(line + "\n");
+	};
+
+	async function open(): Promise<boolean> {
+		let conn: Conn;
+		try {
+			let closed = false;
+			conn = await connect(path, fromServer, () => {
+				if (closed) return;
+				closed = true;
+				if (socket === conn) socket = null;
+				if (!ended) void retry();
+			});
+		} catch {
+			return false;
+		}
+		conn.write(hello);
+		socket = conn;
+		return true;
+	}
+
+	/** Connects again and restores the client's session on the new connection. */
+	async function reopen(): Promise<boolean> {
+		if (socket) return true;
+		if (!(await open())) return false;
+		const request = (method: string, params: unknown) => {
+			const id = `toolbelt-shim-${++seq}`;
+			own.add(id);
+			socket!.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+		};
+		if (initialize) request("initialize", initialize.params ?? {});
+		if (initialized) socket!.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+		for (const uri of subscriptions) request("resources/subscribe", { uri });
+		if (initialized) out({ jsonrpc: "2.0", method: "notifications/resources/list_changed" });
+		return true;
+	}
+
+	let retrying = false;
+	async function retry() {
+		if (retrying) return;
+		retrying = true;
+		for (let delay = 250; !socket && !ended; delay = Math.min(delay * 2, 5000)) {
+			await Bun.sleep(delay);
+			if (!socket && !ended) await reopen();
+		}
+		retrying = false;
+	}
+
+	if (!(await open())) {
 		console.error(UNREACHABLE(path));
 		process.exit(1);
 	}
-	socket.write(JSON.stringify({ toolbelt: 1, client: "mcp", mode: autonomous ? "autonomous" : "interactive" }) + "\n");
 	const decoder = new TextDecoder();
-	for await (const chunk of process.stdin as unknown as AsyncIterable<Uint8Array>) socket.write(decoder.decode(chunk, { stream: true }));
-	socket.end();
+	let buffer = "";
+	for await (const chunk of process.stdin as unknown as AsyncIterable<Uint8Array>) {
+		buffer += decoder.decode(chunk, { stream: true });
+		let i: number;
+		while ((i = buffer.indexOf("\n")) >= 0) {
+			const line = buffer.slice(0, i);
+			buffer = buffer.slice(i + 1);
+			if (!line.trim()) continue;
+			let message: { id?: unknown; method?: unknown; params?: { uri?: unknown } } | null = null;
+			try {
+				message = JSON.parse(line);
+			} catch {}
+			// What a new connection needs to continue this client's session.
+			if (message?.method === "initialize") initialize = message as Record<string, unknown>;
+			if (message?.method === "notifications/initialized") initialized = true;
+			if (message?.method === "resources/subscribe" && typeof message.params?.uri === "string") subscriptions.add(message.params.uri);
+			if (message?.method === "resources/unsubscribe" && typeof message.params?.uri === "string") subscriptions.delete(message.params.uri);
+			const isRequest = message?.id !== undefined && message?.id !== null;
+			if (!current() && isRequest && message?.method !== "initialize") await reopen();
+			const conn = current();
+			if (conn) conn.write(line + "\n");
+			else if (isRequest) out({ jsonrpc: "2.0", id: message!.id, error: { code: -32000, message: RESTARTING, data: { reason: "unreachable" } } });
+		}
+	}
+	ended = true;
+	current()?.end();
 }
 
 /** One tool call over MCP, for the terminal commands. */
@@ -135,7 +236,8 @@ async function call(path: string, autonomous: boolean, tool: string, args: Recor
 			pending.set(id, resolve);
 			socket.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
 		});
-	socket.write(JSON.stringify({ toolbelt: 1, client: "toolbelt-cli", mode: autonomous ? "autonomous" : "interactive" }) + "\n");
+	// One shell or script's calls (same parent process) group into one session in the audit log.
+	socket.write(JSON.stringify({ toolbelt: 1, client: "toolbelt-cli", mode: autonomous ? "autonomous" : "interactive", group: `ppid:${process.ppid}` }) + "\n");
 	const init = await request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "toolbelt-cli", version: "1" } });
 	if (init.error) throw new Error(init.error.message);
 	socket.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");

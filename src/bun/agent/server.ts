@@ -126,6 +126,7 @@ export class AgentServer {
 				const session = this.core.openSession(
 					typeof hello.client === "string" ? hello.client : "agent",
 					hello.mode === "autonomous" ? "autonomous" : "interactive",
+					typeof hello.group === "string" && hello.group ? hello.group : undefined,
 				);
 				c.session = new McpSession(this.core, session, (m) => this.write(socket, m));
 				continue;

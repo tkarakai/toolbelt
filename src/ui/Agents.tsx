@@ -2,7 +2,7 @@
 // and per-plugin access), Connect (the setup commands) and Activity (active sessions and the log).
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Activity, Bot, Check, ChevronRight, Copy, Plug, ShieldCheck } from "lucide-react";
+import { Activity, Bot, Check, ChevronRight, Copy, Plug, ShieldCheck, TriangleAlert } from "lucide-react";
 import { Switch } from "./components/ui/switch";
 import { Button } from "./components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
@@ -63,7 +63,7 @@ export function AgentsSettings() {
 			</TabsContent>
 			<TabsContent value="connect" className="space-y-8">
 				{state.command ? (
-					<ConnectGroup command={state.command} enabled={state.enabled} />
+					<ConnectGroup command={state.command} enabled={state.enabled} warning={state.commandWarning} />
 				) : (
 					<SettingsGroup title="Setup commands">
 						<p className="px-5 py-4 text-sm text-muted-foreground">This build of ToolBelt doesn’t include the toolbelt command, so there’s nothing to set agents up with.</p>
@@ -240,7 +240,7 @@ function CommandBox({ title, tabs, initial }: { title: string; tabs: CommandTab[
 	);
 }
 
-function ConnectGroup({ command, enabled }: { command: string[]; enabled: boolean }) {
+function ConnectGroup({ command, enabled, warning }: { command: string[]; enabled: boolean; warning: string | null }) {
 	return (
 		<SettingsGroup
 			title={enabled ? "Setup commands" : "Remove ToolBelt from agents"}
@@ -250,6 +250,12 @@ function ConnectGroup({ command, enabled }: { command: string[]; enabled: boolea
 					: "Agents are off, so the ones you connected can’t reach ToolBelt. To remove ToolBelt from them, paste a command into a terminal."
 			}
 		>
+			{warning && (
+				<p role="note" className="mx-5 mt-4 flex gap-2 rounded-lg bg-amber-500/15 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+					<TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+					<span>{warning}</span>
+				</p>
+			)}
 			{connectCommands(command).map((c) => (
 				// Remounts when the switch changes, so each box opens on the tab that fits.
 				<CommandBox key={`${c.title}-${enabled}`} title={c.title} tabs={c.tabs} initial={enabled ? "add" : "remove"} />

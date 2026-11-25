@@ -143,6 +143,8 @@ export type AgentsState = {
 	socket: string;
 	/** How to connect: the shim and CLI as argv (bundled Bun + script), null when not available. */
 	command: string[] | null;
+	/** Why `command` may not keep working (it points into a development build), or null. */
+	commandWarning: string | null;
 	plugins: AgentPlugin[];
 	sessions: AgentSession[];
 	/** The newest audit entries, newest first. */
@@ -158,7 +160,11 @@ export type AgentsRequest =
 	| { operation: "audit"; before?: number; after?: number; limit?: number; filter?: AuditFilter };
 
 /** The socket's first line from a client, before MCP JSON-RPC. */
-export type AgentHello = { toolbelt: 1; client?: string; mode?: AgentMode };
+/**
+ * A connection's first line. `group` (at most 64 characters) groups short connections into one
+ * session in the audit log: the CLI sends its parent process id, so one script's calls group.
+ */
+export type AgentHello = { toolbelt: 1; client?: string; mode?: AgentMode; group?: string };
 
 /** Where the socket lives: `TOOLBELT_AGENT_SOCKET`, else `agent.sock` in ToolBelt's folder. */
 export const agentSocketPath = (configRoot: string, env: Record<string, string | undefined> = process.env) =>

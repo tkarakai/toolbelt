@@ -11,6 +11,10 @@
 - Agent search groups matches by row and shortens long lines, so one process no longer shows up three times with its whole command line.
 - A plugin that sends a screen ToolBelt can't display (for example one too large to show) no longer stops: that screen shows an error saying why, the plugin's other screens keep working, and the screen comes back with the plugin's next valid update. Opening such a screen, by you or by an agent, used to leave the whole plugin stopped until it was restarted.
 - Agents no longer see likely secrets in plugin text that the plugin didn't mark sensitive, such as tokens, passwords and API keys in process command lines and URLs; ToolBelt masks them as ••••••.
+- Agents connected over MCP keep working across a ToolBelt restart or update: the server stays connected to the agent, says ToolBelt is restarting while it's away, and reconnects by itself. Before, the agent's MCP server showed as failed until it was reconnected by hand.
+- `toolbelt_status` also lists plugin updates, and the plugin list uses the same words for a plugin's state.
+- The `toolbelt` command bundled with ToolBelt Dev talks to ToolBelt Dev, and one script's or shell's calls show up as one session in Settings → Agents → Activity.
+- Settings → Agents → Connect warns when its commands point into a development build, whose agent setup stops working once that build is removed.
 - MCP screen resources can be paged: `toolbelt://screens/{plugin}/{screen}?table=…&offset=…&max_rows=…&details=false`.
 
 ## 0.5.3 — 2026-11-25

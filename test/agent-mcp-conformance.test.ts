@@ -188,6 +188,33 @@ describe("MCP conformance", () => {
 		await world.person({ access: { plugin: "kit", level: null } });
 	});
 
+	test("the stdio shim survives ToolBelt going away and continues the client's session", { timeout: 20_000 }, async () => {
+		const { request, client } = await rpc();
+		const uri = "toolbelt://screens/desk/tasks";
+		expect((await request("resources/subscribe", { uri })).result).toEqual({});
+		await world.person({ agents: false });
+		// The shim stays up and answers for ToolBelt, so the client doesn't mark the server failed.
+		const down = await request("tools/call", { name: "toolbelt_status", arguments: {} });
+		expect(down.error).toMatchObject({ code: -32000, data: { reason: "unreachable" } });
+		expect(down.error.message).toContain("ToolBelt isn't reachable right now");
+		expect((await request("ping")).error.data.reason).toBe("unreachable");
+		const before = client.notifications().length;
+		await world.person({ agents: true });
+		// The next request reconnects; the client never initializes again.
+		const up = await request("tools/call", { name: "toolbelt_status", arguments: {} });
+		expect(up.result.content[0].text).toContain("Desk (desk)");
+		// The replayed initialize named the new session after the client, and its reply wasn't passed on.
+		expect(world.agents.core.state().sessions.some((s) => s.client === "conformance")).toBe(true);
+		expect(client.lines.some((l) => l.includes("toolbelt-shim-"))).toBe(false);
+		await until(() => client.notifications().slice(before).some((n) => n.method === "notifications/resources/list_changed"), 2000, "list_changed after reconnecting");
+		// The subscription was restored on the new session.
+		const seen = client.notifications().length;
+		await world.person({ event: { screen: "desk/tasks", name: "settle", payload: { rowId: "7" } } });
+		await until(() => client.notifications().slice(seen).some((n) => n.method === "notifications/resources/updated" && n.params.uri === uri), 3000, "an update after reconnecting");
+		await world.person({ event: { screen: "desk/tasks", name: "reopen", payload: { rowId: "7" } } });
+		expect((await request("resources/unsubscribe", { uri })).result).toEqual({});
+	});
+
 	test.skipIf(!process.env.TOOLBELT_MCP_INSPECTOR)("MCP Inspector CLI lists and calls tools (optional smoke check)", { timeout: 120_000 }, async () => {
 		const inspector = async (...args: string[]) => {
 			const p = Bun.spawn(["bunx", "@modelcontextprotocol/inspector@0.17.2", "--cli", process.execPath, CLI, "--socket", world.socket, "mcp", ...args], { stdout: "pipe", stderr: "pipe" });

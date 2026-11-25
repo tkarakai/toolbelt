@@ -59,6 +59,8 @@ export type AgentCoreOptions = {
 	auditFile: string;
 	socket: string;
 	command: string[] | null;
+	/** Why `command` may not keep working (a development build), shown in Settings → Agents. */
+	commandWarning?: string | null;
 	/** Settings → Agents changed. */
 	changed(state: AgentsState): void;
 	/** How long the agent keeps a surface open after its last read (ms). Default 60 s. */
@@ -132,6 +134,9 @@ function tableIds(tree: unknown, ids: string[] = []): string[] {
 	}
 	return ids;
 }
+
+/** How long after a grouped connection ends a new one in its group continues its session. */
+const GROUP_MS = 10 * 60_000;
 
 export type ScreenRef = { plugin: string; screen: string; title: string; pluginName: string; default: boolean; /** The plugin's state: only running plugins can be read. */ state: string };
 
@@ -317,18 +322,36 @@ export class AgentCore {
 	}
 
 	// ── sessions and audit ────────────────────────────────────────────────
-	openSession(client: string, mode: AgentMode): AgentSession {
-		const session = { id: crypto.randomUUID(), client: client.slice(0, 64) || "agent", mode, since: Date.now() };
+	/**
+	 * A connection's session. Connections that name the same `group` (the CLI sends its parent
+	 * process, so one script or shell's calls group) within GROUP_MS of the last one ending
+	 * continue its session id, so the audit log shows them as one session. Concurrent connections
+	 * get their own ids.
+	 */
+	openSession(client: string, mode: AgentMode, group?: string): AgentSession {
+		const name = client.slice(0, 64) || "agent";
+		const key = group ? `${name}\n${mode}\n${group.slice(0, 64)}` : null;
+		const recent = key ? this.recentGroups.get(key) : undefined;
+		const id = recent && Date.now() - recent.closed < GROUP_MS && !this.sessions.has(recent.id) ? recent.id : crypto.randomUUID();
+		const session = { id, client: name, mode, since: Date.now() };
 		this.sessions.set(session.id, session);
+		if (key) this.groupOf.set(session, key);
 		this.emit();
 		return session;
 	}
+	private recentGroups = new Map<string, { id: string; closed: number }>();
+	private groupOf = new WeakMap<AgentSession, string>();
 	renameSession(session: AgentSession, client: string) {
 		session.client = client.slice(0, 64) || session.client;
 		this.emit();
 	}
 	closeSession(session: AgentSession) {
-		if (this.sessions.delete(session.id)) this.emit();
+		const key = this.groupOf.get(session);
+		if (key) {
+			this.recentGroups.set(key, { id: session.id, closed: Date.now() });
+			for (const [k, v] of this.recentGroups) if (Date.now() - v.closed > GROUP_MS) this.recentGroups.delete(k);
+		}
+		if (this.sessions.get(session.id) === session && this.sessions.delete(session.id)) this.emit();
 	}
 
 	private record(session: AgentSession, entry: Omit<AuditEntry, "at" | "session" | "client" | "mode">) {
@@ -372,7 +395,7 @@ export class AgentCore {
 				name: "toolbelt_status",
 				title: "ToolBelt status",
 				description:
-					"What ToolBelt is running: the app version and any app update, and each plugin agents can see with its state and screens. Start here.",
+					"What ToolBelt is running now: the app version and any app update, and each plugin agents can read with its state, badge, screens and any update. Start here. list_plugins is the installation view (disabled plugins, repositories, release channels).",
 				risk: "read",
 				params: { type: "object", properties: { format }, additionalProperties: false },
 				run: async () => {
@@ -385,7 +408,7 @@ export class AgentCore {
 						update?.available ? `App update available: ${update.available}` : `No app update available${update?.lastChecked ? ` (checked ${when(update.lastChecked, this.now())})` : ""}`,
 						"",
 						"Plugins agents can read:",
-						...plugins.map((p) => `- ${p.name} (${p.id}) ${p.info.manifest.version}: ${p.info.state}${p.info.state !== "running" ? " (can't be read until the person restarts it)" : badgeOf(p.info) !== null ? `, badge ${badgeOf(p.info)}` : ""}. Screens: ${p.info.manifest.screens.map((s) => `${s.title} (${s.id})`).join(", ")}`),
+						...plugins.map((p) => `- ${p.name} (${p.id}) ${p.info.manifest.version}: ${p.info.state}${p.info.state !== "running" ? " (can't be read until the person restarts it)" : badgeOf(p.info) !== null ? `, badge ${badgeOf(p.info)}` : ""}${p.update ? `; update available: ${p.update}` : ""}. Screens: ${p.info.manifest.screens.map((s) => `${s.title} (${s.id})`).join(", ")}`),
 						...(plugins.length ? [] : ["- none"]),
 						...(hidden > 0 ? ["", `${hidden} more plugin${hidden === 1 ? " is" : "s are"} not available to agents (the plugin doesn't allow it, or the person hasn't).`] : []),
 					];
@@ -394,7 +417,7 @@ export class AgentCore {
 						data: {
 							app,
 							update: update ? { ...update, lastCheckedIso: iso(update.lastChecked) } : null,
-							plugins: plugins.map((p) => ({ id: p.id, name: p.name, version: p.info.manifest.version, state: p.info.state, badge: badgeOf(p.info), access: p.effective, screens: p.info.manifest.screens.map((s) => ({ id: s.id, title: s.title })) })),
+							plugins: plugins.map((p) => ({ id: p.id, name: p.name, version: p.info.manifest.version, state: p.info.state, badge: badgeOf(p.info), access: p.effective, availableVersion: p.update ?? null, screens: p.info.manifest.screens.map((s) => ({ id: s.id, title: s.title })) })),
 							hiddenPlugins: Math.max(0, hidden),
 						},
 					};
@@ -519,15 +542,30 @@ export class AgentCore {
 			{
 				name: "list_plugins",
 				title: "Installed plugins",
-				description: "Installed plugins agents can see: version, repository, enabled or not, and any update available.",
+				description: "What's installed: every plugin agents may see, enabled or not, with its version, state, repository, release channel and any update. toolbelt_status is the runtime view (badges, screens).",
 				risk: "read",
 				params: { type: "object", properties: { format }, additionalProperties: false },
 				run: async () => {
 					const choices = this.o.settings().access;
-					const installed = (this.o.installed?.() ?? []).filter((p) => effectiveAccess(p.declared, choices[p.id]) !== "none");
+					// The same words as toolbelt_status: `state` is the runtime state while enabled.
+					const running = new Map(this.o.host.list().map((i) => [i.manifest.id, i.state]));
+					const installed = (this.o.installed?.() ?? [])
+						.map((p) => ({ ...p, access: effectiveAccess(p.declared, choices[p.id]) }))
+						.filter((p) => p.access !== "none")
+						.map((p) => ({
+							id: p.id,
+							name: p.name,
+							version: p.version,
+							state: p.enabled ? (running.get(p.id) ?? p.phase ?? "enabled") : "disabled",
+							enabled: p.enabled,
+							access: p.access,
+							availableVersion: p.availableVersion ?? null,
+							repo: p.repo ?? null,
+							channel: p.channel ?? null,
+						}));
 					return {
 						text: installed.length
-							? installed.map((p) => `- ${p.name} (${p.id}) ${p.version}${p.repo ? ` from ${p.repo}` : ""}: ${p.enabled ? (p.phase ?? "enabled") : "disabled"}${p.availableVersion ? `; update available: ${p.availableVersion}` : ""}${p.channel === "prerelease" ? " (prerelease channel)" : ""}`).join("\n")
+							? installed.map((p) => `- ${p.name} (${p.id}) ${p.version}${p.repo ? ` from ${p.repo}` : ""}: ${p.state}${p.availableVersion ? `; update available: ${p.availableVersion}` : ""}${p.channel === "prerelease" ? " (prerelease channel)" : ""}`).join("\n")
 							: "No plugins are available to agents.",
 						data: { plugins: installed },
 					};
@@ -552,6 +590,7 @@ export class AgentCore {
 			error: this.error,
 			socket: this.o.socket,
 			command: this.o.command,
+			commandWarning: this.o.commandWarning ?? null,
 			plugins: this.pluginsWithAccess().map(({ info: _info, ...p }) => p),
 			sessions: [...this.sessions.values()],
 			audit: this.audit.query({ limit: auditLimit }).entries,

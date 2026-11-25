@@ -13,7 +13,8 @@
 			"expect": {
 				"contains": [
 					"ToolBelt 0.3.24 (stable)",
-					"App update available: 0.4.0"
+					"App update available: 0.4.0",
+					"Kit (kit) 0.4.1: running, badge 2; update available: 0.5.0"
 				]
 			}
 		},
@@ -21,8 +22,8 @@
 			"call": "list_plugins",
 			"expect": {
 				"contains": [
-					"Kit (kit) 0.4.1 from example/kit: enabled; update available: 0.5.0",
-					"Desk (desk) 1.2.0 from example/desk: enabled"
+					"Kit (kit) 0.4.1 from example/kit: running; update available: 0.5.0",
+					"Desk (desk) 1.2.0 from example/desk: running"
 				]
 			}
 		}

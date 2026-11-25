@@ -124,7 +124,8 @@ export class McpAdapter implements ChannelAdapter {
 		const c = await this.connection();
 		if (!c) return null;
 		const r = await c.request(method, params);
-		return r.closed ? null : r;
+		// The shim answers for ToolBelt while it can't reach it (agents off, a restart).
+		return r.closed || r.error?.data?.reason === "unreachable" ? null : r;
 	}
 
 	private static unreachable: Outcome = { text: "", refused: false, unreachable: true };

@@ -11,7 +11,8 @@ import { MASK, maskSecrets, redact, treeJson, treeText } from "../src/bun/agent/
 import { AgentCore, type AgentHost } from "../src/bun/agent/core";
 import { AgentServer } from "../src/bun/agent/server";
 import { AuditLog } from "../src/bun/agent/audit";
-import { createAgentInterface } from "../src/bun/agent";
+import { commandWarning, createAgentInterface } from "../src/bun/agent";
+import { bundledSettingsFolder } from "../src/shared/variant";
 
 const manifest = (id: string, extra: Partial<Manifest> = {}): Manifest => ({
 	id,
@@ -633,6 +634,54 @@ describe("agent core", () => {
 		expect(json.isError).toBeUndefined();
 	});
 
+	test("short connections in one group continue one session; concurrent ones get their own", () => {
+		const { core } = makeCore(fakeHost([manifest("tasks")]));
+		const a = core.openSession("toolbelt-cli", "interactive", "ppid:42");
+		core.closeSession(a);
+		const b = core.openSession("toolbelt-cli", "interactive", "ppid:42");
+		expect(b.id).toBe(a.id);
+		const parallel = core.openSession("toolbelt-cli", "interactive", "ppid:42");
+		expect(parallel.id).not.toBe(b.id);
+		expect(core.state().sessions).toHaveLength(2);
+		core.closeSession(b);
+		core.closeSession(parallel);
+		expect(core.state().sessions).toEqual([]);
+		for (const other of [core.openSession("toolbelt-cli", "interactive", "ppid:7"), core.openSession("toolbelt-cli", "autonomous", "ppid:42"), core.openSession("toolbelt-cli", "interactive")])
+			expect([a.id, parallel.id]).not.toContain(other.id);
+	});
+
+	test("status shows plugin updates; list_plugins uses the same words for state and access", async () => {
+		const host = fakeHost([manifest("tasks"), manifest("notes")]);
+		host.infos[1] = { ...host.infos[1], state: "crashed" };
+		const dir = tmp();
+		const core = new AgentCore({
+			host,
+			settings: () => ({ enabled: true, access: {} }),
+			save: () => {},
+			app: () => ({ name: "ToolBelt", version: "9.9.9", channel: "test", developmentProfile: null }),
+			installed: () => [
+				{ id: "tasks", name: "Tasks", version: "1.0.0", repo: "me/tasks", enabled: true, phase: "ready", availableVersion: "1.1.0", declared: "read" },
+				{ id: "notes", name: "Notes", version: "1.0.0", enabled: true, phase: "ready", declared: "read" },
+				{ id: "old", name: "Old", version: "0.1.0", enabled: false, declared: "read" },
+			],
+			auditFile: join(dir, "a.jsonl"),
+			socket: join(dir, "s"),
+			command: null,
+			changed: () => {},
+		});
+		const session = core.openSession("t", "interactive");
+		const status = await core.call(session, "toolbelt_status");
+		expect(status.text).toContain("- Tasks (tasks) 1.0.0: running; update available: 1.1.0. Screens:");
+		expect(((await core.call(session, "toolbelt_status", { format: "json" })).data as { plugins: unknown[] }).plugins[0]).toMatchObject({ id: "tasks", state: "running", access: "read", availableVersion: "1.1.0" });
+		const plugins = await core.call(session, "list_plugins", { format: "json" });
+		expect((plugins.data as { plugins: unknown[] }).plugins).toEqual([
+			{ id: "tasks", name: "Tasks", version: "1.0.0", state: "running", enabled: true, access: "read", availableVersion: "1.1.0", repo: "me/tasks", channel: null },
+			{ id: "notes", name: "Notes", version: "1.0.0", state: "crashed", enabled: true, access: "read", availableVersion: null, repo: null, channel: null },
+			{ id: "old", name: "Old", version: "0.1.0", state: "disabled", enabled: false, access: "read", availableVersion: null, repo: null, channel: null },
+		]);
+		expect((await core.call(session, "list_plugins")).text).toContain("- Old (old) 0.1.0: disabled");
+	});
+
 	test("setAccess saves the choice and releases what the agent held", async () => {
 		const host = fakeHost([manifest("tasks")]);
 		const { core, settings } = makeCore(host);
@@ -775,7 +824,7 @@ describe("agent socket", () => {
 		});
 		await agents.start();
 		expect(agents.server.listening).toBe(false);
-		const state = agents.handle({ operation: "setEnabled", enabled: true }) as { command: string[] };
+		const state = agents.handle({ operation: "setEnabled", enabled: true }) as { command: string[]; commandWarning: string | null };
 		expect(settings.enabled).toBe(true);
 		expect(state.command.slice(-2)).toEqual(["--socket", join(dir, "agent.sock")]);
 		await Bun.sleep(50);
@@ -802,12 +851,42 @@ describe("agent socket", () => {
 		expect((await cli("status", "--max-rows", "3")).code).toBe(2);
 		expect((await cli("read", "tasks", "--table")).err).toContain("--table needs a value");
 		expect(JSON.parse((await cli("read", "tasks", "--json")).out)).toMatchObject({ plugin: "tasks", tree: { type: "page" } });
+		// Calls from one parent process (this test) are one session in the audit log.
+		await Bun.sleep(80);
+		const sessions = new Set(readFileSync(join(dir, "agent-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((e) => e.client === "toolbelt-cli").map((e) => e.session));
+		expect(sessions.size).toBe(1);
+		expect(state.commandWarning).toContain("ToolBelt's source at");
 		expect((await cli("skill")).out).toContain("name: toolbelt");
 		agents.stop();
 		const off = await cli("status");
 		expect(off.code).toBe(1);
 		expect(off.err).toContain("Settings → Agents");
 		server = undefined;
+	});
+});
+
+describe("where the CLI and its setup commands point", () => {
+	test("the CLI in an app bundle uses that app's folder: ToolBelt Dev's talks to ToolBelt Dev", () => {
+		const files: Record<string, string> = {
+			"/A/Toolbelt-dev.app/Contents/Resources/version.json": JSON.stringify({ channel: "dev" }),
+			"/B/Toolbelt.app/Contents/Resources/version.json": JSON.stringify({ channel: "stable" }),
+		};
+		const read = (path: string) => {
+			const normal = path.replace(/\/app\/cli\/\.\.\/\.\./, "");
+			if (!(normal in files)) throw new Error("ENOENT");
+			return files[normal];
+		};
+		expect(bundledSettingsFolder("/A/Toolbelt-dev.app/Contents/Resources/app/cli", read)).toBe("Toolbelt Dev");
+		expect(bundledSettingsFolder("/B/Toolbelt.app/Contents/Resources/app/cli/", read)).toBe("Toolbelt");
+		expect(bundledSettingsFolder("/src/cli", read)).toBeNull();
+	});
+	test("setup commands that point into a build or source folder carry a warning", () => {
+		expect(commandWarning("/Applications/Toolbelt.app/Contents/Resources/app/cli/toolbelt.js")).toBeNull();
+		expect(commandWarning("/Users/me/Applications/Toolbelt.app/Contents/Resources/app/cli/toolbelt.js")).toBeNull();
+		const dev = commandWarning("/Users/me/worktrees/tb/build.noindex/dev-macos-arm64/Toolbelt-dev.app/Contents/Resources/app/cli/toolbelt.js")!;
+		expect(dev).toContain("the ToolBelt build at /Users/me/worktrees/tb/build.noindex/dev-macos-arm64/Toolbelt-dev.app");
+		expect(dev).toContain("when a worktree is removed");
+		expect(commandWarning("/Users/me/dev/toolbelt/src/cli/toolbelt.ts")).toContain("ToolBelt's source at /Users/me/dev/toolbelt/src/cli/toolbelt.ts");
 	});
 });
 
