@@ -133,13 +133,20 @@ replacement.
 - **Showing a code.** Settings → Remote Access → **Pair a device** (enabled once the server
   runs and the rule is ToolBelt's) starts a pairing: a six-digit code and a QR code linking to
   `…/?install#pair=<secret>`, a 256-bit one-time secret in the fragment, which browsers never
-  send to the server. It lasts five minutes (`PAIRING_TTL_MS`); **New code** replaces it,
-  **Done** ends it, and so does turning remote access off. Five wrong codes end it too
-  (`PAIRING_MAX_FAILURES`), which caps guessing at five tries per code the Mac shows. A paired
+  send to the server. It lasts five minutes (`PAIRING_TTL_MS`); while the dialog is open, an
+  expired or ended pairing is replaced by a new one. **Done** ends it, and so does turning remote
+  access off. Five wrong codes end it too (`PAIRING_MAX_FAILURES`), which caps guessing at five
+  tries per code the Mac shows.
+- **The dialog.** It opens on the QR code alone, with one instruction: point the phone's camera
+  at it and tap the link. The digits appear only after **Type a code instead** (for a device
+  that can't scan, or the home-screen app), as two steps: open ToolBelt on the device, from its
+  home screen or by opening the address shown (with **Copy**) in its browser; then type the code,
+  shown as six tiles with when it is replaced. Devices paired meanwhile are listed in both views. A paired
   remote device can also show a code; it is already trusted.
 - **Pairing.** Scanning the QR code is the pairing: the page takes the secret out of the
   address before the router reads it and pairs at once, with nothing to type. The six digits
-  are for a device that can't scan, typed on its pairing screen; the dialog says so. Within the
+  are for a device that can't scan, typed on its pairing screen, which points to **Type a code
+  instead** on the Mac. Within the
   five minutes any number of devices may pair, so a phone can pair its browser and then its
   home-screen app (iOS gives them separate storage), which types the code. Requests made meanwhile wait, and
   the page carries on once paired. The dialog on the Mac lists each device as it pairs.
@@ -251,12 +258,15 @@ stays lost until it is set up again at the Mac.
 
 Only paired devices can connect, so one list covers both: every paired device, one row per
 browser or home-screen app (a phone's Safari and its home-screen app are two rows), connected
-ones first. A device that isn't connected shows when it was paired and last used (the end of
-its last connection). A connected one shows its live connection: OS, tailnet IP and path from
-the peer in `tailscale status --json` whose IP Serve forwarded, connected since, and several
-windows summed under it.
+ones first, each with an icon for a phone, tablet or computer. A device that isn't connected
+shows when it was last used (the end of its last connection). A connected one shows
+"Connected", the path and round trip, and **Details**, which expands its connection: OS,
+tailnet IP and path from the peer in `tailscale status --json` whose IP Serve forwarded,
+connected since, windows (summed), data and screens sent, and when it was paired. Actions are in
+the row's ⋯ menu: **Disconnect** (while connected) and **Remove…**, so the row stays one column
+on a phone.
 
-Per connected device: bytes sent (and an estimate after compression, from sampling
+Per connected device, in Details: bytes sent (and an estimate after compression, from sampling
 every eighth larger message with deflate) and received; screens sent and stale screens skipped;
 the heartbeat round trip; and whether Tailscale reaches it directly or through a DERP relay
 (`CurAddr`/`Relay`). A relay is often the real cause of slowness on cellular.

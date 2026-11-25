@@ -136,7 +136,7 @@ function PairingScreen() {
 				<div className="space-y-2">
 					<h2 id="tb-pair-title" className="text-base font-semibold">Pair with your Mac</h2>
 					<p id="tb-pair-text" className="text-sm text-muted-foreground">
-						On your Mac, open ToolBelt’s <strong className="font-semibold text-foreground">Settings → Remote Access</strong> and choose <strong className="font-semibold text-foreground">Pair a device</strong>. Scan its code with the camera, or type the six digits here.
+						On your Mac, open ToolBelt’s <strong className="font-semibold text-foreground">Settings → Remote Access</strong>, choose <strong className="font-semibold text-foreground">Pair a device</strong>, then <strong className="font-semibold text-foreground">Type a code instead</strong>. Enter the six digits it shows.
 					</p>
 				</div>
 				<Input
@@ -159,7 +159,7 @@ function PairingScreen() {
 					{pairing && <Loader2 className="animate-spin" />}
 					{pairing ? "Pairing…" : "Pair"}
 				</Button>
-				<p className="text-xs text-muted-foreground">A home-screen app pairs separately from the browser it came from: pair it once after adding it.</p>
+				<p className="text-xs text-muted-foreground">In a browser, scanning the QR code on your Mac with the camera pairs too.</p>
 			</form>
 		</div>
 	);
