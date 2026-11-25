@@ -116,14 +116,13 @@ describe("MCP conformance", () => {
 	test("resources: list, read, templates and subscribe", async () => {
 		const { request, client } = await rpc();
 		const { resources } = (await request("resources/list")).result;
-		expect(resources.map((r: { uri: string }) => r.uri)).toEqual([
-			"toolbelt://screens/desk/tasks",
-			"toolbelt://screens/desk/settings",
-			"toolbelt://screens/kit/updates",
-			"toolbelt://screens/kit/activity",
-			"toolbelt://screens/kit/connection",
-			"toolbelt://screens/kit/queue",
-		]);
+		// Plugins come in the order the host found them (a directory listing, which differs by
+		// file system); each plugin's screens keep their manifest order.
+		const uris: string[] = resources.map((r: { uri: string }) => r.uri);
+		const of = (plugin: string) => uris.filter((u) => u.startsWith(`toolbelt://screens/${plugin}/`));
+		expect(of("desk")).toEqual(["toolbelt://screens/desk/tasks", "toolbelt://screens/desk/settings"]);
+		expect(of("kit")).toEqual(["toolbelt://screens/kit/updates", "toolbelt://screens/kit/activity", "toolbelt://screens/kit/connection", "toolbelt://screens/kit/queue"]);
+		expect(uris).toHaveLength(6);
 		expect(resources.every((r: { mimeType: string; name: string }) => r.mimeType === "text/markdown" && r.name)).toBe(true);
 		expect((await request("resources/templates/list")).result).toEqual({ resourceTemplates: [] });
 		const read = (await request("resources/read", { uri: "toolbelt://screens/desk/settings" })).result;
