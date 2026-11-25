@@ -1,7 +1,7 @@
 // The agent interface's core (docs/agent-interface.md): sessions, per-plugin access, the agent's own view
 // of plugin surfaces, the registry of agent operations, and the audit log. Transports (the MCP
 // socket, the CLI) are adapters over `call`. Agents can only read in this version.
-import type { Manifest, Node } from "../../shared/protocol";
+import type { Manifest, Node, Row } from "../../shared/protocol";
 import type { PluginInfo } from "../../shared/plugin-state";
 import {
 	atLeast,
@@ -20,7 +20,7 @@ import {
 	type AuditPage,
 } from "../../shared/agents";
 import { AuditLog } from "./audit";
-import { searchText, treeJson, treeText, TEXT_BUDGET, when, type SearchHit } from "./serialize";
+import { findRow, searchText, treeJson, treeText, TEXT_BUDGET, when, type SearchHit } from "./serialize";
 
 /** The parts of PluginHost the agent interface uses. */
 export type AgentHost = {
@@ -53,7 +53,8 @@ export type AgentCoreOptions = {
 	host: AgentHost;
 	settings(): AgentSettings;
 	save(next: AgentSettings): void;
-	app(): { name: string; version: string; channel: string; developmentProfile: string | null };
+	/** `location`: the app bundle (or source folder) answering, so agents can tell builds apart. */
+	app(): { name: string; version: string; channel: string; developmentProfile: string | null; location?: string | null };
 	appUpdate?(): { available: string | null; lastChecked: number | null };
 	installed?(): InstalledSummary[];
 	auditFile: string;
@@ -124,6 +125,23 @@ const UNAVAILABLE = (id: string, close: string[] = []) =>
 const iso = (at: number | null | undefined) => (at ? new Date(at).toISOString() : null);
 /** A plugin's badge, only while it runs: a stopped plugin's last badge is stale. */
 const badgeOf = (info: PluginInfo) => (info.state === "running" && info.badge !== undefined ? info.badge : null);
+/** A table node by id, anywhere in a tree. */
+function tableOf(tree: unknown, id: string): { rows: Row[] } | undefined {
+	if (Array.isArray(tree)) {
+		for (const v of tree) {
+			const t = tableOf(v, id);
+			if (t) return t;
+		}
+	} else if (tree && typeof tree === "object") {
+		const o = tree as Record<string, unknown>;
+		if (o.type === "table" && o.id === id && Array.isArray(o.rows)) return o as { rows: Row[] };
+		for (const v of Object.values(o)) {
+			const t = v && typeof v === "object" ? tableOf(v, id) : undefined;
+			if (t) return t;
+		}
+	}
+	return undefined;
+}
 /** Ids of every table in a tree (also in dialogs and row panes). */
 function tableIds(tree: unknown, ids: string[] = []): string[] {
 	if (Array.isArray(tree)) for (const v of tree) tableIds(v, ids);
@@ -287,7 +305,7 @@ export class AgentCore {
 	}
 
 	/** One screen, read for an agent. Throws AgentRefusal when it isn't available, AgentUnavailable when it can't be read now. */
-	async readScreen(pluginId: unknown, screenId: unknown, options: { format?: "text" | "json"; maxRows?: number; table?: string; offset?: number; details?: boolean; budget?: number } = {}) {
+	async readScreen(pluginId: unknown, screenId: unknown, options: { format?: "text" | "json"; maxRows?: number; table?: string; offset?: number; details?: boolean; budget?: number; parent?: string; resource?: string } = {}) {
 		const p = this.plugin(pluginId);
 		const manifest = p.info.manifest as Manifest;
 		const wanted = typeof screenId === "string" ? screenId.trim().toLowerCase() : "";
@@ -309,10 +327,12 @@ export class AgentCore {
 		let table = options.table;
 		if (table !== undefined && !tables.includes(table))
 			throw new AgentRefusal(`${p.name} › ${screen.title} has no table "${table}". ${tables.length ? `Its tables: ${tables.join(", ")}.` : "It has no tables."}`);
-		if (table === undefined && options.offset !== undefined) {
-			if (tables.length !== 1) throw new AgentRefusal(`offset pages one table: pass table too. ${tables.length ? `Tables on this screen: ${tables.join(", ")}.` : "This screen has no tables."}`);
+		if (table === undefined && (options.offset !== undefined || options.parent !== undefined)) {
+			if (tables.length !== 1) throw new AgentRefusal(`${options.parent !== undefined ? "parent" : "offset"} pages one table: pass table too. ${tables.length ? `Tables on this screen: ${tables.join(", ")}.` : "This screen has no tables."}`);
 			table = tables[0];
 		}
+		if (options.parent !== undefined && !findRow(tableOf(snap.tree, table!)?.rows ?? [], options.parent))
+			throw new AgentRefusal(`Table "${table}" has no row "${options.parent}". Row ids are shown as {id: …}.`);
 		const read = { ...options, table, now: this.now() };
 		const shared = snap.viewers > 1; // someone besides the agent has it open
 		// JSON carries the same view-state notes as text (a search or filter the person set).
@@ -404,7 +424,7 @@ export class AgentCore {
 					const plugins = this.visible();
 					const hidden = this.o.host.list().length - plugins.length;
 					const lines = [
-						`${app.name} ${app.version} (${app.channel}${app.developmentProfile ? `, plugin development profile ${app.developmentProfile}` : ""})`,
+						`${app.name} ${app.version} (${app.channel}${app.developmentProfile ? `, plugin development profile ${app.developmentProfile}` : ""})${app.location ? `, answering from ${app.location} (process ${process.pid})` : ""}`,
 						update?.available ? `App update available: ${update.available}` : `No app update available${update?.lastChecked ? ` (checked ${when(update.lastChecked, this.now())})` : ""}`,
 						"",
 						"Plugins agents can read:",
@@ -415,7 +435,7 @@ export class AgentCore {
 					return {
 						text: lines.join("\n"),
 						data: {
-							app,
+							app: { ...app, location: app.location ?? null, pid: process.pid },
 							update: update ? { ...update, lastCheckedIso: iso(update.lastChecked) } : null,
 							plugins: plugins.map((p) => ({ id: p.id, name: p.name, version: p.info.manifest.version, state: p.info.state, badge: badgeOf(p.info), access: p.effective, availableVersion: p.update ?? null, screens: p.info.manifest.screens.map((s) => ({ id: s.id, title: s.title })) })),
 							hiddenPlugins: Math.max(0, hidden),
@@ -450,9 +470,10 @@ export class AgentCore {
 						plugin: str("Plugin id, from toolbelt_status or list_screens."),
 						screen: str("Screen id; omit for the plugin's default screen."),
 						format: { type: "string", enum: ["text", "json"], description: "text (default) is compact; json is the plugin's UI tree with the same metadata." },
-						max_rows: int("Rows per table (default 100); 0 lists no rows, only each table's size and columns."),
+						max_rows: int("Rows per table, nested rows included (default 50); 0 lists no rows, only each table's size and columns."),
 						table: str("The table that `offset` pages."),
-						offset: int("First row of `table` to return."),
+						offset: int("First row of `table` to return, counting top-level rows (or the `parent` row's children)."),
+						parent: str("A row id in `table`: page that row's child rows (such as a process's children) with `offset` instead of the table's rows."),
 						details: { type: "boolean", description: "Include each row's inspector details (default true)." },
 					},
 					required: ["plugin"],
@@ -465,6 +486,9 @@ export class AgentCore {
 						table: typeof params.table === "string" ? params.table : undefined,
 						offset: typeof params.offset === "number" ? Math.max(0, Math.floor(params.offset)) : undefined,
 						details: typeof params.details === "boolean" ? params.details : undefined,
+						parent: typeof params.parent === "string" ? params.parent : undefined,
+						// Set by the MCP adapter for resource reads, so paging hints name the URI to read.
+						resource: typeof params._resource === "string" ? params._resource : undefined,
 					});
 					const age = r.at ? `rendered ${when(r.at, this.now()).replace(/^.*\((.*)\)$/, "$1")}` : "";
 					const shared = r.viewState.length

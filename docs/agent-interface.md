@@ -92,12 +92,13 @@ agent configuration itself.
 ## MCP surface
 
 The server negotiates protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26` and
-`2024-11-05`, and answers with server instructions. Capabilities: `tools` and `resources` with
-`subscribe` and `listChanged`.
+`2024-11-05`, and answers with server instructions. Capabilities: `tools` with
+`listChanged: false` (the tool list never changes), and `resources` with `subscribe` and
+`listChanged: true`.
 
 | Tool | What it returns |
 | --- | --- |
-| `toolbelt_status` | The runtime view, where agents start: app name, version, channel and development profile, app update availability, visible plugins with state, badge (only while running), screens and available update, and the count of hidden plugins |
+| `toolbelt_status` | The runtime view, where agents start: app name, version, channel and development profile, the app bundle answering and its process id (two builds of one version on one profile are otherwise indistinguishable; the second can't serve the socket and says so in Settings → Agents), app update availability, visible plugins with state, badge (only while running), screens and available update, and the count of hidden plugins |
 | `list_screens` | Readable screens as plugin and screen ids, optionally for one plugin |
 | `read_screen` | One screen as text (default) or redacted JSON, with `max_rows`, `table` and `offset` paging and `details` |
 | `search_screens` | Content lines containing every query word, across readable screens or one plugin, grouped by row (a row's line with its matching details, each shortened to 300 characters), and the screens that couldn't be read |
@@ -113,7 +114,8 @@ milliseconds with an ISO 8601 copy (`renderedAtIso`, `lastCheckedIso`, and `atIs
 `at`, `metaAt` and `edited` in trees). Errors are tool results with `isError: true`, not
 JSON-RPC errors.
 
-Plugin and screen ids match in any case, and by plugin name or screen title. An unknown id gets
+`read_screen`'s `parent` (a row id in `table`) pages that row's child rows with `offset`, as if
+they were the table's rows; an unknown row is refused. Plugin and screen ids match in any case, and by plugin name or screen title. An unknown id gets
 the readable ids and close matches among them; hidden plugins are never suggested. A `table`
 that isn't on the screen is refused with the screen's table ids, and `offset` without `table`
 pages the screen's only table (refused when there are several).
@@ -121,8 +123,10 @@ pages the screen's only table (refused when there are several).
 Every readable screen of a running plugin is also a resource, `toolbelt://screens/<plugin>/<screen>` (text/markdown).
 Reading one that doesn't exist for agents is `-32002`; reading one whose plugin can't be read
 now (crashed, failed render) is `-32603` with the reason. The template
-`toolbelt://screens/{plugin}/{screen}{?table,offset,max_rows,details}` reads a screen with
-`read_screen`'s paging; an unknown or malformed parameter is `-32602`.
+`toolbelt://screens/{plugin}/{screen}{?table,parent,offset,max_rows,details}` reads a screen with
+`read_screen`'s paging; an unknown or malformed parameter is `-32602`. A resource read's paging
+notes name the URI to read next (`toolbelt://screens/kit/queue?table=jobs&offset=50`) rather than
+`read_screen` options.
 `resources/subscribe` keeps that surface open for the session and sends
 `notifications/resources/updated` at most once a second per screen while its tree changes. A
 change in plugins or access sends `notifications/resources/list_changed`.
@@ -152,22 +156,30 @@ counts as a viewer through `PluginHost.open`/`close`:
 - Tables: sections and groups as headings (a sub-section as `Upcoming › This week`, a
   sub-section named like its parent only once), one line per row with its cells, id and flags,
   children indented, and row details, stats and pane content underneath. A stat or detail that
-  repeats the row's cell of the same name is left out. Enabled row and bulk action labels appear
+  repeats the row's cell of the same name is left out, as is a long value (40 characters or more,
+  such as a command line) that the row line or its parent row's line already shows. Enabled row and bulk action labels appear
   once per table; a row whose `actions` allow fewer lists its own. Empty declared sections are
   listed when every row was read.
-- Headings use labels, not the plugin's ids: `Form`, `Timeline`, `List`, and a field without a
-  label shows only its value. Table ids stay, because `table` pages by them.
+- Headings use labels, not the plugin's ids: `Timeline`, `List`, an untitled form without a
+  heading, and a field without a label shows only its value (or nothing, without one). An empty
+  timeline or list shows the plugin's empty message without a count. Table ids stay, because
+  `table` pages by them.
 - Times as local `YYYY-MM-DD HH:MM` with a relative hint. Line breaks in every value are joined
-  with " / ", so each value stays on its line and indentation.
+  with " ⏎ " (not "/", which commands and paths are full of), so each value stays on its line
+  and indentation.
 - Lists, forms, stats, cards, details, logs and terminals (last 40 lines), conversations (last
   20 messages), timelines, progress and Markdown. Composers are left out.
 - Tables are paged per table, 50 rows by default, counting child rows. Top-level rows come whole;
   only a first row too big for the page is cut, its remaining children counted
-  (`omittedChildren` in JSON). The result names the next offset. `max_rows: 0` lists each
+  (`omittedChildren` in JSON) with the `parent` read that pages them. Offsets and "of N" count
+  top-level rows; when a table has nested rows, its heading gives both counts
+  (`50 rows (412 with nested rows)`) and paging notes say which unit is which. The result names
+  the next offset. `max_rows: 0` lists each
   table's size and columns without rows. An offset past the end says so.
 - Results have size budgets: 50,000 characters of text, 100,000 of JSON (`TEXT_BUDGET`,
   `JSON_BUDGET`). Tables stop at a row boundary before the budget and name the offset to resume
-  from; a later table that no longer fits still gets its heading and how to read it. JSON tables
+  from (room is kept for that note, so the final cut never drops it); a later table that no
+  longer fits still gets its heading and how to read it. JSON tables
   cut this way get `paging.reason: "size"`. Content outside tables is cut at a line boundary,
   saying after which line. Search reads screens without the budget.
 - `details: false` leaves rows' details, stats and panes out of both text and JSON.

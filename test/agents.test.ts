@@ -178,8 +178,9 @@ describe("serializer", () => {
 		expect(big.match(/\{id: /g)).toHaveLength(5);
 		expect(big).toContain("Child 0.3");
 		expect(big).not.toContain("Child 0.4");
-		expect(big).toContain("  (44 more rows under this one not listed; read with a larger max_rows)");
-		expect(big).toContain('(showing rows 1–1 of 3; read again with table "procs" and offset 1 for more)');
+		expect(big).toContain("## Table procs: 3 rows (147 with nested rows)");
+		expect(big).toContain('  (44 more rows under this one not listed; read again with table "procs", parent "p0" and offset 4 to page them)');
+		expect(big).toContain('(showing rows 1–1 of 3 (offsets count top-level rows; max_rows counts nested rows too); read again with table "procs" and offset 1 for more)');
 		// Smaller trees come whole: two of four rows each fit in 10.
 		const whole = treeText(tree(3), { maxRows: 10 }).text;
 		expect(whole).toContain("Child 1.2");
@@ -252,7 +253,7 @@ describe("serializer", () => {
 	test("an offset past the end says so instead of calling sections empty", () => {
 		const text = treeText(page(13), { table: "things", offset: 50 }).text;
 		expect(text).toContain("## Table things: 13 rows");
-		expect(text).toContain("(offset 50 is past the end: the table has 13 rows; offsets start at 0)");
+		expect(text).toContain("(offset 50 is past the end: there are 13 rows; offsets start at 0)");
 		expect(text).not.toContain("Empty sections");
 		expect(text).not.toContain("Thing 0");
 		// Paging part-way doesn't claim sections are empty either: rows before the offset weren't looked at.
@@ -309,9 +310,10 @@ describe("serializer", () => {
 			],
 		};
 		const lines = treeText(tree).text.split("\n");
-		expect(lines.find((l) => l.includes("bash -c"))).toContain("bash -c ' / exec \"$@\"' t3");
-		expect(lines.find((l) => l.includes("first line"))).toMatch(/^ {4}- .*first line \/ second line$/);
-		expect(lines).toContain("  one / two");
+		// " ⏎ ", not "/": commands and paths are full of slashes.
+		expect(lines.find((l) => l.includes("bash -c"))).toContain("bash -c ' ⏎ exec \"$@\"' t3");
+		expect(lines.find((l) => l.includes("first line"))).toMatch(/^ {4}- .*first line ⏎ second line$/);
+		expect(lines).toContain("  one ⏎ two");
 		// No line starts a value's continuation at column 0.
 		expect(lines.some((l) => /^(second line|exec|two)/.test(l))).toBe(false);
 	});
@@ -335,11 +337,69 @@ describe("serializer", () => {
 		expect(text).toContain("### Progressing\n- Alpha");
 		expect(text).not.toContain("Progressing › Progressing");
 		expect(text).toContain("Empty sections: Progressing › Watching");
-		expect(text).toContain("    Form\n");
-		expect(text).toContain("    - the description");
+		// An untitled form gets no heading.
+		expect(text).toContain("{id: a}\n    - the description\n    - Owner: Ann");
 		expect(text).toContain("    - Owner: Ann");
 		expect(text).toContain("## Timeline: 0 entries");
 		for (const id of ["Form task", "desc:", "Timeline updates"]) expect(text).not.toContain(id);
+	});
+	test("a field with neither label nor value, and a count beside an empty message, are left out", () => {
+		const tree: Node = {
+			type: "stack",
+			children: [
+				{ type: "form", id: "task", fields: [{ type: "text", id: "desc", label: "", value: "" }, { type: "text", id: "notes", label: "Notes", value: "" }] },
+				{ type: "timeline", id: "updates", entries: [], empty: { title: "No updates yet" } },
+				{ type: "list", id: "l", items: [], empty: { title: "Nothing here" } },
+			],
+		};
+		const text = treeText(tree).text;
+		expect(text).toBe("- Notes: \n\n## Timeline\n(empty: No updates yet)\n\n## List\n(empty: Nothing here)");
+	});
+	test("a long value already on the row line, or on the parent's, isn't repeated in details", () => {
+		const cmd = "/Applications/T3 Code.app/Contents/MacOS/T3 Code --type=renderer --lang=en-US";
+		const tree: Node = {
+			type: "table",
+			id: "procs",
+			columns: [{ key: "name", title: "Process" }],
+			rows: [{
+				id: "p",
+				cells: { name: cmd },
+				details: [{ label: "Command", value: cmd }, { label: "PID", value: "41" }],
+				children: [
+					{ id: "c", cells: { name: "helper" }, details: [{ section: "Process", label: "Part of", value: cmd }, { label: "PID", value: "41" }] },
+				],
+			}],
+		};
+		const text = treeText(tree).text;
+		expect(text.split(cmd).length - 1).toBe(1);
+		// Short values are kept even when they match: "41" may be a different fact.
+		expect(text.match(/PID: 41/g)).toHaveLength(2);
+	});
+	test("parent pages one row's children, in text and JSON", () => {
+		const tree: Node = {
+			type: "table",
+			id: "procs",
+			columns: [{ key: "name", title: "Name" }],
+			rows: [
+				{ id: "a", cells: { name: "Alpha" } },
+				{ id: "b", cells: { name: "Beta" }, children: [{ id: "b1", cells: { name: "Beta child" }, children: Array.from({ length: 30 }, (_, i) => ({ id: `g${i}`, cells: { name: `Grandchild ${i}` } })) }] },
+			],
+		};
+		const text = treeText(tree, { table: "procs", parent: "b1", offset: 10, maxRows: 5 }).text;
+		expect(text).toContain("## Table procs, rows under b1: 30 rows");
+		expect(text).toContain("Grandchild 10 ");
+		expect(text).toContain("Grandchild 14 ");
+		expect(text).not.toContain("Grandchild 15 ");
+		expect(text).not.toContain("Alpha");
+		expect(text).toContain('(showing rows 11–15 of 30; read again with table "procs", parent "b1" and offset 15 for more)');
+		const json = treeJson(tree, { table: "procs", parent: "b1", offset: 28 }) as Extract<Node, { type: "table" }> & { paging: unknown };
+		expect(json.rows.map((r) => r.id)).toEqual(["g28", "g29"]);
+		expect(json.paging).toEqual({ offset: 28, total: 30, next: null, parent: "b1" });
+	});
+	test("a resource read's hints name the URI to read next", () => {
+		const text = treeText(page(80), { resource: "toolbelt://screens/desk/tasks", budget: 3000 }).text;
+		expect(text).toMatch(/read toolbelt:\/\/screens\/desk\/tasks\?table=things&offset=\d+, or add details=false for shorter rows\)/);
+		expect(text).not.toContain("read again with table");
 	});
 	test("a row lists its own actions when it allows fewer, and details don't repeat its cells", () => {
 		const tree: Node = {
@@ -550,6 +610,8 @@ describe("agent core", () => {
 		expect(paged.text).not.toContain("Thing 24 ");
 		expect((await core.call(session, "read_screen", { plugin: "pair", offset: 1 })).text).toBe("offset pages one table: pass table too. Tables on this screen: a, b.");
 		expect((await core.call(session, "read_screen", { plugin: "tasks", max_rows: 0 })).text).toContain("(30 rows not listed: max_rows is 0)");
+		expect(await core.call(session, "read_screen", { plugin: "tasks", parent: "nope" })).toMatchObject({ isError: true, kind: "refused", text: 'Table "things" has no row "nope". Row ids are shown as {id: …}.' });
+		expect((await core.call(session, "read_screen", { plugin: "tasks", parent: "t3" })).text).toContain("## Table things, rows under t3: 0 rows");
 	});
 
 	test("text results carry everything; format json returns the same facts as data", async () => {
@@ -658,7 +720,7 @@ describe("agent core", () => {
 			host,
 			settings: () => ({ enabled: true, access: {} }),
 			save: () => {},
-			app: () => ({ name: "ToolBelt", version: "9.9.9", channel: "test", developmentProfile: null }),
+			app: () => ({ name: "ToolBelt Dev", version: "9.9.9", channel: "dev", developmentProfile: null, location: "/w/a/build.noindex/Toolbelt-dev.app" }),
 			installed: () => [
 				{ id: "tasks", name: "Tasks", version: "1.0.0", repo: "me/tasks", enabled: true, phase: "ready", availableVersion: "1.1.0", declared: "read" },
 				{ id: "notes", name: "Notes", version: "1.0.0", enabled: true, phase: "ready", declared: "read" },
@@ -672,6 +734,9 @@ describe("agent core", () => {
 		const session = core.openSession("t", "interactive");
 		const status = await core.call(session, "toolbelt_status");
 		expect(status.text).toContain("- Tasks (tasks) 1.0.0: running; update available: 1.1.0. Screens:");
+		// Which build answers: two builds of one version are told apart by where they run from.
+		expect(status.text).toStartWith(`ToolBelt Dev 9.9.9 (dev), answering from /w/a/build.noindex/Toolbelt-dev.app (process ${process.pid})`);
+		expect(((await core.call(session, "toolbelt_status", { format: "json" })).data as { app: unknown }).app).toMatchObject({ location: "/w/a/build.noindex/Toolbelt-dev.app", pid: process.pid });
 		expect(((await core.call(session, "toolbelt_status", { format: "json" })).data as { plugins: unknown[] }).plugins[0]).toMatchObject({ id: "tasks", state: "running", access: "read", availableVersion: "1.1.0" });
 		const plugins = await core.call(session, "list_plugins", { format: "json" });
 		expect((plugins.data as { plugins: unknown[] }).plugins).toEqual([
@@ -850,6 +915,7 @@ describe("agent socket", () => {
 		expect(bogus.err).toContain("Unknown option for toolbelt read: --bogus");
 		expect((await cli("status", "--max-rows", "3")).code).toBe(2);
 		expect((await cli("read", "tasks", "--table")).err).toContain("--table needs a value");
+		expect((await cli("read", "tasks", "main", "--table", "things", "--parent", "t0")).out).toContain("## Table things, rows under t0: 0 rows");
 		expect(JSON.parse((await cli("read", "tasks", "--json")).out)).toMatchObject({ plugin: "tasks", tree: { type: "page" } });
 		// Calls from one parent process (this test) are one session in the audit log.
 		await Bun.sleep(80);

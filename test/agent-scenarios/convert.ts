@@ -173,7 +173,7 @@ const OVERLAY: Record<string, Overlay> = {
 		channels: ["mcp", "cli"],
 		expect: {
 			0: { contains: ["you: Waiting for the headcount figures from HR before the meeting.", "Quote for the office printers"] },
-			1: { contains: ["Waiting on: Acme / (asked a week ago, watching weekly)"] },
+			1: { contains: ["Waiting on: Acme ⏎ (asked a week ago, watching weekly)"] },
 		},
 		rubric: ["Names HR's headcount figures and Acme's printer quote.", "Gives the printer quote's next check-in time."],
 	},

@@ -15,7 +15,8 @@ Usage:
   toolbelt screens [plugin]             Screens agents can read
   toolbelt read <plugin> [screen]       A screen as text (the plugin's default screen if omitted)
       --max-rows N   rows per table (default 100)
-      --table ID --offset N   page through one table
+      --table ID --offset N   page through one table (offsets count top-level rows)
+      --parent ROW   with --table: page that row's child rows instead
       --no-details   leave out row details
       --json         the plugin's UI tree as JSON
   toolbelt search <words…> [--plugin ID]  Lines mentioning every word, across all screens
@@ -40,7 +41,7 @@ const GLOBAL_FLAGS = ["socket", "autonomous", "json", "help", "h"];
 const COMMAND_FLAGS: Record<string, string[]> = {
 	status: [],
 	screens: ["plugin"],
-	read: ["max-rows", "table", "offset", "no-details"],
+	read: ["max-rows", "table", "offset", "parent", "no-details"],
 	search: ["plugin"],
 	plugins: [],
 	mcp: [],
@@ -52,7 +53,7 @@ type Args = { positional: string[]; flags: Map<string, string | true> };
 function parse(argv: string[]): Args {
 	const positional: string[] = [];
 	const flags = new Map<string, string | true>();
-	const valued = new Set(["socket", "max-rows", "table", "offset", "plugin"]);
+	const valued = new Set(["socket", "max-rows", "table", "offset", "parent", "plugin"]);
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a.startsWith("--")) {
@@ -253,7 +254,7 @@ async function main() {
 	if (command && COMMAND_FLAGS[command]) {
 		const unknown = [...flags.keys()].filter((f) => !GLOBAL_FLAGS.includes(f) && !COMMAND_FLAGS[command].includes(f));
 		if (unknown.length) throw new UsageError(`Unknown option${unknown.length === 1 ? "" : "s"} for toolbelt ${command}: ${unknown.map((f) => `--${f}`).join(", ")}. Run toolbelt help.`);
-		for (const name of ["socket", "max-rows", "table", "offset", "plugin"])
+		for (const name of ["socket", "max-rows", "table", "offset", "parent", "plugin"])
 			if (flags.get(name) === true) throw new UsageError(`--${name} needs a value. Run toolbelt help.`);
 	}
 	if (!command || command === "help" || flags.has("help") || flags.has("h")) {
@@ -293,6 +294,7 @@ async function main() {
 				...(rest[1] ? { screen: rest[1] } : {}),
 				...(int("max-rows") !== undefined ? { max_rows: int("max-rows") } : {}),
 				...(typeof flags.get("table") === "string" ? { table: flags.get("table") } : {}),
+				...(typeof flags.get("parent") === "string" ? { parent: flags.get("parent") } : {}),
 				...(int("offset") !== undefined ? { offset: int("offset") } : {}),
 				...(flags.has("no-details") ? { details: false } : {}),
 			};

@@ -15,6 +15,9 @@
 - `toolbelt_status` also lists plugin updates, and the plugin list uses the same words for a plugin's state.
 - The `toolbelt` command bundled with ToolBelt Dev talks to ToolBelt Dev, and one script's or shell's calls show up as one session in Settings → Agents → Activity.
 - Settings → Agents → Connect warns when its commands point into a development build, whose agent setup stops working once that build is removed.
+- Agents can page a row's nested rows (such as a process's many children) with `parent`, and paging notes say that offsets count top-level rows while `max_rows` counts nested ones too. When a resource read is cut short, its note names the next resource URI to read.
+- Agent text marks line breaks inside values with ⏎ instead of /, leaves out empty form fields and duplicate empty-list counts, and no longer repeats a long command line in a row's details or under each child process.
+- `toolbelt_status` says which ToolBelt build is answering (its app location and process), so agents can tell two builds of the same version apart.
 - MCP screen resources can be paged: `toolbelt://screens/{plugin}/{screen}?table=…&offset=…&max_rows=…&details=false`.
 
 ## 0.5.3 — 2026-11-25

@@ -155,7 +155,8 @@ const agents = createAgentInterface({
     settings = { ...settings, agents: next };
     saveSettings(settings);
   },
-  app: () => ({ name: variant.name, version: pkg.version, channel, developmentProfile }),
+  // The bundle this process runs from (…/ToolBelt Dev.app/Contents/MacOS/bun), so agents can tell builds apart.
+  app: () => ({ name: variant.name, version: pkg.version, channel, developmentProfile, location: process.execPath.match(/^(.*?\.app)\//)?.[1] ?? null }),
   appUpdate: () => {
     const s = updater.state();
     return { available: s.available?.version ?? null, lastChecked: s.lastChecked };

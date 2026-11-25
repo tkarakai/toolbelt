@@ -197,7 +197,7 @@ export class CliAdapter implements ChannelAdapter {
 				known(["query", "plugin"]);
 				return ["search", ...String(args.query).split(/\s+/), ...(args.plugin ? ["--plugin", String(args.plugin)] : []), ...json];
 			case "read_screen":
-				known(["plugin", "screen", "format", "max_rows", "table", "offset", "details"]);
+				known(["plugin", "screen", "format", "max_rows", "table", "offset", "parent", "details"]);
 				return [
 					"read",
 					String(args.plugin),
@@ -205,6 +205,7 @@ export class CliAdapter implements ChannelAdapter {
 					...(args.max_rows !== undefined ? ["--max-rows", String(args.max_rows)] : []),
 					...(args.table !== undefined ? ["--table", String(args.table)] : []),
 					...(args.offset !== undefined ? ["--offset", String(args.offset)] : []),
+					...(args.parent !== undefined ? ["--parent", String(args.parent)] : []),
 					...(args.details === false ? ["--no-details"] : []),
 					...(args.format === "json" || structured ? ["--json"] : []),
 				];

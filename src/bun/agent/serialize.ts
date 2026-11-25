@@ -15,12 +15,18 @@ export type ReadOptions = {
 	now?: number;
 	/** The result's size limit in characters; tables stop at a row boundary to stay under it. */
 	budget?: number;
+	/** With `table`: page the children of this row (any depth) instead of the table's top-level rows. */
+	parent?: string;
+	/** Hints name a resource URI to read next instead of read_screen options (a resource read). */
+	resource?: string;
 };
 
 export const DEFAULT_ROWS = 50;
 /** Size limits for agent results, in characters (MCP clients keep tool results small). */
 export const TEXT_BUDGET = 50_000;
 export const JSON_BUDGET = 100_000;
+/** Room kept under the text budget for the notes that say where to read on, so the final cut never drops them. */
+const HINT_ROOM = 600;
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… (${s.length - n} more characters)` : s);
 
 /**
@@ -86,8 +92,11 @@ export function when(at: number, now = Date.now()) {
 	return `${abs} (${span === "now" ? "now" : diff > 0 ? `in ${span}` : `${span} ago`})`;
 }
 
-/** One line: line breaks in a value become " / ", so every value stays on its own line and indentation. */
-export const oneLine = (s: string) => s.replace(/\s*[\r\n]+\s*/g, " / ");
+/**
+ * One line: line breaks in a value become " ⏎ ", so every value stays on its own line and
+ * indentation. (Not "/": commands and paths are full of slashes.)
+ */
+export const oneLine = (s: string) => s.replace(/\s*[\r\n]+\s*/g, " ⏎ ");
 
 const dotText = (dot?: Dot) => (dot && typeof dot === "object" && dot.label ? dot.label : "");
 const tagsText = (tags?: Tag[]) => (tags?.length ? `[${tags.map((t) => oneLine(t.text)).join(", ")}]` : "");
@@ -164,8 +173,25 @@ function sizeOf(out: Out) {
 	return out.size;
 }
 
-type WalkOptions = Required<Omit<ReadOptions, "table">> & { table?: string };
-const resume = (id: string, next: number) => `read again with table "${id}" and offset ${next}`;
+type WalkOptions = Required<Omit<ReadOptions, "table" | "parent" | "resource">> & { table?: string; parent?: string; resource?: string };
+/** How to read on from `next`: read_screen options, or for a resource read, the URI to read. */
+function resume(opts: WalkOptions, table: string, next: number, parent?: string) {
+	if (opts.resource) {
+		const q = new URLSearchParams({ table, ...(parent ? { parent } : {}), offset: String(next) });
+		return `read ${opts.resource}?${q}`;
+	}
+	return `read again with table "${table}"${parent ? `, parent "${parent}"` : ""} and offset ${next}`;
+}
+const detailsOff = (opts: WalkOptions) => (opts.resource ? "add details=false" : "pass details: false");
+/** A row anywhere under `rows`, by id. */
+export function findRow(rows: Row[], id: string): Row | undefined {
+	for (const r of rows) {
+		if (r.id === id) return r;
+		const found = r.children?.length ? findRow(r.children, id) : undefined;
+		if (found) return found;
+	}
+	return undefined;
+}
 
 /** Labels of the row's own actions when they differ from the table's (`Row.actions` names a subset). */
 function ownActions(row: Row, actions: Action[] | undefined) {
@@ -210,7 +236,11 @@ export function pageRows(all: Row[], offset: number, maxRows: number): { rows: P
 
 type Columns = { key: string; title?: string }[];
 
-function rowLines(row: Row, cols: Columns, depth: number, opts: WalkOptions, out: Out, actions?: Action[]) {
+/** What rowLines needs about the table and the row's parent. */
+type RowContext = { table: string; actions?: Action[]; /** The parent row's cell texts: a child's detail repeating one is left out. */ parentCells: string[] };
+
+function rowLines(row: Row, cols: Columns, depth: number, opts: WalkOptions, out: Out, ctx: RowContext) {
+	const actions = ctx.actions;
 	const columns = cols.map((c) => c.key);
 	const indent = "  ".repeat(depth);
 	// A status dot's label is left out when another cell already says it.
@@ -227,21 +257,25 @@ function rowLines(row: Row, cols: Columns, depth: number, opts: WalkOptions, out
 	const own = ownActions(row, actions);
 	out.lines.push(`${indent}- ${cells.join(" · ")}  {id: ${row.id}}${flags.length ? ` [${flags.join(", ")}]` : ""}${own ? ` (actions: ${own.length ? own.join(", ") : "none"})` : ""}`);
 	if (opts.details) {
-		// A stat or detail that repeats the row line's cell of the same name is left out.
-		const shown = (label: string, value: string) =>
-			cols.some((c, i) => (c.title ?? c.key).toLowerCase() === label.toLowerCase() && plain[i] === oneLine(value).trim());
+		// A stat or detail that repeats the row line's cell of the same name is left out, as is a
+		// long value (a command line, a path) that the row line or its parent row already shows.
+		const shown = (label: string, value: string) => {
+			const v = oneLine(value).trim();
+			if (cols.some((c, i) => (c.title ?? c.key).toLowerCase() === label.toLowerCase() && plain[i] === v)) return true;
+			return v.length >= 40 && (plain.includes(v) || ctx.parentCells.includes(v));
+		};
 		for (const s of row.stats ?? []) if (!shown(s.label, String(s.value))) out.lines.push(`${indent}    ${s.label}: ${oneLine(String(s.value))}`);
 		for (const d of row.details ?? []) if (!shown(d.label, d.value)) out.lines.push(`${indent}    ${d.section && d.section !== d.label ? `${d.section} › ` : ""}${d.label}: ${oneLine(clip(d.value, 500))}`);
 		// The details drawer (`pane`): forms, timelines and cards about this row.
 		if (row.pane?.length) {
 			const pane: Out = { lines: [], notes: [] };
 			for (const node of row.pane) walk(node, { ...opts, maxRows: Math.min(opts.maxRows, 20) }, pane);
-			for (const line of pane.lines) for (const part of line.split("\n")) if (part) out.lines.push(`${indent}    ${part.replace(/^#+ /, "")}`);
+			for (const line of pane.lines) for (const part of line.split("\n")) if (part.trim()) out.lines.push(`${indent}    ${part.replace(/^#+ /, "")}`);
 		}
 	}
-	for (const child of row.children ?? []) rowLines(child, cols, depth + 1, opts, out, actions);
+	for (const child of row.children ?? []) rowLines(child, cols, depth + 1, opts, out, { ...ctx, parentCells: plain });
 	const omitted = (row as PagedRow).omittedChildren;
-	if (omitted) out.lines.push(`${indent}  (${omitted} more row${omitted === 1 ? "" : "s"} under this one not listed; read with a larger max_rows)`);
+	if (omitted) out.lines.push(`${indent}  (${omitted} more row${omitted === 1 ? "" : "s"} under this one not listed; ${resume(opts, ctx.table, row.children?.length ?? 0, row.id)} to page them)`);
 }
 
 /** Declared sections and sub-sections by id: their labels and ids from the top level down. */
@@ -285,11 +319,17 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			for (const child of node.children) walk(child, opts, out);
 			return;
 		case "table": {
-			const total = node.rows.length;
-			const offset = opts.table === node.id ? Math.max(0, opts.offset) : 0;
-			const page = pageRows(node.rows, offset, opts.maxRows);
+			const paged = opts.table === node.id;
+			// `parent` pages one row's children as if they were the table's rows.
+			const parent = paged && opts.parent ? findRow(node.rows, opts.parent) : undefined;
+			const source = parent ? (parent.children ?? []) : node.rows;
+			const total = source.length;
+			const nested = countRows(source);
+			const offset = paged ? Math.max(0, opts.offset) : 0;
+			const page = pageRows(source, offset, opts.maxRows);
 			const sortCol = node.sort && node.columns.find((c) => c.key === node.sort!.key);
-			out.lines.push("", `## Table ${node.id}: ${total} row${total === 1 ? "" : "s"}${sortCol ? `, sorted by ${sortCol.title}${node.sort!.desc ? " (descending)" : ""}` : ""}`);
+			const rowsWord = (n: number) => `${n} row${n === 1 ? "" : "s"}`;
+			out.lines.push("", `## Table ${node.id}${parent ? `, rows under ${parent.id}` : ""}: ${rowsWord(total)}${nested > total ? ` (${nested} with nested rows)` : ""}${sortCol ? `, sorted by ${sortCol.title}${node.sort!.desc ? " (descending)" : ""}` : ""}`);
 			if (!total) {
 				if (node.empty) out.lines.push(`(empty: ${node.empty.title}${node.empty.description ? ` — ${node.empty.description}` : ""})`);
 			} else {
@@ -320,8 +360,8 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 					header = h;
 					if (h) rowOut.lines.push(`### ${h}`);
 				}
-				rowLines(row, node.columns, 0, opts, rowOut, node.actions);
-				if (sizeOf(out) + sizeOf(rowOut) > opts.budget && out.rowsShown) {
+				rowLines(row, node.columns, 0, opts, rowOut, { table: node.id, actions: node.actions, parentCells: [] });
+				if (sizeOf(out) + sizeOf(rowOut) > opts.budget - HINT_ROOM && out.rowsShown) {
 					stopped = offset + shown;
 					break;
 				}
@@ -332,20 +372,24 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			const rows = page.rows.slice(0, shown);
 			// Empty sections are only known when every row was looked at.
 			const empty = [...sections].filter(([id]) => !used.has(id)).map(([, p]) => p.labels.filter((l, i, all) => l !== all[i - 1]).join(" › "));
-			if (empty.length && offset === 0 && rows.length === total && stopped === null) out.lines.push(`Empty sections: ${empty.join(", ")}`);
-			if (total && offset >= total) out.lines.push(`(offset ${offset} is past the end: the table has ${total} row${total === 1 ? "" : "s"}; offsets start at 0)`);
+			if (empty.length && offset === 0 && rows.length === total && stopped === null && !parent) out.lines.push(`Empty sections: ${empty.join(", ")}`);
+			// Offsets and "of N" count top-level rows; max_rows counts nested rows too.
+			const unit = nested > total ? " (offsets count top-level rows; max_rows counts nested rows too)" : "";
+			const under = parent?.id;
+			if (total && offset >= total) out.lines.push(`(offset ${offset} is past the end: there ${total === 1 ? "is 1 row" : `are ${total} rows`}; offsets start at 0)`);
 			else if (stopped !== null)
 				out.lines.push(
 					rows.length
-						? `(showing rows ${offset + 1}–${stopped} of ${total}: the result reached its size limit; ${resume(node.id, stopped)}, or pass details: false for shorter rows)`
-						: `(${total - offset} row${total - offset === 1 ? "" : "s"} not listed: the result reached its size limit; ${resume(node.id, stopped)})`,
+						? `(showing rows ${offset + 1}–${stopped} of ${total}: the result reached its size limit; ${resume(opts, node.id, stopped, under)}, or ${detailsOff(opts)} for shorter rows)`
+						: `(${rowsWord(total - offset)} not listed: the result reached its size limit; ${resume(opts, node.id, stopped, under)})`,
 				);
-			else if (total && !rows.length) out.lines.push(`(${total} row${total === 1 ? "" : "s"} not listed: max_rows is 0)`);
-			else if (page.next !== null) out.lines.push(`(showing rows ${offset + 1}–${page.next} of ${total}; ${resume(node.id, page.next)} for more)`);
+			else if (total && !rows.length) out.lines.push(`(${rowsWord(total)} not listed: max_rows is 0)`);
+			else if (page.next !== null) out.lines.push(`(showing rows ${offset + 1}–${page.next} of ${total}${unit}; ${resume(opts, node.id, page.next, under)} for more)`);
 			return;
 		}
 		case "list": {
-			out.lines.push("", `## List: ${node.items.length} item${node.items.length === 1 ? "" : "s"}`);
+			// Empty: the plugin's empty message says so; no "0 items" beside it.
+			out.lines.push("", node.items.length || !node.empty ? `## List: ${node.items.length} item${node.items.length === 1 ? "" : "s"}` : "## List");
 			if (!node.items.length && node.empty) out.lines.push(`(empty: ${node.empty.title})`);
 			for (const item of node.items.slice(0, opts.maxRows)) {
 				const meta = item.metaAt !== undefined ? when(item.metaAt, now) : item.meta;
@@ -359,8 +403,13 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			return;
 		case "form":
 			// Ids are the plugin's internals: a form or field without a label is shown without one.
-			out.lines.push("", `## Form${node.title ? `: ${node.title}` : ""}${node.description ? ` — ${node.description}` : ""}`);
-			for (const f of node.fields) out.lines.push(`- ${f.label ? `${oneLine(f.label)}: ` : ""}${oneLine(fieldText(f, now))}`);
+			// An untitled form needs no heading; a field with neither label nor value says nothing.
+			out.lines.push("");
+			if (node.title || node.description) out.lines.push(`## Form${node.title ? `: ${node.title}` : ""}${node.description ? ` — ${node.description}` : ""}`);
+			for (const f of node.fields) {
+				const value = oneLine(fieldText(f, now)).trim();
+				if (f.label || value) out.lines.push(`- ${f.label ? `${oneLine(f.label)}: ` : ""}${value}`);
+			}
 			return;
 		case "empty":
 			out.lines.push(`(empty: ${node.title}${node.description ? ` — ${node.description}` : ""})`);
@@ -394,7 +443,7 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			return;
 		}
 		case "timeline":
-			out.lines.push("", `## Timeline: ${node.entries.length} entr${node.entries.length === 1 ? "y" : "ies"}`);
+			out.lines.push("", node.entries.length || !node.empty ? `## Timeline: ${node.entries.length} entr${node.entries.length === 1 ? "y" : "ies"}` : "## Timeline");
 			if (!node.entries.length && node.empty) out.lines.push(`(empty: ${node.empty.title})`);
 			for (const e of node.entries.slice(0, opts.maxRows))
 				out.lines.push(`- ${when(e.at, now)}${e.author ? ` · ${oneLine(e.author)}` : ""}${e.title ? ` · ${oneLine(e.title)}` : ""}: ${oneLine(clip(e.text, 600))}`);
@@ -423,6 +472,8 @@ export function treeText(tree: Node, options: ReadOptions = {}) {
 	walk(redact(tree), {
 		maxRows: options.maxRows ?? DEFAULT_ROWS,
 		budget: options.budget ?? TEXT_BUDGET,
+		parent: options.parent,
+		resource: options.resource,
 		offset: options.offset ?? 0,
 		details: options.details ?? true,
 		now: options.now ?? Date.now(),
@@ -435,7 +486,7 @@ export function treeText(tree: Node, options: ReadOptions = {}) {
 	const budget = options.budget ?? TEXT_BUDGET;
 	if (text.length > budget) {
 		const kept = lines.slice(0, text.slice(0, budget).split("\n").length - 1);
-		text = `${kept.join("\n")}\n(truncated after line ${kept.length} of ${lines.length} at the result's size limit; read one table at a time with table and offset, or pass details: false)`;
+		text = `${kept.join("\n")}\n(truncated after line ${kept.length} of ${lines.length} at the result's size limit; read one table at a time with ${options.resource ? "?table=…&offset=…, or add details=false" : "table and offset, or pass details: false"})`;
 	}
 	return { text, viewState: out.notes };
 }
@@ -482,11 +533,15 @@ export function treeJson(tree: Node, options: ReadOptions = {}): Node {
 			if (!ctx.data && TIME_KEYS.includes(k) && typeof v === "number") o[`${k}Iso`] = new Date(v).toISOString();
 		}
 		if (!ctx.data && o.type === "table" && Array.isArray(o.rows)) {
-			const offset = options.table === o.id ? Math.max(0, options.offset ?? 0) : 0;
-			const total = o.rows.length;
-			const page = pageRows(o.rows as Row[], offset, maxRows);
+			const paged = options.table === o.id;
+			const offset = paged ? Math.max(0, options.offset ?? 0) : 0;
+			const parent = paged && options.parent ? findRow(o.rows as Row[], options.parent) : undefined;
+			const source = parent ? ((parent.children ?? []) as Row[]) : (o.rows as Row[]);
+			const total = source.length;
+			const page = pageRows(source, offset, maxRows);
 			o.rows = page.rows;
-			if (offset || page.next !== null) o.paging = { offset, total, next: page.next };
+			if (parent) o.parent = parent.id;
+			if (offset || page.next !== null || parent) o.paging = { offset, total, next: page.next, ...(parent ? { parent: parent.id } : {}) };
 			if (!ctx.inRow) outer.push(o);
 		}
 		return o;
@@ -508,8 +563,8 @@ export function treeJson(tree: Node, options: ReadOptions = {}): Node {
 		}
 		t.rows = rows.slice(0, kept);
 		if (kept < rows.length) {
-			const paging = (t.paging as { offset: number; total: number } | undefined) ?? { offset: 0, total: rows.length };
-			t.paging = { offset: paging.offset, total: paging.total, next: paging.offset + kept, reason: "size" };
+			const paging = (t.paging as { offset: number; total: number; parent?: string } | undefined) ?? { offset: 0, total: rows.length };
+			t.paging = { ...paging, next: paging.offset + kept, reason: "size" };
 		}
 	});
 	return result;

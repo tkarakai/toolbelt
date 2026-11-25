@@ -28,7 +28,7 @@
 			},
 			"expect": {
 				"contains": [
-					"Waiting on: Acme / (asked a week ago, watching weekly)"
+					"Waiting on: Acme ⏎ (asked a week ago, watching weekly)"
 				]
 			}
 		}

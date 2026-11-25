@@ -19,6 +19,7 @@ toolbelt screens [plugin]            # screen ids for `read`
 toolbelt read <plugin> [screen]      # one screen as text (default screen if omitted)
 toolbelt read <plugin> <screen> --max-rows 20 --no-details   # smaller
 toolbelt read <plugin> <screen> --table <id> --offset 100    # next page of a long table
+toolbelt read <plugin> <screen> --table <id> --parent <row id>   # a row's child rows
 toolbelt search <words…> [--plugin <id>]   # lines mentioning all words, across screens
 toolbelt plugins                     # installed plugins and available plugin updates
 ```

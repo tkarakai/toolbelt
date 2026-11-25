@@ -155,13 +155,17 @@ describe("MCP conformance", () => {
 		expect(uris).toHaveLength(6);
 		expect(resources.every((r: { mimeType: string; name: string }) => r.mimeType === "text/markdown" && r.name)).toBe(true);
 		const { resourceTemplates } = (await request("resources/templates/list")).result;
-		expect(resourceTemplates).toEqual([expect.objectContaining({ uriTemplate: "toolbelt://screens/{plugin}/{screen}{?table,offset,max_rows,details}", name: "screen", mimeType: "text/markdown" })]);
+		expect(resourceTemplates).toEqual([expect.objectContaining({ uriTemplate: "toolbelt://screens/{plugin}/{screen}{?table,parent,offset,max_rows,details}", name: "screen", mimeType: "text/markdown" })]);
 		// A paged resource read is read_screen with the same paging.
 		const paged = (await request("resources/read", { uri: "toolbelt://screens/kit/queue?table=jobs&offset=247&max_rows=2&details=false" })).result.contents[0];
 		expect(paged.uri).toBe("toolbelt://screens/kit/queue?table=jobs&offset=247&max_rows=2&details=false");
 		expect(paged.text).toContain("Job 248");
 		expect(paged.text).toContain("(showing rows 248–249 of 250");
 		expect(paged.text).not.toContain("Job 247 ");
+		// Its hints name the next URI to read, not read_screen options.
+		const first = (await request("resources/read", { uri: "toolbelt://screens/kit/queue?table=jobs&max_rows=3" })).result.contents[0].text;
+		expect(first).toContain("read toolbelt://screens/kit/queue?table=jobs&offset=3 for more");
+		expect(first).not.toContain("read again with table");
 		for (const bad of ["offset=x", "colour=red", "details=maybe"])
 			expect((await request("resources/read", { uri: `toolbelt://screens/kit/queue?${bad}` })).error.code).toBe(-32602);
 		const read = (await request("resources/read", { uri: "toolbelt://screens/desk/settings" })).result;
