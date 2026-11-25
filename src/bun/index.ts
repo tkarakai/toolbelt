@@ -147,7 +147,7 @@ const packages = new PackageManager(
 );
 await packages.recover();
 const manager = new PluginManagerService(packages, host);
-// ── agent interface (docs/agents.md) ─────────────────────────────────────
+// ── agent interface (docs/agent-interface.md) ─────────────────────────────────────
 const agents = createAgentInterface({
   host,
   settings: () => settings.agents,

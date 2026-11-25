@@ -34,7 +34,7 @@ import {
 
 // Settings live in memory here (the preview doesn't touch the app's settings file).
 // The preview's pretend remote access listens away from the app's port.
-// PREVIEW_AGENTS=1 starts with the agent interface on (docs/agents.md).
+// PREVIEW_AGENTS=1 starts with the agent interface on (docs/agent-interface.md).
 let settings: Settings = {
   ...DEFAULTS,
   remote: { ...DEFAULTS.remote, port: Number(process.env.REMOTE_PORT ?? 47389) },

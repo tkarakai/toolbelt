@@ -1,4 +1,4 @@
-// The agent interface's core (docs/agents.md): sessions, per-plugin access, the agent's own view
+// The agent interface's core (docs/agent-interface.md): sessions, per-plugin access, the agent's own view
 // of plugin surfaces, the registry of agent operations, and the audit log. Transports (the MCP
 // socket, the CLI) are adapters over `call`. Agents can only read in this version.
 import type { Manifest, Node } from "../../shared/protocol";

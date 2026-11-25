@@ -1,4 +1,4 @@
-// Agent scenarios (test/agent-scenarios, docs/agents.md → Testing): life-like prompts with the
+// Agent scenarios (test/agent-scenarios, docs/agent-interface.md → Testing): life-like prompts with the
 // tool calls an agent makes to answer them, run through every channel each one lists against
 // the real agent interface and the fixture plugins. Checks facts, refusals, redaction,
 // notifications and the audit log; no model is involved.

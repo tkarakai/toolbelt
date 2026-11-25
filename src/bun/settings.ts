@@ -14,7 +14,7 @@ export type Settings = {
 	mode: "system" | "light" | "dark";
 	/** Remote access (docs/remote-access.md). */
 	remote: RemoteSettings;
-	/** The agent interface (docs/agents.md). */
+	/** The agent interface (docs/agent-interface.md). */
 	agents: AgentSettings;
 };
 

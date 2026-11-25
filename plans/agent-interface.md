@@ -577,7 +577,7 @@ refers to 5.2.
 
 ## 5.5 Status
 
-Roadmap items 1–4 are implemented and described in [docs/agents.md](../docs/agents.md). The
+Roadmap items 1–4 are implemented and described in [docs/agent-interface.md](../docs/agent-interface.md). The
 evaluation, with 17 life-like requests answered through MCP and the CLI, is in
 [agent-interface-eval/report.html](agent-interface-eval/report.html). Its cases now run as
 automated scenarios (5.6).
@@ -613,7 +613,7 @@ need judgement. They are now split into layers.
 | 3. MCP conformance | `bun test`, CI; Inspector smoke check optional | Protocol behavior | Done |
 | 4. Model-based evaluation | `bun run agent-eval`, on demand or nightly, never blocking CI | Final answers | Planned (below) |
 
-[docs/agents.md](../docs/agents.md#testing) describes layers 1–3. The 17 hand-run cases became
+[docs/agent-interface.md](../docs/agent-interface.md#testing) describes layers 1–3. The 17 hand-run cases became
 scenarios 01–17 through a converter. [agent-interface-eval/](agent-interface-eval/README.md)
 stays as the historical first run, against the real plugins, and as the converter's input. Once
 layer 4 writes reports from real runs, it can shrink to `cases.json` and the step files.

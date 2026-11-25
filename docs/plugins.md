@@ -128,7 +128,7 @@ prevent activation; declaring a feature optional does not implement its fallback
 another app, and requires a corresponding `native.handoff` declaration.
 
 `agent: { "access": "none" | "read" | "act" }` sets the most AI agents may do with the plugin
-through ToolBelt's agent interface ([agents.md](agents.md)). `none` hides it from agents, `read`
+through ToolBelt's agent interface ([agent-interface.md](agent-interface.md)). `none` hides it from agents, `read`
 lets them read its screens, and `act` is reserved for actions; without the key a plugin is
 `read`. Declare `none` when screens show data agents shouldn't see (command lines, environment
 values, credentials). The person can lower the level, never raise it. Agents read the same trees

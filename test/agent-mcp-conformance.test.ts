@@ -1,4 +1,4 @@
-// MCP conformance of the agent interface (docs/agents.md → Testing): what any MCP client relies
+// MCP conformance of the agent interface (docs/agent-interface.md → Testing): what any MCP client relies
 // on, checked over the real stdio shim (`toolbelt mcp`) and the socket. The MCP Inspector run at
 // the end is an optional smoke check: TOOLBELT_MCP_INSPECTOR=1 (needs the network for bunx).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

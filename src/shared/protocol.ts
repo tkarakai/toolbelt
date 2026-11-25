@@ -48,7 +48,7 @@ export type Manifest = {
 	/** The plugin's command line, reachable as `tb <command>`. */
 	cli?: { command: string };
 	/**
-	 * How far AI agents may go with this plugin (docs/agents.md): `none` hides it from agents,
+	 * How far AI agents may go with this plugin (docs/agent-interface.md): `none` hides it from agents,
 	 * `read` lets them read its screens, `act` is reserved for actions. Without it: `read`. The
 	 * person can lower it in Settings → Agents. Older hosts ignore it.
 	 */

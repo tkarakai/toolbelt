@@ -1,4 +1,4 @@
-// agent-audit.jsonl (docs/agents.md): one line per agent operation, appended and kept forever.
+// agent-audit.jsonl (docs/agent-interface.md): one line per agent operation, appended and kept forever.
 import { appendFileSync, closeSync, fstatSync, mkdirSync, openSync, readSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AuditEntry } from "../../shared/agents";

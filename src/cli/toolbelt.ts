@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// `toolbelt`: ToolBelt's agent interface from a terminal (docs/agents.md). `toolbelt mcp` is the
+// `toolbelt`: ToolBelt's agent interface from a terminal (docs/agent-interface.md). `toolbelt mcp` is the
 // stdio MCP server agents start; the other commands are for people, scripts and coding agents.
 // Both talk to the running app over its agent socket; nothing here reads plugin data directly.
 import { homedir } from "node:os";

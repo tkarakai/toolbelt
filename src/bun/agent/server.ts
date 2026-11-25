@@ -1,4 +1,4 @@
-// The agent socket (docs/agents.md): a Unix domain socket only this user can open. Each
+// The agent socket (docs/agent-interface.md): a Unix domain socket only this user can open. Each
 // connection starts with a hello line ({"toolbelt":1,"client":…,"mode":…}), then speaks MCP
 // JSON-RPC, one message per line. The stdio shim (`toolbelt mcp`) and the CLI connect here.
 import { chmodSync, existsSync, unlinkSync } from "node:fs";

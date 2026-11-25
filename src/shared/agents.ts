@@ -1,4 +1,4 @@
-// The agent interface (docs/agents.md): what AI agents may reach in ToolBelt, and what
+// The agent interface (docs/agent-interface.md): what AI agents may reach in ToolBelt, and what
 // Settings → Agents shows about them. Shared by the main process, the renderer and the CLI.
 
 /** How far agents may go with a plugin. `act` is reserved: agents can only read today. */

@@ -1,4 +1,4 @@
-// Plugin trees as agents read them (docs/agents.md): compact text, or the tree as JSON, both
+// Plugin trees as agents read them (docs/agent-interface.md): compact text, or the tree as JSON, both
 // with sensitive values masked and long tables paged. Pure: no host state.
 import type { Action, Cell, Dot, Field, GroupLabel, Node, Row, Section, Tag } from "../../shared/protocol";
 

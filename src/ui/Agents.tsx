@@ -1,4 +1,4 @@
-// Settings → Agents (docs/agents.md): whether AI agents may use ToolBelt, how to connect one,
+// Settings → Agents (docs/agent-interface.md): whether AI agents may use ToolBelt, how to connect one,
 // what each plugin lets them read, who is connected and everything they did.
 import { useState } from "react";
 import { toast } from "sonner";

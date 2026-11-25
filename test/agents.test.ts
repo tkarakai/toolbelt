@@ -1,4 +1,4 @@
-// The agent interface (docs/agents.md): access levels, the serializer, the core against a fake
+// The agent interface (docs/agent-interface.md): access levels, the serializer, the core against a fake
 // host, and the MCP socket and CLI end to end.
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, statSync } from "node:fs";

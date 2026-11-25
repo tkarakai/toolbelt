@@ -1,4 +1,4 @@
-// The agent scenario format (docs/agents.md → Testing). A scenario is a life-like prompt, the
+// The agent scenario format (docs/agent-interface.md → Testing). A scenario is a life-like prompt, the
 // tool calls an agent makes to answer it, and what those calls must and must not return. It is
 // transport-neutral: each channel adapter (adapters.ts) runs the same steps over its transport.
 // The `rubric` is for model-based evaluation (plans/agent-interface.md); scripted tests ignore it.

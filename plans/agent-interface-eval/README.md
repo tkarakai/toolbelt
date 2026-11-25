@@ -5,7 +5,7 @@ run on 2026-11-24. Open [report.html](report.html) for the results.
 
 This is the historical first run, by hand, against the real plugins, and is not updated. Its
 cases now run automatically as scenarios against fixture plugins
-([docs/agents.md](../../docs/agents.md#testing)). `test/agent-scenarios/convert.ts` reads
+([docs/agent-interface.md](../../docs/agent-interface.md#testing)). `test/agent-scenarios/convert.ts` reads
 `cases.json`, the `steps.json` files and the CLI transcripts here. The harness in `tools/` is
 superseded by the scenario harness.
 

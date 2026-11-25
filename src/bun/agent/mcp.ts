@@ -1,4 +1,4 @@
-// One MCP session over the agent socket (docs/agents.md): JSON-RPC 2.0, one message per line.
+// One MCP session over the agent socket (docs/agent-interface.md): JSON-RPC 2.0, one message per line.
 // Tools come from the core's operation registry; every screen is also a resource that clients
 // can subscribe to. Requests are answered in order of arrival.
 import type { AgentSession } from "../../shared/agents";

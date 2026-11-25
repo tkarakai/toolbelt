@@ -1,4 +1,4 @@
-// The agent interface (docs/agents.md), wired for the app and the browser preview.
+// The agent interface (docs/agent-interface.md), wired for the app and the browser preview.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { agentSocketPath, declaredAccess, type AgentSettings, type AgentsRequest, type AgentsState } from "../../shared/agents";

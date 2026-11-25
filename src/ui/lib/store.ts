@@ -460,7 +460,7 @@ export function useRemoteAccess(): RemoteAccessState | null {
   );
 }
 
-// ── agents (docs/agents.md) ─────────────────────────────────────────────────
+// ── agents (docs/agent-interface.md) ─────────────────────────────────────────────────
 let agents: AgentsState | null = null;
 const agentsListeners = new Set<() => void>();
 function setAgents(next: AgentsState) {
