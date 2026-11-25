@@ -2,15 +2,17 @@
 // what each plugin lets them read, who is connected and everything they did.
 import { useState } from "react";
 import { toast } from "sonner";
-import { Copy } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import { Switch } from "./components/ui/switch";
 import { Button } from "./components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { SettingsGroup, SettingsRow } from "./components/settings-layout";
 import { Icon } from "./lib/icon";
 import { cn } from "./lib/utils";
-import { pillClass } from "./renderer/colors";
+import { pillClass, textClass } from "./renderer/colors";
 import { agentAudit, agentsRequest, useAgents } from "./lib/store";
+import { connectCommands, type CommandTab } from "./lib/agent-commands";
 import type { AgentAccess, AgentPlugin, AgentsState, AuditEntry } from "../shared/agents";
 
 const ACCESS_LABEL: Record<AgentAccess, string> = { none: "No access", read: "Read only", act: "Read and act" };
@@ -22,8 +24,6 @@ const OPERATION_LABEL: Record<string, string> = {
 	list_plugins: "Listed plugins",
 };
 
-/** Shell-quoted, for pasting into a terminal. */
-const shell = (argv: string[]) => argv.map((a) => (/^[\w./=:@-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(" ");
 
 async function run(request: Parameters<typeof agentsRequest>[0]) {
 	try {
@@ -40,7 +40,7 @@ export function AgentsSettings() {
 	return (
 		<div className="space-y-8">
 			<AccessGroup state={state} />
-			{state.enabled && state.command && <ConnectGroup command={state.command} />}
+			{state.command && <ConnectGroup command={state.command} enabled={state.enabled} />}
 			<PluginsGroup plugins={state.plugins} />
 			{state.sessions.length > 0 && <SessionsGroup state={state} />}
 			<ActivityGroup entries={state.audit} />
@@ -72,39 +72,65 @@ function AccessGroup({ state }: { state: AgentsState }) {
 	);
 }
 
-function CommandRow({ title, description, text }: { title: string; description: string; text: string }) {
+/** A terminal command to paste, in tabs (add / remove), with a copy button. */
+function CommandBox({ title, tabs, initial }: { title: string; tabs: CommandTab[]; initial: string }) {
+	const [tab, setTab] = useState(tabs.some((t) => t.id === initial) ? initial : tabs[0].id);
+	const [copied, setCopied] = useState(false);
+	const current = tabs.find((t) => t.id === tab) ?? tabs[0];
 	const copy = async () => {
 		try {
-			await navigator.clipboard.writeText(text);
-			toast.success("Copied");
+			await navigator.clipboard.writeText(current.text);
+			setCopied(true);
+			setTimeout(() => setCopied(false), 1500);
 		} catch {
 			toast.error("Couldn’t copy");
 		}
 	};
 	return (
-		<div className="space-y-2 px-5 py-4">
-			<div className="flex items-start justify-between gap-4">
-				<div className="min-w-0">
-					<h3 className="text-sm font-medium">{title}</h3>
-					<p className="mt-1 text-sm text-muted-foreground">{description}</p>
+		<div className="space-y-2.5 px-5 py-4">
+			<h3 className="text-sm font-medium">{title}</h3>
+			<Tabs value={tab} onValueChange={(v) => (setTab(v), setCopied(false))} className="gap-0 overflow-hidden rounded-lg border">
+				<div className="flex items-center justify-between gap-2 border-b bg-muted/40 py-1 pr-1.5 pl-1">
+					<TabsList variant="line" className="h-7" aria-label={`${title} commands`}>
+						{tabs.map((t) => (
+							<TabsTrigger key={t.id} value={t.id} className="px-2.5 text-xs">
+								{t.label}
+							</TabsTrigger>
+						))}
+					</TabsList>
+					<Button variant="ghost" size="xs" onClick={() => void copy()} aria-label={`Copy the ${current.label.toLowerCase()} command for ${title}`}>
+						{copied ? <Check className={textClass("success")} /> : <Copy />}
+						{copied ? "Copied" : "Copy"}
+					</Button>
 				</div>
-				<Button variant="ghost" size="icon-sm" onClick={copy} aria-label={`Copy: ${title}`} title="Copy">
-					<Copy />
-				</Button>
-			</div>
-			<pre className="overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap break-all">{text}</pre>
+				{tabs.map((t) => (
+					<TabsContent key={t.id} value={t.id} className="bg-background">
+						<pre className="overflow-x-auto px-3 py-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all select-text">
+							{!t.text.includes("\n") && <span aria-hidden className="mr-2 text-muted-foreground select-none">$</span>}
+							{t.text}
+						</pre>
+					</TabsContent>
+				))}
+			</Tabs>
+			<p className="text-xs text-muted-foreground">{current.note}</p>
 		</div>
 	);
 }
 
-function ConnectGroup({ command }: { command: string[] }) {
-	const cli = shell(command);
+function ConnectGroup({ command, enabled }: { command: string[]; enabled: boolean }) {
 	return (
-		<SettingsGroup title="Connect an agent" description="Run these in a terminal. ToolBelt doesn’t change your shell or your agents’ settings itself.">
-			<CommandRow title="Claude Code" description="Adds ToolBelt as an MCP server for your user." text={`claude mcp add --scope user toolbelt -- ${shell([...command, "mcp"])}`} />
-			<CommandRow title="Other MCP clients" description="The command to start ToolBelt’s MCP server on stdio." text={shell([...command, "mcp"])} />
-			<CommandRow title="The toolbelt command" description="An alias for your shell profile; then try toolbelt status." text={`alias toolbelt=${shell([cli])}`} />
-			<CommandRow title="Skill file" description="Teaches coding agents to use the toolbelt command." text={`mkdir -p ~/.claude/skills/toolbelt && ${cli} skill > ~/.claude/skills/toolbelt/SKILL.md`} />
+		<SettingsGroup
+			title={enabled ? "Connect an agent" : "Remove ToolBelt from agents"}
+			description={
+				enabled
+					? "Paste a command into a terminal. Each has a Remove tab to undo it. ToolBelt doesn’t change your shell or your agents’ settings itself."
+					: "Agents are off, so the ones you connected can’t reach ToolBelt. To remove ToolBelt from them, paste a command into a terminal."
+			}
+		>
+			{connectCommands(command).map((c) => (
+				// Remounts when the switch changes, so each box opens on the tab that fits.
+				<CommandBox key={`${c.title}-${enabled}`} title={c.title} tabs={c.tabs} initial={enabled ? "add" : "remove"} />
+			))}
 		</SettingsGroup>
 	);
 }

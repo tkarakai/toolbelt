@@ -407,3 +407,16 @@ describe("agent socket", () => {
 		server = undefined;
 	});
 });
+
+describe("Settings → Agents commands", () => {
+	test("each agent gets add and remove commands; removing doesn't need ToolBelt", async () => {
+		const { connectCommands } = await import("../src/ui/lib/agent-commands");
+		const command = ["/Applications/Tool Belt.app/bun", "/app/cli/toolbelt.js", "--socket", "/x/agent.sock"];
+		const byTitle = Object.fromEntries(connectCommands(command).map((c) => [c.title, Object.fromEntries(c.tabs.map((t) => [t.id, t.text]))]));
+		expect(byTitle["Claude Code"].add).toBe("claude mcp add --scope user toolbelt -- '/Applications/Tool Belt.app/bun' /app/cli/toolbelt.js --socket /x/agent.sock mcp");
+		expect(byTitle["Claude Code"].remove).toBe("claude mcp remove --scope user toolbelt");
+		expect(byTitle.Codex).toEqual({ add: "codex mcp add toolbelt -- '/Applications/Tool Belt.app/bun' /app/cli/toolbelt.js --socket /x/agent.sock mcp", remove: "codex mcp remove toolbelt" });
+		expect(JSON.parse(byTitle["Claude Desktop and other MCP clients"].json).mcpServers.toolbelt).toEqual({ command: command[0], args: [...command.slice(1), "mcp"] });
+		for (const c of connectCommands(command)) if (c.tabs.some((t) => t.id === "remove")) expect(c.tabs.find((t) => t.id === "remove")!.text).not.toContain("toolbelt.js");
+	});
+});

@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Settings → Agents lets AI agents on this Mac read your plugins' screens, so you can ask Claude Code, Codex or Claude Desktop about your tasks, updates and more. Agents connect through ToolBelt's MCP server or the new `toolbelt` command (status, screens, read, search, plugins), and the tab shows the commands to set them up. It's off until you turn it on. Agents can only read: they see what each plugin allows, which you can lower per plugin, and never see secrets marked as such. The tab lists connected agents and everything they asked for, kept in an activity log.
+- Settings → Agents lets AI agents on this Mac read your plugins' screens, so you can ask Claude Code, Codex or Claude Desktop about your tasks, updates and more. Agents connect through ToolBelt's MCP server or the new `toolbelt` command (status, screens, read, search, plugins), and the tab shows the commands to set them up for Claude Code, Codex and other MCP clients, each with a Remove command to undo it. It's off until you turn it on. Agents can only read: they see what each plugin allows, which you can lower per plugin, and never see secrets marked as such. The tab lists connected agents and everything they asked for, kept in an activity log.
 - Plugins can declare how far AI agents may go with them (`agent.access`: none or read). A plugin that doesn't say is read-only for agents.
 
 ## 0.4.0 — 2026-11-25

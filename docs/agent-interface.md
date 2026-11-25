@@ -56,8 +56,12 @@ reached, 2 when the call was refused or failed. `toolbelt skill` prints `SKILL.m
 
 The app bundles the CLI as `Contents/Resources/app/cli/toolbelt.js` (`bun run cli`, copied by
 `electrobun.config.ts`) and runs it with its own Bun. Settings → Agents shows the exact commands
-for Claude Code, other MCP clients, a shell alias and the skill file. ToolBelt never edits shell
-profiles or agent configuration itself.
+to paste for Claude Code (`claude mcp add|remove --scope user toolbelt`), Codex
+(`codex mcp add|remove toolbelt`), other MCP clients (an `mcpServers` JSON entry and the bare
+server command), a shell alias and the skill file. Each has an Add and a Remove tab (built in
+`src/ui/lib/agent-commands.ts`). The commands stay visible while agents are off, opening on Remove, so the
+person can undo a setup without turning agents back on. ToolBelt never edits shell profiles or
+agent configuration itself.
 
 ## MCP surface
 
