@@ -13,6 +13,8 @@ import { pluginAsset } from "../src/bun/plugin-assets";
 import { buildIdOf, startRemoteServer, type RemoteClient } from "../src/bun/remote-server";
 import type { ToolbeltRPC } from "../src/shared/rpc";
 import { RemoteAccess } from "../src/bun/remote-access";
+import { deviceName } from "../src/bun/pairing";
+import { REMOTE_CLOSE } from "../src/shared/remote";
 import type { Runner } from "../src/bun/tailscale";
 import { DEFAULTS, type Settings } from "../src/bun/settings";
 import { displayAccelerator } from "../src/bun/hotkey";
@@ -207,6 +209,7 @@ const fakeTailscale: Runner = async (_cli, args) => {
 };
 const remoteAccess: RemoteAccess = new RemoteAccess({
   settings: () => settings.remote,
+  devicesFile: join(process.env.TOOLBELT_CONFIG_DIR!, "remote-devices.json"),
   save: (remote) => {
     settings = { ...settings, remote };
     broadcast("settingsChanged", {});
@@ -219,12 +222,30 @@ const remoteAccess: RemoteAccess = new RemoteAccess({
   // The pretend ts.net address answers for the preview's own remote server.
   fetch: async (): Promise<Response> => Response.json({ instance: remoteAccess.instance }),
 });
-function remoteRoute(url: URL): Response {
+async function remoteRoute(url: URL): Promise<Response> {
+  // /remote?pairing=start shows a pairing code (and returns it) without a paired view.
+  if (url.searchParams.get("pairing") === "start") {
+    const state = await remoteAccess.handle({ operation: "startPairing" });
+    return Response.json(state.pairing);
+  }
   const scenario = url.searchParams.get("scenario");
   if (scenario) tailscaleScenario = scenario;
   void remoteAccess.handle({ operation: "refresh" });
   return Response.json({ scenario: tailscaleScenario });
 }
+
+// PREVIEW_REQUIRE_PAIRING=1: this preview's own connections must pair, as remote devices do,
+// against the pretend remote access's paired devices (docs/remote-access.md, "Pairing").
+const previewPairing = process.env.PREVIEW_REQUIRE_PAIRING === "1"
+  ? {
+      verify: (token: unknown) => remoteAccess.registry.verify(token),
+      pair: (secret: unknown, label: unknown) => {
+        const result = remoteAccess.registry.pair(secret, deviceName("preview", label));
+        void remoteAccess.handle({ operation: "read" });
+        return result;
+      },
+    }
+  : undefined;
 
 // The update simulation's controls: GET /update?phase=… (see above).
 function updateRoute(url: URL): Response {
@@ -308,7 +329,13 @@ const handlers: { [K in Exclude<keyof Requests, "popoverLayout">]: (p: Requests[
   fileIcon: (p) => icons.get(p.path),
   openUrl: () => false, // the browser opens links itself
   development: (p) => development.request(p),
-  remoteAccess: (p) => remoteAccess.handle(p),
+  remoteAccess: async (p) => {
+    const state = await remoteAccess.handle(p);
+    // With PREVIEW_REQUIRE_PAIRING, removing a device also ends this preview's connections for it.
+    if (p.operation === "revoke" && !state.lastError)
+      for (const client of server.clients) if (client.device?.id === p.id) client.close(REMOTE_CLOSE.revoked, "Pairing removed");
+    return state;
+  },
   buildId: () => buildIdOf("dist"),
   updateState: () => update,
   checkForUpdates: () => {
@@ -331,6 +358,7 @@ const handlers: { [K in Exclude<keyof Requests, "popoverLayout">]: (p: Requests[
 const server = startRemoteServer({
   port,
   root: "dist",
+  pairing: previewPairing,
   check: (req, peer) =>
     localControlRequest(req) && (peer === "127.0.0.1" || peer === "::1" || peer === "::ffff:127.0.0.1")
       ? { ok: true, ip: null }

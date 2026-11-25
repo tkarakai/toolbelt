@@ -2,9 +2,9 @@
 
 ## Unreleased
 - Fixed: dragging tools in the sidebar to reorder them did nothing.
-- Settings → Remote Access serves ToolBelt and its plugins to your phone or tablet through Tailscale. ToolBelt creates the Tailscale Serve rule after you confirm, and can remove it. Only your Tailscale account can connect. The tab shows Tailscale's status, the address with a QR code, and connected devices with their data use, and can disconnect a device.
+- Settings → Remote Access serves ToolBelt and its plugins to your phone or tablet through Tailscale. ToolBelt creates the Tailscale Serve rule after you confirm, and can remove it. Only your Tailscale account can connect, and each phone, tablet or browser pairs once: choose Pair a device on the Mac (or on a device that's already paired) and scan its QR code, or type its six-digit code. The tab shows the address, your devices (paired ones, with live connection details and data use while connected, which you can disconnect or remove), and Tailscale's status.
 - On a phone, ToolBelt installs to the home screen as a web app: it reconnects by itself, starts without re-downloading the app over slow links, and can show the total of chosen plugins' badges on its icon.
-- Scanning the QR code opens install help for that phone: the exact Add to Home Screen steps on iPhone and iPad, or an Install ToolBelt button on Android.
+- Scanning the pairing QR code opens install help for that phone: the exact Add to Home Screen steps on iPhone and iPad, or an Install ToolBelt button on Android.
 - On touch screens, key hints stay hidden until you use a keyboard. Narrow windows get a button to show the tools list.
 - Focus rings appear only when you use the keyboard: opening a window, the popover, a dialog or a quick view, or clicking, no longer outlines what has focus.
 - The page toolbar's scroll buttons look like the tab strip's.

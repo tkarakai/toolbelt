@@ -7,7 +7,8 @@ import {
 	validPort,
 	type RemoteAccessRequest,
 	type RemoteAccessState,
-	type RemoteDevice,
+	type PairedDevice,
+	type RemoteConnection,
 	type RemoteSettings,
 	type ServeRule,
 	type TailscaleView,
@@ -20,6 +21,7 @@ import {
 	type RemoteServerOptions,
 } from "./remote-server";
 import { loopbackPeerTrusted } from "./peer-owner";
+import { DeviceRegistry, deviceName } from "./pairing";
 import { findTailscaleCli, Tailscale, type Peer, type Runner } from "./tailscale";
 
 export type RemoteAccessOptions = {
@@ -33,6 +35,8 @@ export type RemoteAccessOptions = {
 	findCli?: () => string | null;
 	runner?: Runner;
 	fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+	/** Paired devices (src/bun/pairing.ts): an owner-only JSON file. */
+	devicesFile: string;
 	/** How often status refreshes while remote access is on. */
 	refreshMs?: number;
 	/** How often device figures are pushed while devices are connected. */
@@ -83,10 +87,14 @@ export class RemoteAccess {
 	private refreshing: Promise<void> | null = null;
 	/** Changes to the server, the rule and the port run one at a time, in order. */
 	private serial: Promise<unknown> = Promise.resolve();
+	private pairingTimer: ReturnType<typeof setTimeout> | undefined;
 	/** Random per run: the reachability probe proves the ts.net address reaches this server. */
 	readonly instance = crypto.randomUUID();
+	readonly registry: DeviceRegistry;
 
-	constructor(private readonly options: RemoteAccessOptions) {}
+	constructor(private readonly options: RemoteAccessOptions) {
+		this.registry = new DeviceRegistry(options.devicesFile);
+	}
 
 	state(): RemoteAccessState {
 		const settings = this.options.settings();
@@ -99,7 +107,8 @@ export class RemoteAccess {
 			reachable: this.reachable,
 			reachError: this.reachError,
 			url: remoteUrl(this.tailscale.dnsName, settings.port),
-			devices: this.devices(),
+			paired: this.pairedDevices(),
+			pairing: this.pairingView(),
 			busy: this.busy,
 			lastError: this.lastError,
 		};
@@ -140,7 +149,19 @@ export class RemoteAccess {
 					break;
 				case "disconnect":
 					for (const client of this.server?.clients ?? [])
-						if (client.ip === request.ip) client.close(REMOTE_CLOSE.disconnected, "Disconnected from the Mac");
+						if (client.device?.id === request.id) client.close(REMOTE_CLOSE.disconnected, "Disconnected from the Mac");
+					break;
+				case "startPairing":
+					this.registry.start();
+					this.watchPairing();
+					break;
+				case "stopPairing":
+					this.registry.stop();
+					break;
+				case "revoke":
+					if (typeof request.id !== "string" || !this.registry.revoke(request.id)) throw new Error("That device isn’t paired");
+					for (const client of this.server?.clients ?? [])
+						if (client.device?.id === request.id) client.close(REMOTE_CLOSE.revoked, "This device’s pairing was removed on the Mac");
 					break;
 				case "setBadgePlugins":
 					this.save({
@@ -162,6 +183,7 @@ export class RemoteAccess {
 	/** App quit. */
 	async stop() {
 		this.stopTimers();
+		clearTimeout(this.pairingTimer);
 		const server = this.server;
 		this.server = null;
 		await server?.stop(REMOTE_CLOSE.off, "ToolBelt quit");
@@ -207,6 +229,7 @@ export class RemoteAccess {
 			await this.refresh();
 		} else {
 			this.stopTimers();
+			this.registry.stop();
 			await this.closeServer("Remote access was turned off on the Mac");
 			this.serverError = null;
 			this.reachable = "unknown";
@@ -258,6 +281,15 @@ export class RemoteAccess {
 				hostname: this.options.hostname,
 				root: this.options.root,
 				trustPeer: this.options.trustPeer ?? loopbackPeerTrusted,
+				pairing: {
+					verify: (token) => this.registry.verify(token),
+					pair: (secret, label, client) => {
+						const result = this.registry.pair(secret, deviceName(client.ip ? (this.peers.get(client.ip)?.name ?? null) : null, label));
+						// The Mac's dialog lists what paired, or the pairing ended after wrong codes.
+						queueMicrotask(() => this.emit());
+						return result;
+					},
+				},
 				check: (request, peer) =>
 					checkRemoteRequest(request, peer, { owner: this.tailscale.login, dnsName: this.tailscale.dnsName }),
 				wellKnown: {
@@ -277,6 +309,8 @@ export class RemoteAccess {
 				},
 				closed: (client) => {
 					this.options.handlers.closed?.(client);
+					// "Last used" means the last connection, until its end.
+					if (client.device) this.registry.touch(client.device.id);
 					this.emit();
 				},
 			});
@@ -370,31 +404,53 @@ export class RemoteAccess {
 		}
 	}
 
-	private devices(): RemoteDevice[] {
-		const byIp = new Map<string, RemoteClient[]>();
-		for (const client of this.server?.clients ?? []) {
-			const key = client.ip ?? "local";
-			byIp.set(key, [...(byIp.get(key) ?? []), client]);
-		}
-		return [...byIp].map(([ip, clients]) => {
-			const peer = this.peers.get(ip);
-			const sum = (pick: (c: RemoteClient) => number) => clients.reduce((n, c) => n + pick(c), 0);
-			const rtts = clients.map((c) => c.rtt).filter((r): r is number => r !== null);
-			return {
-				ip,
-				name: peer?.name ?? ip,
-				os: peer?.os ?? null,
-				path: peer?.path ?? null,
-				connections: clients.length,
-				connectedAt: Math.min(...clients.map((c) => c.connectedAt)),
-				bytesOut: sum((c) => c.queue.bytesOut),
-				bytesIn: sum((c) => c.bytesIn),
-				wireOut: Math.round(sum((c) => c.queue.bytesOut * c.ratio)),
-				treesSent: sum((c) => c.queue.treesSent),
-				treesSkipped: sum((c) => c.queue.treesSkipped),
-				rtt: rtts.length ? Math.min(...rtts) : null,
-			};
-		});
+	/** Paired devices, connected ones first, each with its live connections. */
+	private pairedDevices(): PairedDevice[] {
+		const byDevice = new Map<string, RemoteClient[]>();
+		for (const client of this.server?.clients ?? [])
+			if (client.device) byDevice.set(client.device.id, [...(byDevice.get(client.device.id) ?? []), client]);
+		return this.registry
+			.list()
+			.map((d) => {
+				const clients = byDevice.get(d.id);
+				return { ...d, live: clients ? this.connection(clients) : null };
+			})
+			.sort((a, b) => Number(!!b.live) - Number(!!a.live) || b.lastSeen - a.lastSeen);
+	}
+
+	private pairingView() {
+		const session = this.registry.pairing();
+		return session ? { code: session.code, secret: session.secret, expiresAt: session.expiresAt, paired: [...session.paired] } : null;
+	}
+
+	/** Tells the views when the pairing expires, so the Mac's dialog doesn't show a dead code. */
+	private watchPairing() {
+		clearTimeout(this.pairingTimer);
+		const session = this.registry.pairing();
+		if (!session) return;
+		this.pairingTimer = setTimeout(() => this.emit(), Math.max(0, session.expiresAt - Date.now()) + 50);
+	}
+
+	/** One device's open connections (windows), summed, with Tailscale's view of the device. */
+	private connection(clients: RemoteClient[]): RemoteConnection {
+		const ip = clients[0]!.ip;
+		const peer = ip ? this.peers.get(ip) : undefined;
+		const sum = (pick: (c: RemoteClient) => number) => clients.reduce((n, c) => n + pick(c), 0);
+		const rtts = clients.map((c) => c.rtt).filter((r): r is number => r !== null);
+		return {
+			ip,
+			tailscaleName: peer?.name ?? null,
+			os: peer?.os ?? null,
+			path: peer?.path ?? null,
+			connections: clients.length,
+			connectedAt: Math.min(...clients.map((c) => c.connectedAt)),
+			bytesOut: sum((c) => c.queue.bytesOut),
+			bytesIn: sum((c) => c.bytesIn),
+			wireOut: Math.round(sum((c) => c.queue.bytesOut * c.ratio)),
+			treesSent: sum((c) => c.queue.treesSent),
+			treesSkipped: sum((c) => c.queue.treesSkipped),
+			rtt: rtts.length ? Math.min(...rtts) : null,
+		};
 	}
 
 	private emit() {

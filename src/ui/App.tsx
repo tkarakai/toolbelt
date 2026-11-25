@@ -18,7 +18,7 @@ import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
 import { pillClass } from "@/renderer/colors";
 import { cn } from "@/lib/utils";
-import { committed, rpc, sendEvent, useCommand, useDevelopment, useNavigate, usePlugins, useSettings, useSurface } from "@/lib/store";
+import { committed, rpc, sendEvent, useCommand, useDevelopment, useNavigate, usePlugins, usePluginsKnown, useSettings, useSurface } from "@/lib/store";
 import { THEMES, tokens } from "./themes";
 import { QuitDialog } from "./QuitDialog";
 import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
@@ -86,6 +86,7 @@ function parseHash(): { plugin?: string; screen?: string } {
 
 export default function App() {
 	const plugins = usePlugins();
+	const pluginsKnown = usePluginsKnown();
 	const [route, setRoute] = useState(parseHash);
 	// Each tool's last tab, remembered across window closes and restarts.
 	const [lastScreens, setLastScreens] = usePersisted<Record<string, string>>("toolbelt.screens", {});
@@ -173,7 +174,7 @@ export default function App() {
 					<ToolbeltPage plugins={plugins} onClose={back} section={route.screen} />
 				) : current && screen ? (
 					<PluginPane key={current.manifest.id} info={current} screen={screen} go={go} handoff={handoff?.plugin === current.manifest.id ? handoff : null} onHandoffApplied={() => setHandoff(null)} />
-				) : plugins.length ? null : (
+				) : plugins.length || !pluginsKnown ? null : (
 					<div className="p-8"><h1 className="text-lg font-medium">Welcome to ToolBelt</h1><p className="my-3 text-muted-foreground">Install a plugin to get started.</p><Button onClick={()=>go(TOOLBELT)}>Manage plugins</Button></div>
 				)}
 			</SidebarInset>

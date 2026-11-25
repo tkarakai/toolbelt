@@ -195,6 +195,86 @@ describe("server", () => {
 	});
 });
 
+describe("pairing gate", () => {
+	const root = mkdtempSync(join(tmpdir(), "toolbelt-remote-gate-"));
+	writeFileSync(join(root, "index.html"), "<p>shell</p>");
+	let server: RemoteServer | null = null;
+	afterEach(async () => {
+		await server?.stop(1000, "done");
+		server = null;
+	});
+	const device = { id: "d1", name: "iphone (Safari)" };
+	function start(opened: unknown[] = []) {
+		server = startRemoteServer({
+			port: 0,
+			root,
+			check: () => ({ ok: true, ip: null }),
+			request: (_client, method) => `did ${method}`,
+			opened: (client) => opened.push(client.device),
+			pairing: {
+				verify: (token) => (token === "good-token" ? device : null),
+				pair: (secret) => (secret === "123456" ? { token: "good-token", device } : { error: "That code doesn’t match" }),
+			},
+		});
+		return server;
+	}
+	async function socket(port: number | undefined) {
+		const ws = new WebSocket(`ws://127.0.0.1:${port}/rpc`);
+		const messages: { kind: string; id?: number; result?: unknown; error?: string; token?: string; name?: string }[] = [];
+		ws.onmessage = (e) => messages.push(JSON.parse(String(e.data)));
+		await new Promise((ok) => (ws.onopen = ok));
+		const next = async (kind: string) => {
+			for (let i = 0; i < 100; i++) {
+				const index = messages.findIndex((m) => m.kind === kind);
+				if (index >= 0) return messages.splice(index, 1)[0]!;
+				await Bun.sleep(10);
+			}
+			throw new Error(`no ${kind}`);
+		};
+		return { ws, messages, next, send: (m: unknown) => ws.send(JSON.stringify(m)) };
+	}
+
+	test("before pairing, requests fail and broadcasts don't arrive", async () => {
+		const opened: unknown[] = [];
+		const { port } = start(opened);
+		const c = await socket(port);
+		c.send({ kind: "hello" });
+		expect((await c.next("unpaired")).kind).toBe("unpaired");
+		c.send({ kind: "request", id: 1, method: "plugins" });
+		expect((await c.next("response")).error).toBe("Pair this device with your Mac first");
+		server!.broadcast("plugins", []);
+		await Bun.sleep(30);
+		expect(c.messages.some((m) => m.kind === "message")).toBe(false);
+		expect(server!.clients.size).toBe(0);
+		expect(opened).toEqual([]);
+	});
+
+	test("a wrong code fails; the right one pairs, returns the token and opens the connection", async () => {
+		const opened: unknown[] = [];
+		const { port } = start(opened);
+		const c = await socket(port);
+		c.send({ kind: "pair", secret: "000000", label: "Safari" });
+		expect((await c.next("pairFailed")).error).toContain("doesn’t match");
+		c.send({ kind: "pair", secret: "123456", label: "Safari" });
+		expect((await c.next("paired")).token).toBe("good-token");
+		expect(opened).toEqual([device]);
+		c.send({ kind: "request", id: 2, method: "plugins" });
+		expect((await c.next("response")).result).toBe("did plugins");
+		server!.broadcast("plugins", []);
+		expect((await c.next("message")).name).toBe("plugins");
+	});
+
+	test("a known token opens the connection right away", async () => {
+		const opened: unknown[] = [];
+		const { port } = start(opened);
+		const c = await socket(port);
+		c.send({ kind: "hello", token: "good-token" });
+		const paired = await c.next("paired");
+		expect(paired.token).toBeUndefined();
+		expect([...server!.clients][0]?.device).toEqual(device);
+	});
+});
+
 describe("byte counts", () => {
 	test("count UTF-8 bytes, not characters", () => {
 		const queue = new OutboundQueue(() => {}, () => 0);

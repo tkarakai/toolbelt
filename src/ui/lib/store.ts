@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { showPluginToast } from "./plugin-toast";
 import { inApp } from "./device";
 import { createSocketTransport, type ConnectionStatus } from "./connection";
+import { deviceLabel, installContext } from "./install";
 import type { RemoteAccessRequest, RemoteAccessState } from "../../shared/remote";
 import type { Node } from "../../shared/protocol";
 import type { PluginInfo, ToolbeltRPC, UpdateState } from "../../shared/rpc";
@@ -18,11 +19,12 @@ import {
   type DevelopmentState,
 } from "../../shared/development";
 
-type State = { plugins: PluginInfo[]; trees: Record<string, Node> };
-let state: State = { plugins: [], trees: {} };
+/** `pluginsKnown`: the host has sent the plugin list (an empty list means none installed). */
+type State = { plugins: PluginInfo[]; pluginsKnown: boolean; trees: Record<string, Node> };
+let state: State = { plugins: [], pluginsKnown: false, trees: {} };
 const listeners = new Set<() => void>();
 const set = (next: Partial<State>) => {
-  state = { ...state, ...next };
+  state = { ...state, ...next, ...(next.plugins ? { pluginsKnown: true } : {}) };
   listeners.forEach((l) => l());
 };
 const key = (plugin: string, surface: string) => `${plugin}\n${surface}`;
@@ -134,9 +136,16 @@ function connect(): Transport {
       (handlers as Record<string, (p: unknown) => void>)[name]?.(payload),
     connected: (again) => {
       void checkBuild();
-      if (again) resync();
+      // The first connection resyncs too if the plugin list hasn't arrived yet.
+      if (again || !state.pluginsKnown) resync();
     },
     suspended: (hidden) => (hidden ? suspendSurfaces() : resync()),
+    label: () =>
+      deviceLabel(
+        installContext(navigator.userAgent, navigator.maxTouchPoints),
+        matchMedia("(display-mode: standalone)").matches ||
+          (navigator as Navigator & { standalone?: boolean }).standalone === true,
+      ),
   });
   const proxy = <T>(fn: (name: string, p: unknown) => T) =>
     new Proxy(
@@ -157,6 +166,22 @@ export function useConnection(): [ConnectionStatus, () => void] {
   );
   return [status, () => socket?.reconnect()];
 }
+
+/** Whether this page has ever reached the Mac (always true inside the app). */
+export function useEverConnected(): boolean {
+  return useSyncExternalStore(
+    (l) => socket?.subscribe(l) ?? (() => {}),
+    () => socket?.everConnected() ?? true,
+  );
+}
+
+/** Pairs this browser with the Mac (docs/remote-access.md, "Pairing"); see connection.ts. */
+export function pairDevice(secret: string): Promise<boolean> {
+  return socket ? socket.pair(secret) : Promise.reject(new Error("Not connected to your Mac"));
+}
+
+/** The paired device this view is (remote devices only), to mark it in Remote Access. */
+export const thisDevice = () => socket?.device() ?? null;
 
 /** A newer UI build on the server: reload once to pick it up (the service worker revalidates). */
 async function checkBuild() {
@@ -189,9 +214,14 @@ export function usePlugins(): PluginInfo[] {
   useEffect(() => {
     if (loaded) return;
     loaded = true;
-    void rpc.request.plugins({}).then((plugins) => set({ plugins }));
+    void rpc.request.plugins({}).then((plugins) => set({ plugins })).catch(() => {});
   }, []);
   return useOrderedPlugins(useSyncExternalStore(subscribe, () => state.plugins));
+}
+
+/** Whether the host has sent the plugin list yet (until then, "no plugins" means "not known"). */
+export function usePluginsKnown(): boolean {
+  return useSyncExternalStore(subscribe, () => state.pluginsKnown);
 }
 
 // Surfaces this view watches, with how many components watch each. The main process hears one
