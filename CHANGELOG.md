@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.4.0 — 2026-11-25
 - On a phone, every screen fits and is usable one-handed: plugin and Settings tabs sit in a bar along the bottom, toolbars stack (search and buttons, then filters), and settings, cards and forms stack instead of squeezing their text into a narrow column.
 - On narrow screens, tapping a row opens its details (or its editor, such as an OnTrack task) in a sheet from the bottom; before, details weren't reachable at all. Tapping a group heading collapses or expands it, and dialogs open as bottom sheets with their buttons in reach.
 - Touch gestures: swipe in from the left edge to show your tools, swipe a sheet away to close it, and touch and hold a row for its actions (or to drag it, where rows can be moved). Touch and hold also moves tools in the sidebar and filters in the toolbar, so swiping no longer starts a drag. Settings → Keyboard lists the gestures on touch screens.
