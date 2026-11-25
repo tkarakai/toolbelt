@@ -58,10 +58,7 @@ export class McpAdapter implements ChannelAdapter {
 			this.proc = proc;
 			this.alive = true;
 			void proc.exited.then(() => {
-				if (this.proc !== proc) return;
-				this.alive = false;
-				for (const resolve of this.pending.values()) resolve({ closed: true });
-				this.pending.clear();
+				if (this.proc === proc) this.closed();
 			});
 			void this.pump(proc);
 			if (initialize) {
@@ -98,8 +95,20 @@ export class McpAdapter implements ChannelAdapter {
 	private send(message: unknown) {
 		if (!this.alive || !this.proc) return;
 		const stdin = this.proc.stdin as import("bun").FileSink;
-		stdin.write(JSON.stringify(message) + "\n");
-		stdin.flush();
+		// The shim exits when ToolBelt closes the socket (agents turned off), possibly between
+		// the alive check and the write: that's a closed connection, as a client would see it.
+		try {
+			stdin.write(JSON.stringify(message) + "\n");
+			void Promise.resolve(stdin.flush()).catch(() => this.closed());
+		} catch {
+			this.closed();
+		}
+	}
+
+	private closed() {
+		this.alive = false;
+		for (const resolve of this.pending.values()) resolve({ closed: true });
+		this.pending.clear();
 	}
 
 	private request(method: string, params: unknown = {}) {
