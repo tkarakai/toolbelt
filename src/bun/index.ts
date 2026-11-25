@@ -176,8 +176,8 @@ const agents = createAgentInterface({
   profileRoot,
   cliScript: join(PATHS.RESOURCES_FOLDER, "app/cli/toolbelt.js"),
   bun: process.execPath,
-  // Settings → Agents is the Mac's: remote devices don't get it.
-  changed: (state) => views.forEach((v) => !remoteViews.has(v) && v.send.agentsState(state)),
+  // Paired remote devices are trusted like the Mac: they get Settings → Agents too.
+  changed: (state) => views.forEach((v) => v.send.agentsState(state)),
 });
 const seedDemo = () =>
   materializeSeed(packages, join(PATHS.RESOURCES_FOLDER, "app/seed"));
@@ -391,9 +391,8 @@ host.subscribe({
 // ── remote access (docs/remote-access.md) ───────────────────────────────
 // Remote connections get the same request handlers as a web view, minus the ones that only
 // make sense on the Mac: the popover's geometry, plugin development mode's control plane, the
-// global shortcut (a dropped connection while recording would leave it paused) and Settings →
-// Agents.
-const REMOTE_EXCLUDED = new Set<string>(["popoverLayout", "development", "setShortcut", "pauseShortcut", "agents"]);
+// global shortcut (a dropped connection while recording would leave it paused).
+const REMOTE_EXCLUDED = new Set<string>(["popoverLayout", "development", "setShortcut", "pauseShortcut"]);
 const remoteRoot = join(PATHS.VIEWS_FOLDER, "ui");
 const remoteClients = new Map<number, { view: View; handlers: RequestHandlers }>();
 const remoteAccess = new RemoteAccess({

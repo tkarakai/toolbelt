@@ -117,8 +117,8 @@ device signed in to the owner's Tailscale account has full control of the Mac th
 ToolBelt cannot check whether a device has a passcode; that, and the tailnet hygiene above, are
 the owner's responsibility.
 
-Everything is available remotely, including plugin installation, approvals, updates and the
-Remote Access tab itself. Remote connections get the same request handlers as a web view except
+Everything is available remotely, including plugin installation, approvals, updates, Settings →
+Agents (turning agents on or off and each plugin's access) and the Remote Access tab itself. Remote connections get the same request handlers as a web view except
 `popoverLayout` (the native popover's geometry) and `development`: plugin development mode
 approves execution of local archives and stays on the Mac. `setShortcut` and `pauseShortcut`
 also stay: the global shortcut is the Mac's, and a connection lost while recording would leave
