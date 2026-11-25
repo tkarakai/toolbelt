@@ -107,3 +107,27 @@ test("agent instances render their own view, never reach the person's, and survi
 	host.close("list", "screen:main", "agent:x");
 	expect(host.snapshot("list", "screen:main", "agent:x")).toMatchObject({ tree: null, viewers: 0 });
 });
+
+test("a plugin's runtime declarations replace its handshake's", async () => {
+	const root = mkdtempSync(join(tmpdir(), "tb-views-"));
+	roots.push(root);
+	writeFileSync(join(root, "toolbelt.json"), JSON.stringify({ id: "labels", name: "Labels", protocol: 2, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "main", title: "Main" }] }));
+	writeFileSync(
+		join(root, "index.ts"),
+		`import { definePlugin } from ${JSON.stringify(SDK)};
+let labels = ["home"];
+definePlugin({
+	views: () => ({ "screen:main": { filters: Object.fromEntries(labels.map((l) => ["label:" + l, []])) } }),
+	render: { "screen:main": () => ({ type: "text", text: labels.join(",") }) },
+	onEvent: (_s, name, _p, ctx) => { if (name === "add") { labels = [...labels, "work"]; ctx.declareViews(); } },
+});`,
+	);
+	const { host } = world(root);
+	await until(() => host.list()[0]?.state === "running");
+	expect(host.declaredView("labels", "screen:main")).toEqual({ filters: { "label:home": [] } });
+	host.open("labels", "screen:main");
+	host.event("labels", "screen:main", "add");
+	await until(() => Object.keys(host.declaredView("labels", "screen:main")?.filters ?? {}).length === 2);
+	expect(host.declaredView("labels", "screen:main")).toEqual({ filters: { "label:home": [], "label:work": [] } });
+	expect(host.list()[0].state).toBe("running");
+});

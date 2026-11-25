@@ -751,6 +751,7 @@ export function validateMessage(
     }),
     render: object({ type: literal("render"), surface: text, instance: text, tree: node }),
     view: object({ type: literal("view"), surface: text, instance: text, view: viewState }),
+    views: object({ type: literal("views"), views: record(viewDeclaration) }),
     badge: object({
       type: literal("badge"),
       value: union(text, number, literal(null)),

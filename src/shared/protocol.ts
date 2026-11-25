@@ -783,6 +783,8 @@ export type PluginMessage =
 	| { type: "render"; surface: string; instance: string; tree: Node }
 	/** An instance's view changed (a person's search, filter or sort): the host saves the person's. */
 	| { type: "view"; surface: string; instance: string; view: ViewState }
+	/** The view declarations changed (`ctx.declareViews()`), replacing the handshake's. */
+	| { type: "views"; views: Record<string, ViewDeclaration> }
 	| { type: "badge"; value: number | string | null }
 	| { type: "toast"; text: string; tone?: "default" | "success" | "error"; action?: ToastAction }
 	/** Put text on the clipboard. */
