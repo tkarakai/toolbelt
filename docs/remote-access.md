@@ -236,12 +236,13 @@ ToolBelt runs again with remote access on. The service worker treats that as unr
 - **Address**: the address and a copy button, once the rule is ToolBelt's.
 - **Port**.
 - **Paired devices** and **Pair a device** (see Pairing).
-- **Tailscale**: labelled rows from `tailscale status --json` and `tailscale serve status
-  --json` (CLI location, running state, account, MagicDNS name, HTTPS certificates, Serve rule,
-  reachability), each problem with what to do, and the device-security reminder.
 - **Connected devices** (below).
 - **Home-screen badge**: which plugins count toward the badge, and on a device that needs it,
   the button that asks for badge permission.
+- **Tailscale**, last because it matters mainly during setup: labelled rows from `tailscale
+  status --json` and `tailscale serve status --json` (CLI location, running state, account,
+  MagicDNS name, HTTPS certificates, Serve rule, reachability), each problem with what to do,
+  and the device-security reminder.
 
 The tab works remotely too. Turning remote access off, removing the rule or changing the port
 from a remote device cuts that device's own connection, so those confirmations add that access

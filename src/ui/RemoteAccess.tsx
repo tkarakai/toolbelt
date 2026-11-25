@@ -54,9 +54,10 @@ export function RemoteAccessSettings() {
 			{!inApp && <ThisDeviceGroup />}
 			<AccessGroup state={state} confirm={setConfirming} />
 			<PairedGroup state={state} confirm={setConfirming} />
-			<TailscaleGroup state={state} confirm={setConfirming} />
 			<DevicesGroup state={state} />
 			<BadgeGroup state={state} />
+			{/* Setup details: needed once, so they come last. */}
+			<TailscaleGroup state={state} confirm={setConfirming} />
 			<ConfirmDialog confirmation={confirming} close={() => setConfirming(null)} />
 		</div>
 	);
