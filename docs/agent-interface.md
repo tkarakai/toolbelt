@@ -38,8 +38,9 @@ The plan for later phases (actions with approvals, autonomous agents, an in-app 
 - A plugin below `read` is absent from every result. Asking for it by id gets the same refusal
   as an unknown plugin. `toolbelt_status` says only how many plugins are hidden.
 - Remote access, plugin development mode and Settings → Agents itself are not reachable by
-  agents. The `agents` RPC is excluded from remote connections (`REMOTE_EXCLUDED`), and remote
-  devices don't show the tab.
+  agents. Paired remote devices are trusted like the Mac: they show Settings → Agents and use
+  the same `agents` RPC and `agentsState` updates, so they can turn agents on or off and change
+  each plugin's access.
 
 ## Transport
 
