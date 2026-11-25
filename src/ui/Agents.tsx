@@ -1,8 +1,8 @@
-// Settings → Agents (docs/agent-interface.md), in sub-tabs: General (the switch, a status summary
+// Settings → Agents (docs/agent-interface.md), in sub-tabs: Access (the switch, a status summary
 // and per-plugin access), Connect (active sessions and the setup commands) and Activity.
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Activity, Bot, Check, ChevronRight, Copy, Plug, Power } from "lucide-react";
+import { Activity, Bot, Check, ChevronRight, Copy, Plug, ShieldCheck } from "lucide-react";
 import { Switch } from "./components/ui/switch";
 import { Button } from "./components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
@@ -20,7 +20,7 @@ import { OPERATION_LABELS, type AgentAccess, type AgentPlugin, type AgentsState 
 const ACCESS_LABEL: Record<AgentAccess, string> = { none: "No access", read: "Read only", act: "Read and act" };
 
 const TABS = [
-	{ id: "general", label: "General", icon: Power },
+	{ id: "access", label: "Access", icon: ShieldCheck },
 	{ id: "connect", label: "Connect", icon: Plug },
 	{ id: "activity", label: "Activity", icon: Activity },
 ] as const;
@@ -36,8 +36,8 @@ async function run(request: Parameters<typeof agentsRequest>[0]) {
 
 export function AgentsSettings() {
 	const state = useAgents();
-	const [remembered, remember] = usePersisted<string>("toolbelt.agents-tab", "general");
-	const tab = TABS.some((t) => t.id === remembered) ? remembered : "general";
+	const [remembered, remember] = usePersisted<string>("toolbelt.agents-tab", "access");
+	const tab = TABS.some((t) => t.id === remembered) ? remembered : "access"; // also an older "general" or "plugins"
 	if (!state) return <p className="px-1 text-sm text-muted-foreground">Reading agent settings…</p>;
 	return (
 		<Tabs value={tab} onValueChange={remember} className="gap-6">
@@ -57,7 +57,7 @@ export function AgentsSettings() {
 				))}
 			</TabsList>
 			</div>
-			<TabsContent value="general" className="space-y-8">
+			<TabsContent value="access" className="space-y-8">
 				<StatusGroup state={state} go={remember} />
 				<PluginAccessGroup plugins={state.plugins} />
 			</TabsContent>
@@ -299,7 +299,7 @@ function PluginAccessGroup({ plugins }: { plugins: AgentPlugin[] }) {
 function SessionsGroup({ state }: { state: AgentsState }) {
 	return (
 		<SettingsGroup title="Active sessions" description="Agents connected to ToolBelt right now. Each MCP server an agent starts is one session, as is each toolbelt command while it runs.">
-			{state.sessions.length === 0 && <p className="px-5 py-4 text-sm text-muted-foreground">{state.running ? "No agent is connected right now." : "None: agents are off (General)."}</p>}
+			{state.sessions.length === 0 && <p className="px-5 py-4 text-sm text-muted-foreground">{state.running ? "No agent is connected right now." : "None: agents are off (see Access)."}</p>}
 			{state.sessions.map((s) => (
 				<div key={s.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
 					<div className="flex min-w-0 items-center gap-3">
