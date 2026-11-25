@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.4.0 — 2026-11-25
 - **Protocol 2 (breaking).** Hosts and plugins speak only protocol 2: `open`, `close`, `event` and `render` carry an `instance`, the host can set an instance's view with `view`, and plugins report view changes with `view` and send their view declarations in `hello`. Manifests must declare `protocol: 2` and `agent.access`.
 - Add views: `definePlugin({ views })` declares each surface's search, filters, sort and page controls with their starting values. The SDK keeps each instance's view, applies the `search`, `filter`, `filter-arrange`, `sort` and page-control `field` events itself (they no longer reach `onEvent`; `onView` says the view changed), fills the tree's `search.query`, filters' `selected`, tables' `sort` and controls' `value`, and reports the person's view for the host to save. `render` receives the instance's `View` as its second argument.
 - Surfaces render once per open instance: every person's screen shares `PERSON`, agents get instances of their own. `onEvent` receives `{ instance }` as its fifth argument; keep per-viewer state such as an open dialog per instance. `ctx.open` lists surfaces with any open instance; `onOpen`/`onClose` fire for a surface's first and last instance.
