@@ -136,12 +136,15 @@ passes the range's start (both allow 5 minutes of clock adjustment). Otherwise a
 stops after scanning 8 MB and returns a cursor to go on from, so a rare search in a large log
 never blocks the host. The `agentsState` message carries the newest 50 entries, unfiltered.
 
-Settings → Agents has four sub-tabs (`src/ui/Agents.tsx`), the chosen one remembered:
+Settings → Agents has three sub-tabs (`src/ui/Agents.tsx`), the chosen one remembered:
 
-- **General:** the master switch, the socket, and connected sessions with their client name and
-  mode (also counted on the tab).
-- **Connect:** the commands to add ToolBelt to agents and remove it again (see Transport).
-- **Plugins:** each plugin's ceiling and the person's choice.
+- **General:** a status card with the master switch, its state (on, off, starting, error) and
+  the socket, and four tiles: active sessions, readable plugins, requests today with refusals
+  and failures (counted by an audit query from midnight, up to 1,000), and the last activity.
+  The sessions and activity tiles open their tabs. Under it, **Plugin access**: each plugin's
+  ceiling and the person's choice; choosing the plugin's own level clears the choice.
+- **Connect:** **Active sessions** (client name, mode, how long connected; also counted on the
+  tab), then **Setup commands** to add ToolBelt to agents and remove it again (see Transport).
 - **Activity** (`src/ui/AgentActivity.tsx`): the log as a table of time, activity and detail,
   plugin and screen, agent and mode, and result. The search box and the Plugin, Result and
   Agent mode filters are the renderer's page search and multi-select `FilterMenu`, as plugin
