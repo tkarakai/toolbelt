@@ -10,6 +10,7 @@ import type { PluginInfo } from "../src/shared/plugin-state";
 import { MASK, redact, treeJson, treeText } from "../src/bun/agent/serialize";
 import { AgentCore, type AgentHost } from "../src/bun/agent/core";
 import { AgentServer } from "../src/bun/agent/server";
+import { AuditLog } from "../src/bun/agent/audit";
 import { createAgentInterface } from "../src/bun/agent";
 
 const manifest = (id: string, extra: Partial<Manifest> = {}): Manifest => ({
@@ -418,5 +419,71 @@ describe("Settings → Agents commands", () => {
 		expect(byTitle.Codex).toEqual({ add: "codex mcp add toolbelt -- '/Applications/Tool Belt.app/bun' /app/cli/toolbelt.js --socket /x/agent.sock mcp", remove: "codex mcp remove toolbelt" });
 		expect(JSON.parse(byTitle["Claude Desktop and other MCP clients"].json).mcpServers.toolbelt).toEqual({ command: command[0], args: [...command.slice(1), "mcp"] });
 		for (const c of connectCommands(command)) if (c.tabs.some((t) => t.id === "remove")) expect(c.tabs.find((t) => t.id === "remove")!.text).not.toContain("toolbelt.js");
+	});
+});
+
+describe("audit log", () => {
+	const entry = (i: number) => ({
+		at: 1_000_000 + i * 1000,
+		session: "s",
+		client: i % 3 === 0 ? "claude-code" : "codex",
+		mode: (i % 5 === 0 ? "autonomous" : "interactive") as "autonomous" | "interactive",
+		operation: i % 2 ? "read_screen" : "search_screens",
+		plugin: i % 4 === 0 ? "tasks" : "updates",
+		outcome: (i % 7 === 0 ? "denied" : i % 11 === 0 ? "error" : "ok") as "ok" | "denied" | "error",
+		detail: `entry ${i} tag${i}z ${"x".repeat(150)}`,
+	});
+	function log(n: number, budget?: number) {
+		const l = new AuditLog(join(tmp(), "agent-audit.jsonl"), budget);
+		for (let i = 0; i < n; i++) l.append(entry(i));
+		return l;
+	}
+
+	test("pages newest first across chunk boundaries, each entry once", () => {
+		const l = log(3000); // ~600 KB: several 256 KB chunks
+		const seen: number[] = [];
+		let next: number | null | undefined;
+		do {
+			const page = l.query({ limit: 400, before: next ?? undefined });
+			seen.push(...page.entries.map((e) => Number(e.detail!.split(" ")[1])));
+			next = page.next;
+		} while (next !== null);
+		expect(seen).toEqual(Array.from({ length: 3000 }, (_, i) => 2999 - i));
+	});
+
+	test("filters by words, plugin, result, mode and time, and fetches what's newer", () => {
+		const l = log(300);
+		const page = l.query({ limit: 500, filter: { plugin: "tasks", outcome: "denied", mode: "interactive", since: 1_000_000 + 100_000 } });
+		expect(page.entries.length).toBeGreaterThan(0);
+		expect(page.entries.every((e) => e.plugin === "tasks" && e.outcome === "denied" && e.mode === "interactive" && e.at >= 1_100_000)).toBe(true);
+		// Labels match too: "Read a screen" is read_screen.
+		expect(l.query({ limit: 500, filter: { query: "READ a screen claude" } }).entries.every((e) => e.operation === "read_screen" && e.client === "claude-code")).toBe(true);
+		const top = l.query({ limit: 1 }).entries[0];
+		l.append(entry(300));
+		l.append(entry(301));
+		const newer = l.query({ after: top.id });
+		expect(newer.entries.map((e) => e.detail!.split(" ")[1])).toEqual(["301", "300"]);
+		expect(newer.next).toBeNull();
+		expect(l.query({ after: newer.entries[0].id }).entries).toEqual([]);
+	});
+
+	test("a search stops at its scan budget and continues from the cursor", () => {
+		const l = log(3000, 300 * 1024);
+		const rare = { query: "tag5z" };
+		const first = l.query({ limit: 10, filter: rare });
+		expect(first.entries).toEqual([]);
+		expect(first.next).not.toBeNull();
+		let next = first.next;
+		let found: string[] = [];
+		while (next !== null && !found.length) {
+			const page = l.query({ limit: 10, before: next, filter: rare });
+			found = page.entries.map((e) => e.detail!.split(" ")[1]);
+			next = page.next;
+		}
+		expect(found).toEqual(["5"]);
+	});
+
+	test("a missing log is an empty page", () => {
+		expect(new AuditLog(join(tmp(), "none.jsonl")).query()).toEqual({ entries: [], next: null });
 	});
 });

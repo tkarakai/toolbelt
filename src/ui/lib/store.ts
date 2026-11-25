@@ -10,7 +10,7 @@ import { inApp } from "./device";
 import { createSocketTransport, type ConnectionStatus } from "./connection";
 import { deviceLabel, installContext } from "./install";
 import type { RemoteAccessRequest, RemoteAccessState } from "../../shared/remote";
-import type { AgentsRequest, AgentsState, AuditEntry } from "../../shared/agents";
+import type { AgentsRequest, AgentsState, AuditFilter, AuditPage } from "../../shared/agents";
 import type { Node } from "../../shared/protocol";
 import type { PluginInfo, ToolbeltRPC, UpdateState } from "../../shared/rpc";
 import {
@@ -473,10 +473,9 @@ export async function agentsRequest(request: Exclude<AgentsRequest, { operation:
   setAgents(next);
   return next;
 }
-/** Older audit entries, newest first. */
-export async function agentAudit(before: number, limit = 50) {
-  const r = (await rpc.request.agents({ operation: "audit", before, limit })) as { entries: AuditEntry[] };
-  return r.entries;
+/** A page of agent activity, newest first: older than `before`, or newer than `after`. */
+export async function agentAudit(query: { before?: number; after?: number; limit?: number; filter?: AuditFilter }) {
+  return (await rpc.request.agents({ operation: "audit", ...query })) as AuditPage;
 }
 /** Null until the host answers. */
 export function useAgents(): AgentsState | null {

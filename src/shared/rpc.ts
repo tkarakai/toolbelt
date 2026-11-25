@@ -27,7 +27,7 @@ export type ToolbeltRPC = {
 			/** Remote access (docs/remote-access.md); changes arrive as `remoteAccessState`. */
 			remoteAccess: { params: import("./remote").RemoteAccessRequest; response: import("./remote").RemoteAccessState };
 			/** Settings → Agents (docs/agent-interface.md); changes arrive as `agentsState`. */
-			agents: { params: import("./agents").AgentsRequest; response: import("./agents").AgentsState | { entries: import("./agents").AuditEntry[] } };
+			agents: { params: import("./agents").AgentsRequest; response: import("./agents").AgentsState | import("./agents").AuditPage };
 			/** The UI build the server is serving (remote connections), null inside the app. */
 			buildId: { params: {}; response: string | null };
 			setAppearance: { params: { theme?: string; mode?: string }; response: true };

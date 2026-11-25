@@ -15,6 +15,7 @@ import {
 	type AgentsRequest,
 	type AgentsState,
 	type AuditEntry,
+	type AuditPage,
 } from "../../shared/agents";
 import { AuditLog } from "./audit";
 import { treeJson, treeText, when } from "./serialize";
@@ -458,7 +459,7 @@ export class AgentCore {
 			command: this.o.command,
 			plugins: this.pluginsWithAccess().map(({ info: _info, ...p }) => p),
 			sessions: [...this.sessions.values()],
-			audit: this.audit.read(auditLimit),
+			audit: this.audit.query({ limit: auditLimit }).entries,
 		};
 	}
 
@@ -470,7 +471,7 @@ export class AgentCore {
 	}
 
 	/** Settings → Agents requests. `enable` starts or stops the transport. */
-	handle(request: AgentsRequest, enable: (on: boolean) => void): AgentsState | { entries: AuditEntry[] } {
+	handle(request: AgentsRequest, enable: (on: boolean) => void): AgentsState | AuditPage {
 		const settings = this.o.settings();
 		switch (request.operation) {
 			case "read":
@@ -496,7 +497,7 @@ export class AgentCore {
 				return this.state();
 			}
 			case "audit":
-				return { entries: this.audit.read(Math.min(500, request.limit ?? 50), request.before) };
+				return this.audit.query({ limit: Math.max(1, Math.min(500, request.limit ?? 50)), before: request.before, after: request.after, filter: request.filter });
 		}
 	}
 

@@ -65,6 +65,44 @@ export type AuditEntry = {
 	detail?: string;
 };
 
+/** An audit entry as read back: `id` is its position in the log, the cursor for paging. */
+export type AuditRecord = AuditEntry & { id: number };
+
+/** What the person filters Settings → Agents → Activity by. All parts must match. */
+export type AuditFilter = {
+	/** Words that must all appear in the entry: operation (or its label), plugin, screen, agent, detail. */
+	query?: string;
+	plugin?: string;
+	outcome?: AuditEntry["outcome"];
+	mode?: AgentMode;
+	/** Only entries at or after this time (epoch ms). */
+	since?: number;
+};
+
+/** A page of the audit log, newest first. `next` continues it with `before`; null at the start. */
+export type AuditPage = { entries: AuditRecord[]; next: number | null };
+
+/** How operations read to people. */
+export const OPERATION_LABELS: Record<string, string> = {
+	toolbelt_status: "Read status",
+	list_screens: "Listed screens",
+	read_screen: "Read a screen",
+	search_screens: "Searched screens",
+	list_plugins: "Listed plugins",
+};
+
+/** Whether an entry matches a filter. */
+export function auditMatches(e: AuditEntry, f: AuditFilter = {}): boolean {
+	if (f.plugin && e.plugin !== f.plugin) return false;
+	if (f.outcome && e.outcome !== f.outcome) return false;
+	if (f.mode && e.mode !== f.mode) return false;
+	if (f.since !== undefined && e.at < f.since) return false;
+	const words = (f.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+	if (!words.length) return true;
+	const text = [e.operation, OPERATION_LABELS[e.operation], e.plugin, e.screen, e.client, e.detail].filter(Boolean).join(" ").toLowerCase();
+	return words.every((w) => text.includes(w));
+}
+
 export type AgentPlugin = {
 	id: string;
 	name: string;
@@ -88,14 +126,16 @@ export type AgentsState = {
 	plugins: AgentPlugin[];
 	sessions: AgentSession[];
 	/** The newest audit entries, newest first. */
-	audit: AuditEntry[];
+	/** The newest entries, unfiltered: Settings → Agents refreshes its activity when they change. */
+	audit: AuditRecord[];
 };
 
 export type AgentsRequest =
 	| { operation: "read" }
 	| { operation: "setEnabled"; enabled: boolean }
 	| { operation: "setAccess"; plugin: string; access: AgentAccess | null }
-	| { operation: "audit"; before?: number; limit?: number };
+	/** A page of activity: older than the cursor `before`, or newer than `after` (an entry id). */
+	| { operation: "audit"; before?: number; after?: number; limit?: number; filter?: AuditFilter };
 
 /** The socket's first line from a client, before MCP JSON-RPC. */
 export type AgentHello = { toolbelt: 1; client?: string; mode?: AgentMode };

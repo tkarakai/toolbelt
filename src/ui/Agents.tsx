@@ -1,29 +1,29 @@
-// Settings → Agents (docs/agent-interface.md): whether AI agents may use ToolBelt, how to connect one,
-// what each plugin lets them read, who is connected and everything they did.
+// Settings → Agents (docs/agent-interface.md), in sub-tabs: General (the switch and connected
+// agents), Connect (commands to add or remove ToolBelt), Plugins (access) and Activity.
 import { useState } from "react";
 import { toast } from "sonner";
-import { Check, Copy } from "lucide-react";
+import { Activity, Check, Copy, Plug, Power, Puzzle } from "lucide-react";
 import { Switch } from "./components/ui/switch";
 import { Button } from "./components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { SettingsGroup, SettingsRow } from "./components/settings-layout";
 import { Icon } from "./lib/icon";
-import { cn } from "./lib/utils";
-import { pillClass, textClass } from "./renderer/colors";
-import { agentAudit, agentsRequest, useAgents } from "./lib/store";
+import { textClass } from "./renderer/colors";
+import { agentsRequest, useAgents } from "./lib/store";
+import { usePersisted } from "./lib/uistate";
 import { connectCommands, type CommandTab } from "./lib/agent-commands";
-import type { AgentAccess, AgentPlugin, AgentsState, AuditEntry } from "../shared/agents";
+import { AgentActivity } from "./AgentActivity";
+import type { AgentAccess, AgentPlugin, AgentsState } from "../shared/agents";
 
 const ACCESS_LABEL: Record<AgentAccess, string> = { none: "No access", read: "Read only", act: "Read and act" };
-const OPERATION_LABEL: Record<string, string> = {
-	toolbelt_status: "Read status",
-	list_screens: "Listed screens",
-	read_screen: "Read a screen",
-	search_screens: "Searched screens",
-	list_plugins: "Listed plugins",
-};
 
+const TABS = [
+	{ id: "general", label: "General", icon: Power },
+	{ id: "connect", label: "Connect", icon: Plug },
+	{ id: "plugins", label: "Plugins", icon: Puzzle },
+	{ id: "activity", label: "Activity", icon: Activity },
+] as const;
 
 async function run(request: Parameters<typeof agentsRequest>[0]) {
 	try {
@@ -36,15 +36,47 @@ async function run(request: Parameters<typeof agentsRequest>[0]) {
 
 export function AgentsSettings() {
 	const state = useAgents();
+	const [remembered, remember] = usePersisted<string>("toolbelt.agents-tab", "general");
+	const tab = TABS.some((t) => t.id === remembered) ? remembered : "general";
 	if (!state) return <p className="px-1 text-sm text-muted-foreground">Reading agent settings…</p>;
 	return (
-		<div className="space-y-8">
-			<AccessGroup state={state} />
-			{state.command && <ConnectGroup command={state.command} enabled={state.enabled} />}
-			<PluginsGroup plugins={state.plugins} />
-			{state.sessions.length > 0 && <SessionsGroup state={state} />}
-			<ActivityGroup entries={state.audit} />
-		</div>
+		<Tabs value={tab} onValueChange={remember} className="gap-6">
+			{/* Sized to its tabs, scrolling sideways when the window is narrower. */}
+			<div className="flex min-w-0">
+			<TabsList aria-label="Agent settings">
+				{TABS.map((t) => (
+					<TabsTrigger key={t.id} value={t.id} className="flex-none gap-1.5 px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground! data-[state=active]:hover:text-selected-foreground!">
+						<t.icon />
+						{t.label}
+						{t.id === "general" && state.sessions.length > 0 && (
+							<span className="ml-0.5 rounded-full bg-emerald-500/15 px-1.5 text-[11px] leading-4 text-emerald-800 tabular-nums dark:text-emerald-300" aria-label={`${state.sessions.length} connected`}>
+								{state.sessions.length}
+							</span>
+						)}
+					</TabsTrigger>
+				))}
+			</TabsList>
+			</div>
+			<TabsContent value="general" className="space-y-8">
+				<AccessGroup state={state} />
+				<SessionsGroup state={state} />
+			</TabsContent>
+			<TabsContent value="connect" className="space-y-8">
+				{state.command ? (
+					<ConnectGroup command={state.command} enabled={state.enabled} />
+				) : (
+					<SettingsGroup title="Connect an agent">
+						<p className="px-5 py-4 text-sm text-muted-foreground">This build of ToolBelt doesn’t include the toolbelt command, so there’s nothing to connect agents with.</p>
+					</SettingsGroup>
+				)}
+			</TabsContent>
+			<TabsContent value="plugins" className="space-y-8">
+				<PluginsGroup plugins={state.plugins} />
+			</TabsContent>
+			<TabsContent value="activity" className="space-y-8">
+				<AgentActivity plugins={state.plugins} newest={state.audit[0]?.id} />
+			</TabsContent>
+		</Tabs>
 	);
 }
 
@@ -52,7 +84,7 @@ function AccessGroup({ state }: { state: AgentsState }) {
 	return (
 		<SettingsGroup
 			title="Agents"
-			description="Let AI agents such as Claude Code or Codex read your plugins’ screens, so you can ask them about your tasks, updates and more. Agents on this Mac connect through ToolBelt’s MCP server or the toolbelt command. They can read only what you allow below, and can’t change anything yet."
+			description="Let AI agents such as Claude Code or Codex read your plugins’ screens, so you can ask them about your tasks, updates and more. Agents on this Mac connect through ToolBelt’s MCP server or the toolbelt command. They can read only what you allow under Plugins, and can’t change anything yet."
 		>
 			<SettingsRow
 				title="Let agents use ToolBelt"
@@ -171,47 +203,11 @@ function PluginsGroup({ plugins }: { plugins: AgentPlugin[] }) {
 
 function SessionsGroup({ state }: { state: AgentsState }) {
 	return (
-		<SettingsGroup title="Connected">
+		<SettingsGroup title="Connected agents" description="Agents with a connection open right now. Each MCP server an agent starts, and each toolbelt command while it runs, is one connection.">
+			{state.sessions.length === 0 && <p className="px-5 py-4 text-sm text-muted-foreground">{state.running ? "No agent is connected." : "None: agents are off."}</p>}
 			{state.sessions.map((s) => (
-				<SettingsRow key={s.id} title={s.client} description={`${s.mode === "autonomous" ? "Autonomous" : "Interactive"} · since ${new Date(s.since).toLocaleTimeString()}`} />
+				<SettingsRow key={s.id} title={s.client} description={`${s.mode === "autonomous" ? "Autonomous" : "Interactive"} · connected since ${new Date(s.since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`} />
 			))}
-		</SettingsGroup>
-	);
-}
-
-function ActivityGroup({ entries }: { entries: AuditEntry[] }) {
-	const [older, setOlder] = useState<AuditEntry[]>([]);
-	const [end, setEnd] = useState(false);
-	const all = [...entries, ...older.filter((o) => !entries.some((e) => e.at === o.at && e.session === o.session && e.operation === o.operation))];
-	const more = async () => {
-		const last = all.at(-1);
-		if (!last) return;
-		const next = await agentAudit(last.at);
-		if (next.length < 50) setEnd(true);
-		setOlder((o) => [...o, ...next]);
-	};
-	return (
-		<SettingsGroup title="Activity" description="Everything agents asked ToolBelt for, newest first. Kept for good in agent-audit.jsonl in ToolBelt’s folder.">
-			{all.length === 0 && <p className="px-5 py-4 text-sm text-muted-foreground">No agent has used ToolBelt yet.</p>}
-			{all.map((e, i) => (
-				<div key={`${e.at}-${e.session}-${i}`} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-2.5 text-sm">
-					<div className="min-w-0 flex-1">
-						<span className="font-medium">{OPERATION_LABEL[e.operation] ?? e.operation}</span>
-						{e.plugin && <span className="text-muted-foreground"> · {e.plugin}{e.screen ? ` › ${e.screen}` : ""}</span>}
-						<span className="text-muted-foreground"> · {e.client}{e.mode === "autonomous" ? " (autonomous)" : ""}</span>
-						{e.detail && <p className="mt-0.5 text-xs text-muted-foreground">{e.detail}</p>}
-					</div>
-					<div className="flex shrink-0 items-center gap-2">
-						{e.outcome !== "ok" && <span className={cn("rounded-full px-2 py-0.5 text-xs", pillClass(e.outcome === "denied" ? "warning" : "danger"))}>{e.outcome === "denied" ? "Refused" : "Failed"}</span>}
-						<time className="text-xs text-muted-foreground tabular-nums" dateTime={new Date(e.at).toISOString()}>{new Date(e.at).toLocaleString()}</time>
-					</div>
-				</div>
-			))}
-			{all.length >= 50 && !end && (
-				<div className="px-5 py-3">
-					<Button variant="ghost" size="sm" onClick={() => void more()}>Show older</Button>
-				</div>
-			)}
 		</SettingsGroup>
 	);
 }
