@@ -413,7 +413,8 @@ Owned by the plugin repositories, sequenced per `docs/releases.md`:
 - **Plugin ceiling (contract, manifest).** `agent: { access: "none" | "read" | "act" }`.
   `none` hides the plugin from agents entirely (it doesn't appear in `screens.list` or
   `tools.list`); `read` exposes screens and read tools only; `act` also exposes actions,
-  subject to policy and approvals. An undeclared plugin is treated as `read`. Processes is the
+  subject to policy and approvals. An undeclared plugin has no access unless the person allows
+  `read` (see 5.4). Processes is the
   first `none`. Later, finer control (per screen, per action id, per tool) fits under the same
   key, e.g. `agent: { access: "act", deny: ["kill", "start"] }`.
 - **Person's choice (host setting).** Settings → Agents lists every plugin with its ceiling and
@@ -565,7 +566,11 @@ refers to 5.2.
   the audit log. The view is still to be designed (R12).
 - **Autonomous agents** get their own mode with standing grants and non-blocking approvals
   (R13), and an optional step 6.
-- **Undeclared plugins are read-only** for agents until they declare `agent.access: "act"`.
+- **Undeclared plugins have no access by default** (revised 2026-11-25, before 0.5.0 shipped;
+  it was read-only). A plugin made before agent access existed can't opt out, so only a host
+  default protects people who update ToolBelt but not the plugin, such as Processes 0.1.7. The
+  person may allow `read` for an undeclared plugin, with a warning; `act` needs a declaration.
+  0.5.0 was cancelled before it built and the feature ships in 0.5.1.
 - **Standing grants never cover `destructive` or `trust` actions.** Those always queue for the
   person.
 - **Retention:** unanswered approvals expire as denied after 24 hours. The audit log is kept

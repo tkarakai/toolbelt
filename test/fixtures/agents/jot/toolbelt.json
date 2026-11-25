@@ -1,0 +1,9 @@
+{
+  "id": "jot",
+  "name": "Jot",
+  "icon": "notebook-pen",
+  "version": "0.9.0",
+  "protocol": 1,
+  "entry": "index.ts",
+  "screens": [{ "id": "notes", "title": "Notes", "default": true }]
+}

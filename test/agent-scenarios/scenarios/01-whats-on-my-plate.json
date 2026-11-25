@@ -14,7 +14,7 @@
 				"contains": [
 					"Desk (desk) 1.2.0: running, badge 1",
 					"Kit (kit)",
-					"1 more plugin is not available to agents"
+					"2 more plugins are not available to agents"
 				]
 			}
 		},
@@ -50,7 +50,9 @@
 			"vault",
 			"Vault",
 			"vault-hunter2",
-			"node server.js"
+			"node server.js",
+			"Jot (jot)",
+			"plumber"
 		]
 	},
 	"rubric": [

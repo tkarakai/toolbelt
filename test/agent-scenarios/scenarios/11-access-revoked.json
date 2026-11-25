@@ -40,7 +40,7 @@
 			"call": "toolbelt_status",
 			"expect": {
 				"contains": [
-					"2 more plugins are not available to agents"
+					"3 more plugins are not available to agents"
 				],
 				"absent": [
 					"Desk (desk)"

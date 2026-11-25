@@ -5,7 +5,9 @@ import type { Manifest, Node } from "../../shared/protocol";
 import type { PluginInfo } from "../../shared/plugin-state";
 import {
 	atLeast,
+	ceilingOf,
 	declaredAccess,
+	defaultAccess,
 	effectiveAccess,
 	type AgentAccess,
 	type AgentMode,
@@ -42,8 +44,8 @@ export type InstalledSummary = {
 	phase?: string;
 	availableVersion?: string;
 	channel?: string;
-	/** The manifest's `agent.access` ceiling. */
-	ceiling: AgentAccess;
+	/** The manifest's `agent.access`, or null when it declares none. */
+	declared: AgentAccess | null;
 };
 
 export type AgentCoreOptions = {
@@ -122,17 +124,21 @@ export class AgentCore {
 	// ── access ───────────────────────────────────────────────────────────
 	private pluginsWithAccess(): (AgentPlugin & { info: PluginInfo })[] {
 		const choices = this.o.settings().access;
+		const updates = new Map((this.o.installed?.() ?? []).map((p) => [p.id, p.availableVersion]));
 		return this.o.host.list().map((info) => {
-			const ceiling = declaredAccess(info.manifest);
+			const declared = declaredAccess(info.manifest);
 			const choice = choices[info.manifest.id];
+			const update = updates.get(info.manifest.id);
 			return {
 				id: info.manifest.id,
 				name: info.manifest.name,
 				icon: info.manifest.icon,
-				ceiling,
+				ceiling: ceilingOf(declared),
+				byDefault: defaultAccess(declared),
 				choice,
-				effective: effectiveAccess(ceiling, choice),
-				declared: info.manifest.agent !== undefined,
+				effective: effectiveAccess(declared, choice),
+				declared: declared !== null,
+				...(update ? { update } : {}),
 				info,
 			};
 		});
@@ -311,7 +317,7 @@ export class AgentCore {
 						"Plugins agents can read:",
 						...plugins.map((p) => `- ${p.name} (${p.id}) ${p.info.manifest.version}: ${p.info.state}${p.info.badge !== null && p.info.badge !== undefined ? `, badge ${p.info.badge}` : ""}. Screens: ${p.info.manifest.screens.map((s) => `${s.title} (${s.id})`).join(", ")}`),
 						...(plugins.length ? [] : ["- none"]),
-						...(hidden > 0 ? ["", `${hidden} more plugin${hidden === 1 ? " is" : "s are"} not available to agents (the plugin or the person turned agent access off).`] : []),
+						...(hidden > 0 ? ["", `${hidden} more plugin${hidden === 1 ? " is" : "s are"} not available to agents (the plugin doesn't allow it, or the person hasn't).`] : []),
 					];
 					return {
 						text: lines.join("\n"),
@@ -429,7 +435,7 @@ export class AgentCore {
 				params: { type: "object", properties: {}, additionalProperties: false },
 				run: async () => {
 					const choices = this.o.settings().access;
-					const installed = (this.o.installed?.() ?? []).filter((p) => effectiveAccess(p.ceiling, choices[p.id]) !== "none");
+					const installed = (this.o.installed?.() ?? []).filter((p) => effectiveAccess(p.declared, choices[p.id]) !== "none");
 					return {
 						text: installed.length
 							? installed.map((p) => `- ${p.name} (${p.id}) ${p.version}${p.repo ? ` from ${p.repo}` : ""}: ${p.enabled ? (p.phase ?? "enabled") : "disabled"}${p.availableVersion ? `; update available: ${p.availableVersion}` : ""}${p.channel === "prerelease" ? " (prerelease channel)" : ""}`).join("\n")

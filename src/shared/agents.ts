@@ -6,16 +6,27 @@ export const AGENT_ACCESS = ["none", "read", "act"] as const;
 export type AgentAccess = (typeof AGENT_ACCESS)[number];
 const RANK: Record<AgentAccess, number> = { none: 0, read: 1, act: 2 };
 
-/** The manifest's ceiling. A plugin that declares nothing is read-only for agents. */
-export function declaredAccess(manifest: { agent?: { access?: unknown } }): AgentAccess {
+/** The manifest's `agent.access`, or null when the plugin doesn't declare one. */
+export function declaredAccess(manifest: { agent?: { access?: unknown } }): AgentAccess | null {
 	const access = manifest.agent?.access;
-	return AGENT_ACCESS.includes(access as AgentAccess) ? (access as AgentAccess) : "read";
+	return AGENT_ACCESS.includes(access as AgentAccess) ? (access as AgentAccess) : null;
 }
 
-/** What applies: the lower of the plugin's ceiling and the person's choice. */
-export function effectiveAccess(ceiling: AgentAccess, choice?: AgentAccess): AgentAccess {
-	if (!choice) return ceiling;
-	return RANK[choice] < RANK[ceiling] ? choice : ceiling;
+/**
+ * The most the person may allow: what the plugin declares. A plugin that declares nothing was
+ * made before agent access existed and never said what's safe to share; the person may still
+ * let agents read it.
+ */
+export const ceilingOf = (declared: AgentAccess | null): AgentAccess => declared ?? "read";
+
+/** What applies without a choice: what the plugin declares, or no access when it declares nothing. */
+export const defaultAccess = (declared: AgentAccess | null): AgentAccess => declared ?? "none";
+
+/** What applies: the person's choice (else the default), never above the ceiling. */
+export function effectiveAccess(declared: AgentAccess | null, choice?: AgentAccess): AgentAccess {
+	const wanted = choice ?? defaultAccess(declared);
+	const ceiling = ceilingOf(declared);
+	return RANK[wanted] < RANK[ceiling] ? wanted : ceiling;
 }
 
 export const atLeast = (access: AgentAccess, needed: AgentAccess) => RANK[access] >= RANK[needed];
@@ -24,7 +35,7 @@ export const atLeast = (access: AgentAccess, needed: AgentAccess) => RANK[access
 export type AgentSettings = {
 	/** The agent interface listens only while this is on. Off by default. */
 	enabled: boolean;
-	/** The person's choice per plugin id; a missing entry means the plugin's ceiling. */
+	/** The person's choice per plugin id; a missing entry means the plugin's default (`defaultAccess`). */
 	access: Record<string, AgentAccess>;
 };
 export const AGENT_DEFAULTS: AgentSettings = { enabled: false, access: {} };
@@ -111,12 +122,17 @@ export type AgentPlugin = {
 	id: string;
 	name: string;
 	icon: string;
-	/** What the plugin allows (manifest `agent.access`, or `read`). */
+	/** The most the person may allow (`ceilingOf`). */
 	ceiling: AgentAccess;
+	/** What applies without a choice (`defaultAccess`). */
+	byDefault: AgentAccess;
 	/** What the person chose, if anything. */
 	choice?: AgentAccess;
 	effective: AgentAccess;
+	/** Whether the manifest declares `agent.access`; plugins made before it existed don't. */
 	declared: boolean;
+	/** A newer version of the plugin, when one is available. */
+	update?: string;
 };
 
 export type AgentsState = {

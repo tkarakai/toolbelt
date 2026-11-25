@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentSettings, declaredAccess, effectiveAccess } from "../src/shared/agents";
+import { agentSettings, ceilingOf, declaredAccess, defaultAccess, effectiveAccess } from "../src/shared/agents";
 import { parseManifest, type Manifest, type Node } from "../src/shared/protocol";
 import type { PluginInfo } from "../src/shared/plugin-state";
 import { MASK, redact, treeJson, treeText } from "../src/bun/agent/serialize";
@@ -21,6 +21,7 @@ const manifest = (id: string, extra: Partial<Manifest> = {}): Manifest => ({
 	protocol: 1,
 	entry: "index.js",
 	screens: [{ id: "main", title: "Main", default: true }, { id: "settings", title: "Settings" }],
+	agent: { access: "read" },
 	...extra,
 });
 
@@ -57,14 +58,20 @@ const page = (rows: number, extra: Partial<Extract<Node, { type: "page" }>> = {}
 });
 
 describe("access levels", () => {
-	test("undeclared plugins are read-only; the person can only lower", () => {
-		expect(declaredAccess({})).toBe("read");
+	test("a declared level is the default and the most the person may allow", () => {
 		expect(declaredAccess({ agent: { access: "none" } })).toBe("none");
-		expect(declaredAccess({ agent: { access: "bogus" } })).toBe("read");
+		expect(effectiveAccess("read")).toBe("read");
 		expect(effectiveAccess("read", "act")).toBe("read");
 		expect(effectiveAccess("act", "none")).toBe("none");
 		expect(effectiveAccess("none", "read")).toBe("none");
-		expect(effectiveAccess("read")).toBe("read");
+	});
+	test("undeclared plugins get no access unless the person allows reading", () => {
+		expect(declaredAccess({})).toBeNull();
+		expect(declaredAccess({ agent: { access: "bogus" } })).toBeNull();
+		expect([ceilingOf(null), defaultAccess(null)]).toEqual(["read", "none"]);
+		expect(effectiveAccess(null)).toBe("none");
+		expect(effectiveAccess(null, "read")).toBe("read");
+		expect(effectiveAccess(null, "act")).toBe("read");
 	});
 	test("saved settings are checked", () => {
 		expect(agentSettings({ enabled: "yes", access: { a: "read", b: "all", c: "none" } })).toEqual({ enabled: false, access: { a: "read", c: "none" } });
@@ -183,7 +190,7 @@ function makeCore(host: AgentHost, access: Record<string, "none" | "read" | "act
 		settings: () => settings,
 		save: (next) => (settings = next),
 		app: () => ({ name: "ToolBelt", version: "9.9.9", channel: "test", developmentProfile: null }),
-		installed: () => host.list().map((p) => ({ id: p.manifest.id, name: p.manifest.name, version: p.manifest.version, enabled: true, ceiling: declaredAccess(p.manifest) })),
+		installed: () => host.list().map((p) => ({ id: p.manifest.id, name: p.manifest.name, version: p.manifest.version, enabled: true, declared: declaredAccess(p.manifest) })),
 		auditFile: join(dir, "agent-audit.jsonl"),
 		socket: join(dir, "agent.sock"),
 		command: null,
@@ -214,6 +221,20 @@ describe("agent core", () => {
 		const audit = readFileSync(join(dir, "agent-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
 		expect(audit.map((a) => `${a.operation}:${a.outcome}`)).toEqual(["toolbelt_status:ok", "list_screens:ok", "read_screen:denied", "read_screen:denied", "list_plugins:ok"]);
 		expect(audit[0]).toMatchObject({ client: "test", mode: "interactive" });
+	});
+
+	test("an undeclared plugin is hidden until the person allows it, then readable", async () => {
+		const legacy: Manifest = { ...manifest("legacy"), agent: undefined };
+		const host = fakeHost([manifest("tasks"), legacy]);
+		const { core, settings } = makeCore(host);
+		const session = core.openSession("t", "interactive");
+		expect((await core.call(session, "toolbelt_status")).text).toContain("1 more plugin is not available to agents");
+		expect((await core.call(session, "read_screen", { plugin: "legacy" })).isError).toBe(true);
+		expect(core.state().plugins.find((p) => p.id === "legacy")).toMatchObject({ declared: false, ceiling: "read", byDefault: "none", effective: "none" });
+		core.handle({ operation: "setAccess", plugin: "legacy", access: "read" }, () => {});
+		expect(settings().access).toEqual({ legacy: "read" });
+		expect((await core.call(session, "read_screen", { plugin: "legacy" })).text).toContain("# Legacy › Main");
+		expect((await core.call(session, "list_plugins")).text).toContain("Legacy (legacy)");
 	});
 
 	test("the person's choice lowers access", async () => {

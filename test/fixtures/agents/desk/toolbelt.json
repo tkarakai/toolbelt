@@ -6,6 +6,7 @@
   "protocol": 1,
   "entry": "index.ts",
   "repo": "example/desk",
+  "agent": { "access": "read" },
   "screens": [
     { "id": "tasks", "title": "Tasks", "default": true },
     { "id": "settings", "title": "Settings" }

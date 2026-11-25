@@ -9,7 +9,7 @@ const INSTRUCTIONS =
 	"ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. " +
 	"Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. " +
 	"Access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. " +
-	"Plugins the person or plugin author kept from agents are not listed.";
+	"Plugins kept from agents are not listed: by their author, by the person, or because they don’t declare agent access.";
 
 type Message = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 const RESOURCE = /^toolbelt:\/\/screens\/([a-z0-9][a-z0-9-]*)\/([a-z0-9][a-z0-9-]*)$/;

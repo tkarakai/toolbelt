@@ -61,7 +61,7 @@ export async function createWorld(setup: Scenario["setup"] = {}) {
 				enabled: true,
 				phase: "enabled",
 				availableVersion: p.manifest.id === "kit" ? "0.5.0" : undefined,
-				ceiling: declaredAccess(p.manifest),
+				declared: declaredAccess(p.manifest),
 			})),
 		configRoot: dir,
 		profileRoot: dir,
