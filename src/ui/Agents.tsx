@@ -1,5 +1,5 @@
 // Settings → Agents (docs/agent-interface.md), in sub-tabs: Access (the switch, a status summary
-// and per-plugin access), Connect (active sessions and the setup commands) and Activity.
+// and per-plugin access), Connect (the setup commands) and Activity (active sessions and the log).
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Activity, Bot, Check, ChevronRight, Copy, Plug, ShieldCheck } from "lucide-react";
@@ -48,7 +48,7 @@ export function AgentsSettings() {
 					<TabsTrigger key={t.id} value={t.id} className="flex-none gap-1.5 px-3 data-[state=active]:bg-selected! data-[state=active]:text-selected-foreground! data-[state=active]:hover:text-selected-foreground!">
 						<t.icon />
 						{t.label}
-						{t.id === "connect" && state.sessions.length > 0 && (
+						{t.id === "activity" && state.sessions.length > 0 && (
 							<span className="ml-0.5 rounded-full bg-emerald-500/15 px-1.5 text-[11px] leading-4 text-emerald-800 tabular-nums dark:text-emerald-300" aria-label={`${state.sessions.length} active`}>
 								{state.sessions.length}
 							</span>
@@ -62,7 +62,6 @@ export function AgentsSettings() {
 				<PluginAccessGroup plugins={state.plugins} />
 			</TabsContent>
 			<TabsContent value="connect" className="space-y-8">
-				<SessionsGroup state={state} />
 				{state.command ? (
 					<ConnectGroup command={state.command} enabled={state.enabled} />
 				) : (
@@ -72,6 +71,7 @@ export function AgentsSettings() {
 				)}
 			</TabsContent>
 			<TabsContent value="activity" className="space-y-8">
+				<SessionsGroup state={state} />
 				<AgentActivity plugins={state.plugins} newest={state.audit[0]?.id} />
 			</TabsContent>
 		</Tabs>
@@ -150,7 +150,7 @@ function StatusGroup({ state, go }: { state: AgentsState; go: (tab: string) => v
 				<Switch className="mt-1" checked={state.enabled} onCheckedChange={(enabled) => void run({ operation: "setEnabled", enabled })} aria-label="Let agents use ToolBelt" />
 			</div>
 			<div className="grid grid-cols-2 gap-px border-t bg-border sm:grid-cols-4">
-				<StatTile label="Active sessions" value={String(state.sessions.length)} hint={state.sessions.length ? [...new Set(state.sessions.map((s) => s.client))].join(", ") : state.running ? "No agent connected" : "Agents are off"} onClick={() => go("connect")} />
+				<StatTile label="Active sessions" value={String(state.sessions.length)} hint={state.sessions.length ? [...new Set(state.sessions.map((s) => s.client))].join(", ") : state.running ? "No agent connected" : "Agents are off"} onClick={() => go("activity")} />
 				<StatTile label="Readable plugins" value={`${readable} of ${state.plugins.length}`} hint={state.plugins.length - readable ? `${state.plugins.length - readable} kept from agents` : "All plugins"} />
 				<StatTile
 					label="Requests today"
