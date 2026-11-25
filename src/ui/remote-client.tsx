@@ -1,15 +1,16 @@
 // What a browser view adds on top of the app (docs/remote-access.md): the connection banner, the
 // home-screen badge, the service worker and help installing to the home screen. Inside the app
 // none of this renders.
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { Bell, Copy, Ellipsis, EllipsisVertical, Menu, PowerOff, RefreshCw, Share, SquarePlus, Unplug, WifiOff, X } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Bell, Copy, Ellipsis, EllipsisVertical, KeyRound, Loader2, Menu, PowerOff, RefreshCw, Share, SquarePlus, Unplug, WifiOff, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { usePlugins, useConnection, useSettings } from "@/lib/store";
+import { Input } from "@/components/ui/input";
+import { pairDevice, usePlugins, useConnection, useSettings } from "@/lib/store";
 import { inApp, remoteClient } from "@/lib/device";
 import { INSTALL_PARAM, installContext, installHelp, installTitle, stepSegments, stepText, type InstallStep } from "@/lib/install";
-import { badgeTotal } from "../shared/remote";
+import { badgeTotal, PAIR_PARAM } from "../shared/remote";
 
 /** Registers the service worker that caches the app shell (remote devices only). */
 export function registerServiceWorker() {
@@ -49,6 +50,7 @@ export function ConnectionBanner() {
 		return () => clearTimeout(timer);
 	}, [status]);
 	if (inApp || status === "open" || (status === "connecting" && !late)) return null;
+	if (status === "unpaired") return <PairingScreen />;
 	if (status === "disconnected")
 		return (
 			<div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm animate-in fade-in-0 duration-200" role="alertdialog" aria-labelledby="tb-disconnected-title" aria-describedby="tb-disconnected-text">
@@ -93,6 +95,76 @@ export function ConnectionBanner() {
 	);
 }
 
+// ── pairing (docs/remote-access.md, "Pairing") ─────────────────────────────────
+
+/**
+ * This browser isn't paired with the Mac. Arriving from the pairing QR code pairs by itself;
+ * otherwise the person types the six digits the Mac shows.
+ */
+function PairingScreen() {
+	const [code, setCode] = useState("");
+	const [error, setError] = useState<string | null>(null);
+	const [pairing, setPairing] = useState(false);
+	const input = useRef<HTMLInputElement>(null);
+	const pair = async (secret: string) => {
+		setPairing(true);
+		setError(null);
+		try {
+			await pairDevice(secret);
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+			setCode("");
+			setPairing(false);
+			requestAnimationFrame(() => input.current?.focus());
+		}
+	};
+	useEffect(() => {
+		if (!arrivalSecret) return;
+		const secret = arrivalSecret;
+		arrivalSecret = null;
+		void pair(secret);
+	}, []);
+	const change = (value: string) => {
+		const digits = value.replace(/\D/g, "").slice(0, 6);
+		setCode(digits);
+		if (digits.length === 6) void pair(digits);
+	};
+	return (
+		<div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-background p-4 animate-in fade-in-0 duration-200" role="dialog" aria-modal="true" aria-labelledby="tb-pair-title" aria-describedby="tb-pair-text">
+			<form className="w-full max-w-sm space-y-5 rounded-xl border bg-card p-6 text-center shadow-lg" onSubmit={(e) => (e.preventDefault(), code.length === 6 && void pair(code))}>
+				<KeyRound className="mx-auto size-8 text-muted-foreground" aria-hidden="true" />
+				<div className="space-y-2">
+					<h2 id="tb-pair-title" className="text-base font-semibold">Pair with your Mac</h2>
+					<p id="tb-pair-text" className="text-sm text-muted-foreground">
+						On your Mac, open ToolBelt’s <strong className="font-semibold text-foreground">Settings → Remote Access</strong> and choose <strong className="font-semibold text-foreground">Pair a device</strong>. Scan its code with the camera, or type the six digits here.
+					</p>
+				</div>
+				<Input
+					ref={input}
+					value={code}
+					onChange={(e) => change(e.target.value)}
+					inputMode="numeric"
+					autoComplete="one-time-code"
+					autoFocus
+					maxLength={7}
+					placeholder="000000"
+					aria-label="Pairing code"
+					aria-invalid={!!error}
+					aria-describedby={error ? "tb-pair-error" : undefined}
+					disabled={pairing}
+					className="mx-auto h-12 w-44 text-center font-mono text-2xl tracking-[0.3em]"
+				/>
+				{error && <p id="tb-pair-error" role="alert" className="text-sm text-destructive">{error}</p>}
+				<Button type="submit" className="w-full" disabled={pairing || code.length !== 6}>
+					{pairing && <Loader2 className="animate-spin" />}
+					{pairing ? "Pairing…" : "Pair"}
+				</Button>
+				<p className="text-xs text-muted-foreground">A home-screen app pairs separately from the browser it came from: pair it once after adding it.</p>
+			</form>
+		</div>
+	);
+}
+
 // ── installing to the home screen ───────────────────────────────────────────
 
 type InstallPromptEvent = Event & { prompt(): Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
@@ -103,6 +175,8 @@ const notifyInstall = () => installListeners.forEach((l) => l());
 
 /** The page arrived from the Mac's QR code (`?install`): show install help right away. */
 let askedOnArrival = false;
+/** The pairing QR code's one-time secret (`#pair=…`), used once to pair on arrival. */
+let arrivalSecret: string | null = null;
 
 /**
  * Called once at startup in a browser: keeps Chromium's install prompt for our own button, and
@@ -111,9 +185,14 @@ let askedOnArrival = false;
 export function captureInstallPrompt() {
 	if (inApp) return;
 	const url = new URL(location.href);
-	if (url.searchParams.has(INSTALL_PARAM)) {
-		askedOnArrival = true;
+	// Runs before the hash router reads the address: `#pair=…` is the QR code's, not a route.
+	const pairing = new URLSearchParams(url.hash.slice(1)).get(PAIR_PARAM);
+	if (url.searchParams.has(INSTALL_PARAM) || pairing) {
+		askedOnArrival = url.searchParams.has(INSTALL_PARAM);
+		// The secret leaves the address bar (and history) at once; it's good for one pairing window.
+		arrivalSecret = pairing;
 		url.searchParams.delete(INSTALL_PARAM);
+		if (pairing) url.hash = "";
 		history.replaceState(history.state, "", url.pathname + url.search + url.hash);
 	}
 	window.addEventListener("beforeinstallprompt", (event) => {

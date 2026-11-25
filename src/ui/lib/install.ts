@@ -153,3 +153,21 @@ export const installTitle = (context: InstallContext) => `Add ToolBelt to your $
 /** The QR code's link asks the phone to show install help on arrival. */
 export const INSTALL_PARAM = "install";
 export const installLink = (url: string) => `${url}?${INSTALL_PARAM}`;
+
+const BROWSER_NAMES: Record<InstallBrowser, string> = {
+	safari: "Safari",
+	chrome: "Chrome",
+	edge: "Edge",
+	firefox: "Firefox",
+	samsung: "Samsung Internet",
+	other: "Browser",
+};
+
+/**
+ * How ToolBelt runs on this device, for a paired device's name on the Mac: an installed web app
+ * and the browser it came from pair separately (iOS gives them separate storage).
+ */
+export function deviceLabel(context: InstallContext, standalone: boolean): string {
+	if (standalone) return context.device === "desktop" ? "Web app" : "Home Screen app";
+	return BROWSER_NAMES[context.browser];
+}

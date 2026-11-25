@@ -17,7 +17,7 @@ sandbox.
 
 Settings → Remote Access serves ToolBelt to your phone or tablet through Tailscale, as a web
 app you can add to the home screen. Plugins keep running on the Mac, and only devices signed in
-to your Tailscale account can connect. See [Remote access](docs/remote-access.md).
+to your Tailscale account and paired with the Mac can connect. See [Remote access](docs/remote-access.md).
 
 ## Manual installation
 

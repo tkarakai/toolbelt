@@ -36,6 +36,7 @@ import {
   DEFAULTS,
   loadSettings,
   saveSettings,
+  settingsDir,
   type Settings,
 } from "./settings";
 import {
@@ -362,6 +363,8 @@ const remoteRoot = join(PATHS.VIEWS_FOLDER, "ui");
 const remoteClients = new Map<number, { view: View; handlers: RequestHandlers }>();
 const remoteAccess = new RemoteAccess({
   settings: () => settings.remote,
+  // Beside settings.json: shared by normal and plugin development mode, like the settings.
+  devicesFile: join(settingsDir(), "remote-devices.json"),
   save: (remote) => {
     const badgeChanged = remote.badgePlugins.join("\n") !== settings.remote.badgePlugins.join("\n");
     settings = { ...settings, remote };

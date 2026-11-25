@@ -4,7 +4,7 @@
 import type { Server, ServerWebSocket } from "bun";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
-import { REMOTE_HEARTBEAT_MS } from "../shared/remote";
+import { REMOTE_HEARTBEAT_MS, type PairingServerMessage } from "../shared/remote";
 
 // ── request checks ───────────────────────────────────────────────────────
 
@@ -118,9 +118,22 @@ export type RemoteClient = {
 	/** Sampled compression ratio of outgoing messages (wire/uncompressed). */
 	ratio: number;
 	rtt: number | null;
+	/** The paired device this connection presented (null without pairing). */
+	device: { id: string; name: string } | null;
 	send(name: string, payload: unknown): void;
 	close(code: number, reason: string): void;
 };
+
+/**
+ * Device pairing (src/bun/pairing.ts). With it, a connection must present a paired device's token
+ * or pair before it is "opened": until then it gets no messages and every request fails.
+ */
+export type ServerPairing = {
+	verify(token: unknown): { id: string; name: string } | null;
+	pair(secret: unknown, label: unknown, client: RemoteClient): { token: string; device: { id: string; name: string } } | { error: string };
+};
+
+const NOT_PAIRED = "Pair this device with your Mac first";
 
 export type RemoteServerOptions = {
 	port: number;
@@ -141,6 +154,8 @@ export type RemoteServerOptions = {
 	message?(client: RemoteClient, name: string, payload: unknown): void;
 	opened?(client: RemoteClient): void;
 	closed?(client: RemoteClient): void;
+	/** Requires device pairing before a connection opens (remote access; not the preview). */
+	pairing?: ServerPairing;
 	/** Extra HTTP routes (the preview's update simulation). */
 	route?(request: Request, url: URL): Response | undefined | Promise<Response | undefined>;
 	heartbeatMs?: number;
@@ -214,7 +229,16 @@ function serveFile(root: string, pathname: string): Response {
 let nextId = 1;
 
 export function startRemoteServer(options: RemoteServerOptions) {
+	/** Connections that identified themselves (or all, without pairing): they get messages. */
 	const clients = new Set<RemoteClient>();
+	/** Connections still to present a token or pair. */
+	const unpaired = new Set<RemoteClient>();
+	const admit = (client: RemoteClient) => {
+		unpaired.delete(client);
+		clients.add(client);
+		options.opened?.(client);
+	};
+	const answer = (client: RemoteClient, message: PairingServerMessage) => client.queue.push(JSON.stringify(message));
 	const sampleEvery = 8;
 	let sent = 0;
 	const server: Server<Data> = Bun.serve<Data>({
@@ -269,6 +293,7 @@ export function startRemoteServer(options: RemoteServerOptions) {
 					bytesIn: 0,
 					ratio: 0.25,
 					rtt: null,
+					device: null,
 					send(name, payload) {
 						const data = JSON.stringify({ kind: "message", name, payload });
 						const tree = name === "tree" ? (payload as { plugin: string; surface: string }) : null;
@@ -277,8 +302,8 @@ export function startRemoteServer(options: RemoteServerOptions) {
 					close: (code, reason) => ws.close(code, reason),
 				};
 				ws.data.client = client;
-				clients.add(client);
-				options.opened?.(client);
+				if (options.pairing) unpaired.add(client);
+				else admit(client);
 			},
 			drain(ws) {
 				ws.data.client?.queue.flush();
@@ -286,8 +311,8 @@ export function startRemoteServer(options: RemoteServerOptions) {
 			close(ws) {
 				const client = ws.data.client;
 				if (!client) return;
-				clients.delete(client);
-				options.closed?.(client);
+				unpaired.delete(client);
+				if (clients.delete(client)) options.closed?.(client);
 			},
 			async message(ws, raw) {
 				const client = ws.data.client;
@@ -305,6 +330,29 @@ export function startRemoteServer(options: RemoteServerOptions) {
 					if (typeof m.t === "number") client.rtt = Math.max(0, Date.now() - m.t);
 					return;
 				}
+				const admitted = clients.has(client);
+				if (m.kind === "hello") {
+					if (admitted) return answer(client, { kind: "paired", device: client.device });
+					const device = options.pairing?.verify((m as { token?: unknown }).token);
+					if (!device) return answer(client, { kind: "unpaired" });
+					client.device = device;
+					answer(client, { kind: "paired", device });
+					return admit(client);
+				}
+				if (m.kind === "pair") {
+					if (admitted || !options.pairing) return answer(client, { kind: "paired", device: client.device });
+					const { secret, label } = m as { secret?: unknown; label?: unknown };
+					const result = options.pairing.pair(secret, label, client);
+					if ("error" in result) return answer(client, { kind: "pairFailed", error: result.error });
+					client.device = result.device;
+					answer(client, { kind: "paired", device: result.device, token: result.token });
+					return admit(client);
+				}
+				if (!admitted) {
+					if (m.kind === "request" && typeof m.id === "number")
+						client.queue.push(JSON.stringify({ kind: "response", id: m.id, error: NOT_PAIRED }));
+					return;
+				}
 				if (m.kind === "message" && typeof m.name === "string") return options.message?.(client, m.name, m.payload);
 				if (m.kind !== "request" || typeof m.id !== "number" || typeof m.method !== "string") return;
 				const reply = (body: { result?: unknown; error?: string }) =>
@@ -320,7 +368,7 @@ export function startRemoteServer(options: RemoteServerOptions) {
 	});
 	const heartbeat = setInterval(() => {
 		const t = Date.now();
-		for (const client of clients) client.queue.push(JSON.stringify({ kind: "ping", t }));
+		for (const client of [...clients, ...unpaired]) client.queue.push(JSON.stringify({ kind: "ping", t }));
 	}, options.heartbeatMs ?? REMOTE_HEARTBEAT_MS);
 	return {
 		port: server.port,
@@ -332,9 +380,10 @@ export function startRemoteServer(options: RemoteServerOptions) {
 		/** Closes every connection with `code`, then frees the port. */
 		async stop(code: number, reason: string) {
 			clearInterval(heartbeat);
-			for (const client of clients) client.close(code, reason);
+			const all = [...clients, ...unpaired];
+			for (const client of all) client.close(code, reason);
 			// Let the close frames go out before the listener and sockets are torn down.
-			await Bun.sleep(clients.size ? 200 : 0);
+			await Bun.sleep(all.length ? 200 : 0);
 			await server.stop(true);
 		},
 	};

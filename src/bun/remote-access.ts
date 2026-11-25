@@ -20,6 +20,7 @@ import {
 	type RemoteServerOptions,
 } from "./remote-server";
 import { loopbackPeerTrusted } from "./peer-owner";
+import { DeviceRegistry, deviceName } from "./pairing";
 import { findTailscaleCli, Tailscale, type Peer, type Runner } from "./tailscale";
 
 export type RemoteAccessOptions = {
@@ -33,6 +34,8 @@ export type RemoteAccessOptions = {
 	findCli?: () => string | null;
 	runner?: Runner;
 	fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+	/** Paired devices (src/bun/pairing.ts): an owner-only JSON file. */
+	devicesFile: string;
 	/** How often status refreshes while remote access is on. */
 	refreshMs?: number;
 	/** How often device figures are pushed while devices are connected. */
@@ -83,10 +86,14 @@ export class RemoteAccess {
 	private refreshing: Promise<void> | null = null;
 	/** Changes to the server, the rule and the port run one at a time, in order. */
 	private serial: Promise<unknown> = Promise.resolve();
+	private pairingTimer: ReturnType<typeof setTimeout> | undefined;
 	/** Random per run: the reachability probe proves the ts.net address reaches this server. */
 	readonly instance = crypto.randomUUID();
+	readonly registry: DeviceRegistry;
 
-	constructor(private readonly options: RemoteAccessOptions) {}
+	constructor(private readonly options: RemoteAccessOptions) {
+		this.registry = new DeviceRegistry(options.devicesFile);
+	}
 
 	state(): RemoteAccessState {
 		const settings = this.options.settings();
@@ -100,6 +107,8 @@ export class RemoteAccess {
 			reachError: this.reachError,
 			url: remoteUrl(this.tailscale.dnsName, settings.port),
 			devices: this.devices(),
+			paired: this.pairedDevices(),
+			pairing: this.pairingView(),
 			busy: this.busy,
 			lastError: this.lastError,
 		};
@@ -142,6 +151,18 @@ export class RemoteAccess {
 					for (const client of this.server?.clients ?? [])
 						if (client.ip === request.ip) client.close(REMOTE_CLOSE.disconnected, "Disconnected from the Mac");
 					break;
+				case "startPairing":
+					this.registry.start();
+					this.watchPairing();
+					break;
+				case "stopPairing":
+					this.registry.stop();
+					break;
+				case "revoke":
+					if (typeof request.id !== "string" || !this.registry.revoke(request.id)) throw new Error("That device isn’t paired");
+					for (const client of this.server?.clients ?? [])
+						if (client.device?.id === request.id) client.close(REMOTE_CLOSE.revoked, "This device’s pairing was removed on the Mac");
+					break;
 				case "setBadgePlugins":
 					this.save({
 						badgePlugins: Array.isArray(request.plugins)
@@ -162,6 +183,7 @@ export class RemoteAccess {
 	/** App quit. */
 	async stop() {
 		this.stopTimers();
+		clearTimeout(this.pairingTimer);
 		const server = this.server;
 		this.server = null;
 		await server?.stop(REMOTE_CLOSE.off, "ToolBelt quit");
@@ -207,6 +229,7 @@ export class RemoteAccess {
 			await this.refresh();
 		} else {
 			this.stopTimers();
+			this.registry.stop();
 			await this.closeServer("Remote access was turned off on the Mac");
 			this.serverError = null;
 			this.reachable = "unknown";
@@ -258,6 +281,15 @@ export class RemoteAccess {
 				hostname: this.options.hostname,
 				root: this.options.root,
 				trustPeer: this.options.trustPeer ?? loopbackPeerTrusted,
+				pairing: {
+					verify: (token) => this.registry.verify(token),
+					pair: (secret, label, client) => {
+						const result = this.registry.pair(secret, deviceName(client.ip ? (this.peers.get(client.ip)?.name ?? null) : null, label));
+						// The Mac's dialog lists what paired, or the pairing ended after wrong codes.
+						queueMicrotask(() => this.emit());
+						return result;
+					},
+				},
 				check: (request, peer) =>
 					checkRemoteRequest(request, peer, { owner: this.tailscale.login, dnsName: this.tailscale.dnsName }),
 				wellKnown: {
@@ -368,6 +400,24 @@ export class RemoteAccess {
 			this.reachable = "no";
 			this.reachError = message(error);
 		}
+	}
+
+	private pairedDevices() {
+		const connected = new Set([...(this.server?.clients ?? [])].map((c) => c.device?.id));
+		return this.registry.list().map((d) => ({ ...d, connected: connected.has(d.id) }));
+	}
+
+	private pairingView() {
+		const session = this.registry.pairing();
+		return session ? { code: session.code, secret: session.secret, expiresAt: session.expiresAt, paired: [...session.paired] } : null;
+	}
+
+	/** Tells the views when the pairing expires, so the Mac's dialog doesn't show a dead code. */
+	private watchPairing() {
+		clearTimeout(this.pairingTimer);
+		const session = this.registry.pairing();
+		if (!session) return;
+		this.pairingTimer = setTimeout(() => this.emit(), Math.max(0, session.expiresAt - Date.now()) + 50);
 	}
 
 	private devices(): RemoteDevice[] {

@@ -22,8 +22,9 @@ export const DEFAULTS: Settings = {
 	remote: { enabled: false, port: REMOTE_DEFAULT_PORT, badgePlugins: [] },
 };
 
-const dir = () => process.env.TOOLBELT_CONFIG_DIR ?? join(homedir(), "Library/Application Support/Toolbelt");
-const file = () => join(dir(), "settings.json");
+/** ToolBelt's settings folder (TOOLBELT_CONFIG_DIR, or the variant's Application Support). */
+export const settingsDir = () => process.env.TOOLBELT_CONFIG_DIR ?? join(homedir(), "Library/Application Support/Toolbelt");
+const file = () => join(settingsDir(), "settings.json");
 
 /** Saved remote access settings, each field checked; anything malformed takes its default. */
 export function remoteSettings(saved: unknown, defaults: RemoteSettings): RemoteSettings {
@@ -47,6 +48,6 @@ export function loadSettings(defaults: Settings = DEFAULTS): Settings {
 }
 
 export function saveSettings(s: Settings) {
-	mkdirSync(dir(), { recursive: true });
+	mkdirSync(settingsDir(), { recursive: true });
 	writeFileSync(file(), JSON.stringify(s, null, "\t") + "\n");
 }

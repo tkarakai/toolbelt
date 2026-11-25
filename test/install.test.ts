@@ -83,3 +83,13 @@ describe("install help", () => {
 		expect(installLink("https://mac.example.ts.net:47380/")).toBe("https://mac.example.ts.net:47380/?install");
 	});
 });
+
+describe("device label", () => {
+	test("an installed app and each browser pair under their own name", async () => {
+		const { deviceLabel } = await import("../src/ui/lib/install");
+		expect(deviceLabel({ device: "iphone", browser: "safari" }, true)).toBe("Home Screen app");
+		expect(deviceLabel({ device: "iphone", browser: "safari" }, false)).toBe("Safari");
+		expect(deviceLabel({ device: "android", browser: "samsung" }, false)).toBe("Samsung Internet");
+		expect(deviceLabel({ device: "desktop", browser: "other" }, true)).toBe("Web app");
+	});
+});

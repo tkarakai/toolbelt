@@ -1,23 +1,22 @@
 // Settings → Remote Access (docs/remote-access.md): serve ToolBelt to the owner's other devices
-// through Tailscale. The switch, Tailscale's status, the Serve rule, the address and its QR code,
-// the home-screen badge and the connected devices.
+// through Tailscale. The switch, Tailscale's status, the Serve rule, the address, paired devices
+// and the pairing dialog (code and QR code), the home-screen badge and the connected devices.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import qrcode from "qrcode-generator";
-import { AlertTriangle, Check, CircleHelp, Copy, ExternalLink, Loader2, RefreshCw, Smartphone, Unplug } from "lucide-react";
+import { AlertTriangle, Check, CircleHelp, Copy, ExternalLink, KeyRound, Loader2, RefreshCw, Smartphone, Trash2, Unplug } from "lucide-react";
 import { Switch } from "./components/ui/switch";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Checkbox } from "./components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./components/ui/dialog";
 import { SettingsGroup, SettingsRow } from "./components/settings-layout";
-import { remoteAccessRequest, usePlugins, useRemoteAccess, openUrl } from "./lib/store";
+import { remoteAccessRequest, thisDevice, usePlugins, useRemoteAccess, openUrl } from "./lib/store";
 import { inApp, remoteClient } from "./lib/device";
-import { installLink } from "./lib/install";
 import { badgePermission, badgeSupported, CopyAddressButton, InstallSteps, StepText, useInstall } from "./remote-client";
 import { pillClass, textClass } from "./renderer/colors";
 import { cn } from "./lib/utils";
-import { validPort, type RemoteAccessRequest, type RemoteAccessState, type RemoteDevice } from "../shared/remote";
+import { pairingLink, validPort, type PairedDevice, type RemoteAccessRequest, type RemoteAccessState, type RemoteDevice } from "../shared/remote";
 
 const ADMIN_DNS = "https://login.tailscale.com/admin/dns";
 const ADMIN_MACHINES = "https://login.tailscale.com/admin/machines";
@@ -54,6 +53,7 @@ export function RemoteAccessSettings() {
 		<div className="space-y-8">
 			{!inApp && <ThisDeviceGroup />}
 			<AccessGroup state={state} confirm={setConfirming} />
+			<PairedGroup state={state} confirm={setConfirming} />
 			<TailscaleGroup state={state} confirm={setConfirming} />
 			<DevicesGroup state={state} />
 			<BadgeGroup state={state} />
@@ -98,8 +98,6 @@ function AccessGroup({ state, confirm }: { state: RemoteAccessState; confirm: (c
 }
 
 function AddressRow({ url, reachable }: { url: string; reachable: RemoteAccessState["reachable"] }) {
-	// The code adds `?install`, so the phone shows how to install as soon as it opens.
-	const svg = useMemo(() => qrSvg(installLink(url)), [url]);
 	const copy = async () => {
 		try {
 			await navigator.clipboard.writeText(url);
@@ -109,22 +107,21 @@ function AddressRow({ url, reachable }: { url: string; reachable: RemoteAccessSt
 		}
 	};
 	return (
-		<div className="flex flex-wrap items-center gap-5 px-5 py-4 animate-in fade-in-0 duration-200">
-			<div className="min-w-56 flex-1 space-y-2">
-				<h3 className="text-sm font-medium">Open on your phone</h3>
-				<p className="break-all font-mono text-sm">{url}</p>
-				<p className="text-sm text-muted-foreground">
-					Scan the code with your phone’s camera. The page that opens shows how to add ToolBelt to the home screen, so it opens like an app.
+		<SettingsRow
+			title="Address"
+			description={
+				<>
+					<span className="block break-all font-mono text-foreground">{url}</span>
+					Devices pair once before they can use it: see Paired devices.
 					{reachable === "no" && <span className="text-destructive"> The address doesn’t answer yet; see Tailscale below.</span>}
-				</p>
-				<Button size="sm" variant="outline" onClick={() => void copy()}>
-					<Copy />
-					Copy address
-				</Button>
-			</div>
-			{/* Dark modules on white, in both themes: scanners need the contrast. */}
-			<div className="shrink-0 rounded-lg bg-white p-2 text-black" role="img" aria-label={`QR code for ${url}`} dangerouslySetInnerHTML={{ __html: svg }} />
-		</div>
+				</>
+			}
+		>
+			<Button size="sm" variant="outline" onClick={() => void copy()}>
+				<Copy />
+				Copy address
+			</Button>
+		</SettingsRow>
 	);
 }
 
@@ -161,6 +158,122 @@ function qrSvg(text: string) {
 	let path = "";
 	for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) path += `M${c} ${r}h1v1h-1z`;
 	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${n + 4} ${n + 4}" width="148" height="148" shape-rendering="crispEdges" aria-hidden="true"><path fill="currentColor" d="${path}"/></svg>`;
+}
+
+// ── pairing (docs/remote-access.md, "Pairing") ─────────────────────────────────
+
+function PairedGroup({ state, confirm }: { state: RemoteAccessState; confirm: (c: Confirmation) => void }) {
+	const [open, setOpen] = useState(false);
+	const ready = state.running && !!state.url && state.rule.state === "ours";
+	const start = async () => {
+		if (await run({ operation: "startPairing" })) setOpen(true);
+	};
+	const close = () => {
+		setOpen(false);
+		void run({ operation: "stopPairing" });
+	};
+	const me = thisDevice()?.id;
+	const revoke = (device: PairedDevice) =>
+		confirm({
+			title: `Remove ${device.name}?`,
+			body: <>It disconnects and has to pair again to use ToolBelt.{device.id === me && <> {LOCKOUT}</>}</>,
+			confirm: "Remove",
+			destructive: true,
+			request: { operation: "revoke", id: device.id },
+		});
+	return (
+		<SettingsGroup
+			title="Paired devices"
+			description="Besides being signed in to your Tailscale account, a device needs this Mac’s approval: pair each phone, tablet or browser once. A home-screen app pairs separately from its browser."
+			actions={
+				<Button size="sm" disabled={!ready} onClick={() => void start()} title={ready ? undefined : "Turn on remote access and create the Tailscale rule first"}>
+					<KeyRound />
+					Pair a device
+				</Button>
+			}
+		>
+			{state.paired.length ? (
+				state.paired.map((device) => (
+					<div key={device.id} className="flex flex-wrap items-center gap-3 px-5 py-3 animate-in fade-in-0 duration-300">
+						<Smartphone className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+						<div className="min-w-0 flex-1">
+							<div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+								<span className="break-words">{device.name}</span>
+								{device.id === me && <span className={cn("rounded-full px-2 py-0.5 text-xs font-normal", pillClass("default"))}>This device</span>}
+								{device.connected && <span className={cn("rounded-full px-2 py-0.5 text-xs font-normal", pillClass("success"))}>Connected</span>}
+							</div>
+							<div className="text-xs text-muted-foreground">Paired {day(device.pairedAt)} · last used {since(device.lastSeen)}</div>
+						</div>
+						<Button size="sm" variant="outline" onClick={() => revoke(device)}>
+							<Trash2 />
+							Remove…
+						</Button>
+					</div>
+				))
+			) : (
+				<div className="px-5 py-4 text-sm text-muted-foreground">No paired devices yet. {ready ? "Choose Pair a device to show a code." : "Pairing needs remote access on and the Tailscale rule."}</div>
+			)}
+			<PairDialog state={state} open={open} close={close} />
+		</SettingsGroup>
+	);
+}
+
+/** Seconds left, ticking while shown. */
+function useRemaining(until: number | null) {
+	const [now, setNow] = useState(Date.now);
+	useEffect(() => {
+		if (until === null) return;
+		setNow(Date.now());
+		const timer = setInterval(() => setNow(Date.now()), 1_000);
+		return () => clearInterval(timer);
+	}, [until]);
+	return until === null ? 0 : Math.max(0, Math.ceil((until - now) / 1_000));
+}
+
+function PairDialog({ state, open, close }: { state: RemoteAccessState; open: boolean; close: () => void }) {
+	const pairing = state.pairing;
+	const remaining = useRemaining(open && pairing ? pairing.expiresAt : null);
+	const live = !!pairing && remaining > 0;
+	const link = pairing && state.url ? pairingLink(state.url, pairing.secret) : null;
+	const svg = useMemo(() => (link ? qrSvg(link) : ""), [link]);
+	return (
+		<Dialog open={open} onOpenChange={(next) => !next && close()}>
+			<DialogContent className="sm:max-w-md">
+				<DialogHeader>
+					<DialogTitle>Pair a device</DialogTitle>
+					<DialogDescription>Scan the code with the phone’s camera: it opens ToolBelt already paired, then shows how to add it to the home screen. Or open the address and type the six digits.</DialogDescription>
+				</DialogHeader>
+				{live && pairing ? (
+					<div className="flex flex-wrap items-center justify-center gap-6 animate-in fade-in-0 duration-200">
+						{/* Dark modules on white, in both themes: scanners need the contrast. */}
+						<div className="shrink-0 rounded-lg bg-white p-2 text-black" role="img" aria-label="Pairing QR code" dangerouslySetInnerHTML={{ __html: svg }} />
+						<div className="space-y-2 text-center">
+							<div className="font-mono text-3xl font-semibold tabular-nums tracking-[0.2em]" aria-label={`Code ${pairing.code.split("").join(" ")}`}>
+								{pairing.code.slice(0, 3)} {pairing.code.slice(3)}
+							</div>
+							<div className="text-xs text-muted-foreground tabular-nums" aria-live="off">Expires in {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")}</div>
+						</div>
+					</div>
+				) : (
+					<p className="text-sm text-muted-foreground">{pairing ? "This code expired." : "This pairing ended: it expired, or too many wrong codes were tried."} Show a new code to pair.</p>
+				)}
+				{pairing && pairing.paired.length > 0 && (
+					<ul className="space-y-1 text-sm" aria-live="polite">
+						{pairing.paired.map((name) => (
+							<li key={name} className="flex items-center gap-2 animate-in fade-in-0 duration-300">
+								<Check className={cn("size-4 shrink-0", textClass("success"))} aria-hidden="true" />
+								<span className="min-w-0 break-words">{name} paired</span>
+							</li>
+						))}
+					</ul>
+				)}
+				<DialogFooter className="flex-wrap">
+					<Button variant="outline" onClick={() => void run({ operation: "startPairing" })}>New code</Button>
+					<Button autoFocus onClick={close}>Done</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
 }
 
 function PortRow({ state, confirm }: { state: RemoteAccessState; confirm: (c: Confirmation) => void }) {
@@ -353,6 +466,7 @@ function RuleRow({ state, create, remove }: { state: RemoteAccessState; create: 
 
 const bytes = (n: number) =>
 	n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(2)} GB`;
+const day = (at: number) => new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: new Date(at).getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
 const since = (at: number) => {
 	const minutes = Math.round((Date.now() - at) / 60_000);
 	return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ${minutes % 60} min ago`;

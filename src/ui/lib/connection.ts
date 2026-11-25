@@ -2,7 +2,11 @@
 // the main process that reconnects by itself. Requests in flight when it drops fail; nothing is
 // replayed. The server's heartbeat keeps it honest: silence means a dead socket, which mobile
 // browsers like to keep around after the phone sleeps.
-import { REMOTE_CLOSE, REMOTE_HEARTBEAT_MS } from "../../shared/remote";
+//
+// Each socket first says hello with this device's token (docs/remote-access.md, "Pairing"). The
+// server answers "paired", and only then is the connection open, or "unpaired": the person pairs
+// with the code or QR code shown on the Mac, and the token that comes back is kept.
+import { REMOTE_CLOSE, REMOTE_HEARTBEAT_MS, type PairingServerMessage } from "../../shared/remote";
 
 export type ConnectionStatus =
 	/** First connection attempt. */
@@ -13,7 +17,31 @@ export type ConnectionStatus =
 	/** Disconnected from the Mac's Remote Access tab; waits for Reconnect. */
 	| "disconnected"
 	/** Remote access was turned off on the Mac; retrying slowly. */
-	| "off";
+	| "off"
+	/** Connected, but this device isn't paired with the Mac: waiting for a code. */
+	| "unpaired";
+
+const TOKEN_KEY = "toolbelt.device-token";
+/** Kept in memory too: without browser storage, pairing lasts until the page closes. */
+let memoryToken: string | null = null;
+function storedToken() {
+	try {
+		return localStorage.getItem(TOKEN_KEY) ?? memoryToken;
+	} catch {
+		return memoryToken;
+	}
+}
+/** Keeps the device token; false when browser storage refused it (a reload would forget it). */
+function storeToken(token: string | null) {
+	memoryToken = token;
+	try {
+		if (token) localStorage.setItem(TOKEN_KEY, token);
+		else localStorage.removeItem(TOKEN_KEY);
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 type Response = { result?: unknown; error?: string };
 type Waiting = { resolve: (r: Response) => void; reject: (e: Error) => void };
@@ -32,6 +60,8 @@ export type SocketTransportOptions = {
 	connected(again: boolean): void;
 	/** The page was hidden (surfaces should close) or shown again on a live socket. */
 	suspended?(hidden: boolean): void;
+	/** How ToolBelt runs here ("Safari", "Home Screen app"), for the paired device's name. */
+	label?: () => string;
 };
 
 export function createSocketTransport(options: SocketTransportOptions) {
@@ -47,6 +77,8 @@ export function createSocketTransport(options: SocketTransportOptions) {
 	const openWaiters = new Set<() => void>();
 	const statusListeners = new Set<() => void>();
 	let probe: (() => void) | null = null;
+	let device: { id: string; name: string } | null = null;
+	let pairing: { resolve: (stored: boolean) => void; reject: (e: Error) => void } | null = null;
 
 	const setStatus = (s: ConnectionStatus) => {
 		if (s === status) return;
@@ -75,6 +107,16 @@ export function createSocketTransport(options: SocketTransportOptions) {
 		ws = null;
 		probe = null;
 		failInFlight();
+		pairing?.reject(new Error("The connection to your Mac was lost"));
+		pairing = null;
+		if (code === REMOTE_CLOSE.revoked) {
+			// Forget the token; the next socket shows the pairing screen.
+			storeToken(null);
+			device = null;
+			setStatus("unpaired");
+			attempt = 0;
+			return scheduleRetry();
+		}
 		if (code === REMOTE_CLOSE.disconnected) return setStatus("disconnected");
 		if (code === REMOTE_CLOSE.off) {
 			setStatus("off");
@@ -94,7 +136,15 @@ export function createSocketTransport(options: SocketTransportOptions) {
 		ws = socket;
 		socket.onopen = () => {
 			lastSeen = Date.now();
+			const token = storedToken();
+			socket.send(JSON.stringify(token ? { kind: "hello", token } : { kind: "hello" }));
+		};
+		/** The server accepted this device: the connection is open. */
+		const admitted = (m: Extract<PairingServerMessage, { kind: "paired" }>) => {
+			device = m.device;
+			const stored = m.token ? storeToken(m.token) : true;
 			// Backoff resets only once the connection has stayed up for a while.
+			clearTimeout(stableTimer);
 			stableTimer = setTimeout(() => (attempt = 0), 10_000);
 			const again = everConnected;
 			everConnected = true;
@@ -102,6 +152,8 @@ export function createSocketTransport(options: SocketTransportOptions) {
 			openWaiters.forEach((w) => w());
 			openWaiters.clear();
 			options.connected(again);
+			pairing?.resolve(stored);
+			pairing = null;
 		};
 		socket.onmessage = (e) => {
 			lastSeen = Date.now();
@@ -113,6 +165,18 @@ export function createSocketTransport(options: SocketTransportOptions) {
 				return;
 			}
 			if (m.kind === "ping") return socket.send(JSON.stringify({ kind: "pong", t: m.t }));
+			if (m.kind === "paired") return admitted(m as Extract<PairingServerMessage, { kind: "paired" }>);
+			if (m.kind === "unpaired") {
+				// A token the Mac no longer knows: forget it.
+				if (storedToken()) storeToken(null);
+				device = null;
+				return setStatus("unpaired");
+			}
+			if (m.kind === "pairFailed") {
+				pairing?.reject(new Error(String((m as { error?: unknown }).error ?? "Pairing failed")));
+				pairing = null;
+				return;
+			}
 			if (m.kind === "response" && typeof m.id === "number") {
 				inFlight.get(m.id)?.resolve(m);
 				inFlight.delete(m.id);
@@ -130,10 +194,14 @@ export function createSocketTransport(options: SocketTransportOptions) {
 	const whenOpen = (ms: number) =>
 		new Promise<void>((resolve, reject) => {
 			if (status === "open" && ws?.readyState === WebSocket.OPEN) return resolve();
-			const timer = setTimeout(() => {
+			let timer: ReturnType<typeof setTimeout>;
+			const expire = () => {
+				// While the person pairs, requests wait: the page reloads once paired.
+				if (status === "unpaired") return void (timer = setTimeout(expire, 1_000));
 				openWaiters.delete(done);
 				reject(new Error("Not connected to your Mac"));
-			}, ms);
+			};
+			timer = setTimeout(expire, ms);
 			const done = () => {
 				clearTimeout(timer);
 				resolve();
@@ -176,6 +244,19 @@ export function createSocketTransport(options: SocketTransportOptions) {
 		});
 	}
 
+	/**
+	 * Pairs with the six-digit code or the QR code's secret. Resolves once paired, with whether the
+	 * token was kept in browser storage; rejects with the Mac's reason (wrong code, expired, …).
+	 */
+	function pair(secret: string) {
+		if (status !== "unpaired" || ws?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Not connected to your Mac"));
+		pairing?.reject(new Error("Replaced by a newer attempt"));
+		return new Promise<boolean>((resolve, reject) => {
+			pairing = { resolve, reject };
+			ws!.send(JSON.stringify({ kind: "pair", secret, label: options.label?.() ?? "" }));
+		});
+	}
+
 	/** Reconnect now (after the network returns, or the person asks). */
 	function reconnect() {
 		attempt = 0;
@@ -185,7 +266,7 @@ export function createSocketTransport(options: SocketTransportOptions) {
 
 	// Silence for 2.5 heartbeats: the socket is dead even if the browser hasn't noticed.
 	setInterval(() => {
-		if (status === "open" && Date.now() - lastSeen > REMOTE_HEARTBEAT_MS * 2.5) {
+		if ((status === "open" || (status === "unpaired" && ws)) && Date.now() - lastSeen > REMOTE_HEARTBEAT_MS * 2.5) {
 			ws?.close();
 			dropped();
 		}
@@ -205,7 +286,7 @@ export function createSocketTransport(options: SocketTransportOptions) {
 					reconnect();
 				}
 			});
-		else if (status === "offline" || status === "connecting" || status === "off") reconnect();
+		else if (status === "offline" || status === "connecting" || status === "off" || (status === "unpaired" && !ws)) reconnect();
 	});
 	window.addEventListener("online", () => {
 		if (status !== "open" && status !== "disconnected") reconnect();
@@ -216,6 +297,9 @@ export function createSocketTransport(options: SocketTransportOptions) {
 		request,
 		send,
 		reconnect,
+		pair,
+		/** The paired device this connection presented (null in the preview or until paired). */
+		device: () => device,
 		status: () => status,
 		subscribe(listener: () => void) {
 			statusListeners.add(listener);

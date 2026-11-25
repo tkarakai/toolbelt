@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { showPluginToast } from "./plugin-toast";
 import { inApp } from "./device";
 import { createSocketTransport, type ConnectionStatus } from "./connection";
+import { deviceLabel, installContext } from "./install";
 import type { RemoteAccessRequest, RemoteAccessState } from "../../shared/remote";
 import type { Node } from "../../shared/protocol";
 import type { PluginInfo, ToolbeltRPC, UpdateState } from "../../shared/rpc";
@@ -137,6 +138,12 @@ function connect(): Transport {
       if (again) resync();
     },
     suspended: (hidden) => (hidden ? suspendSurfaces() : resync()),
+    label: () =>
+      deviceLabel(
+        installContext(navigator.userAgent, navigator.maxTouchPoints),
+        matchMedia("(display-mode: standalone)").matches ||
+          (navigator as Navigator & { standalone?: boolean }).standalone === true,
+      ),
   });
   const proxy = <T>(fn: (name: string, p: unknown) => T) =>
     new Proxy(
@@ -157,6 +164,14 @@ export function useConnection(): [ConnectionStatus, () => void] {
   );
   return [status, () => socket?.reconnect()];
 }
+
+/** Pairs this browser with the Mac (docs/remote-access.md, "Pairing"); see connection.ts. */
+export function pairDevice(secret: string): Promise<boolean> {
+  return socket ? socket.pair(secret) : Promise.reject(new Error("Not connected to your Mac"));
+}
+
+/** The paired device this view is (remote devices only), to mark it in Remote Access. */
+export const thisDevice = () => socket?.device() ?? null;
 
 /** A newer UI build on the server: reload once to pick it up (the service worker revalidates). */
 async function checkBuild() {

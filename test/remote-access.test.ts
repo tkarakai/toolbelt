@@ -58,6 +58,7 @@ function make(options: { cli?: string | null; settings?: Partial<RemoteSettings>
 		settings: () => settings,
 		save: (next) => (settings = next),
 		root,
+		devicesFile: join(mkdtempSync(join(tmpdir(), "toolbelt-devices-")), "remote-devices.json"),
 		handlers: { request: () => null },
 		changed: (state) => states.push(state),
 		findCli: () => (options.cli === undefined ? "/fake/tailscale" : options.cli),
@@ -69,6 +70,21 @@ function make(options: { cli?: string | null; settings?: Partial<RemoteSettings>
 		trustPeer: async () => true,
 	});
 	return { access, tailscale, settings: () => settings, states };
+}
+
+/** A WebSocket from the phone (100.64.0.2) that pairs with the code the Mac shows. */
+async function pairedSocket(port: number, access: RemoteAccess, label = "Safari") {
+	const state = await access.handle({ operation: "startPairing" });
+	const ws = new WebSocket(`ws://127.0.0.1:${port}/rpc`, {
+		headers: { "tailscale-user-login": "owner@example.com", "x-forwarded-for": "100.64.0.2" },
+	} as never);
+	const messages: { kind: string; token?: string; device?: { id: string; name: string } }[] = [];
+	ws.onmessage = (e) => messages.push(JSON.parse(String(e.data)));
+	await new Promise((ok) => (ws.onopen = ok));
+	ws.send(JSON.stringify({ kind: "pair", secret: state.pairing!.code, label }));
+	for (let i = 0; i < 100 && !messages.some((m) => m.kind === "paired"); i++) await Bun.sleep(10);
+	const paired = messages.find((m) => m.kind === "paired")!;
+	return { ws, token: paired.token!, device: paired.device!, messages };
 }
 
 describe("remote access", () => {
@@ -103,10 +119,7 @@ describe("remote access", () => {
 		let state = await access.handle({ operation: "setEnabled", enabled: true });
 		expect(state.running).toBe(true);
 		expect(state.reachable).toBe("yes");
-		const ws = new WebSocket(`ws://127.0.0.1:${port}/rpc`, {
-			headers: { "tailscale-user-login": "owner@example.com", "x-forwarded-for": "100.64.0.2" },
-		} as never);
-		await new Promise((ok) => (ws.onopen = ok));
+		const { ws } = await pairedSocket(port, access);
 		await Bun.sleep(20);
 		state = access.state();
 		expect(state.devices).toMatchObject([{ ip: "100.64.0.2", name: "phone", os: "iOS", path: "direct", connections: 1 }]);
@@ -121,10 +134,7 @@ describe("remote access", () => {
 		const port = 40000 + Math.floor(Math.random() * 20000);
 		const { access } = make({ settings: { port } });
 		await access.handle({ operation: "setEnabled", enabled: true });
-		const ws = new WebSocket(`ws://127.0.0.1:${port}/rpc`, {
-			headers: { "tailscale-user-login": "owner@example.com", "x-forwarded-for": "100.64.0.2" },
-		} as never);
-		await new Promise((ok) => (ws.onopen = ok));
+		const { ws } = await pairedSocket(port, access);
 		const closed = new Promise<number>((ok) => (ws.onclose = (e) => ok(e.code)));
 		await access.handle({ operation: "disconnect", ip: "100.64.0.2" });
 		expect(await closed).toBe(REMOTE_CLOSE.disconnected);
@@ -188,6 +198,62 @@ describe("remote access", () => {
 		expect(state.running).toBe(true);
 		expect((await fetch(`http://127.0.0.1:${port + 10000}/.well-known/toolbelt`)).ok).toBe(true);
 		await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
+	});
+
+	test("pairing names the device after Tailscale and lists it as connected", async () => {
+		const port = 40000 + Math.floor(Math.random() * 20000);
+		const { access, states } = make({ settings: { port } });
+		await access.handle({ operation: "setEnabled", enabled: true });
+		const { device, token } = await pairedSocket(port, access, "Home Screen app");
+		expect(device.name).toBe("phone (Home Screen app)");
+		expect(token.length).toBeGreaterThan(40);
+		await Bun.sleep(20);
+		const state = access.state();
+		expect(state.paired).toMatchObject([{ id: device.id, name: "phone (Home Screen app)", connected: true }]);
+		expect(state.pairing?.paired).toEqual(["phone (Home Screen app)"]);
+		// The Mac's dialog heard about it.
+		expect(states.some((s) => (s as typeof state).pairing?.paired.length === 1)).toBe(true);
+	});
+
+	test("a paired device's token opens later connections; an unknown one stays unpaired", async () => {
+		const port = 40000 + Math.floor(Math.random() * 20000);
+		const { access } = make({ settings: { port } });
+		await access.handle({ operation: "setEnabled", enabled: true });
+		const first = await pairedSocket(port, access);
+		first.ws.close();
+		await access.handle({ operation: "stopPairing" });
+		const hello = async (token: string) => {
+			const ws = new WebSocket(`ws://127.0.0.1:${port}/rpc`, { headers: { "tailscale-user-login": "owner@example.com" } } as never);
+			const reply = new Promise<string>((ok) => (ws.onmessage = (e) => ok(JSON.parse(String(e.data)).kind)));
+			await new Promise((ok) => (ws.onopen = ok));
+			ws.send(JSON.stringify({ kind: "hello", token }));
+			const kind = await reply;
+			ws.close();
+			return kind;
+		};
+		expect(await hello(first.token)).toBe("paired");
+		expect(await hello("x".repeat(43))).toBe("unpaired");
+	});
+
+	test("removing a device closes its connections with the revoked code and forgets its token", async () => {
+		const port = 40000 + Math.floor(Math.random() * 20000);
+		const { access } = make({ settings: { port } });
+		await access.handle({ operation: "setEnabled", enabled: true });
+		const { ws, device, token } = await pairedSocket(port, access);
+		const closed = new Promise<number>((ok) => (ws.onclose = (e) => ok(e.code)));
+		const state = await access.handle({ operation: "revoke", id: device.id });
+		expect(await closed).toBe(REMOTE_CLOSE.revoked);
+		expect(state.paired).toEqual([]);
+		expect(access.registry.verify(token)).toBeNull();
+		expect((await access.handle({ operation: "revoke", id: device.id })).lastError).toContain("isn’t paired");
+	});
+
+	test("turning remote access off ends the pairing in progress", async () => {
+		const port = 40000 + Math.floor(Math.random() * 20000);
+		const { access } = make({ settings: { port } });
+		await access.handle({ operation: "setEnabled", enabled: true });
+		expect((await access.handle({ operation: "startPairing" })).pairing?.code).toMatch(/^\d{6}$/);
+		expect((await access.handle({ operation: "setEnabled", enabled: false })).pairing).toBeNull();
 	});
 
 	test("badge plugins are saved without duplicates", async () => {

@@ -20,6 +20,7 @@ notifications, mobile-specific plugin screens.
 | Tailscale CLI: discovery, status, Serve rule | `src/bun/tailscale.ts` |
 | HTTP/WebSocket server, request checks, outgoing queue | `src/bun/remote-server.ts` |
 | Which local user is behind a loopback connection | `src/bun/peer-owner.ts` |
+| Paired devices, pairing codes, the devices file | `src/bun/pairing.ts` |
 | Server lifecycle, owner, rule, reachability, devices | `src/bun/remote-access.ts` |
 | App wiring: remote views, allowed methods, navigation | `src/bun/index.ts` (remote access section) |
 | Browser connection: reconnects, heartbeat, visibility | `src/ui/lib/connection.ts`, `src/ui/lib/store.ts` |
@@ -35,8 +36,10 @@ notifications, mobile-specific plugin screens.
    MagicDNS and HTTPS certificates for the tailnet in the Tailscale admin console.
 2. In ToolBelt, open Settings → Remote Access, check the Tailscale rows, choose **Create
    Tailscale rule…** and confirm, then turn remote access on.
-3. On the phone, scan the QR code with the camera. The page shows how to add ToolBelt to the
-   home screen (on Android, an **Install ToolBelt** button).
+3. Choose **Pair a device** and scan its QR code with the phone's camera. The page opens
+   already paired and shows how to add ToolBelt to the home screen (on Android, an **Install
+   ToolBelt** button). Opened from the home screen, the app pairs once more with the six-digit
+   code, which stays valid for the rest of the five minutes.
 
 Recommended tailnet hygiene (the tab repeats it):
 
@@ -58,11 +61,12 @@ two halves: plugins send complete declarative trees over JSON lines, and the ren
 ordinary React web app. Remote access serves that renderer to other devices and bridges the web
 view RPC over a WebSocket, the way the browser preview always has.
 
-## Security: Tailscale and the devices are the boundary
+## Security: Tailscale, then pairing
 
-There is no ToolBelt login or pairing. Tailscale decides who can connect. ToolBelt's own
-authentication would duplicate what Tailscale already provides (device identity, encryption,
-revocation, ACLs) for a single-user tool.
+Tailscale decides who can reach ToolBelt: device identity, encryption and the owner's account.
+Pairing then decides which of the owner's browsers may use it, so a work laptop, an old tablet
+or a lost phone that is still signed in to the account gets nothing without the Mac's approval.
+There is no ToolBelt password.
 
 **Owner check.** `tailscale serve` adds a `Tailscale-User-Login` header to every request it
 forwards and removes any copy the client sent. The server accepts a request only when that
@@ -106,8 +110,8 @@ Responses carry CSP `frame-ancestors 'none'`, `nosniff` and `no-referrer`. `X-Fo
 (the device's tailnet IP) is read only from a loopback peer and only identifies the device in
 the list; it never authorizes anything.
 
-**Device security belongs to the device and the tailnet.** Anyone holding an unlocked device
-signed in to the owner's Tailscale account has full control of the Mac through ToolBelt.
+**Device security belongs to the device and the tailnet.** Anyone holding an unlocked, paired
+device signed in to the owner's Tailscale account has full control of the Mac through ToolBelt.
 ToolBelt cannot check whether a device has a passcode; that, and the tailnet hygiene above, are
 the owner's responsibility.
 
@@ -119,6 +123,46 @@ also stay: the global shortcut is the Mac's, and a connection lost while recordi
 it paused, so the Keyboard tab hides the shortcut recorder remotely. Unknown methods fail closed. Of the
 web view messages, remote connections may send only `selectionChanged` and `quit`; window
 commands (close, zoom, show, hide) are the Mac's.
+
+## Pairing
+
+Every browser connection must present a paired device's token, or pair, before anything else
+works. The owner and peer-owner checks still come first; pairing is a second gate, not a
+replacement.
+
+- **Showing a code.** Settings → Remote Access → **Pair a device** (enabled once the server
+  runs and the rule is ToolBelt's) starts a pairing: a six-digit code and a QR code linking to
+  `…/?install#pair=<secret>`, a 256-bit one-time secret in the fragment, which browsers never
+  send to the server. It lasts five minutes (`PAIRING_TTL_MS`); **New code** replaces it,
+  **Done** ends it, and so does turning remote access off. Five wrong codes end it too
+  (`PAIRING_MAX_FAILURES`), which caps guessing at five tries per code the Mac shows. A paired
+  remote device can also show a code; it is already trusted.
+- **Pairing.** Within those five minutes any number of devices may pair, so a phone can pair
+  its browser and then its home-screen app (iOS gives them separate storage). Arriving from the
+  QR code, the page takes the secret out of the address before the router reads it and pairs at
+  once; otherwise the pairing screen asks for the six digits. Requests made meanwhile wait, and
+  the page carries on once paired. The dialog on the Mac lists each device as it pairs.
+- **Tokens.** A paired device gets a random 256-bit token, kept in its local storage (in memory
+  only if storage is refused, so it lasts until the page closes). ToolBelt stores only SHA-256
+  hashes, with the name, pairing time and last use, in `remote-devices.json` beside
+  `settings.json`, written atomically with mode 0600. An unreadable file counts as no devices:
+  everything pairs again rather than anything getting in.
+- **Names.** The device's Tailscale name plus how ToolBelt runs there, e.g.
+  `iphone (Home Screen app)` or `ipad (Safari)`, made unique with a number.
+- **Removing.** **Paired devices** lists each one with when it last connected and whether it is
+  connected now. **Remove…** forgets it and closes its connections with close code 4003: the
+  client forgets its token and shows the pairing screen. From the device itself, the
+  confirmation says that it loses access. Disconnect (4001) only ends a session; the pairing
+  stays.
+
+Protocol: after the socket opens, the client sends `{ kind: "hello", token? }`; the server
+answers `{ kind: "paired", device }` and only then treats the connection as opened (it joins the
+views, gets messages, may send requests), or `{ kind: "unpaired" }`. An unpaired connection may
+send `{ kind: "pair", secret, label }` with the code or the QR secret and gets `paired` (with the
+new `token`) or `{ kind: "pairFailed", error }`. Any request before that fails with "Pair this
+device with your Mac first", and no messages are sent to it. The Mac's own window and popover
+use Electrobun RPC and never pair. The preview's own server pairs only with
+`PREVIEW_REQUIRE_PAIRING=1`, and `/remote?pairing=start` shows a code there.
 
 ## Loopback server published with Tailscale Serve
 
@@ -189,9 +233,9 @@ ToolBelt runs again with remote access on. The service worker treats that as unr
 - **Serve ToolBelt to your devices**: off by default. Off stops the server, closing every
   remote connection with the "off" close code; on starts it. Errors such as a port in use show
   here.
-- **Open on your phone**: the address, a copy button and a QR code holding only the URL (no
-  secret). Shown once the rule is ToolBelt's.
+- **Address**: the address and a copy button, once the rule is ToolBelt's.
 - **Port**.
+- **Paired devices** and **Pair a device** (see Pairing).
 - **Tailscale**: labelled rows from `tailscale status --json` and `tailscale serve status
   --json` (CLI location, running state, account, MagicDNS name, HTTPS certificates, Serve rule,
   reachability), each problem with what to do, and the device-security reminder.
@@ -205,9 +249,7 @@ stays lost until it is set up again at the Mac.
 
 ## Connected devices
 
-A device appears while it has a live connection and disappears when it closes. There is no
-enrollment: any of the owner's devices that opens the address and passes the owner check shows
-up. Its name, OS and path come from the peer in `tailscale status --json` whose tailnet IP Serve
+A device appears while it has a live, paired connection and disappears when it closes. Its name, OS and path come from the peer in `tailscale status --json` whose tailnet IP Serve
 forwarded; several windows on one device group under it.
 
 Per device: connected since; bytes sent (and an estimate after compression, from sampling
@@ -216,8 +258,8 @@ the heartbeat round trip; and whether Tailscale reaches it directly or through a
 (`CurAddr`/`Relay`). A relay is often the real cause of slowness on cellular.
 
 **Disconnect** closes the device's connections with close code 4001. The client stops
-reconnecting and shows "Disconnected from your Mac" with **Reconnect**. ToolBelt stores no block
-list: Disconnect ends a session left open; removing a device belongs in Tailscale.
+reconnecting and shows "Disconnected from your Mac" with **Reconnect**. Disconnect ends a
+session left open; to keep a device out, remove its pairing (or the device in Tailscale).
 
 ## Multiple clients
 
@@ -281,8 +323,8 @@ tap, drawn as a button-like chip with the icon people look for (Share, ⋯ More,
 Add); `**word**` is emphasis; a step's `hint` is a muted line under it.
 
 `InstallCard` shows this once per device at the bottom of the screen (dismissal is kept in
-local storage). The QR code links to `…/?install`, which shows it again on arrival and is
-removed from the address. Settings → Remote Access on the phone has a **This device** section
+local storage). The pairing QR code's link has `?install`, which shows it again on arrival and
+is removed from the address. Settings → Remote Access on the phone has a **This device** section
 with the same help. In the installed app's first launch, the card instead offers the badge
 permission when the Mac has chosen badge plugins (iOS only asks from an installed app).
 
@@ -337,10 +379,10 @@ trees.
    stayed up for 10 seconds; after "off" (4002) it retries every 15 seconds or more. Requests in
    flight when the socket drops fail; plugin events are refused while offline and never queued,
    so an action taken offline can't run later. Other requests wait up to 15 seconds for the
-   connection.
+   connection (indefinitely while the pairing screen shows).
 
 The connection banner reports connecting (after 800 ms), offline with **Retry now**, remote
-access off, and the Disconnect dialog.
+access off, and the Disconnect dialog; an unpaired connection shows the pairing screen.
 
 ## Deferred
 
@@ -361,10 +403,8 @@ serve`. Unlike this design, it does not trust the network. Every client, includi
 desktop renderer, pairs with a single-use five-minute code (a QR link with the code in the URL
 fragment) and receives a revocable session; each RPC method requires a scope, and revoking a
 session closes its live sockets. That fits its use: multiple users, plain-HTTP LAN access, a
-cloud relay, a native iOS app and MCP clients. For one owner reaching the Mac only over
-Tailscale, pairing would mostly re-implement Tailscale's device identity and revocation. The
-difference accepted here: any device signed in to the owner's Tailscale account has full
-control, with no second factor. T3 Code does not use Tailscale identity headers; this design
-uses them instead of pairing. Borrowed from it: the Serve-based publishing, the
+cloud relay, a native iOS app and MCP clients. ToolBelt keeps Tailscale's identity headers as
+the first gate and adds pairing for the owner's own devices, without scopes: a paired device has
+full control. Borrowed from it: the secret in the QR link's fragment, the Serve-based publishing, the
 `/.well-known/` reachability probe, never touching a rule that isn't ToolBelt's, running the
 CLI only while needed, and the reconnect policy.
