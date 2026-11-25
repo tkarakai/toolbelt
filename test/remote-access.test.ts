@@ -122,7 +122,9 @@ describe("remote access", () => {
 		const { ws } = await pairedSocket(port, access);
 		await Bun.sleep(20);
 		state = access.state();
-		expect(state.devices).toMatchObject([{ ip: "100.64.0.2", name: "phone", os: "iOS", path: "direct", connections: 1 }]);
+		expect(state.paired).toMatchObject([
+			{ name: "phone (Safari)", live: { ip: "100.64.0.2", tailscaleName: "phone", os: "iOS", path: "direct", connections: 1 } },
+		]);
 		const closed = new Promise<number>((ok) => (ws.onclose = (e) => ok(e.code)));
 		state = await access.handle({ operation: "setEnabled", enabled: false });
 		expect(await closed).toBe(REMOTE_CLOSE.off);
@@ -130,14 +132,37 @@ describe("remote access", () => {
 		await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
 	});
 
-	test("disconnect closes that device's connections with the stop-reconnecting code", async () => {
+	test("disconnect closes only that paired device's connections, which stays paired", async () => {
+		const port = 40000 + Math.floor(Math.random() * 20000);
+		const { access } = make({ settings: { port } });
+		await access.handle({ operation: "setEnabled", enabled: true });
+		// The same phone (one tailnet IP) as a browser and as its home-screen app.
+		const browser = await pairedSocket(port, access, "Safari");
+		const app = await pairedSocket(port, access, "Home Screen app");
+		const closed = new Promise<number>((ok) => (browser.ws.onclose = (e) => ok(e.code)));
+		await access.handle({ operation: "disconnect", id: browser.device.id });
+		expect(await closed).toBe(REMOTE_CLOSE.disconnected);
+		await Bun.sleep(20);
+		expect(app.ws.readyState).toBe(WebSocket.OPEN);
+		const state = access.state();
+		expect(state.paired.map((d) => [d.name, !!d.live])).toEqual([
+			["phone (Home Screen app)", true],
+			["phone (Safari)", false],
+		]);
+	});
+
+	test("a device's last use moves to when its connection ends", async () => {
 		const port = 40000 + Math.floor(Math.random() * 20000);
 		const { access } = make({ settings: { port } });
 		await access.handle({ operation: "setEnabled", enabled: true });
 		const { ws } = await pairedSocket(port, access);
-		const closed = new Promise<number>((ok) => (ws.onclose = (e) => ok(e.code)));
-		await access.handle({ operation: "disconnect", ip: "100.64.0.2" });
-		expect(await closed).toBe(REMOTE_CLOSE.disconnected);
+		const pairedAt = access.state().paired[0]!.lastSeen;
+		await Bun.sleep(15);
+		ws.close();
+		await Bun.sleep(30);
+		const [device] = access.state().paired;
+		expect(device!.live).toBeNull();
+		expect(device!.lastSeen).toBeGreaterThan(pairedAt);
 	});
 
 	test("moving the port moves ToolBelt's rule", async () => {
@@ -209,7 +234,7 @@ describe("remote access", () => {
 		expect(token.length).toBeGreaterThan(40);
 		await Bun.sleep(20);
 		const state = access.state();
-		expect(state.paired).toMatchObject([{ id: device.id, name: "phone (Home Screen app)", connected: true }]);
+		expect(state.paired).toMatchObject([{ id: device.id, name: "phone (Home Screen app)", live: { connections: 1 } }]);
 		expect(state.pairing?.paired).toEqual(["phone (Home Screen app)"]);
 		// The Mac's dialog heard about it.
 		expect(states.some((s) => (s as typeof state).pairing?.paired.length === 1)).toBe(true);

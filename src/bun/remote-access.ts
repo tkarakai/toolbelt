@@ -7,7 +7,8 @@ import {
 	validPort,
 	type RemoteAccessRequest,
 	type RemoteAccessState,
-	type RemoteDevice,
+	type PairedDevice,
+	type RemoteConnection,
 	type RemoteSettings,
 	type ServeRule,
 	type TailscaleView,
@@ -106,7 +107,6 @@ export class RemoteAccess {
 			reachable: this.reachable,
 			reachError: this.reachError,
 			url: remoteUrl(this.tailscale.dnsName, settings.port),
-			devices: this.devices(),
 			paired: this.pairedDevices(),
 			pairing: this.pairingView(),
 			busy: this.busy,
@@ -149,7 +149,7 @@ export class RemoteAccess {
 					break;
 				case "disconnect":
 					for (const client of this.server?.clients ?? [])
-						if (client.ip === request.ip) client.close(REMOTE_CLOSE.disconnected, "Disconnected from the Mac");
+						if (client.device?.id === request.id) client.close(REMOTE_CLOSE.disconnected, "Disconnected from the Mac");
 					break;
 				case "startPairing":
 					this.registry.start();
@@ -309,6 +309,8 @@ export class RemoteAccess {
 				},
 				closed: (client) => {
 					this.options.handlers.closed?.(client);
+					// "Last used" means the last connection, until its end.
+					if (client.device) this.registry.touch(client.device.id);
 					this.emit();
 				},
 			});
@@ -402,9 +404,18 @@ export class RemoteAccess {
 		}
 	}
 
-	private pairedDevices() {
-		const connected = new Set([...(this.server?.clients ?? [])].map((c) => c.device?.id));
-		return this.registry.list().map((d) => ({ ...d, connected: connected.has(d.id) }));
+	/** Paired devices, connected ones first, each with its live connections. */
+	private pairedDevices(): PairedDevice[] {
+		const byDevice = new Map<string, RemoteClient[]>();
+		for (const client of this.server?.clients ?? [])
+			if (client.device) byDevice.set(client.device.id, [...(byDevice.get(client.device.id) ?? []), client]);
+		return this.registry
+			.list()
+			.map((d) => {
+				const clients = byDevice.get(d.id);
+				return { ...d, live: clients ? this.connection(clients) : null };
+			})
+			.sort((a, b) => Number(!!b.live) - Number(!!a.live) || b.lastSeen - a.lastSeen);
 	}
 
 	private pairingView() {
@@ -420,31 +431,26 @@ export class RemoteAccess {
 		this.pairingTimer = setTimeout(() => this.emit(), Math.max(0, session.expiresAt - Date.now()) + 50);
 	}
 
-	private devices(): RemoteDevice[] {
-		const byIp = new Map<string, RemoteClient[]>();
-		for (const client of this.server?.clients ?? []) {
-			const key = client.ip ?? "local";
-			byIp.set(key, [...(byIp.get(key) ?? []), client]);
-		}
-		return [...byIp].map(([ip, clients]) => {
-			const peer = this.peers.get(ip);
-			const sum = (pick: (c: RemoteClient) => number) => clients.reduce((n, c) => n + pick(c), 0);
-			const rtts = clients.map((c) => c.rtt).filter((r): r is number => r !== null);
-			return {
-				ip,
-				name: peer?.name ?? ip,
-				os: peer?.os ?? null,
-				path: peer?.path ?? null,
-				connections: clients.length,
-				connectedAt: Math.min(...clients.map((c) => c.connectedAt)),
-				bytesOut: sum((c) => c.queue.bytesOut),
-				bytesIn: sum((c) => c.bytesIn),
-				wireOut: Math.round(sum((c) => c.queue.bytesOut * c.ratio)),
-				treesSent: sum((c) => c.queue.treesSent),
-				treesSkipped: sum((c) => c.queue.treesSkipped),
-				rtt: rtts.length ? Math.min(...rtts) : null,
-			};
-		});
+	/** One device's open connections (windows), summed, with Tailscale's view of the device. */
+	private connection(clients: RemoteClient[]): RemoteConnection {
+		const ip = clients[0]!.ip;
+		const peer = ip ? this.peers.get(ip) : undefined;
+		const sum = (pick: (c: RemoteClient) => number) => clients.reduce((n, c) => n + pick(c), 0);
+		const rtts = clients.map((c) => c.rtt).filter((r): r is number => r !== null);
+		return {
+			ip,
+			tailscaleName: peer?.name ?? null,
+			os: peer?.os ?? null,
+			path: peer?.path ?? null,
+			connections: clients.length,
+			connectedAt: Math.min(...clients.map((c) => c.connectedAt)),
+			bytesOut: sum((c) => c.queue.bytesOut),
+			bytesIn: sum((c) => c.bytesIn),
+			wireOut: Math.round(sum((c) => c.queue.bytesOut * c.ratio)),
+			treesSent: sum((c) => c.queue.treesSent),
+			treesSkipped: sum((c) => c.queue.treesSkipped),
+			rtt: rtts.length ? Math.min(...rtts) : null,
+		};
 	}
 
 	private emit() {

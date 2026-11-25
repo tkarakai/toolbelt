@@ -31,9 +31,10 @@ export type PairedDevice = {
 	/** Tailscale's device name and the browser or home-screen app, e.g. "iphone (Home Screen app)". */
 	name: string;
 	pairedAt: number;
+	/** When it last connected or disconnected. */
 	lastSeen: number;
-	/** Whether it has ToolBelt open right now. */
-	connected: boolean;
+	/** Its live connection while it has ToolBelt open, else null. */
+	live: RemoteConnection | null;
 };
 
 /** The pairing the Mac is showing, while it lasts. */
@@ -87,10 +88,12 @@ export type ServeRule =
 	| { state: "ours" }
 	| { state: "conflict"; target: string };
 
-export type RemoteDevice = {
-	/** Tailnet IP, the device's key. */
-	ip: string;
-	name: string;
+/** A paired device's open connections (one per window), with Tailscale's view of the device. */
+export type RemoteConnection = {
+	/** Tailnet IP (from Serve). */
+	ip: string | null;
+	/** Tailscale's name for the device. */
+	tailscaleName: string | null;
 	os: string | null;
 	/** "direct", "relay <region>" or null when Tailscale does not know. */
 	path: string | null;
@@ -120,8 +123,7 @@ export type RemoteAccessState = {
 	reachError: string | null;
 	/** The address to open on a phone (null until Tailscale's name is known). */
 	url: string | null;
-	devices: RemoteDevice[];
-	/** Devices allowed to connect. */
+	/** Devices allowed to connect, with their live connections. */
 	paired: PairedDevice[];
 	/** The pairing in progress, or null. */
 	pairing: PairingView | null;
@@ -138,7 +140,8 @@ export type RemoteAccessRequest =
 	| { operation: "setPort"; port: number; moveRule?: boolean }
 	| { operation: "createRule" }
 	| { operation: "removeRule" }
-	| { operation: "disconnect"; ip: string }
+	/** Ends a paired device's connections; it stays paired. */
+	| { operation: "disconnect"; id: string }
 	/** Shows a new pairing code and QR code (replacing one in progress). */
 	| { operation: "startPairing" }
 	| { operation: "stopPairing" }

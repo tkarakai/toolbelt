@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Settings → Remote Access serves ToolBelt and its plugins to your phone or tablet through Tailscale. ToolBelt creates the Tailscale Serve rule after you confirm, and can remove it. Only your Tailscale account can connect, and each phone, tablet or browser pairs once with the Mac: choose Pair a device and scan its QR code, or type its six-digit code. The tab shows Tailscale's status, the address, paired devices (removing one disconnects it), and connected devices with their data use, and can disconnect a device.
+- Settings → Remote Access serves ToolBelt and its plugins to your phone or tablet through Tailscale. ToolBelt creates the Tailscale Serve rule after you confirm, and can remove it. Only your Tailscale account can connect, and each phone, tablet or browser pairs once with the Mac: choose Pair a device and scan its QR code, or type its six-digit code. The tab shows the address, your devices (paired ones, with live connection details and data use while connected, which you can disconnect or remove), and Tailscale's status.
 - On a phone, ToolBelt installs to the home screen as a web app: it reconnects by itself, starts without re-downloading the app over slow links, and can show the total of chosen plugins' badges on its icon.
 - Scanning the pairing QR code opens install help for that phone: the exact Add to Home Screen steps on iPhone and iPad, or an Install ToolBelt button on Android.
 - On touch screens, key hints stay hidden until you use a keyboard. Narrow windows get a button to show the tools list.

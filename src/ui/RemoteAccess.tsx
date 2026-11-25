@@ -16,7 +16,7 @@ import { inApp, remoteClient } from "./lib/device";
 import { badgePermission, badgeSupported, CopyAddressButton, InstallSteps, StepText, useInstall } from "./remote-client";
 import { pillClass, textClass } from "./renderer/colors";
 import { cn } from "./lib/utils";
-import { pairingLink, validPort, type PairedDevice, type RemoteAccessRequest, type RemoteAccessState, type RemoteDevice } from "../shared/remote";
+import { pairingLink, validPort, type PairedDevice, type RemoteAccessRequest, type RemoteAccessState, type RemoteConnection } from "../shared/remote";
 
 const ADMIN_DNS = "https://login.tailscale.com/admin/dns";
 const ADMIN_MACHINES = "https://login.tailscale.com/admin/machines";
@@ -53,8 +53,7 @@ export function RemoteAccessSettings() {
 		<div className="space-y-8">
 			{!inApp && <ThisDeviceGroup />}
 			<AccessGroup state={state} confirm={setConfirming} />
-			<PairedGroup state={state} confirm={setConfirming} />
-			<DevicesGroup state={state} />
+			<DevicesGroup state={state} confirm={setConfirming} />
 			<BadgeGroup state={state} />
 			{/* Setup details: needed once, so they come last. */}
 			<TailscaleGroup state={state} confirm={setConfirming} />
@@ -113,7 +112,7 @@ function AddressRow({ url, reachable }: { url: string; reachable: RemoteAccessSt
 			description={
 				<>
 					<span className="block break-all font-mono text-foreground">{url}</span>
-					Devices pair once before they can use it: see Paired devices.
+					Devices pair once before they can use it: see Devices.
 					{reachable === "no" && <span className="text-destructive"> The address doesn’t answer yet; see Tailscale below.</span>}
 				</>
 			}
@@ -163,7 +162,11 @@ function qrSvg(text: string) {
 
 // ── pairing (docs/remote-access.md, "Pairing") ─────────────────────────────────
 
-function PairedGroup({ state, confirm }: { state: RemoteAccessState; confirm: (c: Confirmation) => void }) {
+/**
+ * Paired devices, the only ones that can connect, connected ones first with their live
+ * connection: path, round trip and data use. One row per browser or home-screen app.
+ */
+function DevicesGroup({ state, confirm }: { state: RemoteAccessState; confirm: (c: Confirmation) => void }) {
 	const [open, setOpen] = useState(false);
 	const ready = state.running && !!state.url && state.rule.state === "ours";
 	const start = async () => {
@@ -184,8 +187,8 @@ function PairedGroup({ state, confirm }: { state: RemoteAccessState; confirm: (c
 		});
 	return (
 		<SettingsGroup
-			title="Paired devices"
-			description="Besides being signed in to your Tailscale account, a device needs this Mac’s approval: pair each phone, tablet or browser once. A home-screen app pairs separately from its browser."
+			title="Devices"
+			description="Besides being signed in to your Tailscale account, a device needs this Mac’s approval: pair each phone, tablet or browser once. A home-screen app pairs separately from its browser. Disconnect ends a session; Remove takes the approval back."
 			actions={
 				<Button size="sm" disabled={!ready} onClick={() => void start()} title={ready ? undefined : "Turn on remote access and create the Tailscale rule first"}>
 					<KeyRound />
@@ -194,28 +197,72 @@ function PairedGroup({ state, confirm }: { state: RemoteAccessState; confirm: (c
 			}
 		>
 			{state.paired.length ? (
-				state.paired.map((device) => (
-					<div key={device.id} className="flex flex-wrap items-center gap-3 px-5 py-3 animate-in fade-in-0 duration-300">
-						<Smartphone className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-						<div className="min-w-0 flex-1">
-							<div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-								<span className="break-words">{device.name}</span>
-								{device.id === me && <span className={cn("rounded-full px-2 py-0.5 text-xs font-normal", pillClass("default"))}>This device</span>}
-								{device.connected && <span className={cn("rounded-full px-2 py-0.5 text-xs font-normal", pillClass("success"))}>Connected</span>}
-							</div>
-							<div className="text-xs text-muted-foreground">Paired {day(device.pairedAt)} · last used {since(device.lastSeen)}</div>
-						</div>
-						<Button size="sm" variant="outline" onClick={() => revoke(device)}>
-							<Trash2 />
-							Remove…
-						</Button>
-					</div>
-				))
+				state.paired.map((device) => <DeviceRow key={device.id} device={device} me={device.id === me} revoke={() => revoke(device)} />)
 			) : (
-				<div className="px-5 py-4 text-sm text-muted-foreground">No paired devices yet. {ready ? "Choose Pair a device to show a code." : "Pairing needs remote access on and the Tailscale rule."}</div>
+				<div className="px-5 py-4 text-sm text-muted-foreground">No paired devices yet. {ready ? "Choose Pair a device and scan its code with your phone." : "Pairing needs remote access on and the Tailscale rule."}</div>
 			)}
 			<PairDialog state={state} open={open} close={close} />
 		</SettingsGroup>
+	);
+}
+
+function DeviceRow({ device, me, revoke }: { device: PairedDevice; me: boolean; revoke: () => void }) {
+	const live = device.live;
+	const relayed = live?.path?.startsWith("relay");
+	return (
+		<div className="space-y-3 px-5 py-4 animate-in fade-in-0 duration-300">
+			<div className="flex flex-wrap items-center gap-3">
+				<Smartphone className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+				<div className="min-w-0 flex-1">
+					<div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+						<span className="break-words">{device.name}</span>
+						{me && <span className={cn("rounded-full px-2 py-0.5 text-xs font-normal", pillClass("default"))}>This device</span>}
+						{live && <span className={cn("rounded-full px-2 py-0.5 text-xs font-normal", pillClass("success"))}>Connected</span>}
+						{live?.path && (
+							<span className={cn("rounded-full px-2 py-0.5 text-xs font-normal", pillClass(relayed ? "warning" : "default"))} title={relayed ? "Tailscale can’t connect directly and relays this device’s traffic, which is slower." : undefined}>
+								{live.path}
+							</span>
+						)}
+					</div>
+					<div className="text-xs text-muted-foreground">
+						{live
+							? [live.os, live.ip, `connected ${since(live.connectedAt)}`, live.connections > 1 && `${live.connections} windows`].filter(Boolean).join(" · ")
+							: `Paired ${day(device.pairedAt)} · last used ${since(device.lastSeen)}`}
+					</div>
+				</div>
+				<div className="flex flex-wrap gap-2">
+					{live && (
+						<Button size="sm" variant="outline" onClick={() => void run({ operation: "disconnect", id: device.id }, `${device.name} disconnected`)}>
+							<Unplug />
+							Disconnect
+						</Button>
+					)}
+					<Button size="sm" variant="outline" onClick={revoke}>
+						<Trash2 />
+						Remove…
+					</Button>
+				</div>
+			</div>
+			{live && <ConnectionStats live={live} />}
+		</div>
+	);
+}
+
+function ConnectionStats({ live }: { live: RemoteConnection }) {
+	const stat = (label: string, value: ReactNode) => (
+		<div className="min-w-0">
+			<dt className="text-xs text-muted-foreground">{label}</dt>
+			<dd className="font-mono text-xs">{value}</dd>
+		</div>
+	);
+	return (
+		<dl className="grid grid-cols-2 gap-3 animate-in fade-in-0 duration-200 sm:grid-cols-5">
+			{stat("Sent", <>{bytes(live.bytesOut)}<span className="block text-muted-foreground">≈{bytes(live.wireOut)} compressed</span></>)}
+			{stat("Received", bytes(live.bytesIn))}
+			{stat("Screens sent", live.treesSent.toLocaleString())}
+			{stat("Stale skipped", live.treesSkipped.toLocaleString())}
+			{stat("Round trip", live.rtt === null ? "—" : `${live.rtt} ms`)}
+		</dl>
 	);
 }
 
@@ -242,13 +289,14 @@ function PairDialog({ state, open, close }: { state: RemoteAccessState; open: bo
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle>Pair a device</DialogTitle>
-					<DialogDescription>Scan the code with the phone’s camera: it opens ToolBelt already paired, then shows how to add it to the home screen. Or open the address and type the six digits.</DialogDescription>
+					<DialogDescription>Scan the QR code with the phone’s camera. That pairs the phone, with no code to type, and shows how to add ToolBelt to the home screen.</DialogDescription>
 				</DialogHeader>
 				{live && pairing ? (
 					<div className="flex flex-wrap items-center justify-center gap-6 animate-in fade-in-0 duration-200">
 						{/* Dark modules on white, in both themes: scanners need the contrast. */}
 						<div className="shrink-0 rounded-lg bg-white p-2 text-black" role="img" aria-label="Pairing QR code" dangerouslySetInnerHTML={{ __html: svg }} />
-						<div className="space-y-2 text-center">
+						<div className="max-w-44 space-y-2 text-center">
+							<div className="text-xs text-muted-foreground">Can’t scan? On the device, open the address and type:</div>
 							<div className="font-mono text-3xl font-semibold tabular-nums tracking-[0.2em]" aria-label={`Code ${pairing.code.split("").join(" ")}`}>
 								{pairing.code.slice(0, 3)} {pairing.code.slice(3)}
 							</div>
@@ -258,6 +306,7 @@ function PairDialog({ state, open, close }: { state: RemoteAccessState; open: bo
 				) : (
 					<p className="text-sm text-muted-foreground">{pairing ? "This code expired." : "This pairing ended: it expired, or too many wrong codes were tried."} Show a new code to pair.</p>
 				)}
+				<p className="text-xs text-muted-foreground">Added to the home screen, ToolBelt pairs once more: open it there and type the code, while it lasts.</p>
 				{pairing && pairing.paired.length > 0 && (
 					<ul className="space-y-1 text-sm" aria-live="polite">
 						{pairing.paired.map((name) => (
@@ -472,54 +521,6 @@ const since = (at: number) => {
 	const minutes = Math.round((Date.now() - at) / 60_000);
 	return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ${minutes % 60} min ago`;
 };
-
-function DevicesGroup({ state }: { state: RemoteAccessState }) {
-	if (!state.running && !state.devices.length) return null;
-	return (
-		<SettingsGroup title="Connected devices" description="Devices with ToolBelt open right now. Disconnect ends a session; it isn’t a ban: remove a lost device in Tailscale.">
-			{state.devices.length ? (
-				state.devices.map((device) => <DeviceRow key={device.ip} device={device} />)
-			) : (
-				<div className="px-5 py-4 text-sm text-muted-foreground">No devices connected.</div>
-			)}
-		</SettingsGroup>
-	);
-}
-
-function DeviceRow({ device }: { device: RemoteDevice }) {
-	const stat = (label: string, value: ReactNode) => (
-		<div className="min-w-0">
-			<dt className="text-xs text-muted-foreground">{label}</dt>
-			<dd className="font-mono text-xs">{value}</dd>
-		</div>
-	);
-	const relayed = device.path?.startsWith("relay");
-	return (
-		<div className="space-y-3 px-5 py-4 animate-in fade-in-0 duration-300">
-			<div className="flex flex-wrap items-center gap-3">
-				<Smartphone className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-				<div className="min-w-0 flex-1">
-					<div className="text-sm font-medium break-words">{device.name}</div>
-					<div className="text-xs text-muted-foreground">
-						{[device.os, device.ip, `connected ${since(device.connectedAt)}`, device.connections > 1 && `${device.connections} windows`].filter(Boolean).join(" · ")}
-					</div>
-				</div>
-				{device.path && <span className={cn("rounded-full px-2 py-0.5 text-xs", pillClass(relayed ? "warning" : "default"))} title={relayed ? "Tailscale can’t connect directly and relays this device’s traffic, which is slower." : undefined}>{device.path}</span>}
-				<Button size="sm" variant="outline" onClick={() => void run({ operation: "disconnect", ip: device.ip }, `${device.name} disconnected`)}>
-					<Unplug />
-					Disconnect
-				</Button>
-			</div>
-			<dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-				{stat("Sent", <>{bytes(device.bytesOut)}<span className="block text-muted-foreground">≈{bytes(device.wireOut)} compressed</span></>)}
-				{stat("Received", bytes(device.bytesIn))}
-				{stat("Screens sent", device.treesSent.toLocaleString())}
-				{stat("Stale skipped", device.treesSkipped.toLocaleString())}
-				{stat("Round trip", device.rtt === null ? "—" : `${device.rtt} ms`)}
-			</dl>
-		</div>
-	);
-}
 
 function BadgeGroup({ state }: { state: RemoteAccessState }) {
 	const plugins = usePlugins();

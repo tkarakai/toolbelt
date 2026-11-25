@@ -100,6 +100,14 @@ export class DeviceRegistry {
 		return { token: issued, device: { id: device.id, name: device.name } };
 	}
 
+	/** Records that a device was just in use (its connection ended). */
+	touch(id: string) {
+		const device = this.devices.find((d) => d.id === id);
+		if (!device) return;
+		device.lastSeen = this.now();
+		this.save();
+	}
+
 	revoke(id: string): boolean {
 		const before = this.devices.length;
 		this.devices = this.devices.filter((d) => d.id !== id);

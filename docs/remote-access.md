@@ -137,10 +137,11 @@ replacement.
   **Done** ends it, and so does turning remote access off. Five wrong codes end it too
   (`PAIRING_MAX_FAILURES`), which caps guessing at five tries per code the Mac shows. A paired
   remote device can also show a code; it is already trusted.
-- **Pairing.** Within those five minutes any number of devices may pair, so a phone can pair
-  its browser and then its home-screen app (iOS gives them separate storage). Arriving from the
-  QR code, the page takes the secret out of the address before the router reads it and pairs at
-  once; otherwise the pairing screen asks for the six digits. Requests made meanwhile wait, and
+- **Pairing.** Scanning the QR code is the pairing: the page takes the secret out of the
+  address before the router reads it and pairs at once, with nothing to type. The six digits
+  are for a device that can't scan, typed on its pairing screen; the dialog says so. Within the
+  five minutes any number of devices may pair, so a phone can pair its browser and then its
+  home-screen app (iOS gives them separate storage), which types the code. Requests made meanwhile wait, and
   the page carries on once paired. The dialog on the Mac lists each device as it pairs.
 - **Tokens.** A paired device gets a random 256-bit token, kept in its local storage (in memory
   only if storage is refused, so it lasts until the page closes). ToolBelt stores only SHA-256
@@ -149,9 +150,8 @@ replacement.
   everything pairs again rather than anything getting in.
 - **Names.** The device's Tailscale name plus how ToolBelt runs there, e.g.
   `iphone (Home Screen app)` or `ipad (Safari)`, made unique with a number.
-- **Removing.** **Paired devices** lists each one with when it last connected and whether it is
-  connected now. **Remove…** forgets it and closes its connections with close code 4003: the
-  client forgets its token and shows the pairing screen. From the device itself, the
+- **Removing.** In **Devices**, **Remove…** forgets a device and closes its connections with
+  close code 4003: the client forgets its token and shows the pairing screen. From the device itself, the
   confirmation says that it loses access. Disconnect (4001) only ends a session; the pairing
   stays.
 
@@ -235,8 +235,7 @@ ToolBelt runs again with remote access on. The service worker treats that as unr
   here.
 - **Address**: the address and a copy button, once the rule is ToolBelt's.
 - **Port**.
-- **Paired devices** and **Pair a device** (see Pairing).
-- **Connected devices** (below).
+- **Devices** and **Pair a device** (below, and Pairing).
 - **Home-screen badge**: which plugins count toward the badge, and on a device that needs it,
   the button that asks for badge permission.
 - **Tailscale**, last because it matters mainly during setup: labelled rows from `tailscale
@@ -248,17 +247,22 @@ The tab works remotely too. Turning remote access off, removing the rule or chan
 from a remote device cuts that device's own connection, so those confirmations add that access
 stays lost until it is set up again at the Mac.
 
-## Connected devices
+## Devices
 
-A device appears while it has a live, paired connection and disappears when it closes. Its name, OS and path come from the peer in `tailscale status --json` whose tailnet IP Serve
-forwarded; several windows on one device group under it.
+Only paired devices can connect, so one list covers both: every paired device, one row per
+browser or home-screen app (a phone's Safari and its home-screen app are two rows), connected
+ones first. A device that isn't connected shows when it was paired and last used (the end of
+its last connection). A connected one shows its live connection: OS, tailnet IP and path from
+the peer in `tailscale status --json` whose IP Serve forwarded, connected since, and several
+windows summed under it.
 
-Per device: connected since; bytes sent (and an estimate after compression, from sampling
+Per connected device: bytes sent (and an estimate after compression, from sampling
 every eighth larger message with deflate) and received; screens sent and stale screens skipped;
 the heartbeat round trip; and whether Tailscale reaches it directly or through a DERP relay
 (`CurAddr`/`Relay`). A relay is often the real cause of slowness on cellular.
 
-**Disconnect** closes the device's connections with close code 4001. The client stops
+**Disconnect** closes that device's connections (not others from the same phone) with close
+code 4001. The client stops
 reconnecting and shows "Disconnected from your Mac" with **Reconnect**. Disconnect ends a
 session left open; to keep a device out, remove its pairing (or the device in Tailscale).
 
