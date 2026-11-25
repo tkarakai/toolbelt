@@ -70,15 +70,19 @@ const realDate = (y: number, m: number, d: number) => {
 	const date = new Date(y, m, d);
 	return date.getFullYear() === y && date.getMonth() === m && date.getDate() === d ? isoDate(date) : null;
 };
-/** The next date (today included) on day `d` of month `m`; this year if not past, else next. */
-const nextOn = (today: string, m: number, d: number) => {
+/** The next date (today included) on day `d` of month `m`; this year if not past, else next.
+ *  With `past`, the latest one up to today: this year's, or last year's if it's still ahead. */
+const nextOn = (today: string, m: number, d: number, past = false) => {
 	const y = toDate(today).getFullYear();
 	const here = realDate(y, m, d);
+	if (past) return here && here <= today ? here : realDate(y - 1, m, d);
 	return here && here >= today ? here : realDate(y + 1, m, d);
 };
 
-/** The date part alone: "today", "fri", "next fri", "+3d", "in 2 weeks", "nov 20", "11/20", "2026-11-20", "20". */
-function parseDay(t: string, today: string): string | null {
+/** The date part alone: "today", "fri", "next fri", "last fri", "+3d", "in 2 weeks", "3d ago",
+ *  "-2w", "nov 20", "11/20", "2026-11-20", "20". With `past`, a date that could be either way
+ *  ("fri", "nov 20", "20") is the latest one up to today rather than the next one. */
+function parseDay(t: string, today: string, past = false): string | null {
 	if (!t || t === "today" || t === "tod" || t === "now") return today;
 	if (t === "tomorrow" || t === "tmr" || t === "tom" || t === "tmrw") return addDays(today, 1);
 	if (t === "yesterday") return addDays(today, -1);
@@ -92,22 +96,26 @@ function parseDay(t: string, today: string): string | null {
 		const d = toDate(today);
 		return isoDate(new Date(d.getFullYear(), d.getMonth() + 1, 0));
 	}
-	// Offsets: "+3d", "3d", "in 3 days", "2w", "+1m", "in a week".
-	const off = /^(?:\+|in )?(\d+|an?) ?(d|day|days|w|wk|wks|week|weeks|m|mo|month|months|y|yr|year|years)$/.exec(t);
-	if (off) {
-		const n = off[1] === "a" || off[1] === "an" ? 1 : Number(off[1]);
-		const u = off[2]![0];
+	// Offsets: "+3d", "3d", "in 3 days", "2w", "+1m", "in a week"; back: "-3d", "3 days ago".
+	const off = /^(\+|-|in )?(\d+|an?) ?(d|day|days|w|wk|wks|week|weeks|m|mo|month|months|y|yr|year|years)( ago)?$/.exec(t);
+	if (off && !(off[1] && off[4])) {
+		const n = (off[2] === "a" || off[2] === "an" ? 1 : Number(off[2])) * (off[1] === "-" || off[4] ? -1 : 1);
+		const u = off[3]![0];
 		if (u === "d") return addDays(today, n);
 		if (u === "w") return addDays(today, 7 * n);
 		if (u === "m") return addMonths(today, n);
 		return addMonths(today, 12 * n);
 	}
-	// Weekdays: "fri" is the next Friday (today counts), "next fri" the one after this week's.
-	const wd = /^(next |this )?([a-z.]+)$/.exec(t);
+	// Weekdays: "fri" is the next Friday (today counts), "next fri" the one after this week's;
+	// "last fri" the latest one before today. With `past`, "fri" is the latest one (today counts).
+	const wd = /^(next |this |last )?([a-z.]+)$/.exec(t);
 	if (wd) {
 		const dow = weekday(wd[2]!);
 		if (dow >= 0) {
 			const ahead = (dow - toDate(today).getDay() + 7) % 7;
+			const back = (toDate(today).getDay() - dow + 7) % 7;
+			if (wd[1] === "last ") return addDays(today, -(back || 7));
+			if (past && !wd[1]) return addDays(today, -back);
 			return addDays(today, wd[1] === "next " ? ahead + 7 : ahead);
 		}
 	}
@@ -118,23 +126,23 @@ function parseDay(t: string, today: string): string | null {
 	const md = /^([a-z.]+) (\d{1,2})(?:st|nd|rd|th)?,? ?(\d{4})?$/.exec(t) ?? null;
 	const dm = /^(\d{1,2})(?:st|nd|rd|th)? ([a-z.]+),? ?(\d{4})?$/.exec(t) ?? null;
 	const named = md ? { m: month(md[1]!), d: Number(md[2]), y: md[3] } : dm ? { m: month(dm[2]!), d: Number(dm[1]), y: dm[3] } : null;
-	if (named && named.m >= 0) return named.y ? realDate(Number(named.y), named.m, named.d) : nextOn(today, named.m, named.d);
+	if (named && named.m >= 0) return named.y ? realDate(Number(named.y), named.m, named.d) : nextOn(today, named.m, named.d, past);
 	// Numeric month/day ("11/20", "11/20/2026"), as written in the US.
 	const slash = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/.exec(t);
 	if (slash) {
 		const [m, d] = [Number(slash[1]) - 1, Number(slash[2])];
-		if (!slash[3]) return nextOn(today, m, d);
+		if (!slash[3]) return nextOn(today, m, d, past);
 		const y = slash[3].length === 2 ? 2000 + Number(slash[3]) : Number(slash[3]);
 		return realDate(y, m, d);
 	}
-	// A day of the month alone: "20" is the next 20th.
+	// A day of the month alone: "20" is the next 20th (with `past`, the latest one).
 	const dom = /^(\d{1,2})(?:st|nd|rd|th)?$/.exec(t);
 	if (dom) {
 		const d = Number(dom[1]);
 		const now = toDate(today);
 		for (let i = 0; i < 12; i++) {
-			const c = realDate(now.getFullYear(), now.getMonth() + i, d);
-			if (c && c >= today) return c;
+			const c = realDate(now.getFullYear(), now.getMonth() + (past ? -i : i), d);
+			if (c && (past ? c <= today : c >= today)) return c;
 		}
 	}
 	return null;
@@ -142,19 +150,20 @@ function parseDay(t: string, today: string): string | null {
 
 /**
  * What a person typed, as a date with an optional time. A time alone means today at that time.
- * `today` is the local `YYYY-MM-DD`. Null when it can't be read.
+ * `today` is the local `YYYY-MM-DD`; `past` reads dates that could go either way as past ones.
+ * Null when it can't be read.
  */
-export function parseInput(input: string, today: string): Parts | null {
+export function parseInput(input: string, today: string, past = false): Parts | null {
 	const t = input.trim().toLowerCase().replace(/\s+/g, " ").replace(/,$/, "");
 	if (!t) return null;
 	// ISO with a time: 2026-11-20T14:30 or 2026-11-20 14:30.
 	const isoTime = /^(\d{4}-\d{1,2}-\d{1,2})[t ](.+)$/.exec(t);
 	if (isoTime) {
-		const date = parseDay(isoTime[1]!, today);
+		const date = parseDay(isoTime[1]!, today, past);
 		const time = parseTime(isoTime[2]!);
 		return date && time ? { date, time } : null;
 	}
-	const whole = parseDay(t, today);
+	const whole = parseDay(t, today, past);
 	if (whole) return { date: whole };
 	const time = parseTime(t);
 	if (time) return { date: today, time };
@@ -165,7 +174,7 @@ export function parseInput(input: string, today: string): Parts | null {
 		const head = words.slice(0, i).join(" ").replace(/,$/, "").replace(/ at$/, "");
 		const tm = parseTime(tail);
 		if (!tm) continue;
-		const date = parseDay(head, today);
+		const date = parseDay(head, today, past);
 		if (date) return { date, time: tm };
 	}
 	return null;

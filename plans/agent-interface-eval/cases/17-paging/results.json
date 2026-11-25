@@ -1,0 +1,29 @@
+[
+  {
+    "step": "initialize",
+    "protocolVersion": "2025-06-18",
+    "instructions": "ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. Access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. Plugins the person or plugin author kept from agents are not listed."
+  },
+  {
+    "step": "tools/list",
+    "tools": [
+      "toolbelt_status",
+      "list_screens",
+      "read_screen",
+      "search_screens",
+      "list_plugins"
+    ]
+  },
+  {
+    "step": "tools/call read_screen",
+    "args": {
+      "plugin": "sdk-demo",
+      "screen": "table",
+      "max_rows": 3,
+      "details": false
+    },
+    "ms": 0,
+    "isError": false,
+    "text": "# SDK Explorer › Tables (plugin \"sdk-demo\", screen \"table\")\nrendered now\n\nSummary: 0 events · table\nFilter Fixtures: all (options: Decorated 1, Plain 1)\nControl Fixture scope: Focused (options: Focused, Expanded)\nToolbar actions: Count event, Open dialog, Copy fixture, Toast with action\n\n## Table capability-table: 2 rows, sorted by Name\nColumns: Name · Value · When\nRow actions: Inspect, Choose target, Reset fixture\nBulk actions: Report selected\n### Examples (feature/sdk) › Decorated cells\n- (Ready) Declarative interface {A mark} <asset, fixture> — [Public SDK] Select to inspect every detail · 42 · 2026-11-24 22:27 (1m ago)  {id: parent}\n  - Nested fixture · 3  {id: child}\n### Plain group\n- Plain string · 7 · 2026-11-24 23:28 (in 1h)  {id: plain}\n\n## Table queue: 6 rows\nColumns: Queue fixture · Section\nRow actions: Move up, Move down, Mark unread\n### Pinned\n- Pinned fixture · pinned  {id: q1}\n### Inbox\n- Unread fixture — Unread until selected · inbox  {id: q2} [unread]\n- Inbox fixture · inbox  {id: q3}\n(showing rows 1–3 of 6; read again with table \"queue\" and offset 3 for more)"
+  }
+]

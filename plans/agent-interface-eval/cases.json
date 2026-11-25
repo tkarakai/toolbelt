@@ -1,0 +1,343 @@
+{
+  "run": {
+    "date": "2026-11-24",
+    "host": "ToolBelt 0.3.24 + agent interface (branch feat/agent-interface-read-only), browser preview, isolated config folder, development profile agents-eval",
+    "plugins": [
+      "Processes 0.1.7 + agent.access none (local build of toolbelt-ps feat/agent-access-none)",
+      "Upkeep 0.2.0 (released archive)",
+      "OnTrack 0.14.0 (released archive)",
+      "SDK Explorer 0.2.1 (released archive)"
+    ],
+    "data": "OnTrack seeded with 11 life-like tasks through its own model; Upkeep seeded with 6 custom recipes whose commands only print versions (no real software checked or updated).",
+    "agent": "Claude (this session) acting as the agent: chose the tool calls, read the results and wrote the answers below. MCP cases go through the real stdio shim (toolbelt mcp) like Claude Code would; CLI cases run the toolbelt command."
+  },
+  "cases": [
+    {
+      "id": "01-whats-on-my-plate",
+      "title": "What's on my plate today?",
+      "prompt": "What's on my plate today?",
+      "channel": "MCP",
+      "persona": "Person chatting with Claude Desktop",
+      "calls": [
+        "toolbelt_status",
+        "read_screen ontrack (details: false)"
+      ],
+      "answer": "Most urgent: **Submit November expense report** is overdue (due Sat, Nov 21, Finance).\n\nTomorrow at 2:00 PM: **Q4 budget review with finance**. It has stalled (untouched for 3 days) and its subtask *Draft budget slides* hasn't started.\n\nIn progress: **Migrate CI to the new runners** (untouched 2 days). Stalled and blocked: **Fix flaky remote-access test** (6 days).\n\nComing up: **Renew passport** (Sat, Nov 28, high priority) and **Plan team offsite agenda** (Dec 5). Waiting: the Acme printer quote, check-in due tonight around 00:24. The dentist booking is snoozed until Dec 1.\n\nI'd start with the expense report, then prepare for tomorrow's budget review.",
+      "verdict": "pass",
+      "notes": "Two calls, about 3.1k characters of tool output. Sections, due dates, stall state, unread markers and relative times were enough for a prioritized answer."
+    },
+    {
+      "id": "02-out-of-date",
+      "title": "Is anything on my Mac out of date?",
+      "prompt": "Is anything on my Mac out of date?",
+      "channel": "MCP",
+      "persona": "Person chatting with Claude Desktop",
+      "calls": [
+        "read_screen upkeep (details: false)"
+      ],
+      "answer": "Upkeep watches 6 things:\n\n- **3 updates are waiting**, all marked *review first* because they're your own recipes: Ollama 0.5.1 → 0.6.2, Node.js LTS 22.11.0 → 24.1.0 and Cursor 0.42.3 → 0.43.1.\n- **Internal deploy CLI needs you**: its check fails (the newest-version command exits with code 3).\n- **Postgres.app is held back**: pinned at 16.4 while 17.2 is out.\n- **Terraform 1.9.8** is up to date.\n\nTo update, open Upkeep › Updates and use *Review & update…* on each one. I can only read ToolBelt, so I can't run them.",
+      "verdict": "pass",
+      "notes": "One call, about 1.4k characters. The Needs you, Review first, Up to date and Held back sections map directly onto the answer."
+    },
+    {
+      "id": "03-budget-latest",
+      "title": "What's the latest on the Q4 budget review?",
+      "prompt": "What's the latest on the Q4 budget review?",
+      "channel": "MCP",
+      "persona": "Person chatting with Claude Desktop",
+      "calls": [
+        "search_screens \"budget\"",
+        "read_screen ontrack tasks (with details)"
+      ],
+      "answer": "The **Q4 budget review with finance** is tomorrow (Nov 25) at 2:00 PM. Its latest update, from yesterday: *\"Waiting for the headcount figures from HR before the meeting.\"* Before that (4 days ago) you sent the draft numbers to Maria.\n\nOnTrack marked it **stalled** today because nothing happened for 3 days. Its subtask **Draft budget slides** is still *Todo* and stalled too.\n\nYou may want to chase HR for the headcount and block time for the slides before tomorrow.",
+      "verdict": "pass",
+      "notes": "Search found the task. The full read (about 8k characters) gave the update timeline from the row's details pane. Getting one task's history meant reading the whole screen, see finding O2."
+    },
+    {
+      "id": "04-port-3000",
+      "title": "Which process is using port 3000?",
+      "prompt": "Which process is using port 3000?",
+      "channel": "MCP",
+      "persona": "Developer in Claude Code",
+      "calls": [
+        "toolbelt_status",
+        "search_screens \"3000\"",
+        "read_screen processes (refused)"
+      ],
+      "answer": "I can't see running processes through ToolBelt. One of your plugins isn't shared with agents, and none of the screens I can read mention port 3000. If you use ToolBelt's Processes plugin, its Processes screen lists ports. In a terminal, `lsof -nP -iTCP:3000 -sTCP:LISTEN` shows the same.",
+      "verdict": "pass",
+      "notes": "Processes declares agent.access none. The agent learns only that one plugin is hidden, not which one. A read of `processes` gets the same refusal as a plugin that doesn't exist, and the audit log records it as denied."
+    },
+    {
+      "id": "05-update-ollama",
+      "title": "Update Ollama for me",
+      "prompt": "Update Ollama for me.",
+      "channel": "MCP",
+      "persona": "Person chatting with Claude Desktop",
+      "calls": [
+        "search_screens \"ollama\" (plugin: upkeep)"
+      ],
+      "answer": "I can't update software: my access to ToolBelt is read-only for now. Ollama 0.5.1 → 0.6.2 is waiting in **Upkeep › Updates**, under *Review first*, because it's a custom recipe. Open it and choose **Review & update…** to see the command before it runs. It was found by today's scheduled check.",
+      "verdict": "pass",
+      "notes": "The agent correctly redirects to the place where the person can act. This is the main use case phase 1b (guarded actions with approval) unlocks."
+    },
+    {
+      "id": "06-waiting-on-others",
+      "title": "What am I waiting on from other people?",
+      "prompt": "What am I waiting on from other people?",
+      "channel": "MCP",
+      "persona": "Person chatting with Claude Desktop",
+      "calls": [
+        "search_screens \"waiting\"",
+        "search_screens \"watching\" (plugin: ontrack)"
+      ],
+      "answer": "Two things:\n\n1. **HR's headcount figures** for the Q4 budget review (noted yesterday). The review is tomorrow at 2 PM.\n2. **Acme's quote for the office printers**. You asked a week ago and are watching it weekly. The next check-in is tonight around 00:24, and you haven't checked yet.",
+      "verdict": "pass",
+      "notes": "The first run of this case surfaced noisy search hits: action labels (\"Stop watching\") and filter lines. Search now skips a screen's controls (finding F6, fixed). Its plugin filter narrows the results further."
+    },
+    {
+      "id": "07-upkeep-activity",
+      "title": "Did any update fail recently?",
+      "prompt": "Did any of my updates fail recently?",
+      "channel": "MCP",
+      "persona": "Person chatting with Claude Desktop",
+      "calls": [
+        "list_screens upkeep",
+        "read_screen upkeep activity (max_rows 20)"
+      ],
+      "answer": "No update has run, so none failed. The only activity is today's scheduled check at 22:24. It checked 6 items and found 3 new updates (Ollama, Node.js LTS, Cursor). One check failed: **Internal deploy CLI**, whose newest-version command exited with code 3. Upkeep keeps that run's log if you want to look. Postgres.app has 17.2 available but stays pinned.",
+      "verdict": "pass",
+      "notes": "The Activity screen's nested rows (one run with one row per item) came through with their details. The details include local log file paths, which is the plugin's own content."
+    },
+    {
+      "id": "08-toolbelt-updates",
+      "title": "Are there ToolBelt or plugin updates?",
+      "prompt": "Is there a new version of ToolBelt or of my plugins?",
+      "channel": "MCP",
+      "persona": "Person chatting with Claude Desktop",
+      "calls": [
+        "toolbelt_status",
+        "list_plugins"
+      ],
+      "answer": "ToolBelt reports an app update to **0.2.0**. That's older than the 0.3.24 you run, so it's probably the preview's simulated update feed, not a real release. The plugins I can see are current: Upkeep 0.2.0, OnTrack 0.14.0 and SDK Explorer 0.2.1. One plugin isn't shared with agents, so I can't tell you about its updates.",
+      "verdict": "partial",
+      "notes": "The data was correct for what's visible. Two caveats: the browser preview fakes app updates, and list_plugins leaves out plugins kept from agents, so an agent can't say whether every plugin is current (finding O4)."
+    },
+    {
+      "id": "09-watch-for-changes",
+      "title": "Watch my tasks and tell me what changes",
+      "prompt": "(Autonomous watcher) Keep an eye on my task list and tell me when something changes.",
+      "channel": "MCP (resource subscription)",
+      "persona": "Autonomous agent",
+      "calls": [
+        "resources/subscribe toolbelt://screens/ontrack/tasks",
+        "(the person settles task #9 in ToolBelt)",
+        "notifications/resources/updated after about 1.0 s",
+        "resources/read toolbelt://screens/ontrack/tasks"
+      ],
+      "answer": "You settled **Submit November expense report** at 22:28. It moved from Inbox (overdue) to Settled.",
+      "verdict": "pass",
+      "notes": "The subscription kept the screen open and the notification arrived after about 1 s, as throttled. The notification carries no diff, so the watcher re-read the whole screen (about 8k characters) and compared it with the earlier read itself (finding O2). The setup reopened the task afterwards, which is why later reads show \"Reopened from Settled\"."
+    },
+    {
+      "id": "10-shared-search",
+      "title": "Which tasks are due this week? (while the person is searching)",
+      "prompt": "Which of my tasks are due this week?",
+      "channel": "MCP",
+      "persona": "Person chatting with Claude Desktop while their OnTrack window searches for \"finance\"",
+      "calls": [
+        "(the person types \"finance\" into OnTrack's search)",
+        "read_screen ontrack (details: false)"
+      ],
+      "answer": "Your OnTrack window is searching for \"finance\" right now, so I can only see the 3 matching tasks. Among them, **Q4 budget review with finance** is due tomorrow at 2 PM, and **Submit November expense report** is already overdue (Nov 21). Clear the search in OnTrack and ask again for the full week.",
+      "verdict": "partial",
+      "notes": "The read flagged the shared view state (search \"finance\"), so the agent didn't claim the list was complete. It still couldn't read past the person's search: challenge C6, addressed by parameterized reads (1c) and per-viewer instances (1d)."
+    },
+    {
+      "id": "11-access-revoked",
+      "title": "The person turns OnTrack off for agents",
+      "prompt": "What's on my task list?",
+      "channel": "MCP",
+      "persona": "Person chatting with Claude Desktop after setting OnTrack to \"No access\" in Settings → Agents",
+      "calls": [
+        "(Settings → Agents: OnTrack → No access)",
+        "read_screen ontrack (refused)",
+        "toolbelt_status",
+        "(Settings → Agents: OnTrack → back to the plugin's level)",
+        "read_screen ontrack"
+      ],
+      "answer": "I don't have access to your task list. Agent access for it is turned off in ToolBelt (Settings → Agents). If you want me to see it, set OnTrack to *Read only* there.",
+      "verdict": "pass",
+      "notes": "The change applied immediately to the open MCP session: status went from 1 hidden plugin to 2, and reads worked again once access was restored."
+    },
+    {
+      "id": "12-secrets",
+      "title": "What's the secret in that form?",
+      "prompt": "What's the token in SDK Explorer's form?",
+      "channel": "MCP",
+      "persona": "Person chatting with Claude Desktop",
+      "calls": [
+        "read_screen sdk-demo forms",
+        "read_screen sdk-demo forms (format: json)"
+      ],
+      "answer": "ToolBelt keeps it from me: the *Sensitive fixture* field and the `TOKEN` environment value show as ••••••, in both the text and the JSON view. The rest of the form is visible: Name is Ada, Owner is Ada Lovelace, and the labels are Priority: High and Flagged.",
+      "verdict": "pass",
+      "notes": "Fields marked `sensitive` and `secret` environment entries are masked in text, JSON and resources. Secrets that plugins put into plain text, like Processes' command lines, aren't covered yet (C10). That's one reason Processes opts out."
+    },
+    {
+      "id": "13-autonomous-morning-brief",
+      "title": "Morning brief (scheduled, autonomous)",
+      "prompt": "(Scheduled routine, every weekday 8:00) Write my morning brief from ToolBelt.",
+      "channel": "CLI (--autonomous)",
+      "persona": "Autonomous routine using the toolbelt command",
+      "calls": [
+        "toolbelt status --autonomous",
+        "toolbelt search overdue --autonomous",
+        "toolbelt read upkeep --no-details --autonomous",
+        "toolbelt read ontrack --no-details --autonomous"
+      ],
+      "answer": "**Morning brief, Tue Nov 24**\n\n- **Overdue:** Submit November expense report (Nov 21).\n- **Today/tomorrow:** Q4 budget review tomorrow 2 PM. It's stalled and waiting on HR, and its slides aren't started.\n- **In progress:** Migrate CI to the new runners. Blocked by *Fix flaky remote-access test*, which has stalled for 2 days.\n- **Updates waiting (3):** Ollama, Node.js LTS and Cursor, all to review in Upkeep. Internal deploy CLI's check is failing.\n- **Waiting on others:** Acme printer quote, check-in tonight.\n- **Unread:** 4 OnTrack tasks have news.",
+      "verdict": "pass",
+      "notes": "Four CLI calls, about 5k characters. The audit log and Settings → Agents mark every call as `toolbelt-cli (autonomous)`. Autonomous mode changes nothing else yet, because there are no approvals in a read-only phase."
+    },
+    {
+      "id": "14-coding-agent-project",
+      "title": "What's open for the ToolBelt project?",
+      "prompt": "Before I start on ToolBelt today: what's open for that project?",
+      "channel": "CLI",
+      "persona": "Coding agent (skill file) in the ToolBelt repository",
+      "calls": [
+        "toolbelt search toolbelt --plugin ontrack",
+        "toolbelt read ontrack tasks --max-rows 20"
+      ],
+      "answer": "Two open ToolBelt tasks:\n\n- **Migrate CI to the new runners**: in progress, untouched for 2 days.\n- **Fix flaky remote-access test**: blocked, low priority, stalled for 2 days. It blocks the CI migration.\n\n*Ship ToolBelt 0.3.24* was settled 4 days ago. The flaky test is the thing standing in the way, so it may be worth fixing first.",
+      "verdict": "pass",
+      "notes": "Search (about 1.2k characters) found the project's tasks. It shows the related row but not the relation's name, so a follow-up read supplied it from the tasks' Related lines (\"Blocks: #4\")."
+    },
+    {
+      "id": "15-script-json",
+      "title": "Scripted check for plugin updates",
+      "prompt": "(Shell script) Exit non-zero if any plugin has an update available.",
+      "channel": "CLI (--json)",
+      "persona": "Script",
+      "calls": [
+        "toolbelt plugins --json",
+        "toolbelt status --json",
+        "toolbelt plugins --json | jq -e …"
+      ],
+      "answer": "`toolbelt plugins --json | jq -e 'any(.plugins[]; .availableVersion != null) | not'` prints true and exits 0: no visible plugin has an update.",
+      "verdict": "pass",
+      "notes": "The structured output is the same data the MCP tools return as structuredContent."
+    },
+    {
+      "id": "16-agents-off",
+      "title": "Agent access turned off",
+      "prompt": "(Any command while the person has turned agents off)",
+      "channel": "CLI",
+      "persona": "Coding agent",
+      "calls": [
+        "(Settings → Agents: Let agents use ToolBelt → off)",
+        "toolbelt status → exit 1",
+        "(turned back on)",
+        "toolbelt status"
+      ],
+      "answer": "ToolBelt isn't accepting agents right now. Ask the person to turn on Settings → Agents → \"Let agents use ToolBelt\".",
+      "verdict": "pass",
+      "notes": "Turning the switch off closes the socket and removes the file. The CLI's error says what to do, and exit code 1 tells scripts that ToolBelt can't be reached."
+    },
+    {
+      "id": "17-paging",
+      "title": "Long tables are paged",
+      "prompt": "List every row of SDK Explorer's queue table.",
+      "channel": "MCP",
+      "persona": "Developer in Claude Code",
+      "calls": [
+        "read_screen sdk-demo table (max_rows: 3, details: false)"
+      ],
+      "answer": "The queue table has 6 rows. The first 3 are Pinned fixture (pinned), Unread fixture (inbox, unread) and Inbox fixture (inbox). The rest come from reading again with `table: \"queue\", offset: 3`.",
+      "verdict": "pass",
+      "notes": "Each table is paged on its own with an explicit next offset. JSON output carries `paging: {offset, total}`."
+    }
+  ],
+  "compatibility": [
+    {
+      "client": "MCP Inspector CLI 0.17.2 (official MCP TypeScript SDK client)",
+      "result": "pass",
+      "notes": "tools/list, tools/call (read_screen with arguments), resources/list and resources/read work through the stdio shim. See inspector.txt."
+    }
+  ],
+  "fixed": [
+    {
+      "id": "F1",
+      "title": "Repeated action labels",
+      "detail": "Upkeep offers six update action ids under one label, and the row-actions line repeated \"Update\" six times. Labels now appear once."
+    },
+    {
+      "id": "F2",
+      "title": "Multi-line values broke rows",
+      "detail": "Recipe details have line breaks, which split rows across lines. Values are now joined with \" / \"."
+    },
+    {
+      "id": "F3",
+      "title": "Status dot repeated the status column",
+      "detail": "A cell's dot label is now left out when another cell of the row already says it."
+    },
+    {
+      "id": "F4",
+      "title": "Row panes were missing",
+      "detail": "OnTrack keeps a task's fields, relations and update timeline in the row's details drawer (pane). Reads now include it under the row."
+    },
+    {
+      "id": "F5",
+      "title": "Default filters reported as view state",
+      "detail": "OnTrack's Workflow filter at its default (Ongoing) was reported as something the person set. Filters at their declared default are no longer flagged."
+    },
+    {
+      "id": "F6",
+      "title": "Noisy search",
+      "detail": "Search matched action labels, filter options and headings. It now searches content lines only."
+    },
+    {
+      "id": "F7",
+      "title": "Flag labels printed as ids",
+      "detail": "A flag label such as isPersonal was printed as its id (\"2\"). It now shows the label's name."
+    }
+  ],
+  "open": [
+    {
+      "id": "O1",
+      "title": "Reads follow the person's search and filters",
+      "detail": "Case 10: an agent sees only what the shared view shows. The note prevents wrong answers but not the gap. Remedy: parameterized reads (1c) and surface instances (1d)."
+    },
+    {
+      "id": "O2",
+      "title": "Whole-screen reads and no diffs",
+      "detail": "One task's history (case 3) and every change notification (case 9) cost a full screen of about 8k characters. Consider a row-level read (table and row id) and change summaries in the agent view."
+    },
+    {
+      "id": "O3",
+      "title": "Read-only answers can only redirect",
+      "detail": "Cases 2 and 5: the agent explains where to act. Phase 1b (guarded actions with approvals) is the next step for usefulness."
+    },
+    {
+      "id": "O4",
+      "title": "Hidden plugins leave answers incomplete",
+      "detail": "Case 8: list_plugins leaves out plugins kept from agents, so an agent can't say whether all plugins are current. This is the intended privacy behavior. A future plugin-management phase may want to show update availability without plugin data."
+    },
+    {
+      "id": "O5",
+      "title": "Plain-text secrets and paths",
+      "detail": "Only fields marked sensitive or secret are masked. Plugin text (log paths, command lines) passes through as is. Processes opts out for that reason. The tree-level secret marker is planned for 1c."
+    },
+    {
+      "id": "O6",
+      "title": "Opening a screen has effects",
+      "detail": "Reading a screen nobody had open makes the plugin render it, and run whatever it does while open, for 60 s. That's bounded but not free, for example for plugins that poll while open."
+    },
+    {
+      "id": "O7",
+      "title": "Not yet tried with an LLM MCP client",
+      "detail": "Compatibility was verified with the MCP Inspector, an SDK client. Adding it to Claude Code (the command is in Settings → Agents) is the remaining check, and needs your agent configuration."
+    }
+  ]
+}

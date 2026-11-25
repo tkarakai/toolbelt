@@ -1,0 +1,116 @@
+{
+	"id": "13-autonomous-morning-brief",
+	"title": "Morning brief (scheduled, autonomous)",
+	"prompt": "(Scheduled routine, every weekday 8:00) Write my morning brief from ToolBelt.",
+	"persona": "Autonomous routine using the toolbelt command",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"mode": "autonomous",
+	"steps": [
+		{
+			"call": "toolbelt_status",
+			"expect": {
+				"contains": [
+					"Desk (desk)",
+					"App update available: 0.4.0"
+				]
+			}
+		},
+		{
+			"call": "search_screens",
+			"args": {
+				"query": "overdue"
+			},
+			"expect": {
+				"contains": [
+					"Desk › Tasks › Overdue: - [#1] Submit November expense report"
+				]
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "kit",
+				"details": false
+			},
+			"expect": {
+				"contains": [
+					"Ollama · 0.5.1 → 0.6.2"
+				],
+				"absent": [
+					"Found: Today's scheduled check"
+				]
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "desk",
+				"details": false
+			},
+			"expect": {
+				"contains": [
+					"Submit November expense report"
+				],
+				"absent": [
+					"Waiting for the headcount figures"
+				]
+			}
+		}
+	],
+	"expect": {
+		"absent": [
+			"vault",
+			"Vault",
+			"vault-hunter2",
+			"node server.js"
+		],
+		"audit": [
+			{
+				"operation": "toolbelt_status",
+				"outcome": "ok",
+				"mode": "autonomous"
+			},
+			{
+				"operation": "search_screens",
+				"outcome": "ok",
+				"mode": "autonomous"
+			},
+			{
+				"operation": "read_screen",
+				"plugin": "kit",
+				"outcome": "ok",
+				"mode": "autonomous"
+			},
+			{
+				"operation": "read_screen",
+				"plugin": "desk",
+				"outcome": "ok",
+				"mode": "autonomous"
+			}
+		]
+	},
+	"rubric": [
+		"A short brief: overdue task first, today's meeting, waiting updates, the app update.",
+		"Written for someone who isn't watching: no questions back."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "13-autonomous-morning-brief",
+		"plugins": [
+			"upkeep",
+			"ontrack"
+		],
+		"channel": "CLI (--autonomous)",
+		"calls": [
+			"toolbelt status --autonomous",
+			"toolbelt search overdue --autonomous",
+			"toolbelt read upkeep --no-details --autonomous",
+			"toolbelt read ontrack --no-details --autonomous"
+		],
+		"verdict": "pass",
+		"notes": "Four CLI calls, about 5k characters. The audit log and Settings → Agents mark every call as `toolbelt-cli (autonomous)`. Autonomous mode changes nothing else yet, because there are no approvals in a read-only phase."
+	}
+}

@@ -17,7 +17,9 @@ type DateTime = Extract<Field, { type: "datetime" }>;
 /** Times offered under the time box. */
 const QUICK_TIMES = ["09:00", "12:00", "17:00"];
 
-export function DateTimeField({ id, field, onChange }: { id: string; field: DateTime; onChange: (v: string) => void }) {
+/** `past`: typed dates that could go either way ("fri", "nov 20") are the latest past ones, for
+ *  picking a moment that happened rather than a due date. */
+export function DateTimeField({ id, field, onChange, past = false }: { id: string; field: DateTime; onChange: (v: string) => void; past?: boolean }) {
 	const withTime = field.time !== false;
 	const [open, setOpen] = useState(false);
 	// A key typed on the closed button starts the typed date with it.
@@ -70,6 +72,7 @@ export function DateTimeField({ id, field, onChange }: { id: string; field: Date
 						today={today}
 						withTime={withTime}
 						seed={seed}
+						past={past}
 						onPick={(p, close) => {
 							send(p);
 							if (close) setOpen(false);
@@ -94,9 +97,9 @@ export function DateTimeField({ id, field, onChange }: { id: string; field: Date
 	);
 }
 
-function DatePanel({ field, parts, today, withTime, seed, onPick, onClose }: { field: DateTime; parts: Parts | null; today: string; withTime: boolean; seed: string; onPick: (p: Parts | null, close: boolean) => void; onClose: () => void }) {
+function DatePanel({ field, parts, today, withTime, seed, past, onPick, onClose }: { field: DateTime; parts: Parts | null; today: string; withTime: boolean; seed: string; past: boolean; onPick: (p: Parts | null, close: boolean) => void; onClose: () => void }) {
 	const [text, setText] = useState(seed);
-	const typed = text.trim() ? parseInput(text, today) : null;
+	const typed = text.trim() ? parseInput(text, today, past) : null;
 	const reading = typed && !withTime ? { date: typed.date } : typed;
 	const [focus, setFocus] = useState(parts?.date ?? today);
 	const start = useMemo(() => weekStart(), []);

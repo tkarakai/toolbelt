@@ -1,0 +1,3 @@
+{"client": "claude-desktop (eval)", "steps": [
+  {"tool": "read_screen", "args": {"plugin": "upkeep", "details": false}}
+]}

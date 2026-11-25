@@ -59,6 +59,31 @@ describe("parseInput", () => {
 		["2026-11-20T09:05", { date: "2026-11-20", time: "09:05" }],
 	])("%p", (input, out) => expect(parseInput(input, today)).toEqual(out));
 	test.each(["", "someday", "feb 30 2027", "2026-02-30", "13/40", "fri 25:00"])("%p is unreadable", (input) => expect(parseInput(input, today)).toBeNull());
+	test.each([
+		["3d ago", { date: "2026-11-12" }],
+		["-2w", { date: "2026-11-01" }],
+		["a month ago", { date: "2026-10-15" }],
+		["last fri", { date: "2026-11-13" }],
+		["last sun", { date: "2026-11-08" }],
+	])("%p reads backwards in either direction", (input, out) => {
+		expect(parseInput(input, today)).toEqual(out);
+		expect(parseInput(input, today, true)).toEqual(out);
+	});
+	test("\"in 3d ago\" is unreadable", () => expect(parseInput("in 3d ago", today)).toBeNull());
+	test.each([
+		// Looking back (Activity's time range): the latest matching date up to today.
+		["nov 20", { date: "2025-11-20" }, { date: "2026-11-20" }],
+		["nov 10 9am", { date: "2026-11-10", time: "09:00" }, { date: "2027-11-10", time: "09:00" }],
+		["dec 1", { date: "2025-12-01" }, { date: "2026-12-01" }],
+		["fri", { date: "2026-11-13" }, { date: "2026-11-20" }],
+		["sun", { date: "2026-11-15" }, { date: "2026-11-15" }],
+		["20", { date: "2026-10-20" }, { date: "2026-11-20" }],
+		["11/20", { date: "2025-11-20" }, { date: "2026-11-20" }],
+		["+3d", { date: "2026-11-18" }, { date: "2026-11-18" }],
+	])("%p looking back and ahead", (input, back, ahead) => {
+		expect(parseInput(input, today, true)).toEqual(back);
+		expect(parseInput(input, today)).toEqual(ahead);
+	});
 });
 
 describe("values, grid and wording", () => {

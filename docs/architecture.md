@@ -19,6 +19,7 @@ JSON-lines and do not inject browser JavaScript, HTML or React components.
 | Public author SDK and fake-host tools | `src/sdk/`, packaged by `scripts/build-sdk.ts` |
 | Main window, popover, manager and renderer | `src/ui/App.tsx`, `Popover.tsx`, `PluginManager.tsx`, `renderer/` |
 | Plugin development mode | `src/bun/development.ts`, `src/shared/development.ts`, `src/ui/Development.tsx` |
+| Agent interface (MCP server, `toolbelt` CLI, Settings → Agents) | `src/bun/agent/`, `src/shared/agents.ts`, `src/cli/`, `src/ui/Agents.tsx`, `src/ui/AgentActivity.tsx`; see [agent-interface.md](agent-interface.md) |
 | Remote access (phone/tablet over Tailscale) | `src/bun/remote-access.ts`, `remote-server.ts`, `peer-owner.ts`, `pairing.ts`, `tailscale.ts`, `src/shared/remote.ts`, `src/ui/RemoteAccess.tsx`, `remote-client.tsx`, `lib/connection.ts`; see [remote-access.md](remote-access.md) |
 
 Processes, Upkeep and SDK Explorer own their implementation, dependencies, UI definitions,
@@ -61,7 +62,9 @@ layout below and shares only `settings.json`; see [plugin-development.md](plugin
 
 | Relative path | Purpose |
 | --- | --- |
-| `settings.json` | Host appearance, shortcut and remote access preferences |
+| `settings.json` | Host appearance, shortcut, remote access and agent access preferences |
+| `agent.sock` | The agent interface's Unix socket while it is on (config folder, not the development profile) |
+| `agent-audit.jsonl` | Every agent operation, append-only ([agent-interface.md](agent-interface.md)) |
 | `plugins/registry.json` | Source bindings, active selections, channel, enabled/removal/data state, history and update schedule |
 | `plugins/packages/<id>/<version>-<hash>/` | Verified package files; plugins treat them as immutable |
 | `plugins/staging/` | Incomplete package extraction; never runtime discovery |
@@ -220,6 +223,16 @@ key hints until a physical keyboard is used. Narrow windows get a phone layout (
 details and dialogs as bottom sheets, stacked toolbars) and touch input gets gestures (long
 press, edge swipe, swipe to dismiss), all in the host renderer: see
 [remote-access.md](remote-access.md), "Renderer adaptation" and "Touch".
+
+## Agent interface
+
+The agent interface ([agent-interface.md](agent-interface.md)) lets local AI agents read plugin screens. Its core
+is an extra viewer of plugin surfaces beside the window, popover and remote views: it opens a
+surface through `PluginHost` when an agent reads it and releases it when idle. Text and JSON
+come from `src/bun/agent/serialize.ts` with sensitive values masked. Transports are adapters
+over one operation registry: MCP over a `0600` Unix socket, and the `toolbelt` CLI with its
+stdio shim. Access is the lower of the manifest's `agent.access` (default `read`) and the
+person's choice; agents can't send events.
 
 ## Keyboard
 

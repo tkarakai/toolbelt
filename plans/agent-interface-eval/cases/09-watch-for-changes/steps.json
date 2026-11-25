@@ -1,0 +1,9 @@
+{"client":"eval-watcher","mode":"autonomous","steps":[
+ {"subscribe":"toolbelt://screens/ontrack/tasks"},
+ {"wait":1500},
+ {"person":"event","params":{"plugin":"ontrack","surface":"screen:tasks","name":"settle","payload":{"rowId":"9"}}},
+ {"awaitNotification":"notifications/resources/updated","timeout":5000,"fresh":true},
+ {"resource":"toolbelt://screens/ontrack/tasks"},
+ {"unsubscribe":"toolbelt://screens/ontrack/tasks"},
+ {"person":"event","params":{"plugin":"ontrack","surface":"screen:tasks","name":"reopen","payload":{"rowId":"9"}}}
+]}

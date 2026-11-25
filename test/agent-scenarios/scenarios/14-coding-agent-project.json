@@ -1,0 +1,60 @@
+{
+	"id": "14-coding-agent-project",
+	"title": "What's open for the ToolBelt project?",
+	"prompt": "Before I start on ToolBelt today: what's open for that project?",
+	"persona": "Coding agent (skill file) in the ToolBelt repository",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"steps": [
+		{
+			"call": "search_screens",
+			"args": {
+				"query": "toolbelt",
+				"plugin": "desk"
+			},
+			"expect": {
+				"contains": [
+					"Migrate CI to the new runners",
+					"Fix flaky remote-access test"
+				],
+				"absent": [
+					"Renew passport"
+				]
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "desk",
+				"screen": "tasks",
+				"max_rows": 20
+			},
+			"expect": {
+				"contains": [
+					"Related: Blocks: #5",
+					"### Upcoming › This week"
+				]
+			}
+		}
+	],
+	"rubric": [
+		"Lists the two ToolBelt tasks with their state (working, blocked).",
+		"Mentions that the CI migration blocks the flaky test fix."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "14-coding-agent-project",
+		"plugins": [
+			"ontrack"
+		],
+		"channel": "CLI",
+		"calls": [
+			"toolbelt search toolbelt --plugin ontrack",
+			"toolbelt read ontrack tasks --max-rows 20"
+		],
+		"verdict": "pass",
+		"notes": "Search (about 1.2k characters) found the project's tasks. It shows the related row but not the relation's name, so a follow-up read supplied it from the tasks' Related lines (\"Blocks: #4\")."
+	}
+}

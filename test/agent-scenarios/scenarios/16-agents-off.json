@@ -1,0 +1,53 @@
+{
+	"id": "16-agents-off",
+	"title": "Agent access turned off",
+	"prompt": "(Any command while the person has turned agents off)",
+	"persona": "Coding agent",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"steps": [
+		{
+			"person": {
+				"agents": false
+			}
+		},
+		{
+			"call": "toolbelt_status",
+			"expect": {
+				"unreachable": true
+			}
+		},
+		{
+			"person": {
+				"agents": true
+			}
+		},
+		{
+			"call": "toolbelt_status",
+			"expect": {
+				"contains": [
+					"Desk (desk) 1.2.0: running"
+				]
+			}
+		}
+	],
+	"rubric": [
+		"Tells the person to turn on Settings → Agents rather than retrying."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "16-agents-off",
+		"plugins": [],
+		"channel": "CLI",
+		"calls": [
+			"(Settings → Agents: Let agents use ToolBelt → off)",
+			"toolbelt status → exit 1",
+			"(turned back on)",
+			"toolbelt status"
+		],
+		"verdict": "pass",
+		"notes": "Turning the switch off closes the socket and removes the file. The CLI's error says what to do, and exit code 1 tells scripts that ToolBelt can't be reached."
+	}
+}

@@ -1,0 +1,51 @@
+[
+  {
+    "step": "initialize",
+    "protocolVersion": "2025-06-18",
+    "instructions": "ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. Access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. Plugins the person or plugin author kept from agents are not listed."
+  },
+  {
+    "step": "tools/list",
+    "tools": [
+      "toolbelt_status",
+      "list_screens",
+      "read_screen",
+      "search_screens",
+      "list_plugins"
+    ]
+  },
+  {
+    "step": "person: event",
+    "params": {
+      "plugin": "ontrack",
+      "surface": "screen:tasks",
+      "name": "search",
+      "payload": {
+        "query": "finance"
+      }
+    },
+    "result": "true"
+  },
+  {
+    "step": "tools/call read_screen",
+    "args": {
+      "plugin": "ontrack",
+      "details": false
+    },
+    "ms": 2,
+    "isError": false,
+    "text": "# OnTrack › Tasks (plugin \"ontrack\", screen \"tasks\")\nrendered now\nThis screen's view is shared with the person and currently shows: search \"finance\". Rows outside it are not listed.\n\nFilter Workflow: Ongoing (default: Inbox, Working on, Stalled, Snoozed, Watching, Settled) (options: Inbox 1, Working on 0, Stalled 2, Snoozed 0, Watching 0, Settled 0, Archived 0)\nFilter Due: all (options: Overdue 1, Today 0, Next 6 days 1, Later 0, Past 0, No date 1)\nFilter Project: all (options: Finance 3, ToolBelt 0, Office 0, Writing 0, No Project 0)\nFilter isPersonal: all (options: Yes 0, No 3)\nFilter Priority: all (options: High 1, Medium 2, Low 0, No Priority 0)\nFilter Status: all (options: Todo 1, In progress 1, Blocked 0, No Status 1)\nControl Subtasks: Off (options: Off, Stay in their own group, Follow their parent)\nSearch: finance\nToolbar actions: New task\n\n## Table tasks: 3 rows\nColumns: Task · Due · When\nRow actions: Start working on it, Done for now, Back to Inbox, Write the next step, Mark stalled, Settle, Snooze… (or: 3 hours, Tomorrow 9:00, Next Monday 9:00), Watch…, Edit, Add update, Relate to…, Mark unread, Mark read, Make it a subtask, Move out a level, Move up, Move down, Archive, Unarchive, Delete\n### Inbox\n- [#9] Submit November expense report — [Finance, Medium] Due now · Sat, Nov 21 · 2026-11-16 22:24 (8d ago)  {id: 9} [unread, Overdue]\n### Stalled\n- [#2] Q4 budget review with finance — [Finance, High, In progress, 0/1] Stalled · untouched 3 days · Tomorrow · 2:00 PM · 2026-11-24 22:27 (now)  {id: 2} [unread]\n- [#3] Draft budget slides — [Finance, Medium, Todo] Stalled · untouched 3 days · 2026-11-24 22:27 (now)  {id: 3} [unread]\nEmpty sections: Progressing, Working on, Snoozed, Watching, Settled"
+  },
+  {
+    "step": "person: event",
+    "params": {
+      "plugin": "ontrack",
+      "surface": "screen:tasks",
+      "name": "search",
+      "payload": {
+        "query": ""
+      }
+    },
+    "result": "true"
+  }
+]

@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Date fields understand dates in the past: “3d ago”, “2 weeks ago”, “-1m” and “last fri”.
+- Settings → Agents lets AI agents on this Mac read your plugins' screens, so you can ask Claude Code, Codex or Claude Desktop about your tasks, updates and more. Agents connect through ToolBelt's MCP server or the new `toolbelt` command (status, screens, read, search, plugins), and the tab shows the commands to set them up for Claude Code, Codex and other MCP clients, each with a Remove command to undo it. It's off until you turn it on. Agents can only read: they see what each plugin allows, which you can lower per plugin, and never see secrets marked as such. The tab is split into Access (the switch, a status summary and what agents may read of each plugin), Connect (setup commands) and Activity (who's connected now, and everything agents asked for). The activity log is kept for good and shown in a table that updates live and can be searched and filtered by plugin, result and agent mode, and by time: a quick range or any From–To range, to look into past activity.
+- Plugins can declare how far AI agents may go with them (`agent.access`: none or read). A plugin that doesn't say is read-only for agents.
 
 ## 0.4.0 — 2026-11-25
 - On a phone, every screen fits and is usable one-handed: plugin and Settings tabs sit in a bar along the bottom, toolbars stack (search and buttons, then filters), and settings, cards and forms stack instead of squeezing their text into a narrow column.

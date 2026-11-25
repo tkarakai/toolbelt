@@ -1,0 +1,57 @@
+{
+	"id": "15-script-json",
+	"title": "Scripted check for plugin updates",
+	"prompt": "(Shell script) Exit non-zero if any plugin has an update available.",
+	"persona": "Script",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"steps": [
+		{
+			"call": "list_plugins",
+			"structured": true,
+			"expect": {
+				"contains": [
+					"\"id\":\"kit\"",
+					"\"availableVersion\":\"0.5.0\"",
+					"\"repo\":\"example/desk\""
+				]
+			}
+		},
+		{
+			"call": "toolbelt_status",
+			"structured": true,
+			"expect": {
+				"contains": [
+					"\"hiddenPlugins\":1",
+					"\"update\":{\"available\":\"0.4.0\""
+				]
+			}
+		}
+	],
+	"expect": {
+		"absent": [
+			"vault",
+			"Vault",
+			"vault-hunter2",
+			"node server.js"
+		]
+	},
+	"rubric": [
+		"Exits non-zero because Kit has an update."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "15-script-json",
+		"plugins": [],
+		"channel": "CLI (--json)",
+		"calls": [
+			"toolbelt plugins --json",
+			"toolbelt status --json",
+			"toolbelt plugins --json | jq -e …"
+		],
+		"verdict": "pass",
+		"notes": "The structured output is the same data the MCP tools return as structuredContent."
+	}
+}

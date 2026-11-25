@@ -1,0 +1,4 @@
+{"client": "claude-desktop (eval)", "steps": [
+  {"tool": "search_screens", "args": {"query": "budget"}},
+  {"tool": "read_screen", "args": {"plugin": "ontrack", "screen": "tasks"}}
+]}

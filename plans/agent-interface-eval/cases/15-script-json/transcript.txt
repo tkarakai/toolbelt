@@ -1,0 +1,132 @@
+$ toolbelt plugins --json
+{
+  "plugins": [
+    {
+      "id": "upkeep",
+      "name": "Upkeep",
+      "version": "0.2.0",
+      "repo": "tkarakai/toolbelt-upkeep",
+      "enabled": true,
+      "phase": "ready",
+      "channel": "stable",
+      "ceiling": "read"
+    },
+    {
+      "id": "ontrack",
+      "name": "OnTrack",
+      "version": "0.14.0",
+      "repo": "tkarakai/toolbelt-ontrack",
+      "enabled": true,
+      "phase": "ready",
+      "channel": "stable",
+      "ceiling": "read"
+    },
+    {
+      "id": "sdk-demo",
+      "name": "SDK Explorer",
+      "version": "0.2.1",
+      "repo": "tkarakai/toolbelt-sdk-demo",
+      "enabled": true,
+      "phase": "ready",
+      "channel": "stable",
+      "ceiling": "read"
+    }
+  ]
+}
+[exit 0]
+
+$ toolbelt status --json
+{
+  "app": {
+    "name": "Toolbelt preview",
+    "version": "0.3.24",
+    "channel": "preview",
+    "developmentProfile": "agents-eval"
+  },
+  "update": {
+    "available": "0.2.0",
+    "lastChecked": 1795583757292
+  },
+  "plugins": [
+    {
+      "id": "upkeep",
+      "name": "Upkeep",
+      "version": "0.2.0",
+      "state": "running",
+      "badge": 3,
+      "access": "read",
+      "screens": [
+        {
+          "id": "monitored",
+          "title": "Updates"
+        },
+        {
+          "id": "discover",
+          "title": "Discover"
+        },
+        {
+          "id": "activity",
+          "title": "Activity"
+        },
+        {
+          "id": "settings",
+          "title": "Settings"
+        }
+      ]
+    },
+    {
+      "id": "ontrack",
+      "name": "OnTrack",
+      "version": "0.14.0",
+      "state": "running",
+      "badge": 5,
+      "access": "read",
+      "screens": [
+        {
+          "id": "tasks",
+          "title": "Tasks"
+        },
+        {
+          "id": "labels",
+          "title": "Settings"
+        }
+      ]
+    },
+    {
+      "id": "sdk-demo",
+      "name": "SDK Explorer",
+      "version": "0.2.1",
+      "state": "running",
+      "badge": 0,
+      "access": "read",
+      "screens": [
+        {
+          "id": "gallery",
+          "title": "Gallery"
+        },
+        {
+          "id": "table",
+          "title": "Tables"
+        },
+        {
+          "id": "forms",
+          "title": "Forms"
+        },
+        {
+          "id": "output",
+          "title": "Output"
+        },
+        {
+          "id": "lifecycle",
+          "title": "Lifecycle"
+        }
+      ]
+    }
+  ],
+  "hiddenPlugins": 1
+}
+[exit 0]
+
+$ toolbelt plugins --json | jq -e 'any(.plugins[]; .availableVersion != null) | not'
+true
+[exit 0]

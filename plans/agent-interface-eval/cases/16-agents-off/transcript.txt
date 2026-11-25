@@ -1,0 +1,19 @@
+person turned agents off -> running: False
+$ toolbelt status
+ToolBelt isn't reachable at <tmp>/tb-agent-eval.sock.
+Is ToolBelt running, with Settings → Agents → "Let agents use ToolBelt" on?
+[exit 1]
+
+person turned agents on -> running: True
+$ toolbelt status
+Toolbelt preview 0.3.24 (preview, plugin development profile agents-eval)
+App update available: 0.2.0
+
+Plugins agents can read:
+- Upkeep (upkeep) 0.2.0: running, badge 3. Screens: Updates (monitored), Discover (discover), Activity (activity), Settings (settings)
+- OnTrack (ontrack) 0.14.0: running, badge 5. Screens: Tasks (tasks), Settings (labels)
+- SDK Explorer (sdk-demo) 0.2.1: running, badge 0. Screens: Gallery (gallery), Tables (table), Forms (forms), Output (output), Lifecycle (lifecycle)
+
+1 more plugin is not available to agents (the plugin or the person turned agent access off).
+[exit 0]
+

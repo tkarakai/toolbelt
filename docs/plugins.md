@@ -127,6 +127,14 @@ prevent activation; declaring a feature optional does not implement its fallback
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing
 another app, and requires a corresponding `native.handoff` declaration.
 
+`agent: { "access": "none" | "read" | "act" }` sets the most AI agents may do with the plugin
+through ToolBelt's agent interface ([agent-interface.md](agent-interface.md)). `none` hides it from agents, `read`
+lets them read its screens, and `act` is reserved for actions; without the key a plugin is
+`read`. Declare `none` when screens show data agents shouldn't see (command lines, environment
+values, credentials). The person can lower the level, never raise it. Agents read the same trees
+people see, so mark secrets in forms with `sensitive` or `secret` environment entries; other text
+reaches agents unchanged. Hosts before the agent interface ignore the key.
+
 `src/shared/package.ts` and `protocol.ts`, exported in the SDK, are authoritative for the
 complete metadata/node types and validation limits. Do not infer an API from source comments
 that conflict with exported schemas and runtime tests.

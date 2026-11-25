@@ -1,0 +1,251 @@
+$ inspector --method tools/list
+{
+  "tools": [
+    {
+      "name": "toolbelt_status",
+      "title": "ToolBelt status",
+      "description": "What ToolBelt is running: the app version and any app update, and each plugin agents can see with its state and screens. Start here.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "ToolBelt status",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_screens",
+      "title": "List screens",
+      "description": "Every plugin screen agents can read, as plugin and screen ids for read_screen.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "string",
+            "description": "Only this plugin's screens (plugin id)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "List screens",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "read_screen",
+      "title": "Read a screen",
+      "description": "Read one plugin screen as the person would see it: tables with their rows and details, lists, forms, stats and logs, with times as absolute and relative. Search, filters and open dialogs are shared with people viewing the same screen, so the result notes any that apply. Long tables are paged.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "string",
+            "description": "Plugin id, from toolbelt_status or list_screens."
+          },
+          "screen": {
+            "type": "string",
+            "description": "Screen id; omit for the plugin's default screen."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "json"
+            ],
+            "description": "text (default) is compact; json is the plugin's UI tree."
+          },
+          "max_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Rows per table (default 100)."
+          },
+          "table": {
+            "type": "string",
+            "description": "The table that `offset` pages."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "First row of `table` to return."
+          },
+          "details": {
+            "type": "boolean",
+            "description": "Include each row's inspector details (default true)."
+          }
+        },
+        "required": [
+          "plugin"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Read a screen",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "search_screens",
+      "title": "Search all screens",
+      "description": "Find lines mentioning every word of a query across all screens agents can read (tasks, updates, notes, settings). Returns matching lines with their plugin, screen and section; read_screen gives the full context.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Words to look for (case-insensitive, all must appear on the line)."
+          },
+          "plugin": {
+            "type": "string",
+            "description": "Only this plugin."
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Search all screens",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_plugins",
+      "title": "Installed plugins",
+      "description": "Installed plugins agents can see: version, repository, enabled or not, and any update available.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Installed plugins",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ]
+}$ inspector --method tools/call --tool-name read_screen --tool-arg plugin=upkeep --tool-arg max_rows=3 --tool-arg details=false
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "# Upkeep › Updates (plugin \"upkeep\", screen \"monitored\")\nrendered now\n\nSummary: 6 watched · 3 updates · 1 needs you\nFilter Kind: all (options: Custom recipes 6)\nToolbar actions: Check all\n\n## Table items: 6 rows\nColumns: Name · Installed · Newest · Status · Checked\nRow actions: Update (or: Review & update…), Check now, Review & update…, Release notes, Settings…, History, Skip this version, Pin at this version, Unpin, Roll back, Stop watching\nBulk actions: Update, Check now, Stop watching\n### Needs you\n- Internal deploy CLI — Custom recipes · — · — · Check failed (1×): /bin/zsh -c 'exit 3': exit 3 · 2026-11-24 22:24 (3m ago)  {id: custom:internal-deploy-cli}\n### Review first\n- Cursor — Custom recipes · 0.42.3 · 0.43.1 <major> · Update available: your own command · 2026-11-24 22:24 (3m ago)  {id: custom:cursor}\n- Node.js LTS — Custom recipes · 22.11.0 · 24.1.0 <major> · Update available: your own command · 2026-11-24 22:24 (3m ago)  {id: custom:node-js-lts}\n(showing rows 1–3 of 6; read again with table \"items\" and offset 3 for more)"
+    }
+  ],
+  "structuredContent": {
+    "plugin": "upkeep",
+    "screen": "monitored",
+    "pluginName": "Upkeep",
+    "title": "Updates",
+    "renderedAt": 1795584413669,
+    "viewState": []
+  }
+}$ inspector --method resources/list
+{
+  "resources": [
+    {
+      "name": "upkeep/monitored",
+      "title": "Upkeep › Updates",
+      "uri": "toolbelt://screens/upkeep/monitored",
+      "description": "The Updates screen of Upkeep, as text.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "name": "upkeep/discover",
+      "title": "Upkeep › Discover",
+      "uri": "toolbelt://screens/upkeep/discover",
+      "description": "The Discover screen of Upkeep, as text.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "name": "upkeep/activity",
+      "title": "Upkeep › Activity",
+      "uri": "toolbelt://screens/upkeep/activity",
+      "description": "The Activity screen of Upkeep, as text.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "name": "upkeep/settings",
+      "title": "Upkeep › Settings",
+      "uri": "toolbelt://screens/upkeep/settings",
+      "description": "The Settings screen of Upkeep, as text.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "name": "ontrack/tasks",
+      "title": "OnTrack › Tasks",
+      "uri": "toolbelt://screens/ontrack/tasks",
+      "description": "The Tasks screen of OnTrack, as text.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "name": "ontrack/labels",
+      "title": "OnTrack › Settings",
+      "uri": "toolbelt://screens/ontrack/labels",
+      "description": "The Settings screen of OnTrack, as text.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "name": "sdk-demo/gallery",
+      "title": "SDK Explorer › Gallery",
+      "uri": "toolbelt://screens/sdk-demo/gallery",
+      "description": "The Gallery screen of SDK Explorer, as text.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "name": "sdk-demo/table",
+      "title": "SDK Explorer › Tables",
+      "uri": "toolbelt://screens/sdk-demo/table",
+      "description": "The Tables screen of SDK Explorer, as text.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "name": "sdk-demo/forms",
+      "title": "SDK Explorer › Forms",
+      "uri": "toolbelt://screens/sdk-demo/forms",
+      "description": "The Forms screen of SDK Explorer, as text.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "name": "sdk-demo/output",
+      "title": "SDK Explorer › Output",
+      "uri": "toolbelt://screens/sdk-demo/output",
+      "description": "The Output screen of SDK Explorer, as text.",
+      "mimeType": "text/markdown"
+    },
+    {
+      "name": "sdk-demo/lifecycle",
+      "title": "SDK Explorer › Lifecycle",
+      "uri": "toolbelt://screens/sdk-demo/lifecycle",
+      "description": "The Lifecycle screen of SDK Explorer, as text.",
+      "mimeType": "text/markdown"
+    }
+  ]
+}$ inspector --method resources/read --uri toolbelt://screens/sdk-demo/forms
+{
+  "contents": [
+    {
+      "uri": "toolbelt://screens/sdk-demo/forms",
+      "mimeType": "text/markdown",
+      "text": "# SDK Explorer › Forms (plugin \"sdk-demo\", screen \"forms\")\nrendered now\n\nSummary: 0 events · forms\nToolbar actions: Count event, Open dialog, Copy fixture, Toast with action\n\n## Form: Every field type — All values are disposable fixtures.\n- Name: Ada\n- Sensitive fixture: ••••••\n- Preference: System\n- Enabled fixture: on\n- Environment fixture: DEMO=safe fixture, TOKEN=•••••• (off)\n- Markdown notes: # Notes / Styled **as you type**, with `code` and [links](https://github.com/tkarakai/toolbelt).\n- Due: 2026-11-20T14:30\n- Accent color: teal\n- Owner: Ada Lovelace\n- Labels: Priority: High, Flagged\n- Option list: High, Medium, Low\nControl mode: Overview (options: Overview, Detail)"
+    }
+  ]
+}

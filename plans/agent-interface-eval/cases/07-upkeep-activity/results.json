@@ -1,0 +1,37 @@
+[
+  {
+    "step": "initialize",
+    "protocolVersion": "2025-06-18",
+    "instructions": "ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. Access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. Plugins the person or plugin author kept from agents are not listed."
+  },
+  {
+    "step": "tools/list",
+    "tools": [
+      "toolbelt_status",
+      "list_screens",
+      "read_screen",
+      "search_screens",
+      "list_plugins"
+    ]
+  },
+  {
+    "step": "tools/call list_screens",
+    "args": {
+      "plugin": "upkeep"
+    },
+    "ms": 0,
+    "isError": false,
+    "text": "- Upkeep › Updates: plugin \"upkeep\", screen \"monitored\" (default)\n- Upkeep › Discover: plugin \"upkeep\", screen \"discover\"\n- Upkeep › Activity: plugin \"upkeep\", screen \"activity\"\n- Upkeep › Settings: plugin \"upkeep\", screen \"settings\""
+  },
+  {
+    "step": "tools/call read_screen",
+    "args": {
+      "plugin": "upkeep",
+      "screen": "activity",
+      "max_rows": 20
+    },
+    "ms": 0,
+    "isError": false,
+    "text": "# Upkeep › Activity (plugin \"upkeep\", screen \"activity\")\nrendered now\n\nSummary: Nothing running · next check in 12m\nFilter What: all (options: Updates & rollbacks 0, Checks 1, Scans 0, Watching & settings 0)\nFilter Started by: all (options: You 0, Schedule 1, Automatic 0)\n\n## Table audit: 1 row\nColumns: What happened · By · When\nRow actions: Show log\n### Today\n- Scheduled check <6 items> — Checked 6 · 3 new updates: Ollama, Node.js LTS, Cursor · 1 failed · Schedule · 2026-11-24 22:24 (3m ago)  {id: run|run-mwvoiac6-1}\n    When: 11/24/2026, 10:24:20 PM\n    Outcome: Checked 6 · 3 new updates: Ollama, Node.js LTS, Cursor · 1 failed\n    Started by: Schedule\n    Needs a look › Internal deploy CLI: Check failed: /bin/zsh -c 'exit 3': exit 3\n    Needs a look › Cursor: Update available: 0.42.3 → 0.43.1\n    Needs a look › Node.js LTS: Update available: 22.11.0 → 24.1.0\n    Needs a look › Ollama: Update available: 0.5.1 → 0.6.2\n  - Internal deploy CLI: Check — Check failed: /bin/zsh -c 'exit 3': exit 3 · Schedule · 2026-11-24 22:24 (3m ago)  {id: 1795584260361|check|custom:internal-deploy-cli|2026-11-25T05-24-20-check-6}\n      When: 11/24/2026, 10:24:20 PM\n      What: Check failed: /bin/zsh -c 'exit 3': exit 3\n      Started by: Schedule\n      Item: Internal deploy CLI\n      Log: <eval>/home/development/agents-eval/data/upkeep/logs/2026-11-25T05-24-20-check-6.log\n  - Postgres.app: Check — 17.2 available, pinned · Schedule · 2026-11-24 22:24 (3m ago)  {id: 1795584260360|check|custom:postgres-app|2026-11-25T05-24-20-check-7}\n      When: 11/24/2026, 10:24:20 PM\n      What: 17.2 available, pinned\n      Started by: Schedule\n      Item: Postgres.app\n      installed: 16.4\n      latest: 17.2\n      took: 8 ms\n      Log: <eval>/home/development/agents-eval/data/upkeep/logs/2026-11-25T05-24-20-check-7.log\n  - Cursor: Check — Update available: 0.42.3 → 0.43.1 · Schedule · 2026-11-24 22:24 (3m ago)  {id: 1795584260345|check|custom:cursor|2026-11-25T05-24-20-check-5}\n      When: 11/24/2026, 10:24:20 PM\n      What: Update available: 0.42.3 → 0.43.1\n      Started by: Schedule\n      Item: Cursor\n      installed: 0.42.3\n      latest: 0.43.1\n      took: 11 ms\n      Log: <eval>/home/development/agents-eval/data/upkeep/logs/2026-11-25T05-24-20-check-5.log\n  - Node.js LTS: Check — Update available: 22.11.0 → 24.1.0 · Schedule · 2026-11-24 22:24 (3m ago)  {id: 1795584260335|check|custom:node-js-lts|2026-11-25T05-24-20-check-4}\n      When: 11/24/2026, 10:24:20 PM\n      What: Update available: 22.11.0 → 24.1.0\n      Started by: Schedule\n      Item: Node.js LTS\n      installed: 22.11.0\n      latest: 24.1.0\n      took: 18 ms\n      Log: <eval>/home/development/agents-eval/data/upkeep/logs/2026-11-25T05-24-20-check-4.log\n  - Terraform: Check — Up to date (1.9.8) · Schedule · 2026-11-24 22:24 (3m ago)  {id: 1795584260334|check|custom:terraform|2026-11-25T05-24-20-check-3}\n      When: 11/24/2026, 10:24:20 PM\n      What: Up to date (1.9.8)\n      Started by: Schedule\n      Item: Terraform\n      installed: 1.9.8\n      latest: 1.9.8\n      took: 18 ms\n      Log: <eval>/home/development/agents-eval/data/upkeep/logs/2026-11-25T05-24-20-check-3.log\n  - Ollama: Check — Update available: 0.5.1 → 0.6.2 · Schedule · 2026-11-24 22:24 (3m ago)  {id: 1795584260331|check|custom:ollama|2026-11-25T05-24-20-check-2}\n      When: 11/24/2026, 10:24:20 PM\n      What: Update available: 0.5.1 → 0.6.2\n      Started by: Schedule\n      Item: Ollama\n      installed: 0.5.1\n      latest: 0.6.2\n      took: 18 ms\n      Log: <eval>/home/development/agents-eval/data/upkeep/logs/2026-11-25T05-24-20-check-2.log"
+  }
+]

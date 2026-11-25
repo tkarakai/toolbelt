@@ -1,0 +1,27 @@
+[
+  {
+    "step": "initialize",
+    "protocolVersion": "2025-06-18",
+    "instructions": "ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. Access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. Plugins the person or plugin author kept from agents are not listed."
+  },
+  {
+    "step": "tools/list",
+    "tools": [
+      "toolbelt_status",
+      "list_screens",
+      "read_screen",
+      "search_screens",
+      "list_plugins"
+    ]
+  },
+  {
+    "step": "tools/call search_screens",
+    "args": {
+      "query": "ollama",
+      "plugin": "upkeep"
+    },
+    "ms": 0,
+    "isError": false,
+    "text": "- Upkeep › Updates › Review first: - Ollama — Custom recipes · 0.5.1 · 0.6.2 <major> · Update available: your own command · 2026-11-24 22:24 (3m ago)  {id: custom:ollama}\n- Upkeep › Updates › Review first: How it updates › Updates with: echo \"evaluation recipe: nothing to update for Ollama\"\n- Upkeep › Activity › Today: - Scheduled check <6 items> — Checked 6 · 3 new updates: Ollama, Node.js LTS, Cursor · 1 failed · Schedule · 2026-11-24 22:24 (3m ago)  {id: run|run-mwvoiac6-1}\n- Upkeep › Activity › Today: Outcome: Checked 6 · 3 new updates: Ollama, Node.js LTS, Cursor · 1 failed\n- Upkeep › Activity › Today: Needs a look › Ollama: Update available: 0.5.1 → 0.6.2\n- Upkeep › Activity › Today: - Ollama: Check — Update available: 0.5.1 → 0.6.2 · Schedule · 2026-11-24 22:24 (3m ago)  {id: 1795584260331|check|custom:ollama|2026-11-25T05-24-20-check-2}\n- Upkeep › Activity › Today: Item: Ollama\n- Upkeep › Settings › List recipes: 6 items: - Ollama — echo \"evaluation recipe: nothing to update for Ollama\"  {id: custom:ollama}"
+  }
+]

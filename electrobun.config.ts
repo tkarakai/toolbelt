@@ -37,8 +37,10 @@ export default {
 			"assets/tray-icon-dev-update-light@2x.png": "views/assets/tray-icon-dev-update-light@2x.png",
 			"assets/tray-icon-dev-update-dark@2x.png": "views/assets/tray-icon-dev-update-dark@2x.png",
 			"build-seed": "seed",
+			// The toolbelt CLI and stdio MCP shim (docs/agent-interface.md), run with the bundled Bun.
+			"build-cli/toolbelt.js": "cli/toolbelt.js",
 		},
-		watchIgnore: ["dist/**", "build-seed/**"],
+		watchIgnore: ["dist/**", "build-seed/**", "build-cli/**"],
 		mac: {
 			bundleCEF: false,
 			// bun run icons (Running's official/dev artwork)

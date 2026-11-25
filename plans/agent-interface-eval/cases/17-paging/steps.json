@@ -1,0 +1,1 @@
+{"client":"claude-code (eval)","steps":[{"tool":"read_screen","args":{"plugin":"sdk-demo","screen":"table","max_rows":3,"details":false}}]}

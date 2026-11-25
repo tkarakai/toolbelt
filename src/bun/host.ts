@@ -139,6 +139,8 @@ export class PluginProcess {
   userEventAt = 0;
   error?: string;
   trees = new Map<string, Node>();
+  /** Surface → when its tree arrived (epoch ms). */
+  treeAt = new Map<string, number>();
   /** Surface → how many viewers have it open. */
   viewers = new Map<string, number>();
   private proc?: ReturnType<typeof Bun.spawn>;
@@ -196,6 +198,9 @@ export class PluginProcess {
     this.state = "starting";
     this.error = undefined;
     this.stderrTail = [];
+    // A new process renders afresh: trees from the previous one no longer describe it.
+    this.trees.clear();
+    this.treeAt.clear();
     const entry = resolve(this.dir, this.manifest.entry);
     const data =
       (this as any).dataOverride ?? join(this.opts.data, this.manifest.id);
@@ -486,6 +491,7 @@ export class PluginProcess {
           return;
         }
         this.trees.set(msg.surface, msg.tree);
+        this.treeAt.set(msg.surface, Date.now());
         this.listener.tree(this.manifest.id, msg.surface, msg.tree);
         break;
       case "badge":
@@ -635,6 +641,17 @@ export class PluginHost {
   /** The latest tree of a surface, without counting a viewer. */
   tree(plugin: string, surface: string) {
     return this.get(plugin).trees.get(surface) ?? null;
+  }
+
+  /** The latest tree of a surface with when it arrived, and how many viewers have it open. */
+  snapshot(plugin: string, surface: string) {
+    const p = this.plugins.get(plugin);
+    if (!p) return null;
+    return {
+      tree: p.trees.get(surface) ?? null,
+      at: p.treeAt.get(surface) ?? 0,
+      viewers: p.viewers.get(surface) ?? 0,
+    };
   }
 
   event(plugin: string, surface: string, name: string, payload?: unknown) {

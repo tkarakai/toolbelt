@@ -10,6 +10,7 @@ import { inApp } from "./device";
 import { createSocketTransport, type ConnectionStatus } from "./connection";
 import { deviceLabel, installContext } from "./install";
 import type { RemoteAccessRequest, RemoteAccessState } from "../../shared/remote";
+import type { AgentsRequest, AgentsState, AuditFilter, AuditPage } from "../../shared/agents";
 import type { Node } from "../../shared/protocol";
 import type { PluginInfo, ToolbeltRPC, UpdateState } from "../../shared/rpc";
 import {
@@ -102,6 +103,7 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
   updateState: (s) => updateListeners.forEach((l) => l(s)),
   developmentState: (s) => setDevelopment(s),
   remoteAccessState: (s) => setRemoteAccess(s),
+  agentsState: (s) => setAgents(s),
   command: ({ name }) => commandListeners.forEach((l) => l(name)),
   confirmQuit: () => commandListeners.forEach((l) => l("confirmQuit")),
 };
@@ -455,5 +457,36 @@ export function useRemoteAccess(): RemoteAccessState | null {
       return () => void remoteAccessListeners.delete(l);
     },
     () => remoteAccess,
+  );
+}
+
+// ── agents (docs/agent-interface.md) ─────────────────────────────────────────────────
+let agents: AgentsState | null = null;
+const agentsListeners = new Set<() => void>();
+function setAgents(next: AgentsState) {
+  agents = next;
+  agentsListeners.forEach((l) => l());
+}
+/** Runs a Settings → Agents operation; the new state also arrives as a message. */
+export async function agentsRequest(request: Exclude<AgentsRequest, { operation: "audit" }>) {
+  const next = (await rpc.request.agents(request)) as AgentsState;
+  setAgents(next);
+  return next;
+}
+/** A page of agent activity, newest first: older than `before`, or newer than `after`. */
+export async function agentAudit(query: { before?: number; after?: number; limit?: number; filter?: AuditFilter }) {
+  return (await rpc.request.agents({ operation: "audit", ...query })) as AuditPage;
+}
+/** Null until the host answers. */
+export function useAgents(): AgentsState | null {
+  useEffect(() => {
+    void agentsRequest({ operation: "read" }).catch(() => {});
+  }, []);
+  return useSyncExternalStore(
+    (l) => {
+      agentsListeners.add(l);
+      return () => void agentsListeners.delete(l);
+    },
+    () => agents,
   );
 }

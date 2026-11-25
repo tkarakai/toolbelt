@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { REMOTE_DEFAULT_PORT, validPort, type RemoteSettings } from "../shared/remote";
+import { AGENT_DEFAULTS, agentSettings, type AgentSettings } from "../shared/agents";
 
 export type Settings = {
 	/** Global shortcut for the menu bar popover, Electron-style ("Control+Option+Shift+T"). */
@@ -13,6 +14,8 @@ export type Settings = {
 	mode: "system" | "light" | "dark";
 	/** Remote access (docs/remote-access.md). */
 	remote: RemoteSettings;
+	/** The agent interface (docs/agent-interface.md). */
+	agents: AgentSettings;
 };
 
 export const DEFAULTS: Settings = {
@@ -20,6 +23,7 @@ export const DEFAULTS: Settings = {
 	theme: "graphite",
 	mode: "system",
 	remote: { enabled: false, port: REMOTE_DEFAULT_PORT, badgePlugins: [] },
+	agents: AGENT_DEFAULTS,
 };
 
 /** ToolBelt's settings folder (TOOLBELT_CONFIG_DIR, or the variant's Application Support). */
@@ -41,7 +45,7 @@ export function remoteSettings(saved: unknown, defaults: RemoteSettings): Remote
 export function loadSettings(defaults: Settings = DEFAULTS): Settings {
 	try {
 		const saved = JSON.parse(readFileSync(file(), "utf8"));
-		return { ...defaults, ...saved, remote: remoteSettings(saved.remote, defaults.remote) };
+		return { ...defaults, ...saved, remote: remoteSettings(saved.remote, defaults.remote), agents: agentSettings(saved.agents) };
 	} catch {
 		return { ...defaults };
 	}

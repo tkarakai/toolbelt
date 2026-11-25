@@ -1,0 +1,105 @@
+{
+	"id": "18-person-dialog-and-filter",
+	"title": "The person has a dialog open and a non-default filter",
+	"prompt": "What's done on my task list?",
+	"persona": "Person chatting with Claude Desktop while their Desk window has the New task dialog open",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"setup": {
+		"person": [
+			{
+				"open": "desk/tasks"
+			},
+			{
+				"event": {
+					"screen": "desk/tasks",
+					"name": "settle",
+					"payload": {
+						"rowId": "6"
+					}
+				}
+			},
+			{
+				"event": {
+					"screen": "desk/tasks",
+					"name": "filter",
+					"payload": {
+						"filter": "status",
+						"values": [
+							"done"
+						]
+					}
+				}
+			},
+			{
+				"event": {
+					"screen": "desk/tasks",
+					"name": "new-task"
+				}
+			}
+		]
+	},
+	"steps": [
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "desk"
+			},
+			"expect": {
+				"contains": [
+					"currently shows: filter \"Status\" = Done; dialog \"New task\" open",
+					"Filter Status: Done",
+					"### Done",
+					"Renew passport",
+					"## Dialog open: New task",
+					"Toolbar actions: New task, Refresh"
+				],
+				"absent": [
+					"Archive done",
+					"Submit November expense report"
+				]
+			}
+		},
+		{
+			"person": {
+				"event": {
+					"screen": "desk/tasks",
+					"name": "dialog-close",
+					"payload": {
+						"dialog": "new-task"
+					}
+				}
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "desk"
+			},
+			"expect": {
+				"contains": [
+					"currently shows: filter \"Status\" = Done."
+				],
+				"absent": [
+					"Dialog open"
+				]
+			}
+		}
+	],
+	"rubric": [
+		"Reports the passport renewal as done.",
+		"Notes the person's filter and open dialog shape what it sees."
+	],
+	"origin": {
+		"run": "fixtures",
+		"case": "new",
+		"plugins": [
+			"desk"
+		],
+		"channel": "MCP and CLI",
+		"calls": [],
+		"verdict": "new"
+	}
+}

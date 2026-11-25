@@ -1,0 +1,1 @@
+{"client":"claude-desktop (eval)","steps":[{"tool":"list_screens","args":{"plugin":"upkeep"}},{"tool":"read_screen","args":{"plugin":"upkeep","screen":"activity","max_rows":20}}]}

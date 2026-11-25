@@ -1,0 +1,107 @@
+{
+	"id": "11-access-revoked",
+	"title": "The person turns OnTrack off for agents",
+	"prompt": "What's on my task list?",
+	"persona": "Person chatting with Claude Desktop after setting OnTrack to \"No access\" in Settings → Agents",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"steps": [
+		{
+			"person": {
+				"access": {
+					"plugin": "desk",
+					"level": "none"
+				}
+			},
+			"expect": {
+				"notifications": [
+					{
+						"method": "notifications/resources/list_changed",
+						"withinMs": 1000
+					}
+				]
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "desk"
+			},
+			"expect": {
+				"refused": true,
+				"contains": [
+					"No plugin \"desk\" is available to agents"
+				]
+			}
+		},
+		{
+			"call": "toolbelt_status",
+			"expect": {
+				"contains": [
+					"2 more plugins are not available to agents"
+				],
+				"absent": [
+					"Desk (desk)"
+				]
+			}
+		},
+		{
+			"person": {
+				"access": {
+					"plugin": "desk",
+					"level": null
+				}
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "desk",
+				"details": false,
+				"max_rows": 2
+			},
+			"expect": {
+				"contains": [
+					"Submit November expense report",
+					"read again with table \"tasks\" and offset 2"
+				]
+			}
+		}
+	],
+	"expect": {
+		"audit": [
+			{
+				"operation": "read_screen",
+				"plugin": "desk",
+				"outcome": "denied"
+			},
+			{
+				"operation": "read_screen",
+				"plugin": "desk",
+				"outcome": "ok"
+			}
+		]
+	},
+	"rubric": [
+		"Says the task list isn't available to agents and the person can change that in Settings → Agents."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "11-access-revoked",
+		"plugins": [
+			"ontrack"
+		],
+		"channel": "MCP",
+		"calls": [
+			"(Settings → Agents: OnTrack → No access)",
+			"read_screen ontrack (refused)",
+			"toolbelt_status",
+			"(Settings → Agents: OnTrack → back to the plugin's level)",
+			"read_screen ontrack"
+		],
+		"verdict": "pass",
+		"notes": "The change applied immediately to the open MCP session: status went from 1 hidden plugin to 2, and reads worked again once access was restored."
+	}
+}

@@ -22,6 +22,7 @@ import { FileIcons } from "../src/bun/file-icon";
 import type { Phase, UpdateState } from "../src/bun/updater";
 import { githubMetadata } from "../src/bun/github-metadata";
 import { mkdirSync } from "node:fs";
+import { createAgentInterface, declaredAccess } from "../src/bun/agent";
 import {
   DEVELOPMENT_ENV,
   DevelopmentController,
@@ -33,9 +34,11 @@ import {
 
 // Settings live in memory here (the preview doesn't touch the app's settings file).
 // The preview's pretend remote access listens away from the app's port.
+// PREVIEW_AGENTS=1 starts with the agent interface on (docs/agent-interface.md).
 let settings: Settings = {
   ...DEFAULTS,
   remote: { ...DEFAULTS.remote, port: Number(process.env.REMOTE_PORT ?? 47389) },
+  agents: { ...DEFAULTS.agents, enabled: process.env.PREVIEW_AGENTS === "1" },
 };
 
 process.env.TOOLBELT_CONFIG_DIR ??= join(
@@ -77,6 +80,33 @@ const packages = new PackageManager(
 );
 await packages.recover();
 const manager = new PluginManagerService(packages, host);
+// The agent interface, as the app has it; its socket lives in the preview's config folder.
+const agents = createAgentInterface({
+  host,
+  settings: () => settings.agents,
+  save: (next) => {
+    settings = { ...settings, agents: next };
+  },
+  app: () => ({ name: "Toolbelt preview", version: pkg.version, channel: "preview", developmentProfile }),
+  appUpdate: () => ({ available: update.available?.version ?? null, lastChecked: update.lastChecked }),
+  installed: () =>
+    manager.read().plugins.map((p) => ({
+      id: p.id,
+      name: p.manifest.name,
+      version: p.manifest.version,
+      repo: p.repo,
+      enabled: p.enabled,
+      phase: p.phase,
+      availableVersion: p.availableVersion,
+      channel: p.channel,
+      ceiling: declaredAccess(p.manifest),
+    })),
+  configRoot: configDir(homedir()),
+  profileRoot: root,
+  cliScript: join(import.meta.dir, "../src/cli/toolbelt.ts"),
+  bun: process.execPath,
+  changed: (state) => broadcast("agentsState", state),
+});
 
 const icons = new FileIcons(join(root, "cache/icons"));
 // Replaced by the server's broadcast once it listens.
@@ -336,6 +366,7 @@ const handlers: { [K in Exclude<keyof Requests, "popoverLayout">]: (p: Requests[
       for (const client of server.clients) if (client.device?.id === p.id) client.close(REMOTE_CLOSE.revoked, "Pairing removed");
     return state;
   },
+  agents: (p) => agents.handle(p),
   buildId: () => buildIdOf("dist"),
   updateState: () => update,
   checkForUpdates: () => {
@@ -383,7 +414,9 @@ const server = startRemoteServer({
   },
 });
 broadcast = server.broadcast;
+void agents.start();
 console.log(
   `Toolbelt preview: http://localhost:${port}  (popover: http://localhost:${port}/#popover)`,
 );
-process.on("SIGINT", () => (host.stop(), process.exit(0)));
+process.on("SIGINT", () => (agents.stop(), host.stop(), process.exit(0)));
+process.on("SIGTERM", () => (agents.stop(), host.stop(), process.exit(0)));
