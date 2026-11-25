@@ -72,21 +72,23 @@ export function ConnectionBanner() {
 			: status === "connecting"
 				? "Connecting to your Mac…"
 				: "Can’t reach your Mac. Retrying…";
-	// Remote access turned off won't fix itself: it gets the alarming red; the rest stays calm.
+	// Lost or turned off, the page can't do anything: both get the alarming red. Only the first
+	// connection attempt stays calm.
 	const off = status === "off";
+	const alarm = off || status === "offline";
 	return (
 		<div
-			role={off ? "alert" : "status"}
+			role={alarm ? "alert" : "status"}
 			className={cn(
 				"fixed inset-x-0 top-0 z-50 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b px-4 py-2 text-sm shadow-sm animate-in fade-in-0 slide-in-from-top-2 duration-200",
-				off ? "border-red-800 bg-red-600 font-medium text-white dark:bg-red-700" : "bg-card/95 backdrop-blur",
+				alarm ? "border-red-800 bg-red-600 font-medium text-white dark:bg-red-700" : "bg-card/95 backdrop-blur",
 			)}
 			style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
 		>
-			{off ? <PowerOff className="size-4 shrink-0" aria-hidden="true" /> : <WifiOff className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+			{off ? <PowerOff className="size-4 shrink-0" aria-hidden="true" /> : <WifiOff className={cn("size-4 shrink-0", !alarm && "text-muted-foreground")} aria-hidden="true" />}
 			<span>{text}</span>
 			{status !== "connecting" && (
-				<Button size="sm" variant="outline" className={cn(off && "border-white/60 bg-transparent text-white hover:bg-white/15 hover:text-white dark:bg-transparent")} onClick={reconnect}>
+				<Button size="sm" variant="outline" className={cn(alarm && "border-white/60 bg-transparent text-white hover:bg-white/15 hover:text-white dark:bg-transparent")} onClick={reconnect}>
 					Retry now
 				</Button>
 			)}
