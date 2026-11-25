@@ -1,9 +1,11 @@
 import { flushSync } from "react-dom";
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { setPluginOrder } from "./plugin-order";
+import { watchHold } from "./touch";
 
 /** Pointer-driven sorting keeps native clicks until the pointer passes a small threshold.
- * Rows retain their DOM positions until drop; transforms animate the insertion gap. */
+ * Rows retain their DOM positions until drop; transforms animate the insertion gap. On a touch
+ * screen a row lifts after a long press instead, so a swipe still scrolls the list. */
 export function usePluginDrag(ids: string[]) {
   const ref = useRef<HTMLElement | null>(null);
   const cancel = useRef<(() => void) | null>(null);
@@ -12,6 +14,15 @@ export function usePluginDrag(ids: string[]) {
   useEffect(() => { cancel.current?.(); }, [ids.join("\n")]);
   const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || !event.isPrimary) return;
+    if (event.pointerType === "touch") {
+      const press = { ...event, target: event.target, pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, button: 0, isPrimary: true, pointerType: "touch" } as ReactPointerEvent<HTMLElement>;
+      watchHold(event, { onHold: () => begin(press, true) });
+      return;
+    }
+    begin(event, false);
+  };
+  /** `lifted`: a touch long press, which lifts the row at once. */
+  const begin = (event: ReactPointerEvent<HTMLElement>, lifted: boolean) => {
     const root = ref.current;
     const target = (event.target as HTMLElement).closest<HTMLElement>("[data-plugin-sort]");
     if (!root || !target) return;
@@ -86,7 +97,12 @@ export function usePluginDrag(ids: string[]) {
       y = e.clientY;
       if (!dragging && Math.hypot(x - startX, y - start) < 5) return;
       e.preventDefault();
-      if (!dragging) {
+      lift();
+      paint();
+    };
+    const lift = () => {
+      if (dragging) return;
+      {
         dragging = true;
         target.dataset.pluginDragging = "true";
         lastFrame = performance.now();
@@ -107,7 +123,6 @@ export function usePluginDrag(ids: string[]) {
         target.style.color = "var(--selected-foreground)";
         frame = requestAnimationFrame(tick);
       }
-      paint();
     };
     const finish = (commit: boolean) => {
       cancelAnimationFrame(frame);
@@ -157,6 +172,7 @@ export function usePluginDrag(ids: string[]) {
     window.addEventListener("keydown", key, true);
     target.addEventListener("lostpointercapture", abort);
     window.addEventListener("blur", abort);
+    if (lifted) lift();
   };
   return {
     ref: (element: HTMLElement | null) => { ref.current = element; },

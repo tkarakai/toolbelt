@@ -4,6 +4,15 @@
 @import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
+/* A phone-width main window (not the Mac's popover, which is narrow too): dialogs become bottom
+   sheets (docs/remote-access.md, "Narrow screens"). Matches `usePhone` (hooks/use-mobile.ts). */
+@custom-variant phone {
+	@media (width < 48rem) {
+		html:not([data-surface="popover"]) & {
+			@slot;
+		}
+	}
+}
 
 /* Motion: Toolbelt's standard transition is 200 ms (see AGENTS.md → Motion). */
 @theme {
@@ -453,4 +462,22 @@ html:not([data-input-modality="keyboard"]) :focus-visible:not(input:not([type="c
    Keyboard settings tab keeps its reference list (`data-keep-keys`). */
 html[data-keyboard="none"] :is([data-slot="kbd"], [data-slot="kbd-group"], [data-slot="dropdown-menu-shortcut"]):not([data-keep-keys] *) {
 	display: none !important;
+}
+
+/* Touch screens (docs/remote-access.md, "Touch"): no grey flash on tap, no double-tap zoom delay
+   on controls, no rubber-banding of the whole app past its edges, and text fields at 16 px so
+   iOS doesn't zoom the page when one takes focus. The document itself never scrolls (only the
+   panes do), so iOS can't nudge the whole app, bottom tab bar and all, when something takes
+   focus or scrolls into view. The panes fill the dynamic viewport (`h-dvh`), so no gap opens
+   under the tab bar when Safari's toolbars change size. */
+@media (pointer: coarse) {
+	html { -webkit-tap-highlight-color: transparent; }
+	html, body { overscroll-behavior: none; height: 100%; overflow: hidden; }
+	:is(button, a, [role="tab"], [role="row"], [role="menuitem"], [role="option"], label, summary) { touch-action: manipulation; }
+	:is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]), textarea, select, .cm-content) { font-size: max(16px, 1em) !important; }
+	/* Small buttons in rows (⋯, expand) get a finger-sized hit area around them. */
+	[data-touch-target] { position: relative; }
+	[data-touch-target]::after { content: ""; position: absolute; inset: -8px; }
+	/* Rows open menus on a long press: no text selection or iOS link callout in their place. */
+	[role="row"], [data-plugin-sort] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 }

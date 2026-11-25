@@ -237,11 +237,11 @@ export function PluginManager({
               <article
                 key={p.id}
                 aria-label={p.manifest.name}
-                className="min-w-0 border bg-card shadow-sm first:rounded-t-xl last:rounded-b-xl p-5 space-y-4 transition-colors animate-in fade-in-0 duration-200"
+                className="min-w-0 border bg-card shadow-sm first:rounded-t-xl last:rounded-b-xl p-4 sm:p-5 space-y-4 transition-colors animate-in fade-in-0 duration-200"
               >
                 <div className="flex flex-wrap items-start gap-3">
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-muted/40"><Icon name={p.manifest.icon} className="size-5"/></div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-[min(9rem,100%)] flex-1 basis-0">
                     <h3 className="break-words text-sm font-semibold">{p.manifest.name}</h3>
                     <RepositoryLink repo={p.repo}/>
                   </div>

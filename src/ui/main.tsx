@@ -46,7 +46,8 @@ createRoot(document.getElementById("root")!).render(
 		<TooltipProvider delayDuration={400}>
 			<ThemeSync />
 			{isPopover ? <Popover /> : <App />}
-			{!isPopover && <Toaster position="bottom-right" />}
+			{/* On a phone, toasts span the width just above the bottom tab bar. */}
+			{!isPopover && <Toaster position="bottom-right" mobileOffset={{ bottom: "calc(var(--mobile-tab-bar, env(safe-area-inset-bottom)) + 12px)", left: 12, right: 12 }} />}
 			{!inApp && <ConnectionBanner />}
 			{!inApp && !isPopover && <InstallCard />}
 			{remoteClient && <BadgeSync />}

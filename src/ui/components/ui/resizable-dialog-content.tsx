@@ -1,6 +1,7 @@
 import { Children, cloneElement, isValidElement, useEffect, useRef, useState, type ComponentProps, type PointerEvent } from "react";
 import { DialogContent, DialogHeader } from "./dialog";
 import { cn } from "@/lib/utils";
+import { usePhone } from "@/hooks/use-mobile";
 
 type Size = {w: number; h: number};
 const fit = ({w,h}: Size): Size => ({
@@ -41,6 +42,9 @@ export function ResizableDialogContent({children, className, style, ...props}: C
         setOffset({x:(left+nextRight-innerWidth)/2,y:(top+nextBottom-innerHeight)/2});
     };
     const end = () => {drag.current=null;};
+    // On a phone it's a bottom sheet like every dialog: no moving or resizing.
+    const phone = usePhone();
+    if (phone) return <DialogContent {...props} className={cn("flex max-w-none! flex-col", className)} style={style}>{children}</DialogContent>;
     const events = {onPointerMove:move,onPointerUp:end,onPointerCancel:end,onLostPointerCapture:end};
     const edges = [
         [1,0,"inset-y-3 -right-1 w-2 cursor-ew-resize"],[-1,0,"inset-y-3 -left-1 w-2 cursor-ew-resize"],

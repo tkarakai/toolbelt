@@ -12,7 +12,7 @@ import { DevelopmentSettings } from "./Development";
 // previous tab · F6 / ⇧F6 next and previous region (sidebar, header, content, drawer) · ⌘B sidebar ·
 // ⌘W closes the window (app menu). The shared rules live in lib/keyboard.tsx.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { ArrowLeft, ChevronRight, ExternalLink, Check, FlaskConical, PanelLeft, RotateCw, Settings, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, ExternalLink, Check, FlaskConical, Menu, PanelLeft, RotateCw, Settings, X } from "lucide-react";
 import { defaultScreen, type Manifest } from "../shared/protocol";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
@@ -35,6 +35,9 @@ import { KeyHint } from "@/components/key-hint";
 import { ShortcutTooltip } from "@/components/shortcut-tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HeaderTab } from "./components/header-tab";
+import { MobileTabBar, SlideAway } from "./components/mobile-tab-bar";
+import { useHideOnScroll } from "@/lib/hide-on-scroll";
+import { useEdgeSwipe } from "@/lib/touch";
 import { RemoteAccessSettings } from "./RemoteAccess";
 import { inApp, remoteClient, touchPrimary } from "@/lib/device";
 import { Tabs, TabsList } from "@/components/ui/tabs";
@@ -79,6 +82,18 @@ function SidebarCommands() {
 	return null;
 }
 
+/**
+ * Goes to a route. On touch screens it replaces the history entry instead of adding one: tabs in
+ * phone apps don't stack up Back steps, and with no ToolBelt history to go back to, iOS's back
+ * swipe from the left edge (Safari, and home-screen apps) leaves that edge to the tools sheet.
+ */
+function setHash(hash: string) {
+	if (!touchPrimary) return void (location.hash = hash);
+	if (location.hash === hash) return;
+	history.replaceState(history.state, "", hash);
+	window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
 function parseHash(): { plugin?: string; screen?: string } {
 	const [, plugin, screen] = location.hash.replace(/^#/, "").split("/");
 	return { plugin: plugin || undefined, screen: screen || undefined };
@@ -104,10 +119,10 @@ export default function App() {
 	const go = useCallback((plugin: string, screen?: string) => {
         setHandoff(null);
 		if (plugin === TOOLBELT && parseHash().plugin !== TOOLBELT) before.current = location.hash;
-		location.hash = `#/${plugin}${screen ? `/${screen}` : ""}`;
+		setHash(`#/${plugin}${screen ? `/${screen}` : ""}`);
 	}, []);
 	const back = useCallback(() => {
-        location.hash = settingsReturnHash(before.current, lastPlugin, plugins.map(p => p.manifest.id));
+        setHash(settingsReturnHash(before.current, lastPlugin, plugins.map(p => p.manifest.id)));
     }, [plugins, lastPlugin]);
     const navigationToken = useRef(0);
     useNavigate(useCallback((plugin: string, screen?: string, selection?: NavigationSelection) => {
@@ -161,6 +176,7 @@ export default function App() {
 	return (
 		<SidebarProvider open={open} onOpenChange={setOpen} style={{ "--sidebar-width": `${width}px` } as CSSProperties}>
 			{!inApp && windowButtons && <FakeTrafficLights />}
+			<MobileGestures />
 			<FocusRegions />
 			<FocusRescue />
 			<TabbableControls />
@@ -182,6 +198,13 @@ export default function App() {
 	);
 }
 
+/** Narrow screens: a swipe in from the left edge brings in the tools sheet. */
+function MobileGestures() {
+	const { isMobile, openMobile, setOpenMobile } = useSidebar();
+	useEdgeSwipe(() => !overlayOpen() && setOpenMobile(true), isMobile && !openMobile);
+	return null;
+}
+
 /** In the browser preview, stand-ins for the window buttons, to judge the layout around them. */
 function FakeTrafficLights() {
 	return (
@@ -196,6 +219,8 @@ function FakeTrafficLights() {
 // ── sidebar ──────────────────────────────────────────────────────────────
 function AppSidebar({ plugins, current, go: navigate, width, onResize }: { plugins: PluginInfo[]; current?: string; go: (p: string, s?: string) => void; width: number; onResize: (w: number) => void }) {
 	const { state, setOpen, isMobile, setOpenMobile } = useSidebar();
+	// In the narrow screen's sheet, rows are finger-sized and Settings has its name.
+	const row = isMobile ? "h-11 text-[15px] [&>svg]:size-5" : "h-9";
 	// On narrow screens the sidebar is a sheet over the page: choosing closes it.
 	const go = (plugin: string, screen?: string) => {
 		navigate(plugin, screen);
@@ -213,17 +238,24 @@ function AppSidebar({ plugins, current, go: navigate, width, onResize }: { plugi
 			<SidebarCommands />
 			{/* Room for the traffic lights; the strip drags the window. Collapsed, it joins the pane
 			    header so the buttons sit on one continuous bar. */}
-			<SidebarHeader onDoubleClick={zoomOnDoubleClick} className="electrobun-webkit-app-region-drag h-12 shrink-0 flex-row items-center justify-end px-3 group-data-[collapsible=icon]:border-b group-data-[collapsible=icon]:bg-background">
-				{state === "expanded" && <CollapseButton />}
-			</SidebarHeader>
+			{isMobile ? (
+				<SidebarHeader className="h-14 shrink-0 flex-row items-center gap-2.5 border-b px-4 pt-[env(safe-area-inset-top)]">
+					<img src="./pwa/icon-180.png" alt="" className="size-7 rounded-[7px]" />
+					<span className="text-[15px] font-semibold">ToolBelt</span>
+				</SidebarHeader>
+			) : (
+				<SidebarHeader onDoubleClick={zoomOnDoubleClick} className="electrobun-webkit-app-region-drag h-12 shrink-0 flex-row items-center justify-end px-3 group-data-[collapsible=icon]:border-b group-data-[collapsible=icon]:bg-background">
+					{state === "expanded" && <CollapseButton />}
+				</SidebarHeader>
+			)}
 			<SidebarContent>
 				<SidebarGroup>
 					<SidebarGroupLabel>Tools</SidebarGroupLabel>
 					<SidebarGroupContent>
 						<SidebarMenu {...drag} ref={(el) => { tools.current = el; drag.ref(el); }} onKeyDown={roving}>
 							{plugins.map((p, i) => (
-								<SidebarMenuItem key={p.manifest.id} data-plugin-sort={p.manifest.id} style={{ touchAction: "none", userSelect: "none" }}>
-									<SidebarMenuButton isActive={current === p.manifest.id} tooltip={`${p.manifest.name}  ⌘${i + 1}`} onClick={() => go(p.manifest.id)} className={cn("h-9", ACTIVE)}>
+								<SidebarMenuItem key={p.manifest.id} data-plugin-sort={p.manifest.id}style={{ touchAction: "pan-y", userSelect: "none" }}>
+									<SidebarMenuButton isActive={current === p.manifest.id} tooltip={`${p.manifest.name}  ⌘${i + 1}`} onClick={() => go(p.manifest.id)} className={cn(row, ACTIVE)}>
 										<Icon name={p.manifest.icon} />
 										<span className="truncate">{p.manifest.name}</span>
 										{p.state !== "running" && <Dot tone={p.state === "crashed" ? "danger" : "warning"} className="ml-auto group-data-[collapsible=icon]:hidden" />}
@@ -236,7 +268,7 @@ function AppSidebar({ plugins, current, go: navigate, width, onResize }: { plugi
 											<Kbd className="pointer-events-none absolute -top-1 -right-1 hidden h-4 min-w-4 px-1 text-[10px] group-data-[collapsible=icon]:inline-flex">{i + 1}</Kbd>
 										</>
 									) : (
-										p.badge !== null && p.badge !== undefined && <SidebarMenuBadge className="tabular-nums group-has-[[data-active=true]]/menu-item:text-selected-foreground">{p.badge}</SidebarMenuBadge>
+										p.badge !== null && p.badge !== undefined && <SidebarMenuBadge className={cn("tabular-nums group-has-[[data-active=true]]/menu-item:text-selected-foreground", isMobile && "top-1/2! -translate-y-1/2 text-[13px]")}>{p.badge}</SidebarMenuBadge>
 									)}
 								</SidebarMenuItem>
 							))}
@@ -244,10 +276,10 @@ function AppSidebar({ plugins, current, go: navigate, width, onResize }: { plugi
 					</SidebarGroupContent>
 				</SidebarGroup>
 			</SidebarContent>
-			<SidebarFooter>
+			<SidebarFooter className={cn(isMobile && "pb-[max(env(safe-area-inset-bottom),0.5rem)]")}>
 				<SidebarMenu>
 					{development?.active && <SidebarMenuItem>
-						<SidebarMenuButton tooltip={`Plugin development: ${development.profile}`} onClick={() => go(TOOLBELT, "plugins")} className={cn("h-9", pillClass("warning"), "hover:bg-amber-500/25")}>
+						<SidebarMenuButton tooltip={`Plugin development: ${development.profile}`} onClick={() => go(TOOLBELT, "plugins")}className={cn(row, pillClass("warning"), "hover:bg-amber-500/25")}>
 							<FlaskConical />
 							<span className="truncate">Development · <span className="font-mono">{development.profile}</span></span>
 						</SidebarMenuButton>
@@ -255,9 +287,10 @@ function AppSidebar({ plugins, current, go: navigate, width, onResize }: { plugi
 					<SidebarMenuItem>
 						{/* ToolBelt's settings: just the cog and its shortcut. */}
 						<ShortcutTooltip label={current === TOOLBELT ? "Settings" : "Open settings"} detail={update ? "Updates available" : undefined} keys="⌘," side={state === "collapsed" ? "right" : "top"} align={state === "collapsed" ? "center" : "start"}>
-							<SidebarMenuButton isActive={current === TOOLBELT} aria-label={update ? "ToolBelt settings, updates available" : "ToolBelt settings"} aria-keyshortcuts="Meta+," onClick={() => go(TOOLBELT)} className={cn("relative w-full", ACTIVE)}>
+							<SidebarMenuButton isActive={current === TOOLBELT} aria-label={update ? "ToolBelt settings, updates available" : "ToolBelt settings"} aria-keyshortcuts="Meta+,"onClick={() => go(TOOLBELT)} className={cn("relative w-full", isMobile && row, ACTIVE)}>
 								{/* The menu button truncates its last span; keep the badge from being clipped. */}
-								<span className="relative inline-flex size-4 shrink-0 overflow-visible!"><Settings className="size-4"/>{update && <UpdateIndicator className="absolute -right-1 -top-1" />}</span>
+								<span className={cn("relative inline-flex shrink-0 overflow-visible!", isMobile ? "size-5" : "size-4")}><Settings className={isMobile ? "size-5" : "size-4"}/>{update && <UpdateIndicator className="absolute -right-1 -top-1" />}</span>
+								{isMobile && <span>Settings</span>}
 							</SidebarMenuButton>
 						</ShortcutTooltip>
 					</SidebarMenuItem>
@@ -273,8 +306,8 @@ function CollapseButton() {
 	const label = isMobile ? "Show tools" : state === "expanded" ? "Collapse sidebar" : "Expand sidebar";
 	return (
 		<ShortcutTooltip label={label} keys="⌘B" align="start">
-			<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag text-muted-foreground" onClick={toggleSidebar} aria-label={label} aria-keyshortcuts="Meta+B">
-				<PanelLeft />
+			<Button variant="ghost" size={isMobile ? "icon" : "icon-sm"} className="electrobun-webkit-app-region-no-drag text-muted-foreground" onClick={toggleSidebar} aria-label={label} aria-keyshortcuts="Meta+B">
+			{isMobile ? <Menu /> : <PanelLeft />}
 			</Button>
 		</ShortcutTooltip>
 	);
@@ -322,21 +355,29 @@ function SidebarResize({ width, onResize, onCollapse, onExpand, collapsed }: { w
 }
 
 // ── plugin pane ──────────────────────────────────────────────────────────
+/** The bars that slide away on a phone: their combined natural height. */
+const barsHeight = (root: HTMLElement | null) => [...(root?.querySelectorAll<HTMLElement>("[data-hide-on-scroll] > div") ?? [])].reduce((sum, el) => sum + el.scrollHeight, 0);
+
+/** On a phone, the header slides away with scrolling; elsewhere it's just the header. */
+function MobileBar({ mobile, edge, hidden, onFocus, children }: { mobile: boolean; edge: "top" | "bottom"; hidden: boolean; onFocus: () => void; children: ReactNode }) {
+	return mobile ? <SlideAway edge={edge} hidden={hidden} onFocus={onFocus}>{children}</SlideAway> : <>{children}</>;
+}
 /** The pane's top bar. The whole bar drags the window, except its controls. */
 function PaneHeader({ manifest, children }: { manifest: Pick<Manifest, "name" | "icon">; children?: ReactNode }) {
 	const { state, isMobile } = useSidebar();
 	// Narrow screens show the sidebar as a sheet, opened from here; without window buttons
 	// (remote and touch devices) nothing needs their room.
 	const collapsed = state === "collapsed" || isMobile;
-	const left = isMobile ? (windowButtons ? TRAFFIC_LIGHTS_END : 12) : collapsed ? TRAFFIC_LIGHTS_END - RAIL : 24;
+	const left = isMobile ? (windowButtons ? TRAFFIC_LIGHTS_END : 8) : collapsed ? TRAFFIC_LIGHTS_END - RAIL : 24;
 	return (
-		<header data-focus-region="header" onDoubleClick={zoomOnDoubleClick} className="electrobun-webkit-app-region-drag flex h-12 min-w-0 shrink-0 items-center gap-3 overflow-hidden border-b pr-6" style={{ paddingLeft: left }}>
+		<header data-focus-region="header" onDoubleClick={zoomOnDoubleClick} className={cn("electrobun-webkit-app-region-drag flex min-w-0 shrink-0 items-center overflow-hidden border-b", isMobile ? "box-content h-13 gap-2 pt-[env(safe-area-inset-top)] pr-[max(env(safe-area-inset-right),0.5rem)]" : "h-12 gap-3 pr-6")} style={{ paddingLeft: isMobile && !windowButtons ? `max(env(safe-area-inset-left), ${left}px)` : left }}>
 			{collapsed && (
-				<div className="-ml-1">
+				<div className={isMobile ? "" : "-ml-1"}>
 					<CollapseButton />
 				</div>
 			)}
-			<div className="flex min-w-0 max-w-[40%] shrink-0 items-center gap-2.5">
+			{/* On a narrow screen the tabs move to the bottom bar: the name may take the room. */}
+			<div className={cn("flex min-w-0 items-center gap-2.5", isMobile ? "max-w-[60%] shrink" : "max-w-[40%] shrink-0")}>
 				<div className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
 					<Icon name={manifest.icon} className="size-4" />
 				</div>
@@ -349,6 +390,10 @@ function PaneHeader({ manifest, children }: { manifest: Pick<Manifest, "name" | 
 
 function PluginPane({ info, screen, go, handoff, onHandoffApplied }: { info: PluginInfo; screen: string; go: (p: string, s?: string) => void; handoff: { selection: NavigationSelection; token: number } | null; onHandoffApplied: () => void }) {
 	const m = info.manifest;
+	const { isMobile } = useSidebar();
+	// On a phone, the header and tab bar slide away while the content scrolls down.
+	const root = useRef<HTMLDivElement>(null);
+	const { hidden: barsHidden, show: showBars } = useHideOnScroll(root, isMobile, `${m.id}/${screen}`, () => barsHeight(root.current));
     const development = useUpdateState()?.channel === "dev";
     const [actions, setActions] = useState<HTMLElement | null>(null);
 	// A new screen takes the keyboard when nothing else has it, so arrows scroll it at once (its
@@ -356,10 +401,11 @@ function PluginPane({ info, screen, go, handoff, onHandoffApplied }: { info: Plu
 	const pane = useRef<HTMLDivElement>(null);
 	useEffect(() => { if (focusIsIdle(pane.current)) pane.current?.focus({ preventScroll: true }); }, [m.id, screen]);
 	return (
-		<div className="flex h-svh min-h-0 flex-col animate-in fade-in-0 duration-200">
+		<div ref={root} className={cn("flex h-dvh min-h-0 flex-col animate-in fade-in-0 duration-200", isMobile && "overflow-hidden")}>
+			<MobileBar edge="top" mobile={isMobile} hidden={barsHidden} onFocus={showBars}>
 			<PaneHeader manifest={m}>
                 {development && <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">DEV</Badge>}
-				{m.screens.length > 1 && (
+				{m.screens.length > 1 && !isMobile && (
 					<Tabs value={screen} onValueChange={(s) => go(m.id, s)} className="electrobun-webkit-app-region-no-drag min-w-0 shrink overflow-hidden">
 						<TabsList>
 							{m.screens.map((s, i) => (
@@ -376,7 +422,9 @@ function PluginPane({ info, screen, go, handoff, onHandoffApplied }: { info: Plu
 				)}
 				<div ref={setActions} className="electrobun-webkit-app-region-no-drag -mr-2 flex shrink-0 items-center gap-1 empty:hidden" />
 			</PaneHeader>
+			</MobileBar>
 			<div ref={pane} data-plugin-pane data-focus-region="content" tabIndex={0} role="region" aria-label={`${m.name} content`} className="min-h-0 flex-1 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring">{info.state === "crashed" ? <Crashed info={info} /> : <PaneActionsContext.Provider value={actions}><Screen key={screen} plugin={m.id} surface={`screen:${screen}`} handoff={handoff} onHandoffApplied={onHandoffApplied} /></PaneActionsContext.Provider>}</div>
+			{isMobile && m.screens.length > 1 && <SlideAway edge="bottom" hidden={barsHidden} onFocus={showBars}><MobileTabBar hidden={barsHidden} label={`${m.name} tabs`} value={screen} onChange={(s) => go(m.id, s)} tabs={m.screens.map((s) => ({ id: s.id, label: s.title, icon: <Icon name={s.icon ?? "circle"} /> }))} /></SlideAway>}
 		</div>
 	);
 }
@@ -427,14 +475,16 @@ function Loading() {
 }
 
 // ── ToolBelt's own page ──────────────────────────────────────────────────
-const SETTINGS_TABS = [
+const SETTINGS_TABS: { id: string; label: string; short?: string; shortcut: string; icon: string }[] = [
     {id: "appearance", label: "Appearance", shortcut: "a", icon: "palette"},
     {id: "keyboard", label: "Keyboard", shortcut: "k", icon: "keyboard"},
-    {id: "remote", label: "Remote Access", shortcut: "r", icon: "smartphone"},
+    {id: "remote", label: "Remote Access", short: "Remote", shortcut: "r", icon: "smartphone"},
     {id: "plugins", label: "Plugins", shortcut: "p", icon: "puzzle"},
     {id: "about", label: "About", shortcut: "i", icon: "info"},
 ];
 function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: () => void; section?: string }) {
+    const { isMobile } = useSidebar();
+    const page = useRef<HTMLDivElement>(null);
     const pluginUpdates = usePluginUpdateAvailable();
     const appUpdate = useUpdateAvailable();
     const [remembered, remember] = usePersisted<string>("toolbelt.settings-tab", "appearance");
@@ -444,6 +494,7 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
     useEffect(() => { if (!section) return; setTab(section === "updates" ? "about" : section === "tools" ? "plugins" : section === "keyboard-shortcut" ? "keyboard" : section || fallback); }, [section]);
 
     useEffect(() => { remember(tab); }, [tab]);
+    const { hidden: barsHidden, show: showBars } = useHideOnScroll(page, isMobile, tab, () => barsHeight(page.current));
     const content = useRef<HTMLDivElement>(null);
     useEffect(() => { if (focusIsIdle(content.current)) content.current?.focus({ preventScroll: true }); }, [tab]);
     useEffect(() => {
@@ -455,7 +506,7 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
             if (e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && !isTyping(e)) next = SETTINGS_TABS.find(t => t.shortcut === e.key.toLowerCase())?.id;
             if (e.metaKey && e.altKey && n >= 1 && n <= tabs.length) next = tabs[n - 1];
             else if (e.ctrlKey && e.key === "Tab") next = tabs[(tabs.indexOf(tab) + (e.shiftKey ? -1 : 1) + tabs.length) % tabs.length];
-            if (next) { e.preventDefault(); setTab(next); location.hash = `#/toolbelt/${next}`; }
+            if (next) { e.preventDefault(); setTab(next); setHash(`#/toolbelt/${next}`); }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
@@ -467,18 +518,20 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
 		onClose();
 	});
 	return (
-		<div className="flex h-svh min-h-0 flex-col animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
+		<div ref={page} className={cn("flex h-dvh min-h-0 flex-col animate-in fade-in-0 slide-in-from-bottom-1 duration-200", isMobile && "overflow-hidden")}>
+			<MobileBar edge="top" mobile={isMobile} hidden={barsHidden} onFocus={showBars}>
 			<PaneHeader manifest={{ name: "Settings", icon: "settings" }}>
-                <Tabs value={tab} onValueChange={next => { setTab(next); location.hash = `#/toolbelt/${next}`; }} className="electrobun-webkit-app-region-no-drag min-w-0 shrink overflow-hidden">
+                {!isMobile && <Tabs value={tab} onValueChange={next => { setTab(next); setHash(`#/toolbelt/${next}`); }} className="electrobun-webkit-app-region-no-drag min-w-0 shrink overflow-hidden">
                     <TabsList aria-label="Settings tabs">{SETTINGS_TABS.map(t => <HeaderTab key={t.id} value={t.id} label={t.label} icon={<Icon name={t.icon}/>} shortcut={`⌘${t.shortcut.toUpperCase()}`} title={`${t.label} · ⌘${t.shortcut.toUpperCase()}`} indicator={((t.id === "plugins" && pluginUpdates) || (t.id === "about" && appUpdate)) ? <UpdateIndicator className="ring-0"/> : undefined}/>)}</TabsList>
-                </Tabs>
+                </Tabs>}
                 <div data-window-drag-handle aria-hidden="true" className="electrobun-webkit-app-region-drag min-w-8 flex-1 self-stretch" />
-				<Button variant="ghost" size="icon-sm" className="electrobun-webkit-app-region-no-drag ml-auto -mr-2 text-muted-foreground" onClick={onClose} aria-label="Close settings" aria-keyshortcuts="Escape" title="Close  esc">
+				<Button variant="ghost" size={isMobile ? "icon" : "icon-sm"} className={cn("electrobun-webkit-app-region-no-drag ml-auto text-muted-foreground", !isMobile && "-mr-2")} onClick={onClose} aria-label="Close settings" aria-keyshortcuts="Escape" title="Close  esc">
 					<X />
 				</Button>
 			</PaneHeader>
+			</MobileBar>
 			<div key={tab} ref={content} data-focus-region="content" className="settings-scroll min-h-0 flex-1 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring" tabIndex={0} role="region" aria-label="Settings content">
-				<div className="mx-auto max-w-4xl space-y-8 px-6 py-8">
+				<div className="mx-auto max-w-4xl space-y-8 px-4 py-5 md:px-6 md:py-8">
                     {tab === "plugins" && <PluginsTab />}
 
                     {tab === "appearance" && <AppearanceSetting />}
@@ -486,8 +539,9 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
                     {tab === "remote" && <RemoteAccessSettings />}
                     {tab === "keyboard" && <>
                     {/* The global shortcut is the Mac's: remote devices can't change it. */}
+                    {touchPrimary && <TouchGestures />}
                     {!remoteClient && <SettingsGroup title="Menu bar"><div className={cn("p-5", section === "keyboard-shortcut" && "shortcut-attention")}><ShortcutSetting /></div></SettingsGroup>}
-                    <SettingsGroup title="Navigation and actions"><div data-keep-keys className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 p-5 text-sm">
+                    <SettingsGroup title="Navigation and actions" description={touchPrimary ? "With a keyboard connected to this device." : undefined}><div data-keep-keys className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 p-5 text-sm">
                             <Shortcut label="Switch tool (hold ⌘ to see the numbers)" keys={["⌘1 … ⌘9"]} />
                             <Shortcut label="Plugin or Settings tabs" keys={["⌘letter", "⌥⌘1 …"]} />
                             <Shortcut label="Next / previous tab" keys={["⌃⇥", "⌃⇧⇥"]} />
@@ -515,8 +569,27 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
                     </div></SettingsGroup></>}
 				</div>
 			</div>
+			{isMobile && <SlideAway edge="bottom" hidden={barsHidden} onFocus={showBars}><MobileTabBar hidden={barsHidden} label="Settings tabs" value={tab} onChange={next => { setTab(next); setHash(`#/toolbelt/${next}`); }} tabs={SETTINGS_TABS.map(t => ({ id: t.id, label: t.short ?? t.label, icon: <Icon name={t.icon}/>, indicator: ((t.id === "plugins" && pluginUpdates) || (t.id === "about" && appUpdate)) ? <UpdateIndicator className="ring-0"/> : undefined }))} /></SlideAway>}
 		</div>
 	);
+}
+
+/** On a touch screen, the Keyboard tab starts with what fingers do (docs/remote-access.md, "Touch"). */
+function TouchGestures() {
+    const gestures: [string, string, string][] = [
+        ["Swipe in from the left edge", "Show your tools", "panel-left-open"],
+        ["Swipe a sheet down, or the tools back left", "Close it", "move-down"],
+        ["Tap a row", "See its details, or open its group", "hand"],
+        ["Touch and hold a row", "Its actions; rows that can move lift, then drag them", "hand-grab"],
+        ["Touch and hold a tool or a filter", "Lift it, then drag it to a new place", "grip-vertical"],
+        ["Tap a group heading", "Collapse or expand the group", "chevrons-down-up"],
+    ];
+    return <SettingsGroup title="Touch gestures">
+        <ul className="divide-y">{gestures.map(([gesture, effect, icon]) => <li key={gesture} className="flex items-center gap-3 px-4 py-3 sm:px-5">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-muted/40 text-muted-foreground"><Icon name={icon} className="size-4"/></span>
+            <span className="min-w-0"><span className="block text-sm font-medium">{gesture}</span><span className="block text-sm text-muted-foreground">{effect}</span></span>
+        </li>)}</ul>
+    </SettingsGroup>;
 }
 
 function Shortcut({ label, keys }: { label: string; keys: string[] }) {
@@ -594,7 +667,7 @@ function ShortcutSetting() {
 
 /** Color scheme and palette previews share the same visual vocabulary. */
 function AppearancePreview({theme, modes}: {theme: typeof THEMES[number]; modes: ("light" | "dark")[]}) {
-    return <div className="flex h-20" aria-hidden="true">{modes.map(mode => {
+    return <div className="flex h-16 sm:h-20" aria-hidden="true">{modes.map(mode => {
         const p = tokens(theme[mode]);
         return <div key={mode} className="flex min-w-0 flex-1 gap-2 p-2.5" style={{background:p.background}}>
             <div className="w-1/5 rounded-sm" style={{background:p.sidebar, border:`1px solid ${p.border}`}} />
@@ -612,12 +685,12 @@ function AppearanceSetting() {
     const paletteKeys = useRovingFocus(palettes, { items: "[role=radio]", orientation: "grid", selectOnFocus: true });
     const card = (active: boolean) => cn("min-w-0 overflow-hidden rounded-xl border text-left outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring", active ? "ring-2 ring-selected ring-offset-2 ring-offset-card" : "hover:bg-accent hover:shadow-sm");
     return <div className="space-y-8">
-        <SettingsGroup title="Color scheme"><div className="p-5"><p className="mb-4 text-sm text-muted-foreground">Use light or dark colors, or follow your system setting.</p><div ref={schemes} role="radiogroup" aria-label="Color scheme" onKeyDown={schemeKeys} className="grid max-w-xl grid-cols-1 gap-3 min-[400px]:grid-cols-3">
+        <SettingsGroup title="Color scheme"><div className="p-5"><p className="mb-4 text-sm text-muted-foreground">Use light or dark colors, or follow your system setting.</p><div ref={schemes} role="radiogroup" aria-label="Color scheme" onKeyDown={schemeKeys} className="grid max-w-xl grid-cols-3 gap-2 sm:gap-3">
             {([['light', 'Light', 'sun'], ['dark', 'Dark', 'moon'], ['system', 'System', 'monitor']] as const).map(([mode,label,icon]) => {
                 const active = (settings?.mode ?? "system") === mode;
                 return <button key={mode} role="radio" aria-checked={active} onClick={() => void set({mode})} className={card(active)}>
                     <AppearancePreview theme={theme} modes={mode === "system" ? ["light", "dark"] : [mode]} />
-                    <div className="flex items-center gap-2 border-t px-3 py-2 text-sm"><Icon name={icon} className="size-4"/><span>{label}</span>{active && <Check className="ml-auto size-4"/>}</div>
+                    <div className="flex items-center gap-2 border-t px-2.5 py-2 text-sm sm:px-3"><Icon name={icon} className="size-4 shrink-0"/><span className="min-w-0 truncate">{label}</span>{active && <Check className="ml-auto size-4 shrink-0"/>}</div>
                 </button>;
             })}
         </div></div></SettingsGroup>
