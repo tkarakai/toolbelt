@@ -38,7 +38,8 @@ request was refused or failed (unknown plugin, screen, table or option, plugin n
 - `Row actions` and `Toolbar actions` name what the person can do on that screen; a row that
   allows fewer lists its own `(actions: …)`.
 - `search` lists screens it couldn't read: matches there are unknown, not absent.
-- Values marked `••••••` are secrets ToolBelt keeps from agents.
+- Values marked `••••••` are secrets ToolBelt keeps from agents (fields the plugin marks
+  sensitive, and anything that looks like a token or password, such as in command lines).
 
 ## Limits
 

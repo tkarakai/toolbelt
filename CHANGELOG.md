@@ -10,6 +10,7 @@
 - Agent reads stay within a size limit, in text and JSON: long tables stop at a whole row and say which offset to continue from, instead of cutting text mid-value or returning megabytes of JSON. A row limit now counts nested rows (such as process trees), reads default to 50 rows, and JSON leaves out icons, widths and other display-only fields.
 - Agent search groups matches by row and shortens long lines, so one process no longer shows up three times with its whole command line.
 - A plugin that sends a screen ToolBelt can't display (for example one too large to show) no longer stops: that screen shows an error saying why, the plugin's other screens keep working, and the screen comes back with the plugin's next valid update. Opening such a screen, by you or by an agent, used to leave the whole plugin stopped until it was restarted.
+- Agents no longer see likely secrets in plugin text that the plugin didn't mark sensitive, such as tokens, passwords and API keys in process command lines and URLs; ToolBelt masks them as ••••••.
 - MCP screen resources can be paged: `toolbelt://screens/{plugin}/{screen}?table=…&offset=…&max_rows=…&details=false`.
 
 ## 0.5.3 — 2026-11-25

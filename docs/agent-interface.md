@@ -157,7 +157,12 @@ counts as a viewer through `PluginHost.open`/`close`:
 - JSON leaves out fields that only affect the UI's look or operation (icons, widths, emphasis,
   placeholders, drag and drop; `VISUAL_KEYS`), never plugin-named data such as a row's cells.
 - `text` fields with `sensitive` and `secret` environment entries are masked as `••••••` in both
-  text and JSON. Other plugin text passes through unchanged.
+  text and JSON. In all other plugin text, `maskSecrets` masks values that look like secrets:
+  secret-named flags and variables (`--token=…`, `--api-key …`, `GITHUB_TOKEN=…`, `"api_key": "…"`,
+  `password: …`), secret query parameters, `Authorization` and `Bearer` values, passwords in
+  URLs, and well-known token formats (GitHub, OpenAI and Anthropic, Slack, AWS access keys,
+  GitLab, npm, Google API keys, JWTs). Names stay; only values are masked. This is a safety net,
+  not a guarantee: plugins should mark sensitive values themselves.
 
 Search, filters, sort and dialogs are plugin view state shared by every viewer. A read
 therefore shows what the person's view shows, and the result says so when a search, a

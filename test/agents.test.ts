@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { agentSettings, ceilingOf, declaredAccess, defaultAccess, effectiveAccess } from "../src/shared/agents";
 import { parseManifest, type Manifest, type Node } from "../src/shared/protocol";
 import type { PluginInfo } from "../src/shared/plugin-state";
-import { MASK, redact, treeJson, treeText } from "../src/bun/agent/serialize";
+import { MASK, maskSecrets, redact, treeJson, treeText } from "../src/bun/agent/serialize";
 import { AgentCore, type AgentHost } from "../src/bun/agent/core";
 import { AgentServer } from "../src/bun/agent/server";
 import { AuditLog } from "../src/bun/agent/audit";
@@ -94,6 +94,31 @@ describe("serializer", () => {
 		expect(text).toContain(`Token: ${MASK}`);
 		expect(text).toContain(`API_KEY=${MASK}`);
 		expect(text).toContain("MODE=dev");
+	});
+	test("masks likely secrets in any plugin text, keeping what isn't one", () => {
+		// Fake secrets are assembled at run time, so the repository's secret scan (gitleaks) doesn't flag this file.
+		const fake = (...parts: string[]) => parts.join("");
+		const cases: [string, string][] = [
+			["node server.js --token=abc123 --port 3000", `node server.js --token=${MASK} --port 3000`],
+			[fake("claude --api-key sk-ant-", "api03-", "A".repeat(24), " --resume 1234"), `claude --api-key ${MASK} --resume 1234`],
+			[fake("GITHUB_TOKEN=gh", "p_", "abcdefghijklmnopqrstuvwxyz0123 gh pr list"), `GITHUB_TOKEN=${MASK} gh pr list`],
+			[fake("curl -H 'Author", "ization: Bea", "rer abc.def.ghi' https://u:hunter2@example.com/x?page=1&access_token=zzz&b=2"), `curl -H 'Authorization: Bearer ${MASK}' https://u:${MASK}@example.com/x?page=1&access_token=${MASK}&b=2`],
+			["psql postgres://app:s3cret@localhost/db", `psql postgres://app:${MASK}@localhost/db`],
+			[fake("export AWS_SECRET_ACCESS_KEY=", "wJalrXUtn", "FEMI/K7MDENG"), `export AWS_SECRET_ACCESS_KEY=${MASK}`],
+			['{"api_key": "abcd", "name": "x"}', `{"api_key": "${MASK}", "name": "x"}`],
+			["password: hunter2", `password: ${MASK}`],
+			[fake("key AKIA", "IOSFODNN7EXAMPLE in use"), `key ${MASK} in use`],
+			// Not secrets: flags without a value, ids, settings blobs, counts and prose.
+			["claude --settings '{\"permissions\":{\"allow\":[\"Bash\"]}}' --allow-dangerously-skip-permissions --session-id 1e2f", "claude --settings '{\"permissions\":{\"allow\":[\"Bash\"]}}' --allow-dangerously-skip-permissions --session-id 1e2f"],
+			["--no-token-cache --verbose", "--no-token-cache --verbose"],
+			["Tokens: 1200", "Tokens: 1200"],
+			["Rotate your API key in Settings", "Rotate your API key in Settings"],
+		];
+		for (const [input, masked] of cases) expect(maskSecrets(input)).toBe(masked);
+		// Applied everywhere: cells, details and JSON alike.
+		const tree: Node = { type: "table", id: "p", columns: [{ key: "cmd", title: "Command" }], rows: [{ id: "1", cells: { cmd: "app --password=pw1" }, details: [{ label: "Resume with", value: "GH_TOKEN=xyz app" }] }] };
+		expect(treeText(tree).text).not.toMatch(/pw1|xyz/);
+		expect(JSON.stringify(treeJson(tree))).not.toMatch(/pw1|xyz/);
 	});
 	test("text lists sections, rows, details, enabled actions and shared view state", () => {
 		const { text, viewState } = treeText(page(2), { now: Date.UTC(2026, 10, 25, 10) });

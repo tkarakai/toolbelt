@@ -23,9 +23,46 @@ export const TEXT_BUDGET = 50_000;
 export const JSON_BUDGET = 100_000;
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… (${s.length - n} more characters)` : s);
 
-/** A deep copy with sensitive field values and secret environment values masked. */
+/**
+ * Secrets that commonly appear in plugin text a plugin didn't mark sensitive, such as command
+ * lines and URLs: each pattern's last group is masked, the rest (the flag or variable name) kept.
+ */
+const SECRET_NAME = String.raw`[\w-]*(?:token|secret|passw(?:or)?d|pwd|api[-_]?key|access[-_]?key|private[-_]?key|credentials?)[\w-]*`;
+const VALUE = String.raw`("[^"]*"|'[^']*'|[^\s"']+)`;
+const SECRET_PATTERNS: RegExp[] = [
+	// --token=…, --api-key …, -password …
+	new RegExp(String.raw`(\s-{1,2}${SECRET_NAME}(?:=|\s+))(?!-)${VALUE}`, "gi"),
+	new RegExp(String.raw`(^-{1,2}${SECRET_NAME}(?:=|\s+))(?!-)${VALUE}`, "gi"),
+	// GITHUB_TOKEN=…, export AWS_SECRET_ACCESS_KEY=…
+	new RegExp(String.raw`(\b${SECRET_NAME}=)("[^"]*"|'[^']*'|[^\s"'&;,]+)`, "gi"),
+	// "api_key": "…" (JSON), password: … (only a password-like name, so "Tokens: 1200" stays)
+	new RegExp(String.raw`("${SECRET_NAME}"\s*:\s*")([^"]+)(?=")`, "gi"),
+	/(\b(?:passw(?:or)?d|passphrase)\s*:\s*)("[^"]*"|'[^']*'|[^\s"',;]+)/gi,
+	// ?token=…&, &signature=…
+	/([?&](?:[\w-]*(?:token|key|secret|password|sig|signature|auth)[\w-]*)=)([^&\s#"']+)/gi,
+	// Authorization: Bearer …, Bearer …
+	/(\bauthorization:\s*(?:bearer|basic|token)?\s*)([^\s"']+)/gi,
+	/(\bbearer\s+)([a-z0-9._~+/=-]{8,})/gi,
+	// user:password@host in URLs
+	/(\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:)([^\s@/]+)(?=@)/gi,
+	// Well-known token formats, wherever they appear.
+	/()(\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|glpat-[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{36}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}))/g,
+];
+
+/** Plugin text with likely secrets (tokens, passwords, keys in command lines and URLs) masked. */
+export function maskSecrets(text: string): string {
+	let out = text;
+	for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, (_m, keep: string) => `${keep}${MASK}`);
+	return out;
+}
+
+/**
+ * A deep copy with sensitive field values and secret environment values masked, and likely
+ * secrets in any other text masked too.
+ */
 export function redact<T>(value: T): T {
 	if (Array.isArray(value)) return value.map(redact) as T;
+	if (typeof value === "string") return maskSecrets(value) as T;
 	if (!value || typeof value !== "object") return value;
 	const o = value as Record<string, unknown>;
 	const out: Record<string, unknown> = {};
