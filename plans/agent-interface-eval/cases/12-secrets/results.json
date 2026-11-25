@@ -1,0 +1,38 @@
+[
+  {
+    "step": "initialize",
+    "protocolVersion": "2025-06-18",
+    "instructions": "ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. Access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. Plugins the person or plugin author kept from agents are not listed."
+  },
+  {
+    "step": "tools/list",
+    "tools": [
+      "toolbelt_status",
+      "list_screens",
+      "read_screen",
+      "search_screens",
+      "list_plugins"
+    ]
+  },
+  {
+    "step": "tools/call read_screen",
+    "args": {
+      "plugin": "sdk-demo",
+      "screen": "forms"
+    },
+    "ms": 0,
+    "isError": false,
+    "text": "# SDK Explorer › Forms (plugin \"sdk-demo\", screen \"forms\")\nrendered now\n\nSummary: 0 events · forms\nToolbar actions: Count event, Open dialog, Copy fixture, Toast with action\n\n## Form: Every field type — All values are disposable fixtures.\n- Name: Ada\n- Sensitive fixture: ••••••\n- Preference: System\n- Enabled fixture: on\n- Environment fixture: DEMO=safe fixture, TOKEN=•••••• (off)\n- Markdown notes: # Notes / Styled **as you type**, with `code` and [links](https://github.com/tkarakai/toolbelt).\n- Due: 2026-11-20T14:30\n- Accent color: teal\n- Owner: Ada Lovelace\n- Labels: Priority: High, Flagged\n- Option list: High, Medium, Low\nControl mode: Overview (options: Overview, Detail)"
+  },
+  {
+    "step": "tools/call read_screen",
+    "args": {
+      "plugin": "sdk-demo",
+      "screen": "forms",
+      "format": "json"
+    },
+    "ms": 1,
+    "isError": false,
+    "text": "# SDK Explorer › Forms (plugin \"sdk-demo\", screen \"forms\")\nrendered now\n\n{\"type\":\"page\",\"search\":{\"placeholder\":\"Filter table fixtures\"},\"summary\":\"0 events · forms\",\"highlight\":[],\"actions\":[{\"id\":\"increment\",\"label\":\"Count event\",\"icon\":\"plus\",\"primary\":true,\"key\":\"i\"},{\"id\":\"open-dialog\",\"label\":\"Open dialog\",\"icon\":\"panel-top\",\"key\":\"d\"},{\"id\":\"copy\",\"label\":\"Copy fixture\",\"icon\":\"copy\"},{\"id\":\"toast\",\"label\":\"Toast with action\",\"icon\":\"bell\"}],\"filters\":[],\"children\":[{\"type\":\"form\",\"id\":\"preferences\",\"title\":\"Every field type\",\"description\":\"All values are disposable fixtures.\",\"fields\":[{\"type\":\"text\",\"id\":\"name\",\"label\":\"Name\",\"value\":\"Ada\",\"placeholder\":\"Type a name\",\"description\":\"Typing remains local until the host reports a field event.\"},{\"type\":\"text\",\"id\":\"secret\",\"label\":\"Sensitive fixture\",\"value\":\"••••••\",\"sensitive\":true,\"description\":\"A fake secret for reveal controls.\"},{\"type\":\"select\",\"id\":\"theme\",\"label\":\"Preference\",\"value\":\"system\",\"options\":[{\"value\":\"system\",\"label\":\"System\"},{\"value\":\"light\",\"label\":\"Light\"},{\"value\":\"dark\",\"label\":\"Dark\"}],\"description\":\"Demonstrates select fields; host theme is configured separately.\"},{\"type\":\"switch\",\"id\":\"enabled\",\"label\":\"Enabled fixture\",\"value\":true,\"description\":\"A switch field.\"},{\"type\":\"environment\",\"id\":\"environment\",\"label\":\"Environment fixture\",\"value\":[{\"key\":\"DEMO\",\"value\":\"safe fixture\",\"selected\":true,\"secret\":false},{\"key\":\"TOKEN\",\"value\":\"••••••\",\"selected\":false,\"secret\":true}],\"description\":\"Editable, selected and sensitive entries; never applied to a real process.\"},{\"type\":\"textarea\",\"id\":\"notes\",\"label\":\"Markdown notes\",\"value\":\"# Notes\\n\\nStyled **as you type**, with `code` and [links](https://github.com/tkarakai/toolbelt).\",\"markdown\":true,\"rows\":5,\"description\":\"ui.rich-fields: Markdown styled as it is typed; sent on blur or ⌘↵.\"},{\"type\":\"datetime\",\"id\":\"due\",\"label\":\"Due\",\"value\":\"2026-11-20T14:30\",\"description\":\"A local date with an optional time, clearable.\"},{\"type\":\"color\",\"id\":\"accent\",\"label\":\"Accent color\",\"value\":\"teal\"},{\"type\":\"combobox\",\"id\":\"owner\",\"label\":\"Owner\",\"value\":\"ada\",\"freeform\":true,\"placeholder\":\"Choose or type a name\",\"options\":[{\"value\":\"ada\",\"label\":\"Ada Lovelace\",\"sub\":\"fixture\"},{\"value\":\"grace\",\"label\":\"Grace Hopper\",\"sub\":\"fixture\"}]},{\"type\":\"tags\",\"id\":\"labels\",\"label\":\"Labels\",\"value\":[{\"key\":\"priority\",\"value\":\"High\"},{\"key\":\"flag\"}],\"keys\":[{\"key\":\"priority\",\"label\":\"Priority\",\"color\":\"orange\",\"values\":[\"High\",\"Low\"]},{\"key\":\"area\",\"label\":\"Area\",\"color\":\"blue\",\"values\":[\"Docs\"],\"freeform\":true},{\"key\":\"flag\",\"label\":\"Flagged\",\"color\":\"rose\",\"flag\":true},{\"key\":\"status\",\"label\":\"Status\",\"values\":[\"Todo\",\"Doing\",\"Done\"],\"colors\":{\"Todo\":\"sky\",\"Doing\":\"violet\",\"Done\":\"emerald\"}}],\"description\":\"Key/value pills, one per key. Status colors each value (TagKey.colors), so its key shows a rainbow dot.\"},{\"type\":\"options\",\"id\":\"options\",\"label\":\"Option list\",\"value\":[{\"key\":\"o1\",\"text\":\"High\",\"color\":\"red\",\"count\":3},{\"key\":\"o2\",\"text\":\"Medium\",\"color\":\"amber\",\"count\":1},{\"key\":\"o3\",\"text\":\"Low\",\"color\":\"sky\",\"count\":0}],\"colors\":true,\"reorder\":true,\"placeholder\":\"Add option\",\"description\":\"ui.options-field: rename in place, add from the last row (paste adds one per line), drag or ⌥↑ ⌥↓ to reorder, × to remove; a dot picks a color. Counts are fixtures.\"}]},{\"type\":\"segmented\",\"id\":\"mode\",\"value\":\"overview\",\"options\":[{\"value\":\"overview\",\"label\":\"Overview\",\"icon\":\"layout-grid\"},{\"value\":\"detail\",\"label\":\"Detail\",\"icon\":\"list\"}]}]}"
+  }
+]

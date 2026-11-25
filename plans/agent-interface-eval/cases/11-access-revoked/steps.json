@@ -1,0 +1,1 @@
+{"client":"claude-desktop (eval)","steps":[{"person":"agents","params":{"operation":"setAccess","plugin":"ontrack","access":"none"}},{"tool":"read_screen","args":{"plugin":"ontrack"}},{"tool":"toolbelt_status"},{"person":"agents","params":{"operation":"setAccess","plugin":"ontrack","access":null}},{"tool":"read_screen","args":{"plugin":"ontrack","details":false,"max_rows":2}}]}

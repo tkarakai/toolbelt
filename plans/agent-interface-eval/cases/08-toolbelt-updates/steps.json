@@ -1,0 +1,1 @@
+{"client":"claude-desktop (eval)","steps":[{"tool":"toolbelt_status"},{"tool":"list_plugins"}]}

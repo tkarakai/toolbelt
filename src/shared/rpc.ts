@@ -26,6 +26,8 @@ export type ToolbeltRPC = {
 			settings: { params: {}; response: { shortcut: string; shortcutLabel: string; shortcutError: string | null; theme: string; mode: "system" | "light" | "dark"; badgePlugins: string[] } };
 			/** Remote access (docs/remote-access.md); changes arrive as `remoteAccessState`. */
 			remoteAccess: { params: import("./remote").RemoteAccessRequest; response: import("./remote").RemoteAccessState };
+			/** Settings → Agents (docs/agents.md); changes arrive as `agentsState`. */
+			agents: { params: import("./agents").AgentsRequest; response: import("./agents").AgentsState | { entries: import("./agents").AuditEntry[] } };
 			/** The UI build the server is serving (remote connections), null inside the app. */
 			buildId: { params: {}; response: string | null };
 			setAppearance: { params: { theme?: string; mode?: string }; response: true };
@@ -78,6 +80,7 @@ export type ToolbeltRPC = {
 			updateState: UpdateState;
 			developmentState: import("./development").DevelopmentState;
 			remoteAccessState: import("./remote").RemoteAccessState;
+			agentsState: import("./agents").AgentsState;
 			/** From the app menu: a command for the window (toggleSidebar…). */
 			command: { name: string };
 		};

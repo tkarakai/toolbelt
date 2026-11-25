@@ -1,0 +1,208 @@
+$ toolbelt search toolbelt --plugin ontrack
+- OnTrack › Tasks › Working on: - [#4] Migrate CI to the new runners — [ToolBelt, Medium, In progress] · Untouched 2 days  {id: 4}
+- OnTrack › Tasks › Working on: - Labels: Project: ToolBelt, Priority: Medium, Status: In progress
+- OnTrack › Tasks › Working on: - [#5] Fix flaky remote-access test [Stalled, ToolBelt, Low, Blocked]  {id: rel:5} [unread]
+- OnTrack › Tasks › Stalled: - [#5] Fix flaky remote-access test — [ToolBelt, Low, Blocked] Still stalled · untouched 6 days · stalled for 2 days · 2026-11-22 22:24 (2d ago)  {id: 5} [unread]
+- OnTrack › Tasks › Stalled: - Labels: Project: ToolBelt, Priority: Low, Status: Blocked
+- OnTrack › Tasks › Stalled: - [#4] Migrate CI to the new runners [Working on, ToolBelt, Medium, In progress]  {id: rel:4}
+- OnTrack › Tasks › Settled: - [#10] Ship ToolBelt 0.3.24 — [ToolBelt] · 2026-11-20 22:24 (4d ago)  {id: 10}
+- OnTrack › Tasks › Settled: - Name: Ship ToolBelt 0.3.24
+- OnTrack › Tasks › Settled: - Labels: Project: ToolBelt
+- OnTrack › Settings › Table labels: 4 rows: - Project · Free text · — [Finance, ToolBelt, Office, Writing] and any text · 9  {id: l1}
+[exit 0]
+
+$ toolbelt read ontrack tasks --max-rows 20
+# OnTrack › Tasks (plugin "ontrack", screen "tasks")
+rendered now
+
+Filter Workflow: Ongoing (default: Inbox, Working on, Stalled, Snoozed, Watching, Settled) (options: Inbox 4, Working on 1, Stalled 3, Snoozed 1, Watching 1, Settled 1, Archived 0)
+Filter Due: all (options: Overdue 1, Today 0, Next 6 days 2, Later 1, Past 0, No date 7)
+Filter Project: all (options: Finance 3, ToolBelt 3, Office 2, Writing 1, No Project 2)
+Filter isPersonal: all (options: Yes 2, No 9)
+Filter Priority: all (options: High 2, Medium 4, Low 2, No Priority 3)
+Filter Status: all (options: Todo 1, In progress 2, Blocked 1, No Status 7)
+Control Subtasks: Off (options: Off, Stay in their own group, Follow their parent)
+Toolbar actions: New task
+
+## Table tasks: 11 rows
+Columns: Task · Due · When
+Row actions: Start working on it, Done for now, Back to Inbox, Write the next step, Mark stalled, Settle, Snooze… (or: 3 hours, Tomorrow 9:00, Next Monday 9:00), Watch…, Edit, Add update, Relate to…, Mark unread, Mark read, Make it a subtask, Move out a level, Move up, Move down, Archive, Unarchive, Delete
+### Inbox
+- [#9] Submit November expense report — [Finance, Medium] Reopened from Settled · Sat, Nov 21 · 2026-11-24 22:28 (3m ago)  {id: 9} [unread, Overdue]
+    New · Reopened from Settled
+    Form task
+    - Name: Submit November expense report
+    - Workflow: Inbox
+    - Overdue: 2026-11-21
+    - Labels: Project: Finance, Priority: Medium
+    - Related: none
+    - desc: 
+    Created Nov 16 at 10:24 PM · changed Nov 24 at 10:28 PM
+    Updates
+    Timeline updates: 0 entries
+    (empty: No updates yet)
+- [#1] Renew passport — [isPersonal, High] Photos are in the drawer. Appointment form at the town hall website. · Sat, Nov 28 · 2026-11-18 22:24 (6d ago)  {id: 1}
+    Form task
+    - Name: Renew passport
+    - Workflow: Inbox
+    - Due: 2026-11-28
+    - Labels: isPersonal, Priority: High
+    - Related: none
+    - desc: Photos are in the drawer. Appointment form at the town hall website.
+    Created Nov 18 at 10:24 PM
+    Updates
+    Timeline updates: 0 entries
+    (empty: No updates yet)
+- [#11] Plan team offsite agenda — [Office, Medium] · Sat, Dec 5 · 2026-11-23 22:24 (1d ago)  {id: 11}
+    Form task
+    - Name: Plan team offsite agenda
+    - Workflow: Inbox
+    - Due: 2026-12-05
+    - Labels: Project: Office, Priority: Medium
+    - Related: none
+    - desc: 
+    Created Nov 23 at 10:24 PM
+    Updates
+    Timeline updates: 0 entries
+    (empty: No updates yet)
+- [#8] Write blog post on agent-native apps — [Writing, Low] New · 2026-11-22 22:24 (2d ago)  {id: 8} [unread]
+    New · New
+    Form task
+    - Name: Write blog post on agent-native apps
+    - Workflow: Inbox
+    - Due: No due date
+    - Labels: Project: Writing, Priority: Low
+    - Related: none
+    - desc: 
+    Created Nov 22 at 10:24 PM
+    Updates
+    Timeline updates: 0 entries
+    (empty: No updates yet)
+### Working on
+- [#4] Migrate CI to the new runners — [ToolBelt, Medium, In progress] · Untouched 2 days  {id: 4}
+    Form task
+    - Name: Migrate CI to the new runners
+    - Workflow: Working on
+    - Due: No due date
+    - Labels: Project: ToolBelt, Priority: Medium, Status: In progress
+    - Related: Blocked by: #5 Fix flaky remote-access test
+    - desc: 
+    Stalls soon
+    - Untouched: 2 days
+    - Stalls: Nov 25 at 10:24 PM
+    Add an update or edit it to keep it in Working on.
+    Blocked by · 1
+    List rel-blocked-by: 1 item
+    - [#5] Fix flaky remote-access test [Stalled, ToolBelt, Low, Blocked]  {id: rel:5} [unread]
+    Created Nov 12 at 10:24 PM · changed Nov 19 at 10:24 PM
+    Updates · 1
+    Timeline updates: 1 entry
+    - 2026-11-22 22:24 (2d ago): Linux jobs moved over; macOS runners still pending the image.
+### Stalled
+- [#5] Fix flaky remote-access test — [ToolBelt, Low, Blocked] Still stalled · untouched 6 days · stalled for 2 days · 2026-11-22 22:24 (2d ago)  {id: 5} [unread]
+    Form task
+    - Name: Fix flaky remote-access test
+    - Workflow: Stalled since Nov 22 at 10:24 PM
+    - Due: No due date
+    - Labels: Project: ToolBelt, Priority: Low, Status: Blocked
+    - Related: Blocks: #4 Migrate CI to the new runners
+    - desc: Fails about 1 in 20 runs on CI; timing around the pairing timeout.
+    Stalled
+    - Untouched: 6 days
+    - Since: Nov 22 at 10:24 PM
+    - Times stalled: First time
+    - Next reminder: Nov 25 at 10:27 PM
+    Write the next step (↵) to get back to it.
+    Blocks · 1
+    List rel-blocks: 1 item
+    - [#4] Migrate CI to the new runners [Working on, ToolBelt, Medium, In progress]  {id: rel:4}
+    Created Nov 9 at 10:24 PM · changed Nov 19 at 10:24 PM
+    Updates
+    Timeline updates: 0 entries
+    (empty: No updates yet)
+- [#2] Q4 budget review with finance — [Finance, High, In progress, 0/1] Stalled · untouched 3 days · Tomorrow · 2:00 PM · 2026-11-24 22:27 (4m ago)  {id: 2} [unread]
+    Form task
+    - Name: Q4 budget review with finance
+    - Workflow: Stalled since Nov 24 at 10:27 PM
+    - Due: 2026-11-25T14:00
+    - Labels: Project: Finance, Priority: High, Status: In progress
+    - Related: Child: #3 Draft budget slides
+    - desc: 
+    Stalled
+    - Untouched: 3 days
+    - Since: Nov 24 at 10:27 PM
+    - Times stalled: First time
+    - Next reminder: Nov 25 at 10:27 PM
+    Write the next step (↵) to get back to it.
+    Children · 0/1 settled
+    List rel-children: 1 item
+    - [#3] Draft budget slides [Stalled, Finance, Medium, Todo]  {id: rel:3} [unread]
+    Created Nov 15 at 10:24 PM · changed Nov 24 at 10:27 PM
+    Updates · 2
+    Timeline updates: 2 entries
+    - 2026-11-23 22:24 (1d ago): Waiting for the headcount figures from HR before the meeting.
+    - 2026-11-20 22:24 (4d ago): Sent the draft numbers to Maria.
+- [#3] Draft budget slides — [Finance, Medium, Todo] Stalled · untouched 3 days · 2026-11-24 22:27 (4m ago)  {id: 3} [unread]
+    Form task
+    - Name: Draft budget slides
+    - Workflow: Stalled since Nov 24 at 10:27 PM
+    - Due: No due date
+    - Labels: Project: Finance, Priority: Medium, Status: Todo
+    - Related: Parent: #2 Q4 budget review with finance
+    - desc: 
+    Stalled
+    - Untouched: 3 minutes
+    - Since: Nov 24 at 10:27 PM
+    - Times stalled: First time
+    - Next reminder: Nov 25 at 10:27 PM
+    Write the next step (↵) to get back to it.
+    Parent · 1
+    List rel-parent: 1 item
+    - [#2] Q4 budget review with finance · Tomorrow · 2:00 PM [Stalled, Finance, High, In progress]  {id: rel:2} [unread]
+    Created Nov 21 at 10:24 PM · changed Nov 24 at 10:27 PM
+    Updates
+    Timeline updates: 0 entries
+    (empty: No updates yet)
+### Snoozed
+- [#6] Book dentist appointment — [isPersonal] · 2026-12-01 09:00 (in 6d 10h)  {id: 6}
+    Form task
+    - Name: Book dentist appointment
+    - Workflow: Snoozed until Dec 1 at 9:00 AM
+    - Due: No due date
+    - Labels: isPersonal
+    - Related: none
+    - desc: 
+    Created Nov 4 at 10:24 PM
+    Updates
+    Timeline updates: 0 entries
+    (empty: No updates yet)
+### Watching
+- [#7] Vendor quote for office printers (Acme) — [Office] Watching · 7 days · every week · 2026-11-25 00:24 (in 1h 53m)  {id: 7}
+    Form task
+    - Name: Vendor quote for office printers (Acme)
+    - Workflow: Watching · next check-in Nov 25 at 12:24 AM
+    - Due: No due date
+    - Labels: Project: Office
+    - Related: none
+    - desc: 
+    Watching since Nov 17 at 10:24 PM · Every week · next check-in Nov 25 at 12:24 AM · not checked yet
+    Created Nov 14 at 10:24 PM · changed Nov 17 at 10:24 PM
+    Updates · 1
+    Timeline updates: 1 entry
+    - 2026-11-17 22:24 (7d ago): Asked Acme for a quote on 3 printers, they promised one by next week.
+### Settled
+- [#10] Ship ToolBelt 0.3.24 — [ToolBelt] · 2026-11-20 22:24 (4d ago)  {id: 10}
+    Form task
+    - Name: Ship ToolBelt 0.3.24
+    - Workflow: Settled Nov 20 at 10:24 PM
+    - Due: No due date
+    - Labels: Project: ToolBelt
+    - Related: none
+    - desc: 
+    Created Oct 30 at 11:24 PM
+    Updates
+    Timeline updates: 0 entries
+    (empty: No updates yet)
+Empty sections: Progressing
+[exit 0]
+

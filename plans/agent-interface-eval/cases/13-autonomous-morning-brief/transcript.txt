@@ -1,0 +1,77 @@
+$ toolbelt status --autonomous
+Toolbelt preview 0.3.24 (preview, plugin development profile agents-eval)
+App update available: 0.2.0
+
+Plugins agents can read:
+- Upkeep (upkeep) 0.2.0: running, badge 3. Screens: Updates (monitored), Discover (discover), Activity (activity), Settings (settings)
+- OnTrack (ontrack) 0.14.0: running, badge 5. Screens: Tasks (tasks), Settings (labels)
+- SDK Explorer (sdk-demo) 0.2.1: running, badge 0. Screens: Gallery (gallery), Tables (table), Forms (forms), Output (output), Lifecycle (lifecycle)
+
+1 more plugin is not available to agents (the plugin or the person turned agent access off).
+[exit 0]
+
+$ toolbelt search overdue --autonomous
+- OnTrack › Tasks › Inbox: - [#9] Submit November expense report — [Finance, Medium] Reopened from Settled · Sat, Nov 21 · 2026-11-24 22:28 (now)  {id: 9} [unread, Overdue]
+- OnTrack › Tasks › Inbox: - Overdue: 2026-11-21
+[exit 0]
+
+$ toolbelt read upkeep --no-details --autonomous
+# Upkeep › Updates (plugin "upkeep", screen "monitored")
+rendered now
+
+Summary: 6 watched · 3 updates · 1 needs you
+Filter Kind: all (options: Custom recipes 6)
+Toolbar actions: Check all
+
+## Table items: 6 rows
+Columns: Name · Installed · Newest · Status · Checked
+Row actions: Update (or: Review & update…), Check now, Review & update…, Release notes, Settings…, History, Skip this version, Pin at this version, Unpin, Roll back, Stop watching
+Bulk actions: Update, Check now, Stop watching
+### Needs you
+- Internal deploy CLI — Custom recipes · — · — · Check failed (1×): /bin/zsh -c 'exit 3': exit 3 · 2026-11-24 22:24 (4m ago)  {id: custom:internal-deploy-cli}
+### Review first
+- Cursor — Custom recipes · 0.42.3 · 0.43.1 <major> · Update available: your own command · 2026-11-24 22:24 (4m ago)  {id: custom:cursor}
+- Node.js LTS — Custom recipes · 22.11.0 · 24.1.0 <major> · Update available: your own command · 2026-11-24 22:24 (4m ago)  {id: custom:node-js-lts}
+- Ollama — Custom recipes · 0.5.1 · 0.6.2 <major> · Update available: your own command · 2026-11-24 22:24 (4m ago)  {id: custom:ollama}
+### Up to date
+- Terraform — Custom recipes · 1.9.8 · 1.9.8 · Up to date · 2026-11-24 22:24 (4m ago)  {id: custom:terraform}
+### Held back
+- Postgres.app — Custom recipes · 16.4 · 17.2 <pinned> · Pinned at 16.4 · 2026-11-24 22:24 (4m ago)  {id: custom:postgres-app}
+[exit 0]
+
+$ toolbelt read ontrack --no-details --autonomous
+# OnTrack › Tasks (plugin "ontrack", screen "tasks")
+rendered now
+
+Filter Workflow: Ongoing (default: Inbox, Working on, Stalled, Snoozed, Watching, Settled) (options: Inbox 4, Working on 1, Stalled 3, Snoozed 1, Watching 1, Settled 1, Archived 0)
+Filter Due: all (options: Overdue 1, Today 0, Next 6 days 2, Later 1, Past 0, No date 7)
+Filter Project: all (options: Finance 3, ToolBelt 3, Office 2, Writing 1, No Project 2)
+Filter isPersonal: all (options: Yes 2, No 9)
+Filter Priority: all (options: High 2, Medium 4, Low 2, No Priority 3)
+Filter Status: all (options: Todo 1, In progress 2, Blocked 1, No Status 7)
+Control Subtasks: Off (options: Off, Stay in their own group, Follow their parent)
+Toolbar actions: New task
+
+## Table tasks: 11 rows
+Columns: Task · Due · When
+Row actions: Start working on it, Done for now, Back to Inbox, Write the next step, Mark stalled, Settle, Snooze… (or: 3 hours, Tomorrow 9:00, Next Monday 9:00), Watch…, Edit, Add update, Relate to…, Mark unread, Mark read, Make it a subtask, Move out a level, Move up, Move down, Archive, Unarchive, Delete
+### Inbox
+- [#9] Submit November expense report — [Finance, Medium] Reopened from Settled · Sat, Nov 21 · 2026-11-24 22:28 (now)  {id: 9} [unread, Overdue]
+- [#1] Renew passport — [isPersonal, High] Photos are in the drawer. Appointment form at the town hall website. · Sat, Nov 28 · 2026-11-18 22:24 (6d ago)  {id: 1}
+- [#11] Plan team offsite agenda — [Office, Medium] · Sat, Dec 5 · 2026-11-23 22:24 (1d ago)  {id: 11}
+- [#8] Write blog post on agent-native apps — [Writing, Low] New · 2026-11-22 22:24 (2d ago)  {id: 8} [unread]
+### Working on
+- [#4] Migrate CI to the new runners — [ToolBelt, Medium, In progress] · Untouched 2 days  {id: 4}
+### Stalled
+- [#5] Fix flaky remote-access test — [ToolBelt, Low, Blocked] Still stalled · untouched 6 days · stalled for 2 days · 2026-11-22 22:24 (2d ago)  {id: 5} [unread]
+- [#2] Q4 budget review with finance — [Finance, High, In progress, 0/1] Stalled · untouched 3 days · Tomorrow · 2:00 PM · 2026-11-24 22:27 (1m ago)  {id: 2} [unread]
+- [#3] Draft budget slides — [Finance, Medium, Todo] Stalled · untouched 3 days · 2026-11-24 22:27 (1m ago)  {id: 3} [unread]
+### Snoozed
+- [#6] Book dentist appointment — [isPersonal] · 2026-12-01 09:00 (in 6d 10h)  {id: 6}
+### Watching
+- [#7] Vendor quote for office printers (Acme) — [Office] Watching · 7 days · every week · 2026-11-25 00:24 (in 1h 55m)  {id: 7}
+### Settled
+- [#10] Ship ToolBelt 0.3.24 — [ToolBelt] · 2026-11-20 22:24 (4d ago)  {id: 10}
+Empty sections: Progressing
+[exit 0]
+

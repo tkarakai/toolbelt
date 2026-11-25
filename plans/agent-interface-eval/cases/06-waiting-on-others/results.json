@@ -1,0 +1,36 @@
+[
+  {
+    "step": "initialize",
+    "protocolVersion": "2025-06-18",
+    "instructions": "ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. Access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. Plugins the person or plugin author kept from agents are not listed."
+  },
+  {
+    "step": "tools/list",
+    "tools": [
+      "toolbelt_status",
+      "list_screens",
+      "read_screen",
+      "search_screens",
+      "list_plugins"
+    ]
+  },
+  {
+    "step": "tools/call search_screens",
+    "args": {
+      "query": "waiting"
+    },
+    "ms": 8,
+    "isError": false,
+    "text": "- OnTrack › Tasks › Stalled: - 2026-11-23 22:24 (1d ago): Waiting for the headcount figures from HR before the meeting."
+  },
+  {
+    "step": "tools/call search_screens",
+    "args": {
+      "query": "watching",
+      "plugin": "ontrack"
+    },
+    "ms": 1,
+    "isError": false,
+    "text": "- OnTrack › Tasks › Watching: - [#7] Vendor quote for office printers (Acme) — [Office] Watching · 7 days · every week · 2026-11-25 00:24 (in 1h 56m)  {id: 7}\n- OnTrack › Tasks › Watching: - Workflow: Watching · next check-in Nov 25 at 12:24 AM\n- OnTrack › Tasks › Watching: Watching since Nov 17 at 10:24 PM · Every week · next check-in Nov 25 at 12:24 AM · not checked yet"
+  }
+]

@@ -575,7 +575,30 @@ refers to 5.2.
 - **View-control conflicts:** until surface instances exist (phase 1d), agents can't change
   search, filters or sort on a surface a person has open (R6 interim rule).
 
-## 5.5 Open questions
+## 5.5 Status
+
+Roadmap items 1–4 are implemented and described in [docs/agents.md](../docs/agents.md). The
+evaluation, with 17 life-like requests answered through MCP and the CLI, is in
+[agent-interface-eval/report.html](agent-interface-eval/report.html).
+
+Built differently from the plan:
+
+- **No ViewHub extraction yet (R9).** The agent's view lives in the agent core and counts as a
+  viewer through `PluginHost.open`/`close`. Window, popover and remote views are unchanged.
+  Extraction moves to phase 1b, where per-actor routing needs it.
+- **The registry covers agent operations only (R10).** Five read operations feed MCP and the
+  CLI. The renderer's RPC handlers are not migrated.
+- **Pending approvals are not in Settings → Agents yet.** Reads never need approval. The section
+  arrives with the approval broker in 1b.
+- **Freshness (R9).** Trees carry their arrival time, a new plugin process clears its cached
+  trees, and the agent opens unwatched surfaces on demand (4 s render wait, 60 s idle hold).
+
+The evaluation found two gaps that later phases should close (findings O1 and O2):
+
+- reads that follow the person's search and filters (C6);
+- whole-screen reads where a row read or a change summary would do.
+
+## 5.6 Open questions
 
 None blocking phases 0–1a and steps 2–3. The Settings → Agents view still needs a full design
 once actions and approvals exist (phase 1b).

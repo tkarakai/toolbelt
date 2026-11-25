@@ -1,0 +1,34 @@
+[
+  {
+    "step": "initialize",
+    "protocolVersion": "2025-06-18",
+    "instructions": "ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. Access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. Plugins the person or plugin author kept from agents are not listed."
+  },
+  {
+    "step": "tools/list",
+    "tools": [
+      "toolbelt_status",
+      "list_screens",
+      "read_screen",
+      "search_screens",
+      "list_plugins"
+    ]
+  },
+  {
+    "step": "tools/call toolbelt_status",
+    "args": {},
+    "ms": 1,
+    "isError": false,
+    "text": "Toolbelt preview 0.3.24 (preview, plugin development profile agents-eval)\nApp update available: 0.2.0\n\nPlugins agents can read:\n- Upkeep (upkeep) 0.2.0: running, badge 3. Screens: Updates (monitored), Discover (discover), Activity (activity), Settings (settings)\n- OnTrack (ontrack) 0.14.0: running, badge 5. Screens: Tasks (tasks), Settings (labels)\n- SDK Explorer (sdk-demo) 0.2.1: running, badge 0. Screens: Gallery (gallery), Tables (table), Forms (forms), Output (output), Lifecycle (lifecycle)\n\n1 more plugin is not available to agents (the plugin or the person turned agent access off)."
+  },
+  {
+    "step": "tools/call read_screen",
+    "args": {
+      "plugin": "ontrack",
+      "details": false
+    },
+    "ms": 8,
+    "isError": false,
+    "text": "# OnTrack › Tasks (plugin \"ontrack\", screen \"tasks\")\nrendered now\n\nFilter Workflow: Ongoing (default: Inbox, Working on, Stalled, Snoozed, Watching, Settled) (options: Inbox 4, Working on 1, Stalled 3, Snoozed 1, Watching 1, Settled 1, Archived 0)\nFilter Due: all (options: Overdue 1, Today 0, Next 6 days 2, Later 1, Past 0, No date 7)\nFilter Project: all (options: Finance 3, ToolBelt 3, Office 2, Writing 1, No Project 2)\nFilter isPersonal: all (options: Yes 2, No 9)\nFilter Priority: all (options: High 2, Medium 4, Low 2, No Priority 3)\nFilter Status: all (options: Todo 1, In progress 2, Blocked 1, No Status 7)\nControl Subtasks: Off (options: Off, Stay in their own group, Follow their parent)\nToolbar actions: New task\n\n## Table tasks: 11 rows\nColumns: Task · Due · When\nRow actions: Start working on it, Done for now, Back to Inbox, Write the next step, Mark stalled, Settle, Snooze… (or: 3 hours, Tomorrow 9:00, Next Monday 9:00), Watch…, Edit, Add update, Relate to…, Mark unread, Mark read, Make it a subtask, Move out a level, Move up, Move down, Archive, Unarchive, Delete\n### Inbox\n- [#9] Submit November expense report — [Finance, Medium] Due now · Sat, Nov 21 · 2026-11-16 22:24 (8d ago)  {id: 9} [unread, Overdue]\n- [#1] Renew passport — [isPersonal, High] Photos are in the drawer. Appointment form at the town hall website. · Sat, Nov 28 · 2026-11-18 22:24 (6d ago)  {id: 1}\n- [#11] Plan team offsite agenda — [Office, Medium] · Sat, Dec 5 · 2026-11-23 22:24 (1d ago)  {id: 11}\n- [#8] Write blog post on agent-native apps — [Writing, Low] New · 2026-11-22 22:24 (2d ago)  {id: 8} [unread]\n### Working on\n- [#4] Migrate CI to the new runners — [ToolBelt, Medium, In progress] · Untouched 2 days  {id: 4}\n### Stalled\n- [#5] Fix flaky remote-access test — [ToolBelt, Low, Blocked] Still stalled · untouched 6 days · stalled for 2 days · 2026-11-22 22:24 (2d ago)  {id: 5} [unread]\n- [#2] Q4 budget review with finance — [Finance, High, In progress, 0/1] Stalled · untouched 3 days · Tomorrow · 2:00 PM · 2026-11-24 22:26 (1m ago)  {id: 2} [unread]\n- [#3] Draft budget slides — [Finance, Medium, Todo] Stalled · untouched 3 days · 2026-11-24 22:26 (1m ago)  {id: 3} [unread]\n### Snoozed\n- [#6] Book dentist appointment — [isPersonal] · 2026-12-01 09:00 (in 6d 10h)  {id: 6}\n### Watching\n- [#7] Vendor quote for office printers (Acme) — [Office] Watching · 7 days · every week · 2026-11-25 00:24 (in 1h 57m)  {id: 7}\n### Settled\n- [#10] Ship ToolBelt 0.3.24 — [ToolBelt] · 2026-11-20 22:24 (4d ago)  {id: 10}\nEmpty sections: Progressing"
+  }
+]

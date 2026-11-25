@@ -7,6 +7,7 @@
   "scripts": {
     "plugins": "bun scripts/prepare-seed.ts",
     "views": "vite build",
+    "cli": "bun build src/cli/toolbelt.ts --target=bun --outfile=build-cli/toolbelt.js",
     "dev": "TOOLBELT_VARIANT=dev bun run dev:app",
     "build": "TOOLBELT_VARIANT=official bun run build:app",
     "devkit": "electrobun prepare",
@@ -16,8 +17,8 @@
     "preview": "bun run plugins && vite build && bun scripts/preview.ts",
     "dmg": "bun scripts/make-dmg.ts",
     "release": "bun scripts/release.ts",
-    "dev:app": "bun run plugins && electrobun prepare && vite build && electrobun dev",
-    "build:app": "bun run plugins && electrobun prepare && vite build && electrobun build --env=stable",
+    "dev:app": "bun run plugins && bun run cli && electrobun prepare && vite build && electrobun dev",
+    "build:app": "bun run plugins && bun run cli && electrobun prepare && vite build && electrobun build --env=stable",
     "sdk:package": "bun scripts/build-sdk.ts",
     "release:app": "bun src/release/cli.ts app",
     "release:app:retry": "bun src/release/cli.ts app:retry",

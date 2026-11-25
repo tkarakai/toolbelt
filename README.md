@@ -19,6 +19,10 @@ Settings → Remote Access serves ToolBelt to your phone or tablet through Tails
 app you can add to the home screen. Plugins keep running on the Mac, and only devices signed in
 to your Tailscale account and paired (approved on the Mac or from a paired device) can connect. See [Remote access](docs/remote-access.md).
 
+Settings → Agents lets AI agents on this Mac, such as Claude Code, read your plugins' screens
+through ToolBelt's MCP server or the `toolbelt` command. You choose what each plugin shares;
+agents can't change anything. See [Agent interface](docs/agents.md).
+
 ## Manual installation
 
 1. Download `Toolbelt-<version>-arm64.dmg` from the official
@@ -60,6 +64,7 @@ home. Stop only development processes you started; app development and builds sh
 - [Plugin authoring and updates](docs/plugins.md): SDK, manifest, packaging and releases.
 - [Plugin development mode](docs/plugin-development.md): testing unreleased plugin archives in ToolBelt.
 - [Remote access](docs/remote-access.md): using ToolBelt from a phone or tablet over Tailscale.
+- [Agent interface](docs/agents.md): the MCP server, `toolbelt` CLI and Settings → Agents.
 - [Maintenance](docs/maintenance.md): checks, debugging and SDK/seed changes.
 - [Releases](docs/releases.md): exact app and SDK build/publish/recovery procedures.
 - [Agent instructions](AGENTS.md): working conventions and verification requirements.

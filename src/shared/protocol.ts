@@ -47,6 +47,12 @@ export type Manifest = {
 	handoffActions?: string[];
 	/** The plugin's command line, reachable as `tb <command>`. */
 	cli?: { command: string };
+	/**
+	 * How far AI agents may go with this plugin (docs/agents.md): `none` hides it from agents,
+	 * `read` lets them read its screens, `act` is reserved for actions. Without it: `read`. The
+	 * person can lower it in Settings → Agents. Older hosts ignore it.
+	 */
+	agent?: { access: "none" | "read" | "act" };
 };
 
 export type Tone = "default" | "muted" | "success" | "warning" | "danger" | "info";
@@ -797,6 +803,11 @@ export function parseManifest(json: unknown): Manifest {
             shortcuts.add(s.shortcut);
         }
     }
+	need(
+		m.agent === undefined ||
+			(!!m.agent && typeof m.agent === "object" && ["none", "read", "act"].includes((m.agent as { access?: unknown }).access as string)),
+		"`agent.access` must be none, read or act",
+	);
 	return {
 		...m,
 		icon: typeof m.icon === "string" ? m.icon : "box",

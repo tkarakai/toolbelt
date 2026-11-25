@@ -1,0 +1,1 @@
+{"client":"claude-desktop (eval)","steps":[{"person":"event","params":{"plugin":"ontrack","surface":"screen:tasks","name":"search","payload":{"query":"finance"}}},{"wait":800},{"tool":"read_screen","args":{"plugin":"ontrack","details":false}},{"person":"event","params":{"plugin":"ontrack","surface":"screen:tasks","name":"search","payload":{"query":""}}}]}

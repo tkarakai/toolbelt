@@ -58,6 +58,7 @@ import { appVariant } from "../shared/variant";
 import { RemoteAccess } from "./remote-access";
 import { buildIdOf, remoteSender } from "./remote-server";
 import { REMOTE_DEFAULT_PORT } from "../shared/remote";
+import { createAgentInterface, declaredAccess } from "./agent";
 import pkg from "../../package.json" with { type: "json" };
 
 /** Last requested list geometry, reused when the native popover is shown again. */
@@ -146,6 +147,38 @@ const packages = new PackageManager(
 );
 await packages.recover();
 const manager = new PluginManagerService(packages, host);
+// ── agent interface (docs/agents.md) ─────────────────────────────────────
+const agents = createAgentInterface({
+  host,
+  settings: () => settings.agents,
+  save: (next) => {
+    settings = { ...settings, agents: next };
+    saveSettings(settings);
+  },
+  app: () => ({ name: variant.name, version: pkg.version, channel, developmentProfile }),
+  appUpdate: () => {
+    const s = updater.state();
+    return { available: s.available?.version ?? null, lastChecked: s.lastChecked };
+  },
+  installed: () =>
+    manager.read().plugins.map((p) => ({
+      id: p.id,
+      name: p.manifest.name,
+      version: p.manifest.version,
+      repo: p.repo,
+      enabled: p.enabled,
+      phase: p.phase,
+      availableVersion: p.availableVersion,
+      channel: p.channel,
+      ceiling: declaredAccess(p.manifest),
+    })),
+  configRoot,
+  profileRoot,
+  cliScript: join(PATHS.RESOURCES_FOLDER, "app/cli/toolbelt.js"),
+  bun: process.execPath,
+  // Settings → Agents is the Mac's: remote devices don't get it.
+  changed: (state) => views.forEach((v) => !remoteViews.has(v) && v.send.agentsState(state)),
+});
 const seedDemo = () =>
   materializeSeed(packages, join(PATHS.RESOURCES_FOLDER, "app/seed"));
 
@@ -260,6 +293,7 @@ function requestHandlers(view: () => View): RequestHandlers {
           badgePlugins: settings.remote.badgePlugins,
         }),
         remoteAccess: (request) => remoteAccess.handle(request),
+        agents: (request) => agents.handle(request),
         buildId: () => (remoteViews.has(view()) ? buildIdOf(remoteRoot) : null),
         setAppearance: ({ theme, mode }) => {
           settings = {
@@ -356,9 +390,10 @@ host.subscribe({
 
 // ── remote access (docs/remote-access.md) ───────────────────────────────
 // Remote connections get the same request handlers as a web view, minus the ones that only
-// make sense on the Mac: the popover's geometry, plugin development mode's control plane and the
-// global shortcut (a dropped connection while recording would leave it paused).
-const REMOTE_EXCLUDED = new Set<string>(["popoverLayout", "development", "setShortcut", "pauseShortcut"]);
+// make sense on the Mac: the popover's geometry, plugin development mode's control plane, the
+// global shortcut (a dropped connection while recording would leave it paused) and Settings →
+// Agents.
+const REMOTE_EXCLUDED = new Set<string>(["popoverLayout", "development", "setShortcut", "pauseShortcut", "agents"]);
 const remoteRoot = join(PATHS.VIEWS_FOLDER, "ui");
 const remoteClients = new Map<number, { view: View; handlers: RequestHandlers }>();
 const remoteAccess = new RemoteAccess({
@@ -771,6 +806,7 @@ Electrobun.events.on("reopen", () => showWindow());
 Electrobun.events.on("before-quit", () => {
   localArchives?.closeWatches();
   void remoteAccess.stop();
+  agents.stop();
   host.stop();
 });
 
@@ -889,6 +925,7 @@ if (process.env.TOOLBELT_OPEN_WINDOW) showWindow();
 updater.start();
 manager.start({ scheduledChecks: !developmentProfile });
 void remoteAccess.start().catch((error) => console.error("remote access:", error));
+void agents.start();
 // Wake from sleep: the network takes a moment to come back, then see if a check is due (the
 // 15-minute tick would get there too). Noticed as a gap in a once-a-minute heartbeat.
 let heartbeat = Date.now();

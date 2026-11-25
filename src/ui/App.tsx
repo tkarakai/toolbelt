@@ -39,6 +39,7 @@ import { MobileTabBar, SlideAway } from "./components/mobile-tab-bar";
 import { useHideOnScroll } from "@/lib/hide-on-scroll";
 import { useEdgeSwipe } from "@/lib/touch";
 import { RemoteAccessSettings } from "./RemoteAccess";
+import { AgentsSettings } from "./Agents";
 import { inApp, remoteClient, touchPrimary } from "@/lib/device";
 import { Tabs, TabsList } from "@/components/ui/tabs";
 import { SettingsGroup, SettingsRow } from "./components/settings-layout";
@@ -480,8 +481,10 @@ const SETTINGS_TABS: { id: string; label: string; short?: string; shortcut: stri
     {id: "keyboard", label: "Keyboard", shortcut: "k", icon: "keyboard"},
     {id: "remote", label: "Remote Access", short: "Remote", shortcut: "r", icon: "smartphone"},
     {id: "plugins", label: "Plugins", shortcut: "p", icon: "puzzle"},
+    // Agents connect to the Mac; remote devices don't manage them.
+    {id: "agents", label: "Agents", shortcut: "g", icon: "bot"},
     {id: "about", label: "About", shortcut: "i", icon: "info"},
-];
+].filter(t => t.id !== "agents" || !remoteClient);
 function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: () => void; section?: string }) {
     const { isMobile } = useSidebar();
     const page = useRef<HTMLDivElement>(null);
@@ -537,6 +540,7 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
                     {tab === "appearance" && <AppearanceSetting />}
                     {tab === "about" && <AboutSettings />}
                     {tab === "remote" && <RemoteAccessSettings />}
+                    {tab === "agents" && !remoteClient && <AgentsSettings />}
                     {tab === "keyboard" && <>
                     {/* The global shortcut is the Mac's: remote devices can't change it. */}
                     {touchPrimary && <TouchGestures />}
