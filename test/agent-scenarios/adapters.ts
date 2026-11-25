@@ -130,7 +130,8 @@ export class McpAdapter implements ChannelAdapter {
 	private static unreachable: Outcome = { text: "", refused: false, unreachable: true };
 
 	async call(tool: Tool, args: Record<string, unknown>, structured: boolean): Promise<Outcome> {
-		const r = await this.rpc("tools/call", { name: tool, arguments: args });
+		// A structured step asks for JSON, as the CLI's --json does.
+		const r = await this.rpc("tools/call", { name: tool, arguments: structured ? { ...args, format: "json" } : args });
 		if (!r) return McpAdapter.unreachable;
 		if (r.error) return { text: r.error.message, refused: true, unreachable: false };
 		const text = structured && r.result.structuredContent !== undefined ? compact(r.result.structuredContent) : r.result.content.map((c: { text: string }) => c.text).join("\n");

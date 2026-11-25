@@ -44,21 +44,24 @@ export function when(at: number, now = Date.now()) {
 	return `${abs} (${span === "now" ? "now" : diff > 0 ? `in ${span}` : `${span} ago`})`;
 }
 
+/** One line: line breaks in a value become " / ", so every value stays on its own line and indentation. */
+export const oneLine = (s: string) => s.replace(/\s*[\r\n]+\s*/g, " / ");
+
 const dotText = (dot?: Dot) => (dot && typeof dot === "object" && dot.label ? dot.label : "");
-const tagsText = (tags?: Tag[]) => (tags?.length ? `[${tags.map((t) => t.text).join(", ")}]` : "");
+const tagsText = (tags?: Tag[]) => (tags?.length ? `[${tags.map((t) => oneLine(t.text)).join(", ")}]` : "");
 
 /** A cell's text. `withDot`: lead with its status dot's label. */
 export function cellText(cell: Cell | undefined, now: number, withDot = true): string {
 	if (cell === null || cell === undefined) return "";
-	if (typeof cell !== "object") return String(cell);
+	if (typeof cell !== "object") return oneLine(String(cell));
 	const parts: string[] = [];
 	const status = withDot ? dotText(cell.dot) : "";
 	if (status) parts.push(`(${status})`);
 	if (cell.prefix) parts.push(`[${cell.prefix.text}]`);
-	parts.push(cell.at !== undefined ? when(cell.at, now) : cell.text);
+	parts.push(cell.at !== undefined ? when(cell.at, now) : oneLine(cell.text));
 	if (cell.marks?.length) parts.push(`{${cell.marks.map((m) => m.tooltip).join("; ")}}`);
 	if (cell.chips?.length) parts.push(`<${cell.chips.join(", ")}>`);
-	const second = [tagsText(cell.tags), cell.sub ?? ""].filter(Boolean).join(" ");
+	const second = [tagsText(cell.tags), oneLine(cell.sub ?? "")].filter(Boolean).join(" ");
 	if (second) parts.push(`— ${second}`);
 	return parts.filter(Boolean).join(" ");
 }
@@ -101,14 +104,23 @@ function fieldText(f: Field, now: number): string {
 const actionLabels = (actions?: Action[]) => [
 	...new Set((actions ?? []).filter((a) => !a.disabled).map((a) => a.label + (a.menu?.length ? ` (or: ${a.menu.map((m) => m.label).join(", ")})` : ""))),
 ];
-/** One line: line breaks in a value become " / ". */
-const oneLine = (s: string) => s.replace(/\s*\n+\s*/g, " / ");
 
 type Out = { lines: string[]; notes: string[] };
 
 type WalkOptions = Required<Omit<ReadOptions, "table">> & { table?: string };
 
-function rowLines(row: Row, columns: string[], depth: number, opts: WalkOptions, out: Out) {
+/** Labels of the row's own actions when they differ from the table's (`Row.actions` names a subset). */
+function ownActions(row: Row, actions: Action[] | undefined) {
+	if (!row.actions || !actions?.length) return null;
+	const all = actionLabels(actions);
+	const mine = actionLabels(actions.filter((a) => row.actions!.includes(a.id)));
+	return mine.length === all.length ? null : mine;
+}
+
+type Columns = { key: string; title?: string }[];
+
+function rowLines(row: Row, cols: Columns, depth: number, opts: WalkOptions, out: Out, actions?: Action[]) {
+	const columns = cols.map((c) => c.key);
 	const indent = "  ".repeat(depth);
 	// A status dot's label is left out when another cell already says it.
 	const plain = columns.map((k) => cellText(row.cells[k], opts.now, false));
@@ -119,19 +131,24 @@ function rowLines(row: Row, columns: string[], depth: number, opts: WalkOptions,
 			return label && !plain.some((p) => p.includes(label)) ? `(${label}) ${plain[i]}` : plain[i];
 		})
 		.filter(Boolean);
-	const flags = [row.unread ? "unread" : "", row.context ? `context for ${row.context}` : "", dotText(row.dot)].filter(Boolean);
-	out.lines.push(`${indent}- ${cells.join(" · ")}  {id: ${row.id}}${flags.length ? ` [${flags.join(", ")}]` : ""}`);
+	const rowDot = dotText(row.dot);
+	const flags = [row.unread ? "unread" : "", row.context ? `context for ${row.context}` : "", rowDot && !plain.some((p) => p.includes(rowDot)) ? rowDot : ""].filter(Boolean);
+	const own = ownActions(row, actions);
+	out.lines.push(`${indent}- ${cells.join(" · ")}  {id: ${row.id}}${flags.length ? ` [${flags.join(", ")}]` : ""}${own ? ` (actions: ${own.length ? own.join(", ") : "none"})` : ""}`);
 	if (opts.details) {
-		for (const s of row.stats ?? []) out.lines.push(`${indent}    ${s.label}: ${s.value}`);
-		for (const d of row.details ?? []) out.lines.push(`${indent}    ${d.section ? `${d.section} › ` : ""}${d.label}: ${oneLine(clip(d.value, 500))}`);
+		// A stat or detail that repeats the row line's cell of the same name is left out.
+		const shown = (label: string, value: string) =>
+			cols.some((c, i) => (c.title ?? c.key).toLowerCase() === label.toLowerCase() && plain[i] === oneLine(value).trim());
+		for (const s of row.stats ?? []) if (!shown(s.label, String(s.value))) out.lines.push(`${indent}    ${s.label}: ${oneLine(String(s.value))}`);
+		for (const d of row.details ?? []) if (!shown(d.label, d.value)) out.lines.push(`${indent}    ${d.section && d.section !== d.label ? `${d.section} › ` : ""}${d.label}: ${oneLine(clip(d.value, 500))}`);
 		// The details drawer (`pane`): forms, timelines and cards about this row.
 		if (row.pane?.length) {
 			const pane: Out = { lines: [], notes: [] };
-			for (const node of row.pane) walk(node, { ...opts, maxRows: 20 }, pane);
-			for (const line of pane.lines) if (line) out.lines.push(`${indent}    ${line.replace(/^#+ /, "")}`);
+			for (const node of row.pane) walk(node, { ...opts, maxRows: Math.min(opts.maxRows, 20) }, pane);
+			for (const line of pane.lines) for (const part of line.split("\n")) if (part) out.lines.push(`${indent}    ${part.replace(/^#+ /, "")}`);
 		}
 	}
-	for (const child of row.children ?? []) rowLines(child, columns, depth + 1, opts, out);
+	for (const child of row.children ?? []) rowLines(child, cols, depth + 1, opts, out, actions);
 }
 
 /** Declared sections and sub-sections by id: their labels and ids from the top level down. */
@@ -186,48 +203,54 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 				out.lines.push(`Columns: ${node.columns.map((c) => c.title || c.key).join(" · ")}`);
 			}
 			const rowActions = actionLabels(node.actions);
-			if (rowActions.length) out.lines.push(`Row actions: ${rowActions.join(", ")}`);
+			if (rowActions.length) out.lines.push(`Row actions: ${rowActions.join(", ")}${node.rows.some((r) => ownActions(r, node.actions)) ? " (a row that allows fewer lists its own)" : ""}`);
 			const bulk = actionLabels(node.bulkActions);
 			if (bulk.length) out.lines.push(`Bulk actions: ${bulk.join(", ")}`);
 			const sections = sectionPaths(node.sections);
 			const used = new Set<string>();
 			let header = "";
-			const columns = node.columns.map((c) => c.key);
 			for (const row of rows) {
 				const path = row.group === undefined ? [] : typeof row.group === "string" ? [row.group] : row.group;
 				// A row in a sub-section sits under its parent sections too.
 				const declared = path.length ? sections.get(idOf(path[0])) : undefined;
 				for (const id of declared?.ids ?? []) used.add(id);
 				for (const g of path) used.add(idOf(g));
-				const h = [...(declared?.labels ?? []), ...path.slice(declared ? 1 : 0).map((g) => sections.get(idOf(g))?.labels.at(-1) ?? labelOf(g))].join(" › ");
+				// A sub-section named like its parent ("Progressing › Progressing") is said once.
+				const h = [...(declared?.labels ?? []), ...path.slice(declared ? 1 : 0).map((g) => sections.get(idOf(g))?.labels.at(-1) ?? labelOf(g))]
+					.filter((label, i, all) => label !== all[i - 1])
+					.join(" › ");
 				if (h !== header) {
 					header = h;
 					if (h) out.lines.push(`### ${h}`);
 				}
-				rowLines(row, columns, 0, opts, out);
+				rowLines(row, node.columns, 0, opts, out, node.actions);
 			}
-			const empty = [...sections].filter(([id]) => !used.has(id)).map(([, p]) => p.labels.join(" › "));
-			if (empty.length && offset + opts.maxRows >= total) out.lines.push(`Empty sections: ${empty.join(", ")}`);
-			if (offset + rows.length < total)
+			// Empty sections are only known when every row was looked at.
+			const empty = [...sections].filter(([id]) => !used.has(id)).map(([, p]) => p.labels.filter((l, i, all) => l !== all[i - 1]).join(" › "));
+			if (empty.length && offset === 0 && rows.length === total) out.lines.push(`Empty sections: ${empty.join(", ")}`);
+			if (total && offset >= total) out.lines.push(`(offset ${offset} is past the end: the table has ${total} row${total === 1 ? "" : "s"}; offsets start at 0)`);
+			else if (total && !rows.length) out.lines.push(`(${total} row${total === 1 ? "" : "s"} not listed: max_rows is 0)`);
+			else if (offset + rows.length < total)
 				out.lines.push(`(showing rows ${offset + 1}–${offset + rows.length} of ${total}; read again with table "${node.id}" and offset ${offset + rows.length} for more)`);
 			return;
 		}
 		case "list": {
-			out.lines.push("", `## List ${node.id}: ${node.items.length} item${node.items.length === 1 ? "" : "s"}`);
+			out.lines.push("", `## List: ${node.items.length} item${node.items.length === 1 ? "" : "s"}`);
 			if (!node.items.length && node.empty) out.lines.push(`(empty: ${node.empty.title})`);
 			for (const item of node.items.slice(0, opts.maxRows)) {
 				const meta = item.metaAt !== undefined ? when(item.metaAt, now) : item.meta;
-				out.lines.push(`- ${item.prefix ? `[${item.prefix.text}] ` : ""}${item.title}${item.subtitle ? ` — ${item.subtitle}` : ""}${meta ? ` · ${meta}` : ""}${item.tags?.length ? ` ${tagsText(item.tags)}` : ""}  {id: ${item.id}}${item.unread ? " [unread]" : ""}`);
+				out.lines.push(`- ${item.prefix ? `[${item.prefix.text}] ` : ""}${oneLine(item.title)}${item.subtitle ? ` — ${oneLine(item.subtitle)}` : ""}${meta ? ` · ${oneLine(meta)}` : ""}${item.tags?.length ? ` ${tagsText(item.tags)}` : ""}  {id: ${item.id}}${item.unread ? " [unread]" : ""}`);
 			}
-			if (node.items.length > opts.maxRows) out.lines.push(`(showing ${opts.maxRows} of ${node.items.length})`);
+			if (node.items.length > opts.maxRows) out.lines.push(opts.maxRows ? `(showing ${opts.maxRows} of ${node.items.length})` : `(${node.items.length} items not listed: max_rows is 0)`);
 			return;
 		}
 		case "stats":
-			out.lines.push(node.items.map((i) => `${i.label}: ${i.at !== undefined ? when(i.at, now) : i.value}${i.hint ? ` (${i.hint})` : ""}`).join(" · "));
+			out.lines.push(node.items.map((i) => `${i.label}: ${i.at !== undefined ? when(i.at, now) : oneLine(String(i.value))}${i.hint ? ` (${oneLine(i.hint)})` : ""}`).join(" · "));
 			return;
 		case "form":
-			out.lines.push("", `## Form${node.title ? `: ${node.title}` : ` ${node.id}`}${node.description ? ` — ${node.description}` : ""}`);
-			for (const f of node.fields) out.lines.push(`- ${f.label || f.id}: ${oneLine(fieldText(f, now))}`);
+			// Ids are the plugin's internals: a form or field without a label is shown without one.
+			out.lines.push("", `## Form${node.title ? `: ${node.title}` : ""}${node.description ? ` — ${node.description}` : ""}`);
+			for (const f of node.fields) out.lines.push(`- ${f.label ? `${oneLine(f.label)}: ` : ""}${oneLine(fieldText(f, now))}`);
 			return;
 		case "empty":
 			out.lines.push(`(empty: ${node.title}${node.description ? ` — ${node.description}` : ""})`);
@@ -243,28 +266,29 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			return;
 		}
 		case "details":
-			for (const i of node.items) out.lines.push(`- ${i.label}: ${oneLine(clip(i.value, 1000))}`);
+			for (const i of node.items) out.lines.push(`- ${i.label ? `${i.label}: ` : ""}${oneLine(clip(i.value, 1000))}`);
 			return;
 		case "log":
 		case "terminal": {
 			const lines = node.lines.map((l) => (typeof l === "string" ? l : `${l.at !== undefined ? `${when(l.at, now)} ` : ""}${l.text}`));
 			const tail = lines.slice(-40);
-			out.lines.push("", `## ${node.type === "log" ? "Log" : "Terminal"} ${node.id}${lines.length > tail.length ? ` (last ${tail.length} of ${lines.length} lines)` : ""}`);
+			out.lines.push("", `## ${node.type === "log" ? "Log" : "Terminal"}${lines.length > tail.length ? ` (last ${tail.length} of ${lines.length} lines)` : ""}`);
 			if (!lines.length && node.empty) out.lines.push(`(empty: ${node.empty})`);
-			for (const l of tail) out.lines.push(`  ${clip(l, 400)}`);
+			for (const l of tail) out.lines.push(`  ${oneLine(clip(l, 400))}`);
 			return;
 		}
 		case "conversation": {
 			const tail = node.messages.slice(-20);
-			out.lines.push("", `## Conversation ${node.id}${node.messages.length > tail.length ? ` (last ${tail.length} of ${node.messages.length} messages)` : ""}`);
-			for (const m of tail) out.lines.push(`- ${m.author ?? m.role}${m.at ? ` (${when(m.at, now)})` : ""}: ${clip(m.tool ? `[${m.tool.name}] ${m.text}` : m.text, 600)}`);
+			out.lines.push("", `## Conversation${node.messages.length > tail.length ? ` (last ${tail.length} of ${node.messages.length} messages)` : ""}`);
+			for (const m of tail) out.lines.push(`- ${m.author ?? m.role}${m.at ? ` (${when(m.at, now)})` : ""}: ${oneLine(clip(m.tool ? `[${m.tool.name}] ${m.text}` : m.text, 600))}`);
 			return;
 		}
 		case "timeline":
-			out.lines.push("", `## Timeline ${node.id}: ${node.entries.length} entr${node.entries.length === 1 ? "y" : "ies"}`);
+			out.lines.push("", `## Timeline: ${node.entries.length} entr${node.entries.length === 1 ? "y" : "ies"}`);
 			if (!node.entries.length && node.empty) out.lines.push(`(empty: ${node.empty.title})`);
 			for (const e of node.entries.slice(0, opts.maxRows))
-				out.lines.push(`- ${when(e.at, now)}${e.author ? ` · ${e.author}` : ""}${e.title ? ` · ${e.title}` : ""}: ${clip(e.text, 600)}`);
+				out.lines.push(`- ${when(e.at, now)}${e.author ? ` · ${oneLine(e.author)}` : ""}${e.title ? ` · ${oneLine(e.title)}` : ""}: ${oneLine(clip(e.text, 600))}`);
+			if (node.entries.length > opts.maxRows) out.lines.push(`(showing ${opts.maxRows} of ${node.entries.length})`);
 			return;
 		case "composer":
 			return;
@@ -299,13 +323,25 @@ export function treeText(tree: Node, options: ReadOptions = {}) {
 	return { text, viewState: out.notes };
 }
 
+/** Protocol fields that hold epoch-millisecond times: JSON gets an ISO 8601 copy beside each (`atIso`). */
+const TIME_KEYS = ["at", "metaAt", "edited"];
+/** Row fields that are the row's inspector details, left out with `details: false`. */
+const DETAIL_KEYS = ["details", "stats", "pane"];
+
 /** A surface as redacted JSON, tables cut to `maxRows` rows (from `offset` for `table`). */
 export function treeJson(tree: Node, options: ReadOptions = {}): Node {
 	const maxRows = options.maxRows ?? 100;
-	const cut = (value: unknown): unknown => {
-		if (Array.isArray(value)) return value.map(cut);
+	const details = options.details ?? true;
+	const cut = (value: unknown, row = false): unknown => {
+		if (Array.isArray(value)) return value.map((v) => cut(v, row));
 		if (!value || typeof value !== "object") return value;
-		const o = Object.fromEntries(Object.entries(value).map(([k, v]) => [k, cut(v)])) as Record<string, unknown>;
+		const o: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(value)) {
+			if (row && !details && DETAIL_KEYS.includes(k)) continue;
+			// Rows (and their children) are the objects under a table's `rows`.
+			o[k] = cut(v, k === "rows" || (row && k === "children"));
+			if (TIME_KEYS.includes(k) && typeof v === "number") o[`${k}Iso`] = new Date(v).toISOString();
+		}
 		if (o.type === "table" && Array.isArray(o.rows)) {
 			const offset = options.table === o.id ? Math.max(0, options.offset ?? 0) : 0;
 			const total = o.rows.length;

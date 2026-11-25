@@ -80,9 +80,39 @@ describe("MCP conformance", () => {
 			expect(r.result.content[0].type).toBe("text");
 			expect(r.result.structuredContent).toBeUndefined();
 		}
-		const ok = await request("tools/call", { name: "toolbelt_status", arguments: {} });
+		const ok = await request("tools/call", { name: "toolbelt_status", arguments: { format: "json" } });
 		expect(ok.result.isError).toBeUndefined();
 		expect(ok.result.structuredContent.hiddenPlugins).toBe(2); // vault opts out; jot declares nothing
+	});
+
+	test("text and structured content carry the same information", async () => {
+		// Clients may show either: Claude Code shows structuredContent when present. So a text result
+		// has none, and a JSON result's text is its structuredContent serialized (as MCP recommends).
+		const { request } = await rpc();
+		const calls: [string, Record<string, unknown>][] = [
+			["toolbelt_status", {}],
+			["list_screens", {}],
+			["list_screens", { plugin: "desk" }],
+			["read_screen", { plugin: "desk", screen: "tasks" }],
+			["read_screen", { plugin: "kit", screen: "updates", max_rows: 2, details: false }],
+			["search_screens", { query: "job" }],
+			["list_plugins", {}],
+		];
+		for (const [name, args] of calls) {
+			const text = (await request("tools/call", { name, arguments: args })).result;
+			expect(text.isError).toBeUndefined();
+			expect(text.structuredContent).toBeUndefined();
+			expect(text.content).toHaveLength(1);
+			const json = (await request("tools/call", { name, arguments: { ...args, format: "json" } })).result;
+			expect(json.structuredContent).toBeObject();
+			expect(JSON.parse(json.content[0].text)).toEqual(json.structuredContent);
+		}
+		// The facts a text read gives are in the JSON read too.
+		const text = (await request("tools/call", { name: "read_screen", arguments: { plugin: "desk", screen: "tasks" } })).result.content[0].text;
+		const json = (await request("tools/call", { name: "read_screen", arguments: { plugin: "desk", screen: "tasks", format: "json" } })).result.structuredContent;
+		expect(text).toContain("Q4 budget review with finance");
+		expect(JSON.stringify(json.tree)).toContain("Q4 budget review with finance");
+		expect(json).toMatchObject({ plugin: "desk", screen: "tasks", rendered: true, renderedAtIso: expect.any(String), personViewing: expect.any(Boolean), viewState: expect.any(Array) });
 	});
 
 	test("answers requests on a connection in order", async () => {

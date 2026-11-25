@@ -116,13 +116,16 @@ export class McpSession {
 				const r = await this.core.call(this.session, name, args);
 				return {
 					content: [{ type: "text", text: r.text }],
+					// Only for format "json", where the text is the same data serialized: clients that show
+					// structuredContent instead of the text (Claude Code does) then see the same thing.
 					...(r.data !== undefined && !r.isError ? { structuredContent: r.data } : {}),
 					...(r.isError ? { isError: true } : {}),
 				};
 			}
 			case "resources/list":
+				// Screens of a plugin that isn't running can't be read; list_changed follows its state.
 				return {
-					resources: this.core.screens().map((s) => ({
+					resources: this.core.screens().filter((s) => s.state === "running").map((s) => ({
 						uri: uriOf(s.plugin, s.screen),
 						name: `${s.plugin}/${s.screen}`,
 						title: `${s.pluginName} › ${s.title}`,
@@ -137,7 +140,8 @@ export class McpSession {
 				const [, plugin, screen] = uri.match(RESOURCE) ?? [];
 				if (!plugin) throw new RpcError(-32002, `Unknown resource ${uri}`);
 				const r = await this.core.call(this.session, "read_screen", { plugin, screen });
-				if (r.isError) throw new RpcError(-32002, r.text);
+				// Not found only when it doesn't exist for agents; a crashed plugin is a server-side failure.
+				if (r.isError) throw new RpcError(r.kind === "refused" ? -32002 : -32603, r.text);
 				return { contents: [{ uri, mimeType: "text/markdown", text: r.text }] };
 			}
 			case "resources/subscribe": {

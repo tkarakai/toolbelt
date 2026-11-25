@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Agents reading ToolBelt over MCP get the whole screen: Claude Code showed only a screen's metadata, without its rows, because results also carried structured data that it displays instead of the text. Tools now return text by default, and structured data (with ISO times) only when asked for with `format: "json"`.
+- Agent search says which screens it couldn't read (such as a crashed plugin's) instead of reporting nothing found there.
+- Agent reads are more accurate: `details: false` also trims JSON, an offset past the end of a table says so, an unknown table is refused with the screen's tables, `max_rows: 0` gives only table sizes, multi-line values no longer break the layout, rows list only the actions that apply to them, and headings no longer show plugins' internal ids.
+- Agents can name plugins and screens in any case or by title, and get suggestions for mistyped ones.
+- A crashed plugin is reported to agents as unavailable (logged as a failure, not a refusal), without its stale badge, and its screens leave the MCP resource list until it runs again.
+- The `toolbelt` command rejects unknown options instead of ignoring them.
 
 ## 0.5.3 — 2026-11-25
 - Settings → Agents is available on paired phones and tablets too: turn agents on or off, change what each plugin shares, and see connected agents and their activity, like on the Mac.

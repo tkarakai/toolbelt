@@ -136,6 +136,119 @@ describe("serializer", () => {
 		expect(table.rows).toHaveLength(10);
 		expect(table.paging).toEqual({ offset: 0, total: 250 });
 	});
+	test("an offset past the end says so instead of calling sections empty", () => {
+		const text = treeText(page(13), { table: "things", offset: 50 }).text;
+		expect(text).toContain("## Table things: 13 rows");
+		expect(text).toContain("(offset 50 is past the end: the table has 13 rows; offsets start at 0)");
+		expect(text).not.toContain("Empty sections");
+		expect(text).not.toContain("Thing 0");
+		// Paging part-way doesn't claim sections are empty either: rows before the offset weren't looked at.
+		expect(treeText(page(13), { table: "things", offset: 5 }).text).not.toContain("Empty sections");
+	});
+	test("max_rows 0 gives each table's size and columns without rows", () => {
+		const text = treeText(page(13), { maxRows: 0 }).text;
+		expect(text).toContain("## Table things: 13 rows");
+		expect(text).toContain("Columns: Name · Due");
+		expect(text).toContain("(13 rows not listed: max_rows is 0)");
+		expect(text).not.toContain("Thing 0");
+		expect(text).not.toContain("Empty sections");
+	});
+	test("details: false leaves rows' details, stats and panes out of JSON too, at every depth", () => {
+		const tree: Node = {
+			type: "table",
+			id: "t",
+			columns: [{ key: "name", title: "Name" }],
+			rows: [{
+				id: "a",
+				cells: { name: "Alpha" },
+				details: [{ label: "Note", value: "secret plan" }],
+				stats: [{ label: "CPU", value: "3%" }],
+				pane: [{ type: "text", text: "pane body" }],
+				children: [{ id: "a1", cells: { name: "Child" }, details: [{ label: "Note", value: "child note" }] }],
+			}],
+		};
+		const lean = JSON.stringify(treeJson(tree, { details: false }));
+		expect(lean).toContain('"Alpha"');
+		expect(lean).toContain('"Child"');
+		for (const gone of ["secret plan", "3%", "pane body", "child note"]) expect(lean).not.toContain(gone);
+		expect(JSON.stringify(treeJson(tree))).toContain("child note");
+	});
+	test("JSON times get an ISO 8601 copy", () => {
+		const at = Date.UTC(2026, 10, 25, 12);
+		const json = JSON.stringify(treeJson(page(1)));
+		expect(json).toContain(`"at":${at},"atIso":"2026-11-25T12:00:00.000Z"`);
+	});
+	test("multi-line values stay on their line and indentation", () => {
+		const tree: Node = {
+			type: "page",
+			children: [
+				{
+					type: "table",
+					id: "t",
+					columns: [{ key: "cmd", title: "Command" }],
+					rows: [{
+						id: "a",
+						cells: { cmd: "bash -c '\nexec \"$@\"' t3" },
+						pane: [{ type: "timeline", id: "updates", entries: [{ id: "e", at: Date.UTC(2026, 10, 25), text: "first line\nsecond line" }] }],
+					}],
+				},
+				{ type: "log", id: "log", lines: ["one\ntwo"] },
+			],
+		};
+		const lines = treeText(tree).text.split("\n");
+		expect(lines.find((l) => l.includes("bash -c"))).toContain("bash -c ' / exec \"$@\"' t3");
+		expect(lines.find((l) => l.includes("first line"))).toMatch(/^ {4}- .*first line \/ second line$/);
+		expect(lines).toContain("  one / two");
+		// No line starts a value's continuation at column 0.
+		expect(lines.some((l) => /^(second line|exec|two)/.test(l))).toBe(false);
+	});
+	test("headings leave out the plugin's internal ids and repeated section names", () => {
+		const tree: Node = {
+			type: "page",
+			children: [
+				{
+					type: "table",
+					id: "tasks",
+					columns: [{ key: "name", title: "Name" }],
+					sections: [{ id: "progressing", label: "Progressing", sections: [{ id: "doing", label: "Progressing" }, { id: "watching", label: "Watching" }] }],
+					rows: [{ id: "a", group: "doing", cells: { name: "Alpha" }, pane: [{ type: "form", id: "task", fields: [{ type: "text", id: "desc", label: "", value: "the description" }, { type: "text", id: "who", label: "Owner", value: "Ann" }] }] }],
+				},
+				{ type: "timeline", id: "updates", entries: [] },
+			],
+		};
+		const text = treeText(tree).text;
+		// The table id stays: it is what `table` pages.
+		expect(text).toContain("## Table tasks: 1 row");
+		expect(text).toContain("### Progressing\n- Alpha");
+		expect(text).not.toContain("Progressing › Progressing");
+		expect(text).toContain("Empty sections: Progressing › Watching");
+		expect(text).toContain("    Form\n");
+		expect(text).toContain("    - the description");
+		expect(text).toContain("    - Owner: Ann");
+		expect(text).toContain("## Timeline: 0 entries");
+		for (const id of ["Form task", "desc:", "Timeline updates"]) expect(text).not.toContain(id);
+	});
+	test("a row lists its own actions when it allows fewer, and details don't repeat its cells", () => {
+		const tree: Node = {
+			type: "table",
+			id: "t",
+			columns: [{ key: "name", title: "Name" }, { key: "cpu", title: "CPU" }],
+			actions: [{ id: "archive", label: "Archive" }, { id: "unarchive", label: "Unarchive" }, { id: "read", label: "Mark read" }],
+			rows: [
+				{ id: "a", cells: { name: "Alpha", cpu: "3%" }, actions: ["archive", "read"], stats: [{ label: "CPU", value: "3%" }, { label: "Threads", value: "3%" }] },
+				{ id: "b", cells: { name: "Beta", cpu: "1%" }, actions: ["archive", "unarchive", "read"] },
+				{ id: "c", cells: { name: "Gamma", cpu: "0%" } },
+			],
+		};
+		const text = treeText(tree).text;
+		expect(text).toContain("Row actions: Archive, Unarchive, Mark read (a row that allows fewer lists its own)");
+		expect(text).toContain("{id: a} (actions: Archive, Mark read)");
+		expect(text).toMatch(/\{id: b\}\n/);
+		expect(text).toMatch(/\{id: c\}$/);
+		// The CPU stat repeats the CPU cell; Threads has the same value but is another fact.
+		expect(text).not.toContain("CPU: 3%");
+		expect(text).toContain("Threads: 3%");
+	});
 });
 
 /** A host with plugins whose surfaces render a tree a moment after they open. */
@@ -262,12 +375,66 @@ describe("agent core", () => {
 		expect((await core.call(session, "read_screen", { plugin: "tasks", screen: "nope" })).text).toContain("has no screen");
 	});
 
-	test("a crashed plugin is reported, not read", async () => {
+	test("a crashed plugin is reported as unavailable (an error, not a refusal), with no stale badge", async () => {
 		const host = fakeHost([manifest("tasks")]);
-		host.infos[0] = { ...host.infos[0], state: "crashed", error: "boom\nstack" };
+		host.infos[0] = { ...host.infos[0], state: "crashed", badge: 34, error: "boom\nstack" };
+		const { core, dir } = makeCore(host);
+		const session = core.openSession("t", "interactive");
+		const r = await core.call(session, "read_screen", { plugin: "tasks" });
+		expect(r).toEqual({ text: "Tasks is crashed: boom. The person can restart it in ToolBelt.", isError: true, kind: "unavailable" });
+		const status = await core.call(session, "toolbelt_status", { format: "json" });
+		expect(status.text).not.toContain("34");
+		expect((status.data as { plugins: { badge: unknown; state: string }[] }).plugins[0]).toMatchObject({ state: "crashed", badge: null });
+		expect((await core.call(session, "toolbelt_status")).text).toContain("Tasks (tasks) 1.0.0: crashed (can't be read until the person restarts it)");
+		expect((await core.call(session, "list_screens")).text).toContain('screen "main" (default) (unavailable: Tasks is crashed)');
+		const audit = readFileSync(join(dir, "agent-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+		expect(audit[0]).toMatchObject({ operation: "read_screen", outcome: "error", detail: expect.stringContaining("crashed") });
+	});
+
+	test("ids match in any case or by title, and mistakes get suggestions only among visible plugins", async () => {
+		const host = fakeHost([manifest("processes"), manifest("secret", { agent: { access: "none" } })]);
 		const { core } = makeCore(host);
-		const r = await core.call(core.openSession("t", "interactive"), "read_screen", { plugin: "tasks" });
-		expect(r).toEqual({ text: "Tasks is crashed: boom.", isError: true });
+		const session = core.openSession("t", "interactive");
+		expect((await core.call(session, "list_screens", { plugin: "Processes" })).text).toContain('plugin "processes", screen "main"');
+		expect((await core.call(session, "read_screen", { plugin: "PROCESSES", screen: "Settings" })).text).toContain('# Processes › Settings (plugin "processes", screen "settings")');
+		const typo = await core.call(session, "read_screen", { plugin: "proceses" });
+		expect(typo).toMatchObject({ isError: true, kind: "refused", text: expect.stringContaining('Did you mean "processes"?') });
+		expect((await core.call(session, "read_screen", { plugin: "secre" })).text).not.toContain("secret");
+		const screen = await core.call(session, "read_screen", { plugin: "processes", screen: "setings" });
+		expect(screen.text).toContain('Did you mean "settings"?');
+		expect(screen.text).toContain("Its screens: main (Main), settings (Settings).");
+	});
+
+	test("paging names a table that exists; offset alone pages the only table", async () => {
+		const twoTables: Node = { type: "stack", children: [{ type: "table", id: "a", columns: [{ key: "n", title: "N" }], rows: [{ id: "1", cells: { n: "one" } }] }, { type: "table", id: "b", columns: [{ key: "n", title: "N" }], rows: [] }] };
+		const host = fakeHost([manifest("tasks"), manifest("pair")], (plugin) => (plugin === "pair" ? twoTables : page(30)));
+		const { core } = makeCore(host);
+		const session = core.openSession("t", "interactive");
+		const unknown = await core.call(session, "read_screen", { plugin: "tasks", table: "nosuch", offset: 50 });
+		expect(unknown).toMatchObject({ isError: true, kind: "refused", text: 'Tasks › Main has no table "nosuch". Its tables: things.' });
+		const paged = await core.call(session, "read_screen", { plugin: "tasks", offset: 25 });
+		expect(paged.text).toContain("Thing 25 ");
+		expect(paged.text).not.toContain("Thing 24 ");
+		expect((await core.call(session, "read_screen", { plugin: "pair", offset: 1 })).text).toBe("offset pages one table: pass table too. Tables on this screen: a, b.");
+		expect((await core.call(session, "read_screen", { plugin: "tasks", max_rows: 0 })).text).toContain("(30 rows not listed: max_rows is 0)");
+	});
+
+	test("text results carry everything; format json returns the same facts as data", async () => {
+		const host = fakeHost([manifest("tasks")]);
+		const { core } = makeCore(host);
+		const session = core.openSession("t", "interactive");
+		const text = await core.call(session, "read_screen", { plugin: "tasks" });
+		expect(text.data).toBeUndefined();
+		expect(text.text).toMatch(/rendered (now|\d+m ago)/);
+		const json = await core.call(session, "read_screen", { plugin: "tasks", format: "json" });
+		expect(JSON.parse(json.text)).toEqual(json.data);
+		expect(json.data).toMatchObject({ plugin: "tasks", screen: "main", rendered: true, personViewing: false, renderedAtIso: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), viewState: ['filter "Kind" = Apples'] });
+		for (const tool of ["toolbelt_status", "list_screens", "search_screens", "list_plugins"]) {
+			const args = tool === "search_screens" ? { query: "thing" } : {};
+			expect((await core.call(session, tool, args)).data).toBeUndefined();
+			const r = await core.call(session, tool, { ...args, format: "json" });
+			expect(JSON.parse(r.text)).toEqual(r.data);
+		}
 	});
 
 	test("search finds lines across screens", async () => {
@@ -275,10 +442,26 @@ describe("agent core", () => {
 			surface === "screen:main" ? page(3) : { type: "text", text: `${plugin} settings: dark mode on` },
 		);
 		const { core } = makeCore(host);
-		const r = await core.call(core.openSession("t", "interactive"), "search_screens", { query: "DARK mode" });
-		expect(r.text).toContain("Tasks › Settings: tasks settings: dark mode on");
-		expect(r.text).toContain("Notes › Settings: notes settings: dark mode on");
-		expect((r.data as { matches: unknown[] }).matches).toHaveLength(2);
+		const r = await core.call(core.openSession("t", "interactive"), "search_screens", { query: "DARK mode", format: "json" });
+		const data = r.data as { matches: { line: string }[]; screensSearched: number; failed: unknown[] };
+		expect(data.matches.map((m) => m.line)).toEqual(["tasks settings: dark mode on", "notes settings: dark mode on"]);
+		expect(data).toMatchObject({ screensSearched: 4, failed: [] });
+	});
+
+	test("search reports screens it couldn't read instead of a clean 'nothing found'", async () => {
+		const host = fakeHost([manifest("tasks"), manifest("notes")], (plugin, surface) => (plugin === "tasks" && surface === "screen:settings" ? null : page(1)));
+		host.infos[1] = { ...host.infos[1], state: "crashed", error: "Protocol complexity limit" };
+		const { core } = makeCore(host);
+		const session = core.openSession("t", "interactive");
+		const r = await core.call(session, "search_screens", { query: "update" });
+		expect(r.text).not.toContain("Nothing on 4 screens");
+		expect(r.text).toContain('Nothing on 1 screen mentions "update".');
+		expect(r.text).toContain("3 screens couldn't be searched, so matches there are unknown:");
+		expect(r.text).toContain("- Tasks › Settings: it hasn't rendered yet");
+		expect(r.text).toContain("- Notes › Main: Notes is crashed: Protocol complexity limit.");
+		const json = await core.call(session, "search_screens", { query: "update", plugin: "notes", format: "json" });
+		expect(json.data).toMatchObject({ screensSearched: 0, matches: [], failed: [{ plugin: "notes", screen: "main" }, { plugin: "notes", screen: "settings" }] });
+		expect(json.isError).toBeUndefined();
 	});
 
 	test("setAccess saves the choice and releases what the agent held", async () => {
@@ -348,7 +531,12 @@ describe("agent socket", () => {
 		c.send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "read_screen", arguments: { plugin: "tasks" } } });
 		const read = (await c.reply(3)).result;
 		expect(read.content[0].text).toContain("Thing 0");
-		expect(read.structuredContent.plugin).toBe("tasks");
+		// Text results have no structuredContent: clients that prefer it would show no screen.
+		expect(read.structuredContent).toBeUndefined();
+		c.send({ jsonrpc: "2.0", id: 31, method: "tools/call", params: { name: "read_screen", arguments: { plugin: "tasks", format: "json" } } });
+		const json = (await c.reply(31)).result;
+		expect(json.structuredContent).toMatchObject({ plugin: "tasks", tree: { type: "page" } });
+		expect(JSON.parse(json.content[0].text)).toEqual(json.structuredContent);
 		c.send({ jsonrpc: "2.0", id: 4, method: "resources/list" });
 		expect((await c.reply(4)).result.resources.map((r: { uri: string }) => r.uri)).toEqual(["toolbelt://screens/tasks/main", "toolbelt://screens/tasks/settings"]);
 		c.send({ jsonrpc: "2.0", id: 5, method: "resources/read", params: { uri: "toolbelt://screens/tasks/main" } });
@@ -363,6 +551,23 @@ describe("agent socket", () => {
 		expect(core.state().sessions).toEqual([]);
 		const audit = readFileSync(join(dir, "agent-audit.jsonl"), "utf8");
 		expect(audit).toContain('"client":"claude-code","mode":"autonomous","operation":"read_screen"');
+	});
+
+	test("a crashed plugin's screens leave resources/list, and reading one is a server error, not 'not found'", async () => {
+		const host = fakeHost([manifest("tasks"), manifest("notes")]);
+		host.infos[1] = { ...host.infos[1], state: "crashed", error: "boom" };
+		const { core, dir } = makeCore(host);
+		server = new AgentServer(core, join(dir, "agent.sock"));
+		await server.start();
+		const c = await client(server.path);
+		c.send({ toolbelt: 1, client: "probe" });
+		c.send({ jsonrpc: "2.0", id: 1, method: "resources/list" });
+		expect((await c.reply(1)).result.resources.map((r: { uri: string }) => r.uri)).toEqual(["toolbelt://screens/tasks/main", "toolbelt://screens/tasks/settings"]);
+		c.send({ jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri: "toolbelt://screens/notes/main" } });
+		expect((await c.reply(2)).error).toEqual({ code: -32603, message: "Notes is crashed: boom. The person can restart it in ToolBelt." });
+		c.send({ jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: "toolbelt://screens/nope/main" } });
+		expect((await c.reply(3)).error.code).toBe(-32002);
+		c.socket.end();
 	});
 
 	test("refuses a connection without a hello and replaces a stale socket file", async () => {
@@ -421,6 +626,13 @@ describe("agent socket", () => {
 		expect(read.out).toContain('offset 1 for more');
 		expect(JSON.parse((await cli("screens", "--json")).out).screens).toHaveLength(2);
 		expect((await cli("read", "nope")).code).toBe(2);
+		// Mistakes in the command line are refused, not ignored.
+		const bogus = await cli("read", "tasks", "--bogus");
+		expect(bogus).toMatchObject({ code: 2, out: "" });
+		expect(bogus.err).toContain("Unknown option for toolbelt read: --bogus");
+		expect((await cli("status", "--max-rows", "3")).code).toBe(2);
+		expect((await cli("read", "tasks", "--table")).err).toContain("--table needs a value");
+		expect(JSON.parse((await cli("read", "tasks", "--json")).out)).toMatchObject({ plugin: "tasks", tree: { type: "page" } });
 		expect((await cli("skill")).out).toContain("name: toolbelt");
 		agents.stop();
 		const off = await cli("status");

@@ -150,7 +150,7 @@ const OVERLAY: Record<string, Overlay> = {
 		channels: ["mcp", "cli"],
 		expect: {
 			0: { contains: ["Desk › Tasks › Today", "Q4 budget review with finance", "Draft budget slides"] },
-			1: { contains: ["Timeline history-2: 2 entries", "you: Waiting for the headcount figures from HR before the meeting.", "(1d ago)", "Moved to Working: Sent the draft numbers to Maria.", "Status: Working", "Labels: Area: Finance", "  - [#3] Draft budget slides"] },
+			1: { contains: ["Timeline: 2 entries", "you: Waiting for the headcount figures from HR before the meeting.", "(1d ago)", "Moved to Working: Sent the draft numbers to Maria.", "Status: Working", "Labels: Area: Finance", "  - [#3] Draft budget slides"] },
 		},
 		rubric: ["Gives the meeting time (today, in about 5 hours).", "Quotes the latest update: waiting for HR's headcount figures.", "Mentions the unstarted slides subtask."],
 	},

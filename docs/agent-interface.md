@@ -58,8 +58,10 @@ then from MCP `clientInfo`. Requests on one connection are answered in order.
 `toolbelt mcp` is the stdio shim MCP clients start. It writes the hello and then pipes stdin and
 stdout to the socket unchanged, with `--autonomous` setting the session's mode. The other
 commands (`status`, `screens`, `read`, `search`, `plugins`) make one MCP tool call each and print
-its text, or its structured content with `--json`. Exit codes: 1 when the socket can't be
-reached, 2 when the call was refused or failed. `toolbelt skill` prints `SKILL.md`.
+its text, or with `--json` ask for `format: "json"` and print the structured content. Each command
+accepts only its own options; an unknown option, a missing value or a wrong number is a usage
+error. Exit codes: 1 when the socket can't be reached, 2 when the call was refused or failed or
+the command line is wrong. `toolbelt skill` prints `SKILL.md`.
 
 The app bundles the CLI as `Contents/Resources/app/cli/toolbelt.js` (`bun run cli`, copied by
 `electrobun.config.ts`) and runs it with its own Bun. Settings → Agents shows the exact commands
@@ -81,14 +83,27 @@ The server negotiates protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26`
 | `toolbelt_status` | App name, version, channel and development profile, app update availability, visible plugins with state, badge and screens, and the count of hidden plugins |
 | `list_screens` | Readable screens as plugin and screen ids, optionally for one plugin |
 | `read_screen` | One screen as text (default) or redacted JSON, with `max_rows`, `table` and `offset` paging and `details` |
-| `search_screens` | Content lines containing every query word, across readable screens or one plugin |
+| `search_screens` | Content lines containing every query word, across readable screens or one plugin, and the screens that couldn't be read |
 | `list_plugins` | Installed plugins agents may see: version, repository, phase, channel, available update |
 
 Every tool is declared `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`.
-Results carry text content and, on success, `structuredContent`. Refusals are tool results with
-`isError: true`, not JSON-RPC errors.
+Every tool takes `format`: `text` (default) or `json`. A text result is one text content item
+with everything the agent needs (times, whether a person has the screen open, hints, failed
+screens) and no `structuredContent`, because some clients (Claude Code) show `structuredContent`
+instead of the text when it is present. A JSON result has `structuredContent`, and its text is
+that object serialized, so both carry the same information. Structured times are epoch
+milliseconds with an ISO 8601 copy (`renderedAtIso`, `lastCheckedIso`, and `atIso` beside each
+`at`, `metaAt` and `edited` in trees). Errors are tool results with `isError: true`, not
+JSON-RPC errors.
 
-Every readable screen is also a resource, `toolbelt://screens/<plugin>/<screen>` (text/markdown).
+Plugin and screen ids match in any case, and by plugin name or screen title. An unknown id gets
+the readable ids and close matches among them; hidden plugins are never suggested. A `table`
+that isn't on the screen is refused with the screen's table ids, and `offset` without `table`
+pages the screen's only table (refused when there are several).
+
+Every readable screen of a running plugin is also a resource, `toolbelt://screens/<plugin>/<screen>` (text/markdown).
+Reading one that doesn't exist for agents is `-32002`; reading one whose plugin can't be read
+now (crashed, failed render) is `-32603` with the reason.
 `resources/subscribe` keeps that surface open for the session and sends
 `notifications/resources/updated` at most once a second per screen while its tree changes. A
 change in plugins or access sends `notifications/resources/list_changed`.
@@ -103,21 +118,32 @@ counts as a viewer through `PluginHost.open`/`close`:
   keep it open until they end.
 - `PluginHost.snapshot` returns the cached tree, when it arrived and how many viewers have the
   surface open. A plugin process that starts again clears its cached trees.
-- A plugin that isn't running is reported with its state and first error line, not read.
+- A plugin that isn't running is reported with its state and first error line, not read. This
+  is a failure (`unavailable`, audited as `error`), not a refusal. `toolbelt_status` marks it,
+  leaves out its stale badge, and `list_screens` marks its screens unavailable.
+- A screen that hasn't rendered within the wait is a successful read with `rendered: false` and
+  a hint to try again.
 
 `serialize.ts` turns a tree into text an agent can use:
 
 - Pages: summary, filters (marked as default when they match the filter's `default`), choice
   controls, search highlight, enabled toolbar actions and an open dialog.
-- Tables: sections and groups as headings (a sub-section as `Upcoming › This week`), one line per row with its cells, id and flags,
-  children indented, and row details, stats and pane content underneath. Enabled row and bulk
-  action labels appear once per table, and empty declared sections are listed.
-- Times as local `YYYY-MM-DD HH:MM` with a relative hint, line breaks in values joined with
-  " / ".
+- Tables: sections and groups as headings (a sub-section as `Upcoming › This week`, a
+  sub-section named like its parent only once), one line per row with its cells, id and flags,
+  children indented, and row details, stats and pane content underneath. A stat or detail that
+  repeats the row's cell of the same name is left out. Enabled row and bulk action labels appear
+  once per table; a row whose `actions` allow fewer lists its own. Empty declared sections are
+  listed when every row was read.
+- Headings use labels, not the plugin's ids: `Form`, `Timeline`, `List`, and a field without a
+  label shows only its value. Table ids stay, because `table` pages by them.
+- Times as local `YYYY-MM-DD HH:MM` with a relative hint. Line breaks in every value are joined
+  with " / ", so each value stays on its line and indentation.
 - Lists, forms, stats, cards, details, logs and terminals (last 40 lines), conversations (last
   20 messages), timelines, progress and Markdown. Composers are left out.
-- Tables are paged per table, 100 rows by default, and the result names the next offset. Text is
-  capped at 60,000 characters.
+- Tables are paged per table, 100 rows by default, and the result names the next offset.
+  `max_rows: 0` lists each table's size and columns without rows. An offset past the end says
+  so. Text is capped at 60,000 characters.
+- `details: false` leaves rows' details, stats and panes out of both text and JSON.
 - `text` fields with `sensitive` and `secret` environment entries are masked as `••••••` in both
   text and JSON. Other plugin text passes through unchanged.
 
@@ -129,7 +155,8 @@ non-default filter or a dialog applies. Agents never send view events.
 
 Every tool call and resource read appends one line to `agent-audit.jsonl` in the plugin profile
 folder (the development profile in development mode): time, session, client, mode, operation,
-plugin, screen, outcome (`ok`, `denied`, `error`) and a short detail for refusals and errors.
+plugin, screen, outcome (`ok`, `denied` for refusals: unknown or hidden plugins, screens and
+tables; `error` for failures such as a crashed plugin) and a short detail for refusals and errors.
 The log is append-only and never pruned.
 
 `AuditLog.query` reads it back newest first, in pages. An entry's id is the byte offset of its

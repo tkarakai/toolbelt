@@ -26,7 +26,24 @@ Options:
   --autonomous     Mark this session as autonomous: nobody is watching it
   --json           Print the structured result as JSON (status, screens, read, search, plugins)
 
-ToolBelt must be running with Settings → Agents → "Let agents use ToolBelt" on.`;
+ToolBelt must be running with Settings → Agents → "Let agents use ToolBelt" on.
+Exit codes: 1 when ToolBelt can't be reached, 2 when the call was refused or failed or the
+command line is wrong.`;
+
+/** A mistake in the command line: printed with a pointer to help, exit code 2. */
+class UsageError extends Error {}
+/** Flags each command takes, besides the global ones. */
+const GLOBAL_FLAGS = ["socket", "autonomous", "json", "help", "h"];
+const COMMAND_FLAGS: Record<string, string[]> = {
+	status: [],
+	screens: ["plugin"],
+	read: ["max-rows", "table", "offset", "no-details"],
+	search: ["plugin"],
+	plugins: [],
+	mcp: [],
+	skill: [],
+	help: [],
+};
 
 type Args = { positional: string[]; flags: Map<string, string | true> };
 function parse(argv: string[]): Args {
@@ -131,6 +148,12 @@ async function call(path: string, autonomous: boolean, tool: string, args: Recor
 async function main() {
 	const { positional, flags } = parse(process.argv.slice(2));
 	const [command, ...rest] = positional;
+	if (command && COMMAND_FLAGS[command]) {
+		const unknown = [...flags.keys()].filter((f) => !GLOBAL_FLAGS.includes(f) && !COMMAND_FLAGS[command].includes(f));
+		if (unknown.length) throw new UsageError(`Unknown option${unknown.length === 1 ? "" : "s"} for toolbelt ${command}: ${unknown.map((f) => `--${f}`).join(", ")}. Run toolbelt help.`);
+		for (const name of ["socket", "max-rows", "table", "offset", "plugin"])
+			if (flags.get(name) === true) throw new UsageError(`--${name} needs a value. Run toolbelt help.`);
+	}
 	if (!command || command === "help" || flags.has("help") || flags.has("h")) {
 		console.log(HELP);
 		return;
@@ -146,7 +169,7 @@ async function main() {
 		const v = flags.get(name);
 		if (typeof v !== "string") return undefined;
 		const n = Number(v);
-		if (!Number.isInteger(n) || n < 0) throw new Error(`--${name} needs a whole number`);
+		if (!Number.isInteger(n) || n < 0) throw new UsageError(`--${name} needs a whole number`);
 		return n;
 	};
 	const plugin = typeof flags.get("plugin") === "string" ? (flags.get("plugin") as string) : undefined;
@@ -161,12 +184,11 @@ async function main() {
 			if (rest[0] ?? plugin) args = { plugin: rest[0] ?? plugin };
 			break;
 		case "read":
-			if (!rest[0]) throw new Error("toolbelt read <plugin> [screen]");
+			if (!rest[0]) throw new UsageError("Usage: toolbelt read <plugin> [screen]");
 			tool = "read_screen";
 			args = {
 				plugin: rest[0],
 				...(rest[1] ? { screen: rest[1] } : {}),
-				...(flags.has("json") ? { format: "json" } : {}),
 				...(int("max-rows") !== undefined ? { max_rows: int("max-rows") } : {}),
 				...(typeof flags.get("table") === "string" ? { table: flags.get("table") } : {}),
 				...(int("offset") !== undefined ? { offset: int("offset") } : {}),
@@ -174,7 +196,7 @@ async function main() {
 			};
 			break;
 		case "search":
-			if (!rest.length) throw new Error("toolbelt search <words…>");
+			if (!rest.length) throw new UsageError("Usage: toolbelt search <words…>");
 			tool = "search_screens";
 			args = { query: rest.join(" "), ...(plugin ? { plugin } : {}) };
 			break;
@@ -182,8 +204,10 @@ async function main() {
 			tool = "list_plugins";
 			break;
 		default:
-			throw new Error(`Unknown command ${command}. Run toolbelt help.`);
+			throw new UsageError(`Unknown command ${command}. Run toolbelt help.`);
 	}
+	// --json asks every tool for its structured result.
+	if (flags.has("json")) args.format = "json";
 	const result = await call(path, autonomous, tool, args);
 	if (flags.has("json") && result.structuredContent !== undefined && !result.isError)
 		console.log(JSON.stringify(result.structuredContent, null, 2));
@@ -193,5 +217,5 @@ async function main() {
 
 main().catch((error) => {
 	console.error(error instanceof Error ? error.message : String(error));
-	process.exit(1);
+	process.exit(error instanceof UsageError ? 2 : 1);
 });
