@@ -1,0 +1,58 @@
+{
+	"id": "07-upkeep-activity",
+	"title": "Did any update fail recently?",
+	"prompt": "Did any of my updates fail recently?",
+	"persona": "Person chatting with Claude Desktop",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"steps": [
+		{
+			"call": "list_screens",
+			"args": {
+				"plugin": "kit"
+			},
+			"expect": {
+				"contains": [
+					"Kit › Activity: plugin \"kit\", screen \"activity\""
+				]
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "kit",
+				"screen": "activity",
+				"max_rows": 20
+			},
+			"expect": {
+				"contains": [
+					"Scheduled check: 5 items, 2 new updates, 1 failed",
+					"(3h ago)",
+					"Log: ~/Library/Logs/kit/run-1.log",
+					"  - Internal deploy CLI: check failed (exit 3)"
+				]
+			}
+		}
+	],
+	"rubric": [
+		"Says no update ran, so none failed.",
+		"Reports the failed check for the internal deploy CLI.",
+		"Mentions the log is available."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "07-upkeep-activity",
+		"plugins": [
+			"upkeep"
+		],
+		"channel": "MCP",
+		"calls": [
+			"list_screens upkeep",
+			"read_screen upkeep activity (max_rows 20)"
+		],
+		"verdict": "pass",
+		"notes": "The Activity screen's nested rows (one run with one row per item) came through with their details. The details include local log file paths, which is the plugin's own content."
+	}
+}

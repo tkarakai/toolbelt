@@ -1,0 +1,10 @@
+{
+  "id": "vault",
+  "name": "Vault",
+  "icon": "cpu",
+  "version": "0.1.7",
+  "protocol": 1,
+  "entry": "index.ts",
+  "agent": { "access": "none" },
+  "screens": [{ "id": "processes", "title": "Processes", "default": true }]
+}

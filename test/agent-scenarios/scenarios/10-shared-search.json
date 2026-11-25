@@ -1,0 +1,79 @@
+{
+	"id": "10-shared-search",
+	"title": "Which tasks are due this week? (while the person is searching)",
+	"prompt": "Which of my tasks are due this week?",
+	"persona": "Person chatting with Claude Desktop while their OnTrack window searches for \"finance\"",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"setup": {
+		"person": [
+			{
+				"open": "desk/tasks"
+			}
+		]
+	},
+	"steps": [
+		{
+			"person": {
+				"event": {
+					"screen": "desk/tasks",
+					"name": "search",
+					"payload": {
+						"query": "finance"
+					}
+				}
+			},
+			"expect": {}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "desk",
+				"details": false
+			},
+			"expect": {
+				"contains": [
+					"a person has it open",
+					"currently shows: search \"finance\"",
+					"Rows outside it are not listed.",
+					"Submit November expense report",
+					"Q4 budget review with finance"
+				],
+				"absent": [
+					"Renew passport"
+				]
+			}
+		},
+		{
+			"person": {
+				"event": {
+					"screen": "desk/tasks",
+					"name": "search",
+					"payload": {
+						"query": ""
+					}
+				}
+			}
+		}
+	],
+	"rubric": [
+		"Answers from the visible rows but says the person's search limits what it sees.",
+		"Does not claim the list is complete (finding O1)."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "10-shared-search",
+		"plugins": [
+			"ontrack"
+		],
+		"channel": "MCP",
+		"calls": [
+			"(the person types \"finance\" into OnTrack's search)",
+			"read_screen ontrack (details: false)"
+		],
+		"verdict": "partial",
+		"notes": "The read flagged the shared view state (search \"finance\"), so the agent didn't claim the list was complete. It still couldn't read past the person's search: challenge C6, addressed by parameterized reads (1c) and per-viewer instances (1d)."
+	}
+}

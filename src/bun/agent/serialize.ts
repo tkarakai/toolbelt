@@ -134,10 +134,12 @@ function rowLines(row: Row, columns: string[], depth: number, opts: WalkOptions,
 	for (const child of row.children ?? []) rowLines(child, columns, depth + 1, opts, out);
 }
 
-function sectionLabels(sections: Section[] | undefined, map = new Map<string, string>()) {
+/** Declared sections and sub-sections by id: their labels and ids from the top level down. */
+function sectionPaths(sections: Section[] | undefined, parent: { labels: string[]; ids: string[] } = { labels: [], ids: [] }, map = new Map<string, { labels: string[]; ids: string[] }>()) {
 	for (const s of sections ?? []) {
-		map.set(s.id, s.label);
-		sectionLabels(s.sections, map);
+		const path = { labels: [...parent.labels, s.label], ids: [...parent.ids, s.id] };
+		map.set(s.id, path);
+		sectionPaths(s.sections, path, map);
 	}
 	return map;
 }
@@ -187,22 +189,24 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			if (rowActions.length) out.lines.push(`Row actions: ${rowActions.join(", ")}`);
 			const bulk = actionLabels(node.bulkActions);
 			if (bulk.length) out.lines.push(`Bulk actions: ${bulk.join(", ")}`);
-			const labels = sectionLabels(node.sections);
+			const sections = sectionPaths(node.sections);
 			const used = new Set<string>();
 			let header = "";
 			const columns = node.columns.map((c) => c.key);
 			for (const row of rows) {
 				const path = row.group === undefined ? [] : typeof row.group === "string" ? [row.group] : row.group;
-				if (path.length) used.add(idOf(path[0]));
+				// A row in a sub-section sits under its parent sections too.
+				const declared = path.length ? sections.get(idOf(path[0])) : undefined;
+				for (const id of declared?.ids ?? []) used.add(id);
 				for (const g of path) used.add(idOf(g));
-				const h = path.map((g) => labels.get(idOf(g)) ?? labelOf(g)).join(" › ");
+				const h = [...(declared?.labels ?? []), ...path.slice(declared ? 1 : 0).map((g) => sections.get(idOf(g))?.labels.at(-1) ?? labelOf(g))].join(" › ");
 				if (h !== header) {
 					header = h;
 					if (h) out.lines.push(`### ${h}`);
 				}
 				rowLines(row, columns, 0, opts, out);
 			}
-			const empty = [...labels].filter(([id]) => !used.has(id)).map(([, label]) => label);
+			const empty = [...sections].filter(([id]) => !used.has(id)).map(([, p]) => p.labels.join(" › "));
 			if (empty.length && offset + opts.maxRows >= total) out.lines.push(`Empty sections: ${empty.join(", ")}`);
 			if (offset + rows.length < total)
 				out.lines.push(`(showing rows ${offset + 1}–${offset + rows.length} of ${total}; read again with table "${node.id}" and offset ${offset + rows.length} for more)`);

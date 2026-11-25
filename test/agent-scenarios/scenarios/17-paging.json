@@ -1,0 +1,87 @@
+{
+	"id": "17-paging",
+	"title": "Long tables are paged",
+	"prompt": "List every row of SDK Explorer's queue table.",
+	"persona": "Developer in Claude Code",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"steps": [
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "kit",
+				"screen": "queue",
+				"max_rows": 3,
+				"details": false
+			},
+			"expect": {
+				"contains": [
+					"## Table jobs: 250 rows",
+					"Job 003",
+					"(showing rows 1–3 of 250; read again with table \"jobs\" and offset 3 for more)",
+					"## Table workers: 3 rows",
+					"Worker gamma"
+				],
+				"absent": [
+					"Job 004"
+				]
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "kit",
+				"screen": "queue",
+				"table": "jobs",
+				"offset": 247,
+				"max_rows": 3
+			},
+			"expect": {
+				"contains": [
+					"Job 248",
+					"Job 250"
+				],
+				"absent": [
+					"Job 247 ",
+					"(showing rows"
+				]
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "kit",
+				"screen": "queue",
+				"format": "json",
+				"max_rows": 3
+			},
+			"expect": {
+				"contains": [
+					"\"paging\":{\"offset\":0,\"total\":250}",
+					"\"name\":\"Job 003\""
+				],
+				"absent": [
+					"Job 004"
+				]
+			}
+		}
+	],
+	"rubric": [
+		"Explains the table is paged and fetches the remaining pages before listing."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "17-paging",
+		"plugins": [
+			"sdk-demo"
+		],
+		"channel": "MCP",
+		"calls": [
+			"read_screen sdk-demo table (max_rows: 3, details: false)"
+		],
+		"verdict": "pass",
+		"notes": "Each table is paged on its own with an explicit next offset. JSON output carries `paging: {offset, total}`."
+	}
+}

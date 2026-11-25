@@ -1,0 +1,43 @@
+{
+	"id": "05-update-ollama",
+	"title": "Update Ollama for me",
+	"prompt": "Update Ollama for me.",
+	"persona": "Person chatting with Claude Desktop",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"steps": [
+		{
+			"call": "search_screens",
+			"args": {
+				"query": "ollama",
+				"plugin": "kit"
+			},
+			"expect": {
+				"contains": [
+					"Kit › Updates › Review first: - Ollama · 0.5.1 → 0.6.2",
+					"{id: ollama} [unread]"
+				]
+			}
+		}
+	],
+	"rubric": [
+		"Says it can't update software: access is read-only.",
+		"Points to Kit › Updates and its Review & update… action.",
+		"Gives the versions 0.5.1 → 0.6.2."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "05-update-ollama",
+		"plugins": [
+			"upkeep"
+		],
+		"channel": "MCP",
+		"calls": [
+			"search_screens \"ollama\" (plugin: upkeep)"
+		],
+		"verdict": "pass",
+		"notes": "The agent correctly redirects to the place where the person can act. This is the main use case phase 1b (guarded actions with approval) unlocks."
+	}
+}

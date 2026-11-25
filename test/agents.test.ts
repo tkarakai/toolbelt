@@ -103,6 +103,18 @@ describe("serializer", () => {
 		expect(viewState).toEqual(['filter "Kind" = Apples']);
 		expect(treeText(page(2), { details: false }).text).not.toContain("note 1");
 	});
+	test("rows in sub-sections sit under their parent; empty sub-sections name it", () => {
+		const tree: Node = {
+			type: "table",
+			id: "t",
+			columns: [{ key: "name", title: "Name" }],
+			sections: [{ id: "up", label: "Upcoming", sections: [{ id: "week", label: "This week" }, { id: "later", label: "Later" }] }, { id: "done", label: "Done" }],
+			rows: [{ id: "a", group: "week", cells: { name: "Alpha" } }],
+		};
+		const { text } = treeText(tree);
+		expect(text).toContain("### Upcoming › This week\n- Alpha");
+		expect(text).toContain("Empty sections: Upcoming › Later, Done");
+	});
 	test("pages long tables in text and JSON", () => {
 		const first = treeText(page(250)).text;
 		expect(first).toContain("Thing 99 ");

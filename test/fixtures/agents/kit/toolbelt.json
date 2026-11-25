@@ -1,0 +1,16 @@
+{
+  "id": "kit",
+  "name": "Kit",
+  "icon": "package",
+  "version": "0.4.1",
+  "protocol": 1,
+  "entry": "index.ts",
+  "repo": "example/kit",
+  "agent": { "access": "read" },
+  "screens": [
+    { "id": "updates", "title": "Updates", "default": true },
+    { "id": "activity", "title": "Activity" },
+    { "id": "connection", "title": "Connection" },
+    { "id": "queue", "title": "Queue" }
+  ]
+}

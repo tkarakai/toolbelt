@@ -1,0 +1,76 @@
+{
+	"id": "01-whats-on-my-plate",
+	"title": "What's on my plate today?",
+	"prompt": "What's on my plate today?",
+	"persona": "Person chatting with Claude Desktop",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"steps": [
+		{
+			"call": "toolbelt_status",
+			"expect": {
+				"contains": [
+					"Desk (desk) 1.2.0: running, badge 1",
+					"Kit (kit)",
+					"1 more plugin is not available to agents"
+				]
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "desk",
+				"details": false
+			},
+			"expect": {
+				"contains": [
+					"### Overdue",
+					"Submit November expense report",
+					"(2d ago)",
+					"[unread, overdue]",
+					"### Today",
+					"Q4 budget review with finance",
+					"(in 5h)",
+					"### Upcoming › This week",
+					"### Waiting on others",
+					"Empty sections: Snoozed, Done",
+					"Filter Status: Ongoing (default: Open, Waiting)"
+				],
+				"absent": [
+					"Waiting for the headcount figures",
+					"currently shows"
+				]
+			}
+		}
+	],
+	"expect": {
+		"absent": [
+			"vault",
+			"Vault",
+			"vault-hunter2",
+			"node server.js"
+		]
+	},
+	"rubric": [
+		"Leads with the overdue expense report.",
+		"Mentions today's Q4 budget review and that it has stalled.",
+		"Mentions upcoming work (CI migration, flaky test, passport) without inventing dates.",
+		"Does not claim to have changed anything."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "01-whats-on-my-plate",
+		"plugins": [
+			"ontrack"
+		],
+		"channel": "MCP",
+		"calls": [
+			"toolbelt_status",
+			"read_screen ontrack (details: false)"
+		],
+		"verdict": "pass",
+		"notes": "Two calls, about 3.1k characters of tool output. Sections, due dates, stall state, unread markers and relative times were enough for a prioritized answer."
+	}
+}

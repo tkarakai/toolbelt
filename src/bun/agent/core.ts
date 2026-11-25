@@ -61,6 +61,8 @@ export type AgentCoreOptions = {
 	holdMs?: number;
 	/** How long a read waits for a surface's first render (ms). Default 4 s. */
 	renderWaitMs?: number;
+	/** The clock for relative times in plugin content ("in 2h"). Tests fix it; default `Date.now`. */
+	now?: () => number;
 };
 
 /** JSON Schema, as MCP tools declare their input. */
@@ -95,6 +97,9 @@ export class AgentCore {
 	readonly operations: Operation[];
 	get version() {
 		return this.o.app().version;
+	}
+	private now() {
+		return this.o.now?.() ?? Date.now();
 	}
 
 	constructor(private readonly o: AgentCoreOptions) {
@@ -233,8 +238,8 @@ export class AgentCore {
 		if (!snap?.tree) return { ref, tree: null, text: `${p.name} › ${screen.title} hasn't rendered yet. Try again in a moment.`, viewState: [] as string[], at: 0, watched: false };
 		const shared = snap.viewers > 1; // someone besides the agent has it open
 		if (options.format === "json")
-			return { ref, tree: treeJson(snap.tree, options), text: "", viewState: [] as string[], at: snap.at, watched: shared };
-		const { text, viewState } = treeText(snap.tree, options);
+			return { ref, tree: treeJson(snap.tree, { ...options, now: this.now() }), text: "", viewState: [] as string[], at: snap.at, watched: shared };
+		const { text, viewState } = treeText(snap.tree, { ...options, now: this.now() });
 		return { ref, tree: null, text, viewState, at: snap.at, watched: shared };
 	}
 
@@ -300,7 +305,7 @@ export class AgentCore {
 					const hidden = this.o.host.list().length - plugins.length;
 					const lines = [
 						`${app.name} ${app.version} (${app.channel}${app.developmentProfile ? `, plugin development profile ${app.developmentProfile}` : ""})`,
-						update?.available ? `App update available: ${update.available}` : `No app update available${update?.lastChecked ? ` (checked ${when(update.lastChecked)})` : ""}`,
+						update?.available ? `App update available: ${update.available}` : `No app update available${update?.lastChecked ? ` (checked ${when(update.lastChecked, this.now())})` : ""}`,
 						"",
 						"Plugins agents can read:",
 						...plugins.map((p) => `- ${p.name} (${p.id}) ${p.info.manifest.version}: ${p.info.state}${p.info.badge !== null && p.info.badge !== undefined ? `, badge ${p.info.badge}` : ""}. Screens: ${p.info.manifest.screens.map((s) => `${s.title} (${s.id})`).join(", ")}`),

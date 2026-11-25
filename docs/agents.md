@@ -98,7 +98,7 @@ counts as a viewer through `PluginHost.open`/`close`:
 
 - Pages: summary, filters (marked as default when they match the filter's `default`), choice
   controls, search highlight, enabled toolbar actions and an open dialog.
-- Tables: sections and groups as headings, one line per row with its cells, id and flags,
+- Tables: sections and groups as headings (a sub-section as `Upcoming › This week`), one line per row with its cells, id and flags,
   children indented, and row details, stats and pane content underneath. Enabled row and bulk
   action labels appear once per table, and empty declared sections are listed.
 - Times as local `YYYY-MM-DD HH:MM` with a relative hint, line breaks in values joined with
@@ -125,9 +125,64 @@ last megabyte of the file.
 
 ## Testing
 
-`test/agents.test.ts` covers access levels, the manifest key, redaction, text and JSON paging,
-the core against a fake host (hiding, refusals, holds and release, crashed plugins, search,
-access changes) and the socket and CLI end to end. The browser preview runs the same interface:
-`PREVIEW_AGENTS=1` starts it on, and its socket lives in the preview's config folder unless
-`TOOLBELT_AGENT_SOCKET` is set. Unix socket paths are limited to about 100 bytes, so use a short
-`TOOLBELT_AGENT_SOCKET` with long temporary config folders.
+Three layers run in `bun test` (and so in CI), without a model:
+
+| Layer | Where | What it checks |
+| --- | --- | --- |
+| Unit | `test/agents.test.ts` | Access levels, the manifest key, redaction, text and JSON paging, the core against a fake host (hiding, refusals, holds and release, crashed plugins, search, access changes), the socket and CLI |
+| Scenarios | `test/agent-scenarios.test.ts`, `test/agent-scenarios/` | Life-like prompts with the tool calls an agent makes to answer them, run through every channel each lists, against real plugin processes |
+| MCP conformance | `test/agent-mcp-conformance.test.ts` | Version negotiation (also unsupported versions), tool input schemas compiled as JSON Schema 2020-12 in strict mode, annotations, JSON-RPC error codes (-32601, -32602, -32600, -32700), refusals as `isError` results, in-order answers, hello-less connections, resources (list, read, templates, subscribe and unsubscribe, `list_changed`) |
+
+### Scenarios
+
+A scenario (`test/agent-scenarios/format.ts`, one JSON file per case in
+`test/agent-scenarios/scenarios/`) is transport-neutral:
+
+- `id`, `title`, `prompt`, `persona`, `mode` (interactive or autonomous) and `channels`
+  (`mcp`, `cli`).
+- `setup`: the master switch, the person's per-plugin access, and person actions before the agent
+  starts.
+- `steps`: tool calls (`call`, `args`, `structured` for MCP `structuredContent` or CLI
+  `--json`), resource steps (`read`, `subscribe`, `unsubscribe`, MCP only) and person actions:
+  `open` and `close` a screen, a UI `event` such as `search`, `filter` or an action id, `access`
+  for a plugin, or the `agents` switch.
+- `expect` on a step: `contains` (facts), `absent` (secrets, hidden plugin ids), `refused`,
+  `unreachable` (agents off), and `notifications` that must arrive within a time after the step.
+  Notifications are checked on channels that deliver them.
+- `expect` on the scenario: facts and absences over all outputs together, and audit log entries
+  in order (operation, outcome, plugin, mode).
+- `rubric`: what a good final answer does, for model-based evaluation. Scripted tests ignore it.
+- `origin`: where the case came from.
+
+`harness.ts` gives each run its own world: a real `PluginHost` with the fixture plugins in
+`test/fixtures/agents`, the agent interface with its socket in a temporary folder, and person
+actions applied through the host and the Settings → Agents requests. Adapters in `adapters.ts`
+run steps the way clients do: `McpAdapter` starts the stdio shim (`toolbelt mcp`) and speaks
+JSON-RPC, restarting it after the socket goes away, and `CliAdapter` maps each tool to its
+command (`read_screen` → `toolbelt read`) with exit code 1 as unreachable and 2 as refused.
+Structured output is compared in compact JSON, so facts match on both channels. Another MCP
+server or CLI needs only another adapter.
+
+The fixtures mirror the shapes real plugins render without depending on any plugin
+implementation: `desk` (a task list with sections, sub-sections and empty sections, nested
+rows, row panes with an inline form and a timeline, a filter with a default, search with a
+highlight and a dialog), `kit` (updates with status sections and split actions, nested activity
+runs, a form with a sensitive field and secret environment entries, a 250-row table beside a
+short one) and `vault`, which declares `agent.access: none`. They date content around
+`test/fixtures/agents/clock.ts`, and the harness gives the core the same clock (`now` in
+`AgentCoreOptions`), so relative times are stable. Scenarios check facts, not whole outputs:
+absolute times are local to the machine running the tests.
+
+`bun test/agent-scenarios/convert.ts` regenerates scenarios 01–17 from the first, hand-run
+evaluation in `plans/agent-interface-eval/` (its `cases.json`, `steps.json` files and CLI
+transcripts). It maps that run's plugins and screens onto the fixtures and adds each case's
+facts and rubric from its overlay table. Change the overlay, not the generated files, for those
+cases. New scenarios can be added to the converter's extras or written directly as JSON.
+
+`TOOLBELT_MCP_INSPECTOR=1 bun test test/agent-mcp-conformance.test.ts` also runs the MCP
+Inspector CLI against the shim. It needs the network for `bunx`, so CI doesn't run it.
+
+The browser preview runs the same interface: `PREVIEW_AGENTS=1` starts it on, and its socket
+lives in the preview's config folder unless `TOOLBELT_AGENT_SOCKET` is set. Unix socket paths
+are limited to about 100 bytes, so use a short `TOOLBELT_AGENT_SOCKET` with long temporary
+config folders.

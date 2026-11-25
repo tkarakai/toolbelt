@@ -1,0 +1,93 @@
+{
+	"id": "09-watch-for-changes",
+	"title": "Watch my tasks and tell me what changes",
+	"prompt": "(Autonomous watcher) Keep an eye on my task list and tell me when something changes.",
+	"persona": "Autonomous agent",
+	"channels": [
+		"mcp"
+	],
+	"mode": "autonomous",
+	"steps": [
+		{
+			"subscribe": "desk/tasks",
+			"expect": {}
+		},
+		{
+			"person": {
+				"event": {
+					"screen": "desk/tasks",
+					"name": "settle",
+					"payload": {
+						"rowId": "2"
+					}
+				}
+			},
+			"expect": {
+				"notifications": [
+					{
+						"method": "notifications/resources/updated",
+						"screen": "desk/tasks",
+						"withinMs": 2000
+					}
+				]
+			}
+		},
+		{
+			"read": "desk/tasks",
+			"expect": {
+				"contains": [
+					"Desk › Tasks",
+					"Empty sections: Today, Snoozed, Done"
+				],
+				"absent": [
+					"Q4 budget review with finance",
+					"Draft budget slides"
+				]
+			}
+		},
+		{
+			"unsubscribe": "desk/tasks"
+		},
+		{
+			"person": {
+				"event": {
+					"screen": "desk/tasks",
+					"name": "reopen",
+					"payload": {
+						"rowId": "2"
+					}
+				}
+			}
+		}
+	],
+	"expect": {
+		"audit": [
+			{
+				"operation": "read_screen",
+				"plugin": "desk",
+				"outcome": "ok",
+				"mode": "autonomous"
+			}
+		]
+	},
+	"rubric": [
+		"Reports that the Q4 budget review was settled.",
+		"Does not repeat the whole list."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "09-watch-for-changes",
+		"plugins": [
+			"ontrack"
+		],
+		"channel": "MCP (resource subscription)",
+		"calls": [
+			"resources/subscribe toolbelt://screens/ontrack/tasks",
+			"(the person settles task #9 in ToolBelt)",
+			"notifications/resources/updated after about 1.0 s",
+			"resources/read toolbelt://screens/ontrack/tasks"
+		],
+		"verdict": "pass",
+		"notes": "The subscription kept the screen open and the notification arrived after about 1 s, as throttled. The notification carries no diff, so the watcher re-read the whole screen (about 8k characters) and compared it with the earlier read itself (finding O2). The setup reopened the task afterwards, which is why later reads show \"Reopened from Settled\"."
+	}
+}

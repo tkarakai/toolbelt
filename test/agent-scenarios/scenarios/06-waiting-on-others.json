@@ -1,0 +1,54 @@
+{
+	"id": "06-waiting-on-others",
+	"title": "What am I waiting on from other people?",
+	"prompt": "What am I waiting on from other people?",
+	"persona": "Person chatting with Claude Desktop",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"steps": [
+		{
+			"call": "search_screens",
+			"args": {
+				"query": "waiting"
+			},
+			"expect": {
+				"contains": [
+					"you: Waiting for the headcount figures from HR before the meeting.",
+					"Quote for the office printers"
+				]
+			}
+		},
+		{
+			"call": "search_screens",
+			"args": {
+				"query": "watching",
+				"plugin": "desk"
+			},
+			"expect": {
+				"contains": [
+					"Waiting on: Acme / (asked a week ago, watching weekly)"
+				]
+			}
+		}
+	],
+	"rubric": [
+		"Names HR's headcount figures and Acme's printer quote.",
+		"Gives the printer quote's next check-in time."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "06-waiting-on-others",
+		"plugins": [
+			"ontrack"
+		],
+		"channel": "MCP",
+		"calls": [
+			"search_screens \"waiting\"",
+			"search_screens \"watching\" (plugin: ontrack)"
+		],
+		"verdict": "pass",
+		"notes": "The first run of this case surfaced noisy search hits: action labels (\"Stop watching\") and filter lines. Search now skips a screen's controls (finding F6, fixed). Its plugin filter narrows the results further."
+	}
+}

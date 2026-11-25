@@ -1,0 +1,52 @@
+{
+	"id": "02-out-of-date",
+	"title": "Is anything on my Mac out of date?",
+	"prompt": "Is anything on my Mac out of date?",
+	"persona": "Person chatting with Claude Desktop",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"steps": [
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "kit",
+				"details": false
+			},
+			"expect": {
+				"contains": [
+					"### Needs you",
+					"Internal deploy CLI",
+					"check failed",
+					"### Review first",
+					"Ollama · 0.5.1 → 0.6.2",
+					"Node.js LTS · 22.11.0 → 24.1.0",
+					"### Up to date",
+					"Terraform · 1.9.8",
+					"### Held back",
+					"Postgres.app · 16.4 → 17.2",
+					"Row actions: Update (or: Review & update…), Hold back"
+				]
+			}
+		}
+	],
+	"rubric": [
+		"Lists the two waiting updates with versions.",
+		"Calls out the failing check and the held-back item.",
+		"Explains where to update in ToolBelt instead of claiming to update."
+	],
+	"origin": {
+		"run": "plans/agent-interface-eval",
+		"case": "02-out-of-date",
+		"plugins": [
+			"upkeep"
+		],
+		"channel": "MCP",
+		"calls": [
+			"read_screen upkeep (details: false)"
+		],
+		"verdict": "pass",
+		"notes": "One call, about 1.4k characters. The Needs you, Review first, Up to date and Held back sections map directly onto the answer."
+	}
+}

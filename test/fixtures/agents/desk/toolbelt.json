@@ -1,0 +1,13 @@
+{
+  "id": "desk",
+  "name": "Desk",
+  "icon": "list-checks",
+  "version": "1.2.0",
+  "protocol": 1,
+  "entry": "index.ts",
+  "repo": "example/desk",
+  "screens": [
+    { "id": "tasks", "title": "Tasks", "default": true },
+    { "id": "settings", "title": "Settings" }
+  ]
+}

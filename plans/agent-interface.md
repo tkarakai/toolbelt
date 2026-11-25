@@ -579,7 +579,8 @@ refers to 5.2.
 
 Roadmap items 1–4 are implemented and described in [docs/agents.md](../docs/agents.md). The
 evaluation, with 17 life-like requests answered through MCP and the CLI, is in
-[agent-interface-eval/report.html](agent-interface-eval/report.html).
+[agent-interface-eval/report.html](agent-interface-eval/report.html). Its cases now run as
+automated scenarios (5.6).
 
 Built differently from the plan:
 
@@ -598,7 +599,84 @@ The evaluation found two gaps that later phases should close (findings O1 and O2
 - reads that follow the person's search and filters (C6);
 - whole-screen reads where a row read or a change summary would do.
 
-## 5.6 Open questions
+## 5.6 Evaluation
+
+The first evaluation was run by hand: an agent (Claude, in the implementing session) picked tool
+calls, read the outputs and wrote answers and verdicts. Two kinds of result were mixed together:
+tool calls and their outputs, which can be checked by a script, and answers and verdicts, which
+need judgement. They are now split into layers.
+
+| Layer | Runs | Judges | Status |
+| --- | --- | --- | --- |
+| 1. Scenario format | — | — | Done: `test/agent-scenarios/` |
+| 2. Scenario tests over MCP and the CLI, against fixture plugins | `bun test`, CI | Facts, absences, refusals, notifications, audit | Done |
+| 3. MCP conformance | `bun test`, CI; Inspector smoke check optional | Protocol behavior | Done |
+| 4. Model-based evaluation | `bun run agent-eval`, on demand or nightly, never blocking CI | Final answers | Planned (below) |
+
+[docs/agents.md](../docs/agents.md#testing) describes layers 1–3. The 17 hand-run cases became
+scenarios 01–17 through a converter. [agent-interface-eval/](agent-interface-eval/README.md)
+stays as the historical first run, against the real plugins, and as the converter's input. Once
+layer 4 writes reports from real runs, it can shrink to `cases.json` and the step files.
+
+### Layer 4: model-based evaluation (plan)
+
+**Runner.** `bun run agent-eval [--case id…] [--runs N] [--model id] [--channel mcp|cli]` builds a
+world with the scenario harness (fixture plugins, the case's setup and person actions), then
+has a real agent answer the case's `prompt`:
+
+- **MCP channel:** `claude -p "<prompt>" --mcp-config <file>`, where the file starts the stdio shim
+  for the world's socket (`toolbelt --socket … mcp`, plus `--autonomous` for autonomous cases),
+  with `--output-format stream-json` and only the ToolBelt tools allowed. The Claude Agent SDK
+  is the alternative when the runner needs to inject person actions between turns (scenario 09,
+  scenario 10's open search). Default model: the latest Claude Opus, with a cheaper model as an
+  option for nightly runs.
+- **CLI channel:** the same agent with a Bash tool limited to `toolbelt …` and the skill file
+  (`toolbelt skill`) in its system prompt, as a coding agent would use it.
+- Person actions in `steps` that come after the first tool call are applied when the agent makes
+  its first call (or on a timer for watchers). Scripted `call` steps are not replayed: the agent
+  chooses its own calls, and the run records them.
+
+**Grading.** Each run gets:
+
+- **Facts:** the scenario's `expect.contains` facts that a good answer should repeat, kept in a
+  separate `answer` list so tool-output facts ("{id: ollama}") don't count against the prose.
+- **Absences:** `absent` strings must not appear in the final answer (secrets, hidden plugin ids).
+- **Judge:** a model grades the answer against the `rubric`, item by item (met, partly met, not
+  met, with a reason), given the prompt, the tool outputs the agent saw and the rubric only. A
+  judge disagreeing with the facts check is reported, not resolved.
+- **Process:** tool calls made, characters read and wall time, to spot regressions in how much an
+  agent has to read (finding O2).
+
+**Pass rates.** Each case runs several times (default 5) per channel and model. A case passes a
+run when all facts and absences hold and the judge marks every rubric item met. Results go to
+`artifacts/agent-eval/<date>/` (gitignored): one JSONL record per run with transcript, answer
+and grades, plus a summary of pass rates per case, channel and model compared with the previous
+run.
+
+**Report.** `tools/report.ts` from the first evaluation moves next to the runner and renders
+`report.html` from real runs: per case the prompt, persona, pass rate, a representative answer,
+the tool calls, and rubric results, with failing runs expandable. Hand-written answers go away.
+
+**Plugin-owned scenarios.** Each plugin repository can ship `agent-scenarios.json`: a seed (data
+to load through the plugin's own model, as the first run's `seed.ts` did) and scenarios in the
+same format. The host's harness runs them against the plugin's local archive through plugin
+development mode, in an isolated profile. Layers 2 and 3 work without a model in plugin CI, and
+layer 4 runs on demand. The harness is likely an SDK tool next to the release CLI, so plugins
+consume it through their pinned SDK, and the format becomes a documented, versioned SDK contract.
+
+**Phase 1b extension.** When guarded actions arrive:
+
+- steps gain `{ "call": "run_action", … }` with `expect.approval: "requested"` (or `"none"` for
+  safe actions);
+- person actions gain `approve` and `deny` for a pending approval, and `grant` for a standing
+  grant in autonomous mode;
+- `expect.state` checks the fixture's state after the action, through a fixture-only debug screen,
+  so scenarios prove that an approved action happened once and a denied or expired one never did;
+- `expect.audit` covers the approval's lifecycle (requested, approved or denied, expired);
+- conformance adds `destructiveHint` and `readOnlyHint` checks per action risk and a check that
+  refusals and pending approvals stay `isError` or `pending_approval` results.
+
+## 5.7 Open questions
 
 None blocking phases 0–1a and steps 2–3. The Settings → Agents view still needs a full design
 once actions and approvals exist (phase 1b).
