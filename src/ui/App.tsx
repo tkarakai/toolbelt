@@ -220,7 +220,7 @@ function AppSidebar({ plugins, current, go: navigate, width, onResize }: { plugi
 				<SidebarGroup>
 					<SidebarGroupLabel>Tools</SidebarGroupLabel>
 					<SidebarGroupContent>
-						<SidebarMenu {...drag} ref={tools} onKeyDown={roving}>
+						<SidebarMenu {...drag} ref={(el) => { tools.current = el; drag.ref(el); }} onKeyDown={roving}>
 							{plugins.map((p, i) => (
 								<SidebarMenuItem key={p.manifest.id} data-plugin-sort={p.manifest.id} style={{ touchAction: "none", userSelect: "none" }}>
 									<SidebarMenuButton isActive={current === p.manifest.id} tooltip={`${p.manifest.name}  ⌘${i + 1}`} onClick={() => go(p.manifest.id)} className={cn("h-9", ACTIVE)}>
