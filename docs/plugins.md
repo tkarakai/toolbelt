@@ -129,9 +129,11 @@ another app, and requires a corresponding `native.handoff` declaration.
 
 `agent: { "access": "none" | "read" | "act" }` sets the most AI agents may do with the plugin
 through ToolBelt's agent interface ([agent-interface.md](agent-interface.md)). `none` hides it from agents, `read`
-lets them read its screens, and `act` is reserved for actions; without the key a plugin is
-`read`. Declare `none` when screens show data agents shouldn't see (command lines, environment
-values, credentials). The person can lower the level, never raise it. Agents read the same trees
+lets them read its screens, and `act` is reserved for actions. Without the key, agents can't
+see the plugin unless the person allows reading in Settings → Agents, which marks it as not
+declared: declare the key so people don't have to guess. Declare `none` when screens show data
+agents shouldn't see (command lines, environment values, credentials). The person can lower a
+declared level, never raise it. Agents read the same trees
 people see, so mark secrets in forms with `sensitive` or `secret` environment entries; other text
 reaches agents unchanged. Hosts before the agent interface ignore the key.
 

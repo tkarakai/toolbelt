@@ -12,7 +12,7 @@
 			"call": "toolbelt_status",
 			"expect": {
 				"contains": [
-					"1 more plugin is not available to agents"
+					"2 more plugins are not available to agents"
 				]
 			}
 		},

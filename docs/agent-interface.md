@@ -22,13 +22,19 @@ The plan for later phases (actions with approvals, autonomous agents, an in-app 
 
 - **Master switch.** `settings.json` → `agents.enabled`, off by default. While it is off, no
   socket exists.
-- **Plugin ceiling.** The manifest's optional `agent.access`: `none` hides the plugin from
-  agents entirely, `read` lets them read its screens, `act` is reserved for actions. A plugin
-  that declares nothing is `read`. `parseManifest` rejects other values. Older hosts keep the
-  key without acting on it.
+- **What the plugin declares.** The manifest's optional `agent.access`: `none` hides the
+  plugin from agents entirely, `read` lets them read its screens, `act` is reserved for
+  actions. `parseManifest` rejects other values. Older hosts keep the key without acting on it.
+  A declared level is both the default and the most the person may allow.
+- **Undeclared plugins.** A plugin that declares nothing was made before agent access existed
+  and never said what's safe to share, so it has no access by default (`defaultAccess`). The
+  person may allow up to `read` for it (`ceilingOf`); Settings → Agents marks it as not
+  declared, mentions an available update, and warns once reading is allowed that its
+  plain text reaches agents. A host default is the only safe one: an old plugin can't opt out.
 - **The person's choice.** `agents.access[<plugin id>]` in `settings.json`, set in Settings →
-  Agents, can only lower the ceiling. Effective access is the lower of the two. Lowering it
-  releases surfaces the agent holds for that plugin and ends resource subscriptions to it.
+  Agents. Effective access is the choice, else the default, never above the ceiling
+  (`effectiveAccess`). Choosing the default clears the entry. Lowering access releases surfaces
+  the agent holds for that plugin and ends resource subscriptions to it.
 - A plugin below `read` is absent from every result. Asking for it by id gets the same refusal
   as an unknown plugin. `toolbelt_status` says only how many plugins are hidden.
 - Remote access, plugin development mode and Settings → Agents itself are not reachable by
@@ -142,8 +148,8 @@ Settings → Agents has three sub-tabs (`src/ui/Agents.tsx`), the chosen one rem
   the socket, and four tiles: active sessions, readable plugins, requests today with refusals
   and failures (counted by an audit query from midnight, up to 1,000), and the last activity.
   The sessions, requests and last-activity tiles open Activity. Under it, **Plugin access**:
-  each plugin's ceiling and the person's choice; choosing the plugin's own level clears the
-  choice.
+  what each plugin declares (or "Not declared", with an available update) and the person's
+  choice, with a warning for undeclared plugins the person lets agents read.
 - **Connect:** **Setup commands** to add ToolBelt to agents and remove it again (see
   Transport).
 - **Activity:** **Active sessions** first (client name, mode, how long connected; also

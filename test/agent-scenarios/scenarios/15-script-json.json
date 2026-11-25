@@ -24,7 +24,7 @@
 			"structured": true,
 			"expect": {
 				"contains": [
-					"\"hiddenPlugins\":1",
+					"\"hiddenPlugins\":2",
 					"\"update\":{\"available\":\"0.4.0\""
 				]
 			}
@@ -35,7 +35,9 @@
 			"vault",
 			"Vault",
 			"vault-hunter2",
-			"node server.js"
+			"node server.js",
+			"Jot (jot)",
+			"plumber"
 		]
 	},
 	"rubric": [

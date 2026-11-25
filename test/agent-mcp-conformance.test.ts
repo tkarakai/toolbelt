@@ -82,7 +82,7 @@ describe("MCP conformance", () => {
 		}
 		const ok = await request("tools/call", { name: "toolbelt_status", arguments: {} });
 		expect(ok.result.isError).toBeUndefined();
-		expect(ok.result.structuredContent.hiddenPlugins).toBe(1);
+		expect(ok.result.structuredContent.hiddenPlugins).toBe(2); // vault opts out; jot declares nothing
 	});
 
 	test("answers requests on a connection in order", async () => {

@@ -123,14 +123,14 @@ type Overlay = {
 	rubric: string[];
 };
 
-const HIDDEN = ["vault", "Vault", "vault-hunter2", "node server.js"];
+const HIDDEN = ["vault", "Vault", "vault-hunter2", "node server.js", "Jot (jot)", "plumber"];
 const SECRETS = ["tb_live_9f8e7d6c5b4a", "sk-proj-kit-abc123secret"];
 
 const OVERLAY: Record<string, Overlay> = {
 	"01-whats-on-my-plate": {
 		channels: ["mcp", "cli"],
 		expect: {
-			0: { contains: ["Desk (desk) 1.2.0: running, badge 1", "Kit (kit)", "1 more plugin is not available to agents"] },
+			0: { contains: ["Desk (desk) 1.2.0: running, badge 1", "Kit (kit)", "2 more plugins are not available to agents"] },
 			1: {
 				contains: ["### Overdue", "Submit November expense report", "(2d ago)", "[unread, overdue]", "### Today", "Q4 budget review with finance", "(in 5h)", "### Upcoming › This week", "### Waiting on others", "Empty sections: Snoozed, Done", "Filter Status: Ongoing (default: Open, Waiting)"],
 				absent: ["Waiting for the headcount figures", "currently shows"],
@@ -157,7 +157,7 @@ const OVERLAY: Record<string, Overlay> = {
 	"04-port-3000": {
 		channels: ["mcp", "cli"],
 		expect: {
-			0: { contains: ["1 more plugin is not available to agents"] },
+			0: { contains: ["2 more plugins are not available to agents"] },
 			1: { contains: ['Nothing on 6 screens mentions "3000"'] },
 			2: { refused: true, contains: ['No plugin "vault" is available to agents'] },
 		},
@@ -218,7 +218,7 @@ const OVERLAY: Record<string, Overlay> = {
 		expect: {
 			0: { notifications: [{ method: "notifications/resources/list_changed", withinMs: 1000 }] },
 			1: { refused: true, contains: ['No plugin "desk" is available to agents'] },
-			2: { contains: ["2 more plugins are not available to agents"], absent: ["Desk (desk)"] },
+			2: { contains: ["3 more plugins are not available to agents"], absent: ["Desk (desk)"] },
 			4: { contains: ["Submit November expense report", 'read again with table "tasks" and offset 2'] },
 		},
 		run: { audit: [{ operation: "read_screen", plugin: "desk", outcome: "denied" }, { operation: "read_screen", plugin: "desk", outcome: "ok" }] },
@@ -264,7 +264,7 @@ const OVERLAY: Record<string, Overlay> = {
 		channels: ["mcp", "cli"],
 		expect: {
 			0: { contains: ['"id":"kit"', '"availableVersion":"0.5.0"', '"repo":"example/desk"'] },
-			1: { contains: ['"hiddenPlugins":1', '"update":{"available":"0.4.0"'] },
+			1: { contains: ['"hiddenPlugins":2', '"update":{"available":"0.4.0"'] },
 		},
 		run: { absent: HIDDEN },
 		rubric: ["Exits non-zero because Kit has an update."],
@@ -295,6 +295,26 @@ const OVERLAY: Record<string, Overlay> = {
 
 /** Scenarios the fixtures add beyond the first run. */
 const EXTRA: Scenario[] = [
+	{
+		id: "19-undeclared-plugin",
+		title: "A plugin made before agent access existed",
+		prompt: "What's in my notes?",
+		persona: "Person chatting with Claude Desktop, with a notes plugin that doesn't declare agent access",
+		channels: ["mcp", "cli"],
+		steps: [
+			{ call: "toolbelt_status", expect: { contains: ["2 more plugins are not available to agents"], absent: ["Jot (jot)"] } },
+			{ call: "read_screen", args: { plugin: "jot" }, expect: { refused: true, contains: ['No plugin "jot" is available to agents'] } },
+			{ call: "search_screens", args: { query: "plumber" }, expect: { contains: ['Nothing on 6 screens mentions "plumber"'] } },
+			{ person: { access: { plugin: "jot", level: "read" } } },
+			{ call: "read_screen", args: { plugin: "jot" }, expect: { contains: ["# Jot › Notes", "Call the plumber about the kitchen tap"] } },
+			{ call: "list_plugins", expect: { contains: ["Jot (jot) 0.9.0"] } },
+			{ person: { access: { plugin: "jot", level: null } } },
+			{ call: "read_screen", args: { plugin: "jot" }, expect: { refused: true } },
+		],
+		expect: { audit: [{ operation: "read_screen", plugin: "jot", outcome: "denied" }, { operation: "read_screen", plugin: "jot", outcome: "ok" }, { operation: "read_screen", plugin: "jot", outcome: "denied" }] },
+		rubric: ["Says the notes plugin isn't shared with agents and that the person can allow it under Settings → Agents → Access.", "After access is allowed: lists the two notes."],
+		origin: { run: "fixtures", case: "new", plugins: ["jot"], channel: "MCP and CLI", calls: [], verdict: "new" },
+	},
 	{
 		id: "18-person-dialog-and-filter",
 		title: "The person has a dialog open and a non-default filter",

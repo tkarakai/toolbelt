@@ -99,7 +99,7 @@ const agents = createAgentInterface({
       phase: p.phase,
       availableVersion: p.availableVersion,
       channel: p.channel,
-      ceiling: declaredAccess(p.manifest),
+      declared: declaredAccess(p.manifest),
     })),
   configRoot: configDir(homedir()),
   profileRoot: root,
