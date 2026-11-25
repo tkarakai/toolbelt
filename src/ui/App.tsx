@@ -484,7 +484,8 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
                     {tab === "about" && <AboutSettings />}
                     {tab === "remote" && <RemoteAccessSettings />}
                     {tab === "keyboard" && <>
-                    <SettingsGroup title="Menu bar"><div className={cn("p-5", section === "keyboard-shortcut" && "shortcut-attention")}><ShortcutSetting /></div></SettingsGroup>
+                    {/* The global shortcut is the Mac's: remote devices can't change it. */}
+                    {!remoteClient && <SettingsGroup title="Menu bar"><div className={cn("p-5", section === "keyboard-shortcut" && "shortcut-attention")}><ShortcutSetting /></div></SettingsGroup>}
                     <SettingsGroup title="Navigation and actions"><div data-keep-keys className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 p-5 text-sm">
                             <Shortcut label="Switch tool (hold ⌘ to see the numbers)" keys={["⌘1 … ⌘9"]} />
                             <Shortcut label="Plugin or Settings tabs" keys={["⌘letter", "⌥⌘1 …"]} />

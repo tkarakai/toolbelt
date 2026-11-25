@@ -19,7 +19,7 @@ JSON-lines and do not inject browser JavaScript, HTML or React components.
 | Public author SDK and fake-host tools | `src/sdk/`, packaged by `scripts/build-sdk.ts` |
 | Main window, popover, manager and renderer | `src/ui/App.tsx`, `Popover.tsx`, `PluginManager.tsx`, `renderer/` |
 | Plugin development mode | `src/bun/development.ts`, `src/shared/development.ts`, `src/ui/Development.tsx` |
-| Remote access (phone/tablet over Tailscale) | `src/bun/remote-access.ts`, `remote-server.ts`, `tailscale.ts`, `src/shared/remote.ts`, `src/ui/RemoteAccess.tsx`, `remote-client.tsx`, `lib/connection.ts`; see [remote-access.md](remote-access.md) |
+| Remote access (phone/tablet over Tailscale) | `src/bun/remote-access.ts`, `remote-server.ts`, `peer-owner.ts`, `tailscale.ts`, `src/shared/remote.ts`, `src/ui/RemoteAccess.tsx`, `remote-client.tsx`, `lib/connection.ts`; see [remote-access.md](remote-access.md) |
 
 Processes, Upkeep and SDK Explorer own their implementation, dependencies, UI definitions,
 assets, data schemas and behavior tests in their respective repositories. The host has no

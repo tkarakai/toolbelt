@@ -99,7 +99,7 @@ export class OutboundQueue {
 
 	private send(p: Pending) {
 		if (p.key) this.treesSent++;
-		this.bytesOut += p.data.length;
+		this.bytesOut += Buffer.byteLength(p.data);
 		this.write(p.data);
 	}
 }
@@ -129,6 +129,12 @@ export type RemoteServerOptions = {
 	root: string;
 	/** Accept or refuse a request before anything is served. */
 	check(request: Request, peerAddress: string | undefined): Verdict;
+	/**
+	 * Before the RPC socket opens: whether the process on the client end of the loopback
+	 * connection may speak for Serve (src/bun/peer-owner.ts). Static files skip it: they are the
+	 * public UI build.
+	 */
+	trustPeer?(clientPort: number, serverPort: number): Promise<boolean>;
 	/** Answers `/.well-known/toolbelt`, checked without the owner requirement. */
 	wellKnown?: { check(request: Request, peerAddress: string | undefined): Verdict; body: () => unknown };
 	request(client: RemoteClient, method: string, params: Record<string, unknown>): unknown;
@@ -216,7 +222,8 @@ export function startRemoteServer(options: RemoteServerOptions) {
 		hostname: options.hostname ?? "127.0.0.1",
 		async fetch(request, server) {
 			const url = new URL(request.url);
-			const peer = server.requestIP(request)?.address;
+			const address = server.requestIP(request);
+			const peer = address?.address;
 			if (url.pathname === "/.well-known/toolbelt" && options.wellKnown) {
 				const verdict = options.wellKnown.check(request, peer);
 				if (!verdict.ok) return new Response(verdict.reason, { status: verdict.status, headers: SECURITY_HEADERS });
@@ -224,12 +231,15 @@ export function startRemoteServer(options: RemoteServerOptions) {
 			}
 			const verdict = options.check(request, peer);
 			if (!verdict.ok) return new Response(verdict.reason, { status: verdict.status, headers: SECURITY_HEADERS });
-			if (url.pathname === "/rpc")
+			if (url.pathname === "/rpc") {
+				if (options.trustPeer && !(address && (await options.trustPeer(address.port, server.port!))))
+					return new Response("Only Tailscale on this Mac can connect", { status: 403, headers: SECURITY_HEADERS });
 				return server.upgrade(request, {
 					data: { ip: verdict.ip, userAgent: request.headers.get("user-agent") ?? "" },
 				})
 					? undefined
 					: new Response("Expected a WebSocket", { status: 400 });
+			}
 			const routed = await options.route?.(request, url);
 			if (routed) return routed;
 			if (request.method !== "GET" && request.method !== "HEAD")
@@ -243,8 +253,9 @@ export function startRemoteServer(options: RemoteServerOptions) {
 				const write = (data: string) => {
 					// Sample how well messages compress, for the wire estimate.
 					if (++sent % sampleEvery === 0 && data.length > 512) {
-						const compressed = Bun.deflateSync(Buffer.from(data)).length;
-						client.ratio = client.ratio * 0.7 + (compressed / data.length) * 0.3;
+						const bytes = Buffer.from(data);
+						const compressed = Bun.deflateSync(bytes).length;
+						client.ratio = client.ratio * 0.7 + (compressed / bytes.length) * 0.3;
 					}
 					ws.send(data);
 				};
@@ -282,7 +293,7 @@ export function startRemoteServer(options: RemoteServerOptions) {
 				const client = ws.data.client;
 				if (!client) return;
 				const text = typeof raw === "string" ? raw : raw.toString();
-				client.bytesIn += text.length;
+				client.bytesIn += typeof raw === "string" ? Buffer.byteLength(raw) : raw.byteLength;
 				let m: { kind?: string; id?: number; method?: string; params?: unknown; name?: string; payload?: unknown; t?: number };
 				try {
 					m = JSON.parse(text);

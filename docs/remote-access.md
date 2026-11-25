@@ -19,6 +19,7 @@ notifications, mobile-specific plugin screens.
 | Shared types, close codes, badge total | `src/shared/remote.ts` |
 | Tailscale CLI: discovery, status, Serve rule | `src/bun/tailscale.ts` |
 | HTTP/WebSocket server, request checks, outgoing queue | `src/bun/remote-server.ts` |
+| Which local user is behind a loopback connection | `src/bun/peer-owner.ts` |
 | Server lifecycle, owner, rule, reachability, devices | `src/bun/remote-access.ts` |
 | App wiring: remote views, allowed methods, navigation | `src/bun/index.ts` (remote access section) |
 | Browser connection: reconnects, heartbeat, visibility | `src/ui/lib/connection.ts`, `src/ui/lib/store.ts` |
@@ -74,8 +75,23 @@ header equals the login that owns the Mac (`tailscale status --json`: `Self.User
   rebinding page in a browser on the Mac.
 
 Tailscale's guidance for identity headers matches this design: listen only on localhost, so
-nobody can bypass Serve and send their own headers. Local processes still can, but they
-already run as the same user. The owner's login is read when remote access starts and on every
+nobody off the Mac can bypass Serve and send their own headers. On the Mac, though, every
+account and daemon shares loopback and could forge the header. **Peer-owner check**
+(`src/bun/peer-owner.ts`): before the `/rpc` socket opens, the server looks up the process on
+the client end of the loopback connection (`netstat -anv`, which reports any user's sockets)
+and its user (`ps`). Through Serve that process is Tailscale itself: the App Store extension
+runs as the signed-in user, the standalone and open-source daemons as root. Any other owner,
+an unknown connection or a failed lookup is refused (403). Processes of the same user still
+pass; they could already act as that user. Static files skip the check: they are the public UI
+build.
+
+Serving on an owner-only Unix socket (`tailscale serve unix:/path`) would avoid loopback
+entirely, but the App Store build's network extension is sandboxed and can't connect to Unix
+sockets outside its own container: such a rule answers 502 wherever the socket lives (checked
+with Tailscale 1.104 under Application Support, `/tmp`, `$TMPDIR` and `~/Downloads`). Its
+app-group container is protected from other apps.
+
+The owner's login is read when remote access starts and on every
 status refresh; while it is unknown the server refuses everything (503).
 
 `checkRemoteRequest` also requires:
@@ -98,7 +114,9 @@ the owner's responsibility.
 Everything is available remotely, including plugin installation, approvals, updates and the
 Remote Access tab itself. Remote connections get the same request handlers as a web view except
 `popoverLayout` (the native popover's geometry) and `development`: plugin development mode
-approves execution of local archives and stays on the Mac. Unknown methods fail closed. Of the
+approves execution of local archives and stays on the Mac. `setShortcut` and `pauseShortcut`
+also stay: the global shortcut is the Mac's, and a connection lost while recording would leave
+it paused, so the Keyboard tab hides the shortcut recorder remotely. Unknown methods fail closed. Of the
 web view messages, remote connections may send only `selectionChanged` and `quit`; window
 commands (close, zoom, show, hide) are the Mac's.
 
@@ -153,10 +171,18 @@ tab.
 - **HTTPS not enabled.** Without `https` in `Self.CapMap`, the tab links to the admin console
   instead of offering the rule. MagicDNS off is reported the same way.
 - **Port change.** Changing the port while ToolBelt's rule exists offers **Move the rule**
-  (remove the old rule, create the new one) or **Change port only**.
+  (create the new rule, then remove the old one) or **Change port only**. A running server
+  starts on the new port before the old one stops, and a port already in use is refused before
+  the rule or the server moves.
 
-Quitting ToolBelt leaves the rule with nothing to forward to; Tailscale answers with an error
-until ToolBelt runs again with remote access on.
+Changes to the server, the rule and the port run one at a time, in order (the switch, port and
+rule controls are disabled meanwhile), so repeated or crossing requests from the Mac and a
+remote device can't start a second server or leave one running after the switch is off. A
+surface holds at most one viewer count per connection: opening it again (a reconnect's resync)
+or closing it twice doesn't change the host's count.
+
+Quitting ToolBelt leaves the rule with nothing to forward to; Tailscale answers 502 until
+ToolBelt runs again with remote access on. The service worker treats that as unreachable.
 
 ## Settings → Remote Access
 
@@ -266,7 +292,8 @@ permission when the Mac has chosen badge plugins (iOS only asks from an installe
   main script arrives, the asset cache starts over, so old builds don't pile up;
 - the page itself is network-first, falling back to the cached copy (whose connection banner
   explains the Mac can't be reached) or, with nothing cached, a static "Can't reach your Mac"
-  page;
+  page. Gateway errors count as unreachable: Serve answers 502/504 while nothing listens
+  behind it, and ToolBelt 503 while it can't read the owner;
 - `/rpc` and `/.well-known/` are never intercepted.
 
 **Version safety.** The build ID is the main script's hashed file name. After each connection

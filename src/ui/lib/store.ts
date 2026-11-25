@@ -205,6 +205,8 @@ const openSurface = (plugin: string, surface: string) =>
 /** After a reconnect or a return to the foreground: fresh plugins and current trees. */
 function resync() {
   void rpc.request.plugins({}).then((plugins) => handlers.plugins(plugins)).catch(() => {});
+  // A reconnect while hidden leaves surfaces closed; showing the page opens them.
+  if (document.visibilityState === "hidden") return;
   for (const { plugin, surface } of watched.values()) void openSurface(plugin, surface).catch(() => {});
 }
 /** The page is hidden: stop receiving trees until it's shown again. */

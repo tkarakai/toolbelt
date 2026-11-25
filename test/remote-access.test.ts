@@ -65,6 +65,8 @@ function make(options: { cli?: string | null; settings?: Partial<RemoteSettings>
 		// The ts.net address can't resolve in tests: answer for the server directly.
 		fetch: async () => Response.json({ instance: access!.instance }),
 		refreshMs: 60_000,
+		// The peer-owner check reads macOS's netstat (test/peer-owner.test.ts covers it).
+		trustPeer: async () => true,
 	});
 	return { access, tailscale, settings: () => settings, states };
 }
@@ -138,6 +140,56 @@ describe("remote access", () => {
 		expect(state.lastError).toContain("between 1024 and 65535");
 	});
 
+	test("turning on twice keeps one server, and turning off frees the port", async () => {
+		const port = 40000 + Math.floor(Math.random() * 20000);
+		const { access } = make({ settings: { port } });
+		await access.handle({ operation: "setEnabled", enabled: true });
+		const state = await access.handle({ operation: "setEnabled", enabled: true });
+		expect(state.running).toBe(true);
+		expect(state.serverError).toBeNull();
+		await access.handle({ operation: "setEnabled", enabled: false });
+		await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
+	});
+
+	test("on and off in quick succession end up off, with nothing listening", async () => {
+		const port = 40000 + Math.floor(Math.random() * 20000);
+		const { access, settings } = make({ settings: { port } });
+		const on = access.handle({ operation: "setEnabled", enabled: true });
+		const off = access.handle({ operation: "setEnabled", enabled: false });
+		await Promise.all([on, off]);
+		expect(settings().enabled).toBe(false);
+		expect(access.state().running).toBe(false);
+		await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
+	});
+
+	test("a port in use is refused before ToolBelt's rule or server moves", async () => {
+		const port = 40000 + Math.floor(Math.random() * 10000);
+		const taken = Bun.listen({ hostname: "127.0.0.1", port: port + 10000, socket: { data() {} } });
+		try {
+			const { access, tailscale, settings } = make({ settings: { port } });
+			await access.handle({ operation: "setEnabled", enabled: true });
+			await access.handle({ operation: "createRule" });
+			const state = await access.handle({ operation: "setPort", port: port + 10000, moveRule: true });
+			expect(state.lastError).toContain("already in use");
+			expect(settings().port).toBe(port);
+			expect([...tailscale.rules.keys()]).toEqual([port]);
+			expect(state.running).toBe(true);
+			expect((await fetch(`http://127.0.0.1:${port}/.well-known/toolbelt`)).ok).toBe(true);
+		} finally {
+			taken.stop(true);
+		}
+	});
+
+	test("moving a running server keeps serving on the new port", async () => {
+		const port = 40000 + Math.floor(Math.random() * 10000);
+		const { access } = make({ settings: { port } });
+		await access.handle({ operation: "setEnabled", enabled: true });
+		const state = await access.handle({ operation: "setPort", port: port + 10000 });
+		expect(state.running).toBe(true);
+		expect((await fetch(`http://127.0.0.1:${port + 10000}/.well-known/toolbelt`)).ok).toBe(true);
+		await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
+	});
+
 	test("badge plugins are saved without duplicates", async () => {
 		const { access, settings } = make();
 		await access.handle({ operation: "setBadgePlugins", plugins: ["a", "b", "a", 3 as never] });
@@ -155,5 +207,19 @@ describe("badge total", () => {
 		expect(badgeTotal([p("a", 4), p("b", "new")], ["a", "b"])).toBe(4);
 		expect(badgeTotal([p("a", 0), p("b", null)], ["a", "b"])).toBeNull();
 		expect(badgeTotal([p("a", 3)], [])).toBeNull();
+	});
+});
+
+describe("saved remote settings", () => {
+	test("malformed fields fall back to their defaults", async () => {
+		const { remoteSettings } = await import("../src/bun/settings");
+		const defaults: RemoteSettings = { enabled: false, port: 47380, badgePlugins: [] };
+		expect(remoteSettings(undefined, defaults)).toEqual(defaults);
+		expect(remoteSettings({ enabled: "yes", port: 80, badgePlugins: "a" }, defaults)).toEqual(defaults);
+		expect(remoteSettings({ enabled: true, port: 47390, badgePlugins: ["a", 1, "a"] }, defaults)).toEqual({
+			enabled: true,
+			port: 47390,
+			badgePlugins: ["a"],
+		});
 	});
 });

@@ -175,4 +175,30 @@ describe("server", () => {
 		});
 		expect(result).toBe("error");
 	});
+
+	test("opens the RPC socket only for a trusted peer process, told the connection's ports", async () => {
+		const seen: [number, number][] = [];
+		let trusted = false;
+		const { port } = start({ trustPeer: async (client, serverPort) => (seen.push([client, serverPort]), trusted) });
+		const attempt = () =>
+			new Promise<string>((ok) => {
+				const ws = new WebSocket(`ws://127.0.0.1:${port}/rpc`, { headers } as never);
+				ws.onopen = () => (ws.close(), ok("open"));
+				ws.onerror = () => ok("error");
+			});
+		expect(await attempt()).toBe("error");
+		trusted = true;
+		expect(await attempt()).toBe("open");
+		expect(seen.every(([client, serverPort]) => client > 0 && client !== port && serverPort === port)).toBe(true);
+		// Static files are the public UI build and skip the process check.
+		expect((await fetch(`http://127.0.0.1:${port}/`, { headers })).ok).toBe(true);
+	});
+});
+
+describe("byte counts", () => {
+	test("count UTF-8 bytes, not characters", () => {
+		const queue = new OutboundQueue(() => {}, () => 0);
+		queue.push("héllo ✓");
+		expect(queue.bytesOut).toBe(Buffer.byteLength("héllo ✓"));
+	});
 });

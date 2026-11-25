@@ -19,6 +19,7 @@ import {
 	type RemoteServer,
 	type RemoteServerOptions,
 } from "./remote-server";
+import { loopbackPeerTrusted } from "./peer-owner";
 import { findTailscaleCli, Tailscale, type Peer, type Runner } from "./tailscale";
 
 export type RemoteAccessOptions = {
@@ -38,6 +39,8 @@ export type RemoteAccessOptions = {
 	metricsMs?: number;
 	/** Listen address (tests may use another loopback name). */
 	hostname?: string;
+	/** Who may open the RPC socket (src/bun/peer-owner.ts); tests replace it. */
+	trustPeer?: (clientPort: number, serverPort: number) => Promise<boolean>;
 };
 
 const NO_TAILSCALE: TailscaleView = {
@@ -53,6 +56,18 @@ const CLI_NOT_FOUND = "The Tailscale command-line tool was not found on PATH or 
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+const portInUse = (port: number) => `Port ${port} is already in use on this Mac. Choose another port.`;
+
+/** Whether nothing listens on `port` (checked by briefly listening on it). */
+function portFree(port: number, hostname = "127.0.0.1") {
+	try {
+		Bun.listen({ hostname, port, socket: { data() {} } }).stop(true);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export class RemoteAccess {
 	private server: RemoteServer | null = null;
 	private serverError: string | null = null;
@@ -66,6 +81,8 @@ export class RemoteAccess {
 	private refreshTimer: ReturnType<typeof setInterval> | undefined;
 	private metricsTimer: ReturnType<typeof setInterval> | undefined;
 	private refreshing: Promise<void> | null = null;
+	/** Changes to the server, the rule and the port run one at a time, in order. */
+	private serial: Promise<unknown> = Promise.resolve();
 	/** Random per run: the reachability probe proves the ts.net address reaches this server. */
 	readonly instance = crypto.randomUUID();
 
@@ -90,11 +107,7 @@ export class RemoteAccess {
 
 	/** At app start: serve if remote access was left on. */
 	async start() {
-		if (this.options.settings().enabled) {
-			await this.refresh();
-			await this.listen();
-			await this.refresh();
-		}
+		if (this.options.settings().enabled) await this.exclusive(() => this.setEnabled(true));
 	}
 
 	async handle(request: RemoteAccessRequest): Promise<RemoteAccessState> {
@@ -108,7 +121,7 @@ export class RemoteAccess {
 					await this.refresh();
 					break;
 				case "setEnabled":
-					await this.setEnabled(request.enabled === true);
+					await this.operation("setEnabled", () => this.setEnabled(request.enabled === true));
 					break;
 				case "setPort":
 					await this.operation("setPort", () => this.setPort(request.port, request.moveRule === true));
@@ -149,22 +162,32 @@ export class RemoteAccess {
 	/** App quit. */
 	async stop() {
 		this.stopTimers();
-		await this.server?.stop(REMOTE_CLOSE.off, "ToolBelt quit");
+		const server = this.server;
 		this.server = null;
+		await server?.stop(REMOTE_CLOSE.off, "ToolBelt quit");
 	}
 
 	private save(patch: Partial<RemoteSettings>) {
 		this.options.save({ ...this.options.settings(), ...patch });
 	}
 
-	private async operation(name: string, run: () => Promise<void>) {
-		this.busy = name;
-		this.emit();
-		try {
-			await run();
-		} finally {
-			this.busy = null;
-		}
+	/** Runs after every earlier change has finished, whether it succeeded or not. */
+	private exclusive<T>(run: () => Promise<T>): Promise<T> {
+		const next = this.serial.then(run, run);
+		this.serial = next.catch(() => {});
+		return next;
+	}
+
+	private operation(name: string, run: () => Promise<void>) {
+		return this.exclusive(async () => {
+			this.busy = name;
+			this.emit();
+			try {
+				await run();
+			} finally {
+				this.busy = null;
+			}
+		});
 	}
 
 	private cli(): Tailscale {
@@ -180,40 +203,61 @@ export class RemoteAccess {
 		this.save({ enabled });
 		if (enabled) {
 			await this.refresh();
-			await this.listen();
+			this.listen();
 			await this.refresh();
 		} else {
 			this.stopTimers();
-			await this.server?.stop(REMOTE_CLOSE.off, "Remote access was turned off on the Mac");
-			this.server = null;
+			await this.closeServer("Remote access was turned off on the Mac");
 			this.serverError = null;
 			this.reachable = "unknown";
 			this.reachError = null;
 		}
 	}
 
+	private async closeServer(reason: string) {
+		const server = this.server;
+		this.server = null;
+		await server?.stop(REMOTE_CLOSE.off, reason);
+	}
+
 	private async setPort(port: number, moveRule: boolean) {
 		if (!validPort(port)) throw new Error("Choose a port between 1024 and 65535");
 		const previous = this.options.settings().port;
 		if (port === previous) return;
-		if (moveRule) await this.cli().removeRule(previous);
-		this.save({ port });
+		const cli = moveRule ? this.cli() : null;
+		// Make sure the new port is free before touching the rule that devices use now.
 		if (this.server) {
-			await this.server.stop(REMOTE_CLOSE.off, "Remote access moved to another port");
-			this.server = null;
-			await this.listen();
+			const probe = this.serverOn(port);
+			if ("error" in probe) throw new Error(probe.error);
+			const old = this.server;
+			this.server = probe.server;
+			await old.stop(REMOTE_CLOSE.off, "Remote access moved to another port");
+		} else if (!portFree(port, this.options.hostname)) throw new Error(portInUse(port));
+		this.save({ port });
+		if (cli) {
+			await cli.createRule(port);
+			await cli.removeRule(previous);
 		}
-		if (moveRule) await this.cli().createRule(port);
 		await this.refresh();
 	}
 
-	private async listen() {
-		const { port } = this.options.settings();
+	/** Starts the server on the configured port unless one is already running. */
+	private listen() {
+		if (!this.server) {
+			const started = this.serverOn(this.options.settings().port);
+			this.server = "server" in started ? started.server : null;
+			this.serverError = "error" in started ? started.error : null;
+		}
+		this.startTimers();
+	}
+
+	private serverOn(port: number): { server: RemoteServer } | { error: string } {
 		try {
-			this.server = startRemoteServer({
+			const server = startRemoteServer({
 				port,
 				hostname: this.options.hostname,
 				root: this.options.root,
+				trustPeer: this.options.trustPeer ?? loopbackPeerTrusted,
 				check: (request, peer) =>
 					checkRemoteRequest(request, peer, { owner: this.tailscale.login, dnsName: this.tailscale.dnsName }),
 				wellKnown: {
@@ -236,14 +280,10 @@ export class RemoteAccess {
 					this.emit();
 				},
 			});
-			this.serverError = null;
+			return { server };
 		} catch (error) {
-			this.server = null;
-			this.serverError = /EADDRINUSE|in use/i.test(message(error))
-				? `Port ${port} is already in use on this Mac. Choose another port.`
-				: message(error);
+			return { error: /EADDRINUSE|in use/i.test(message(error)) ? portInUse(port) : message(error) };
 		}
-		this.startTimers();
 	}
 
 	private startTimers() {

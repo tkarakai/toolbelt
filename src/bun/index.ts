@@ -204,13 +204,17 @@ function requestHandlers(view: () => View): RequestHandlers {
         pluginManager: (request) => manager.handle(request),
         pluginAsset: ({ reference }) => pluginAsset(packages, reference),
         plugins: () => host.list(),
+        // The host counts viewers per surface, so each view holds at most one count: a view that
+        // opens again (a remote reconnect or resync) or closes twice must not change it.
         open: ({ plugin, surface }) => {
-          opened.get(view())?.add(`${plugin}\n${surface}`);
+          const surfaces = opened.get(view());
+          const key = `${plugin}\n${surface}`;
+          if (!surfaces || surfaces.has(key)) return host.tree(plugin, surface);
+          surfaces.add(key);
           return host.open(plugin, surface);
         },
         close: ({ plugin, surface }) => {
-          opened.get(view())?.delete(`${plugin}\n${surface}`);
-          host.close(plugin, surface);
+          if (opened.get(view())?.delete(`${plugin}\n${surface}`)) host.close(plugin, surface);
           return true;
         },
         event: async ({ plugin, surface, name, payload }): Promise<true> => {
@@ -351,8 +355,9 @@ host.subscribe({
 
 // ── remote access (docs/remote-access.md) ───────────────────────────────
 // Remote connections get the same request handlers as a web view, minus the ones that only
-// make sense on the Mac: the popover's geometry and plugin development mode's control plane.
-const REMOTE_EXCLUDED = new Set<string>(["popoverLayout", "development"]);
+// make sense on the Mac: the popover's geometry, plugin development mode's control plane and the
+// global shortcut (a dropped connection while recording would leave it paused).
+const REMOTE_EXCLUDED = new Set<string>(["popoverLayout", "development", "setShortcut", "pauseShortcut"]);
 const remoteRoot = join(PATHS.VIEWS_FOLDER, "ui");
 const remoteClients = new Map<number, { view: View; handlers: RequestHandlers }>();
 const remoteAccess = new RemoteAccess({

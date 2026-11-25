@@ -632,6 +632,11 @@ export class PluginHost {
     this.plugins.get(plugin)?.close(surface);
   }
 
+  /** The latest tree of a surface, without counting a viewer. */
+  tree(plugin: string, surface: string) {
+    return this.get(plugin).trees.get(surface) ?? null;
+  }
+
   event(plugin: string, surface: string, name: string, payload?: unknown) {
     if (
       typeof name !== "string" ||

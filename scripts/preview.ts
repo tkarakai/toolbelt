@@ -271,8 +271,17 @@ const handlers: { [K in Exclude<keyof Requests, "popoverLayout">]: (p: Requests[
   pluginManager: (p) => manager.handle(p),
   initialNavigation: () => null,
   plugins: () => host.list(),
-  open: (p) => host.open(p.plugin, p.surface),
-  close: (p) => (host.close(p.plugin, p.surface), true),
+  // One viewer count per connection and surface, however often it opens or closes (as the app).
+  open: (p, client) => {
+    const key = `${p.plugin}\n${p.surface}`;
+    if (client.opened.has(key)) return host.tree(p.plugin, p.surface);
+    client.opened.add(key);
+    return host.open(p.plugin, p.surface);
+  },
+  close: (p, client) => {
+    if (client.opened.delete(`${p.plugin}\n${p.surface}`)) host.close(p.plugin, p.surface);
+    return true;
+  },
   event: (p) => (host.event(p.plugin, p.surface, p.name, p.payload), true),
   restartPlugin: async (p) => (await host.restart(p.plugin), true),
   settings: () => ({
@@ -336,8 +345,6 @@ const server = startRemoteServer({
   request: (client, method, params) => {
     const handler = (handlers as Record<string, ((p: unknown, c: RemoteClient) => unknown) | undefined>)[method];
     if (!handler) throw new Error(`Unknown method ${method}`);
-    if (method === "open") client.opened.add(`${params.plugin}\n${params.surface}`);
-    if (method === "close") client.opened.delete(`${params.plugin}\n${params.surface}`);
     return handler(params, client);
   },
   message: (_client, name, payload) => {
