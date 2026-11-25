@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Settings → Plugins shows each plugin's compatibility and details under its card: what ToolBelt, Bun, platform and protocol it requires and whether this Mac meets them, its required and optional capabilities and which ones this ToolBelt supports, the SDK it was built with, whether it declares agent access, its data schema, and when its release and any available update were published. Release dates appear for plugins installed or updated from now on.
 
 ## 0.5.1 — 2026-11-25
 - Date fields understand dates in the past: “3d ago”, “2 weeks ago”, “-1m” and “last fri”.

@@ -5,6 +5,7 @@ import { UpdateRecovery, useRecoveryClock } from "./components/update-recovery";
 import { Download as DialogDownload, Trash2 as DialogTrash, History as DialogHistory } from "lucide-react";
 import { ManualUpdate } from "./components/manual-update";
 import { RepositoryLink } from "./components/repository-link";
+import { PluginInspectionDetails } from "./components/plugin-inspection";
 import { toast } from "sonner";
 import { Activity, TriangleAlert, CircleCheck, CircleX } from "lucide-react";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./components/ui/select";
@@ -313,6 +314,7 @@ export function PluginManager({
                   <GitHubButton retryAt={state.schedule?.retryAt} size="sm" disabled={busy || isActivePhase(p.phase) || (state.schedule?.retryAt ?? 0) > now} onClick={() => review(p.repo, undefined, p.channel === "prerelease")}><Download/>Review and Update</GitHubButton>
                 </div>}
                 {p.operation?.cancellable && adapter.cancel && <div className="flex justify-end"><Button size="sm" variant="outline" onClick={() => void adapter.cancel!(p.operation!.id).catch(e => setError(String(e)))}>Cancel download</Button></div>}
+                <PluginInspectionDetails plugin={p}/>
                 {!!p.recovery?.length && (
                   <details>
                     <summary className="cursor-pointer text-sm">

@@ -44,6 +44,10 @@ export type Installed = {
   release?: string;
   requestedRelease?: string;
   asset?: string;
+  /** When the installed GitHub release was published (ms). */
+  publishedAt?: number;
+  /** When this version was installed (ms). */
+  installedAt?: number;
   removed?: boolean;
   /** Installed from a local archive in a development profile; never update-checked. */
   local?: true;
@@ -51,6 +55,7 @@ export type Installed = {
   availableChannel?: "stable" | "prerelease";
   availableCommit?: string;
   availableSince?: number;
+  availablePublishedAt?: number;
   dataInitialized?: boolean;
   deleteDataPending?: boolean;
   dataSchema?: number;
@@ -92,6 +97,8 @@ export type Candidate = {
   requestedRelease?: string;
   asset?: string;
   channel?: "stable" | "prerelease";
+  /** When the GitHub release was published (ms). */
+  publishedAt?: number;
   /** A local archive staged by a development profile. */
   local?: true;
 };
@@ -158,6 +165,9 @@ function validateRegistry(value: any, root: string): Registry {
       if (channel !== undefined && !["stable", "prerelease"].includes(channel)) throw new Error("Invalid release channel");
     }
     if (p.requestedRelease !== undefined && (typeof p.requestedRelease !== "string" || !p.requestedRelease.trim() || p.requestedRelease.length > 1024)) throw new Error("Invalid requested release tag");
+    for (const at of [p.publishedAt, p.installedAt, p.availablePublishedAt]) {
+      if (at !== undefined && (typeof at !== "number" || !Number.isFinite(at) || at < 0)) throw new Error("Invalid plugin release time");
+    }
     if (p.availableCommit !== undefined && !/^[a-f0-9]{40}$/.test(p.availableCommit)) throw new Error("Invalid available release commit");
     if (
       p.dataSchema !== undefined &&
@@ -373,7 +383,7 @@ export class PackageManager {
   constructor(
     readonly root: string,
     private hooks: RuntimeHooks,
-    private hostVersion = "0.1.0",
+    readonly hostVersion = "0.1.0",
     private fault?: (point: string) => void,
     private environment?: Record<string, string | undefined>,
     /** Development profiles accept local archives, including rebuilt bytes of an installed version. */
@@ -551,6 +561,8 @@ export class PackageManager {
         release: candidate.release,
         requestedRelease: candidate.requestedRelease,
         asset: candidate.asset,
+        ...(candidate.publishedAt !== undefined ? { publishedAt: candidate.publishedAt } : {}),
+        installedAt: Date.now(),
         ...(candidate.local ? { local: true as const } : {}),
       };
       const previous = join(txDir, "previous");

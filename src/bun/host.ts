@@ -79,6 +79,8 @@ export class PluginProcess {
   private readyReject?: (error: Error) => void;
   private handshakeTimer?: ReturnType<typeof setTimeout>;
   private greeted = false;
+  /** SDK version from the latest handshake. */
+  private sdk?: string;
   private startupMessages: PluginMessage[] = [];
   private prepared = new Map<
     string,
@@ -172,6 +174,7 @@ export class PluginProcess {
       state: this.state,
       badge: this.badge,
       error: this.error,
+      ...(this.sdk ? { sdk: this.sdk } : {}),
     };
   }
 
@@ -410,6 +413,7 @@ export class PluginProcess {
         return;
       }
       this.greeted = true;
+      this.sdk = typeof msg.sdk === "string" ? msg.sdk.slice(0, 64) : undefined;
       return;
     }
     if (msg.type === "ready") {
