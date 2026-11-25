@@ -139,5 +139,6 @@ export async function resolveGithub(
     asset: String(asset.id),
     commit: descriptor.commit,
     channel: release.prerelease ? "prerelease" : "stable",
+    ...(Number.isFinite(Date.parse(release.published_at)) ? { publishedAt: Date.parse(release.published_at) } : {}),
   };
 }

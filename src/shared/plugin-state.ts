@@ -9,5 +9,7 @@ export type PluginInfo = {
 	badge: number | string | null;
 	/** Last lines of the plugin's stderr when it crashed. */
 	error?: string;
+	/** SDK version the plugin reported in its handshake. */
+	sdk?: string;
 };
 

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { PluginHost, discover, pluginDirs } from "../src/bun/host";
 import type { Node } from "../src/shared/protocol";
 import type { PluginInfo } from "../src/shared/plugin-state";
+import { SDK_VERSION } from "../src/shared/package";
 
 const fixtures = join(import.meta.dir, "fixtures");
 const data = mkdtempSync(join(tmpdir(), "toolbelt-host-"));
@@ -89,6 +90,9 @@ describe("PluginHost", () => {
     await until(
       () => s.plugins().find((p) => p.manifest.id === "echo")?.badge === 1,
     );
+
+    // The handshake's SDK version is kept for Settings → Plugins.
+    expect(s.plugins().find((p) => p.manifest.id === "echo")?.sdk).toBe(SDK_VERSION);
 
     // A second viewer gets the cached tree right away.
     expect(host!.open("echo", "screen:main")).toEqual({

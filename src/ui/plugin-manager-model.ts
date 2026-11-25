@@ -34,6 +34,7 @@ export type ManagedPlugin = Installed & {
   cleanup?: boolean;
   recovery?: RecoveryChoice[];
   availableVersion?: string;
+  inspection?: import("../shared/plugin-inspection").PluginInspection;
 };
 export type Candidate = {
   token: string;

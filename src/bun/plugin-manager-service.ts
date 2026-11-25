@@ -10,6 +10,7 @@ import {
 } from "./packages";
 import { PluginHost } from "./host";
 import { resolveGithub } from "./plugin-github";
+import { inspectPlugin } from "./plugin-inspection";
 export type ManagerRequest = {
   operation: string;
   repo?: string;
@@ -115,6 +116,7 @@ export class PluginManagerService {
                 : []),
             ].slice(-40),
             cleanup: !!p.manifest.cli?.cleanupScreen,
+            inspection: inspectPlugin(p.manifest, { hostVersion: this.packages.hostVersion ?? "0.1.0", sdk: runtime?.sdk }),
             availableVersion: this.available.get(p.id) ?? p.availableVersion,
             recovery: (p.history ?? []).map((h) => ({
               id: recoveryChoiceId(h),
@@ -245,7 +247,7 @@ export class PluginManagerService {
     try {
       let error: string | undefined;
       const results = new Map<string, {checkedAt?: number; failure?: GitHubFailure}>();
-      const updates = new Map<string, {version: string; channel?: "stable" | "prerelease"; commit?: string} | undefined>();
+      const updates = new Map<string, {version: string; channel?: "stable" | "prerelease"; commit?: string; publishedAt?: number} | undefined>();
       // Local development archives have no release to compare against.
       for (const p of Object.values(this.packages.registry().plugins).filter(
         (p) => !p.removed && !p.local,
@@ -261,7 +263,7 @@ export class PluginManagerService {
               logs: [...(this.states.get(p.id)?.logs ?? p.checkActivities ?? []), `${new Date().toLocaleString()} · Update available: ${candidate.manifest.version}`].slice(-40),
             });
             this.available.set(p.id, candidate.manifest.version);
-            updates.set(p.id, {version: candidate.manifest.version, channel: candidate.channel, commit: candidate.commit});
+            updates.set(p.id, {version: candidate.manifest.version, channel: candidate.channel, commit: candidate.commit, publishedAt: candidate.publishedAt});
           } else {
             this.states.set(p.id, {phase: p.enabled ? "ready" : "disabled", logs: [...(this.states.get(p.id)?.logs ?? p.checkActivities ?? []), `${new Date().toLocaleString()} · Update check succeeded: already up to date`].slice(-40)});
             this.available.delete(p.id);
@@ -299,6 +301,7 @@ export class PluginManagerService {
           plugin.availableVersion = version;
           plugin.availableChannel = release?.channel;
           plugin.availableCommit = release?.commit;
+          plugin.availablePublishedAt = release?.publishedAt;
         }
       }
       for (const plugin of Object.values(registry.plugins)) {
@@ -372,6 +375,7 @@ export class PluginManagerService {
           delete p.availableChannel;
           delete p.availableCommit;
           delete p.availableSince;
+          delete p.availablePublishedAt;
           delete p.updateFailure;
           delete p.updateCheckedAt;
           this.available.delete(p.id);
