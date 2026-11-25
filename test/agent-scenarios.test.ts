@@ -1,13 +1,18 @@
 // Agent scenarios (test/agent-scenarios, docs/agent-interface.md → Testing): life-like prompts with the
 // tool calls an agent makes to answer them, run through every channel each one lists against
 // the real agent interface and the fixture plugins. Checks facts, refusals, redaction,
-// notifications and the audit log; no model is involved.
+// notifications and the audit log; no model is involved. AGENT_SCENARIOS_OUT=<dir> also writes
+// each run as Markdown (what every step returned), for reading the outputs.
 import { describe, expect, test } from "bun:test";
-import { loadScenarios, runScenario } from "./agent-scenarios/harness";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { formatRun, loadScenarios, runScenario } from "./agent-scenarios/harness";
 import { validateScenario } from "./agent-scenarios/format";
 import { CliAdapter } from "./agent-scenarios/adapters";
 
 const scenarios = loadScenarios();
+const out = process.env.AGENT_SCENARIOS_OUT;
+if (out) mkdirSync(out, { recursive: true });
 
 describe("agent scenarios", () => {
 	test("the converted first run is all here", () => {
@@ -19,6 +24,7 @@ describe("agent scenarios", () => {
 		for (const channel of s.channels)
 			test(`${s.id} [${channel}]: ${s.title}`, { timeout: 30_000 }, async () => {
 				const run = await runScenario(s, channel);
+				if (out) writeFileSync(join(out, `${s.id}.${channel}.md`), formatRun(s, run));
 				expect(run.failures).toEqual([]);
 			});
 });

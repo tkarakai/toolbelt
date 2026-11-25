@@ -183,6 +183,11 @@ transcripts). It maps that run's plugins and screens onto the fixtures and adds 
 facts and rubric from its overlay table. Change the overlay, not the generated files, for those
 cases. New scenarios can be added to the converter's extras or written directly as JSON.
 
+`bun run test:agents` runs the three layers. `AGENT_SCENARIOS_OUT=<dir>` also writes each
+scenario run as Markdown (`<id>.<channel>.md`: the prompt, every step with what the agent got
+back, notifications, failures and the rubric), and `-t <text>` picks scenarios by name, for
+example `AGENT_SCENARIOS_OUT=/tmp/runs bun test test/agent-scenarios.test.ts -t 09-watch`.
+
 `TOOLBELT_MCP_INSPECTOR=1 bun test test/agent-mcp-conformance.test.ts` also runs the MCP
 Inspector CLI against the shim. It needs the network for `bunx`, so CI doesn't run it.
 

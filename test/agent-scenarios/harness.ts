@@ -135,7 +135,15 @@ function check(expect: Expect | undefined, outcome: Outcome | null, failures: st
 }
 
 const describeStep = (step: Step) =>
-	"call" in step ? `${step.call} ${JSON.stringify(step.args ?? {})}` : "person" in step ? `person ${JSON.stringify(step.person)}` : JSON.stringify(step);
+	"call" in step
+		? `${step.call} ${JSON.stringify(step.args ?? {})}${step.structured ? " (structured)" : ""}`
+		: "person" in step
+			? `person ${JSON.stringify(step.person)}`
+			: "read" in step
+				? `resources/read ${step.read}`
+				: "subscribe" in step
+					? `resources/subscribe ${step.subscribe}`
+					: `resources/unsubscribe ${step.unsubscribe}`;
 
 /** Runs a scenario over one channel in a fresh world. */
 export async function runScenario(s: Scenario, channel: Channel): Promise<RunRecord> {
@@ -192,4 +200,28 @@ export async function runScenario(s: Scenario, channel: Channel): Promise<RunRec
 		await world.stop();
 	}
 	return record;
+}
+
+/** A run as Markdown: the prompt, each step with what the agent got back, and any failures. */
+export function formatRun(s: Scenario, run: RunRecord): string {
+	const lines = [
+		`# ${s.id} [${run.channel}]: ${s.title}`,
+		"",
+		`**Prompt:** ${s.prompt}  `,
+		`**Persona:** ${s.persona}${s.mode === "autonomous" ? " (autonomous)" : ""}  `,
+		`**Result:** ${run.failures.length ? `FAIL (${run.failures.length})` : "pass"}`,
+		...run.failures.map((f) => `- ${f}`),
+	];
+	if (s.setup?.person?.length) lines.push("", `Setup, as the person: ${s.setup.person.map((p) => JSON.stringify(p)).join(", ")}`);
+	run.steps.forEach((r, i) => {
+		lines.push("", `## Step ${i + 1}: ${describeStep(r.step)}`);
+		if (r.outcome) {
+			const state = r.outcome.unreachable ? "unreachable" : r.outcome.refused ? "refused" : "ok";
+			lines.push(`(${state})`, "", "```", r.outcome.text || "(no output)", "```");
+		}
+		for (const n of r.notifications) lines.push(`Notification: ${JSON.stringify(n)}`);
+		for (const f of r.failures) lines.push(`**Failed:** ${f}`);
+	});
+	if (s.rubric?.length) lines.push("", "## Rubric (for a model judge)", ...s.rubric.map((r) => `- ${r}`));
+	return lines.join("\n") + "\n";
 }

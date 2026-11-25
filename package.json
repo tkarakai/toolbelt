@@ -14,6 +14,7 @@
     "typecheck": "bun scripts/settings-build-info.ts && bunx electrobun prepare && tsc --noEmit -p .",
     "test": "bun test",
     "icons": "bun scripts/make-icons.ts",
+    "test:agents": "bun test test/agents.test.ts test/agent-scenarios.test.ts test/agent-mcp-conformance.test.ts",
     "preview": "bun run plugins && vite build && bun scripts/preview.ts",
     "dmg": "bun scripts/make-dmg.ts",
     "release": "bun scripts/release.ts",
