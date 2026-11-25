@@ -36,13 +36,12 @@
 			"expect": {
 				"contains": [
 					"a person has it open",
-					"currently shows: search \"finance\"",
-					"Rows outside it are not listed.",
+					"Your view: as the screen starts",
 					"Submit November expense report",
-					"Q4 budget review with finance"
+					"Renew passport"
 				],
 				"absent": [
-					"Renew passport"
+					"currently showing"
 				]
 			}
 		},
@@ -59,8 +58,8 @@
 		}
 	],
 	"rubric": [
-		"Answers from the visible rows but says the person's search limits what it sees.",
-		"Does not claim the list is complete (finding O1)."
+		"Answers from the full list: the person's search doesn't limit what it reads.",
+		"Lists the tasks due this week."
 	],
 	"origin": {
 		"run": "plans/agent-interface-eval",

@@ -20,7 +20,7 @@ for (const scenario of [
   {
     name: "render of an undeclared surface",
     script:
-      'console.log(JSON.stringify({type:"hello",protocol:1,sdk:"test",capabilities:[]}));console.log(JSON.stringify({type:"ready"}));console.log(JSON.stringify({type:"render",surface:"screen:nope",tree:{type:"text",text:"x"}}));setInterval(()=>{},1000)',
+      'console.log(JSON.stringify({type:"hello",protocol:2,sdk:"test",capabilities:[]}));console.log(JSON.stringify({type:"ready"}));console.log(JSON.stringify({type:"render",surface:"screen:nope",tree:{type:"text",text:"x"}}));setInterval(()=>{},1000)',
   },
   {
     name: "unterminated frame",
@@ -29,7 +29,7 @@ for (const scenario of [
   {
     name: "message flood",
     script:
-      'console.log(JSON.stringify({type:"hello",protocol:1,sdk:"test",capabilities:[]}));console.log(JSON.stringify({type:"ready"}));for(let i=0;i<200;i++)console.log(JSON.stringify({type:"badge",value:i}));setInterval(()=>{},1000)',
+      'console.log(JSON.stringify({type:"hello",protocol:2,sdk:"test",capabilities:[]}));console.log(JSON.stringify({type:"ready"}));for(let i=0;i<200;i++)console.log(JSON.stringify({type:"badge",value:i}));setInterval(()=>{},1000)',
   },
 ])
   test(`malformed plugin quarantines: ${scenario.name}`, async () => {
@@ -40,7 +40,7 @@ for (const scenario of [
         id: "malformed",
         name: "Malformed",
         entry: "index.js",
-        protocol: 1,
+        protocol: 2, agent: { access: "read" },
         screens: [{ id: "main", title: "Main" }],
       }),
     );
@@ -76,7 +76,7 @@ test("an invalid screen costs only that screen: the plugin keeps running and rec
       id: "partial",
       name: "Partial",
       entry: "index.js",
-      protocol: 1,
+      protocol: 2, agent: { access: "read" },
       screens: [{ id: "main", title: "Main" }, { id: "activity", title: "Activity" }],
     }),
   );
@@ -85,19 +85,19 @@ test("an invalid screen costs only that screen: the plugin keeps running and rec
   writeFileSync(
     join(root, "index.js"),
     `const send = (m) => console.log(JSON.stringify(m));
-send({ type: "hello", protocol: 1, sdk: "test", capabilities: [] });
+send({ type: "hello", protocol: 2, sdk: "test", capabilities: [] });
 send({ type: "ready" });
 const rows = (n) => Array.from({ length: n }, (_, i) => ({ id: "r" + i, cells: { a: "x", b: "y", c: "z" } }));
 const table = (r, cells) => ({ type: "table", id: "runs", columns: [{ key: "a", title: "A" }], rows: cells ? [{ id: "a", cells }] : r });
 process.stdin.on("data", (chunk) => {
   for (const line of String(chunk).split("\\n").filter(Boolean)) {
     const m = JSON.parse(line);
-    if (m.type === "open" && m.surface === "screen:main") send({ type: "render", surface: "screen:main", tree: { type: "text", text: "main is fine" } });
+    if (m.type === "open" && m.surface === "screen:main") send({ type: "render", surface: "screen:main", instance: "person", tree: { type: "text", text: "main is fine" } });
     if (m.type === "open" && m.surface === "screen:activity") {
-      send({ type: "render", surface: "screen:activity", tree: table(rows(15000)) });
-      send({ type: "render", surface: "screen:activity", tree: table(null, { a: { text: {} } }) });
+      send({ type: "render", surface: "screen:activity", instance: "person", tree: table(rows(15000)) });
+      send({ type: "render", surface: "screen:activity", instance: "person", tree: table(null, { a: { text: {} } }) });
     }
-    if (m.type === "event" && m.name === "go") send({ type: "render", surface: "screen:activity", tree: { type: "text", text: "activity is back" } });
+    if (m.type === "event" && m.name === "go") send({ type: "render", surface: "screen:activity", instance: "person", tree: { type: "text", text: "activity is back" } });
   }
 });
 setInterval(() => {}, 1000);`,

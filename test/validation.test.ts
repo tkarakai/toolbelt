@@ -58,7 +58,7 @@ test("protocol metadata, unknown nodes, deep trees and non-finite values reject"
   expect(() =>
     validateMessage({
       type: "hello",
-      protocol: 1,
+      protocol: 2,
       sdk: "test",
       capabilities: [{}],
     }),

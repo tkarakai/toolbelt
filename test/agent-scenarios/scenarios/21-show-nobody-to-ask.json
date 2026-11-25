@@ -1,0 +1,80 @@
+{
+	"id": "21-show-nobody-to-ask",
+	"title": "Nobody can approve: the window is closed",
+	"prompt": "Show me my tasks",
+	"persona": "Person chatting with Claude Code while ToolBelt's window is closed and no device is paired",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"setup": {
+		"devices": {
+			"window": false
+		}
+	},
+	"steps": [
+		{
+			"call": "show_screen",
+			"args": {
+				"plugin": "desk"
+			},
+			"expect": {
+				"refused": true,
+				"contains": [
+					"Nobody can approve this: ToolBelt's window is closed on the Mac and no paired device has ToolBelt open.",
+					"open_window: true"
+				],
+				"navigated": []
+			}
+		},
+		{
+			"call": "show_screen",
+			"args": {
+				"plugin": "desk",
+				"open_window": true
+			},
+			"answer": {
+				"allow": true,
+				"duration": "session"
+			},
+			"expect": {
+				"contains": [
+					"Showing Desk › Tasks on the Mac."
+				],
+				"navigated": [
+					"desk/tasks"
+				]
+			}
+		}
+	],
+	"expect": {
+		"audit": [
+			{
+				"operation": "show_screen",
+				"outcome": "denied"
+			},
+			{
+				"operation": "view_grant",
+				"outcome": "ok"
+			},
+			{
+				"operation": "show_screen",
+				"outcome": "ok"
+			}
+		]
+	},
+	"rubric": [
+		"Says nobody could approve because ToolBelt's window is closed, and asks whether to open it.",
+		"Opens the window only after the person agrees."
+	],
+	"origin": {
+		"run": "fixtures",
+		"case": "new",
+		"plugins": [
+			"desk"
+		],
+		"channel": "MCP and CLI",
+		"calls": [],
+		"verdict": "new"
+	}
+}

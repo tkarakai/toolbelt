@@ -50,12 +50,17 @@ describe("MCP conformance", () => {
 			// and strict mode refuses unknown keywords.
 			const validate = ajv.compile(tool.inputSchema);
 			expect(validate({ unexpected: true })).toBe(tool.inputSchema.additionalProperties !== false);
-			expect(tool.annotations).toEqual({ title: tool.title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+			// show_screen changes only what the person's screens show.
+			expect(tool.annotations).toEqual({ title: tool.title, readOnlyHint: tool.name !== "show_screen", destructiveHint: false, idempotentHint: true, openWorldHint: false });
 		}
 		const read = ajv.compile(tools.find((t: { name: string }) => t.name === "read_screen").inputSchema);
 		expect(read({ plugin: "desk", screen: "tasks", format: "json", max_rows: 3, table: "tasks", offset: 0, details: false })).toBe(true);
 		expect(read({ screen: "tasks" })).toBe(false);
 		expect(read({ plugin: "desk", format: "xml" })).toBe(false);
+		expect(read({ plugin: "desk", view: { search: "x", filters: { status: ["done"] }, sort: { tasks: "-title" }, controls: { mode: "list" } } })).toBe(true);
+		expect(read({ plugin: "desk", view: "person" })).toBe(true);
+		expect(read({ plugin: "desk", view: "mine" })).toBe(false);
+		expect(read({ plugin: "desk", view: { colour: "red" } })).toBe(false);
 	});
 
 	test("JSON-RPC errors: unknown method, unknown tool, invalid request; notifications get no reply", async () => {
@@ -82,7 +87,7 @@ describe("MCP conformance", () => {
 		}
 		const ok = await request("tools/call", { name: "toolbelt_status", arguments: { format: "json" } });
 		expect(ok.result.isError).toBeUndefined();
-		expect(ok.result.structuredContent.hiddenPlugins).toBe(2); // vault opts out; jot declares nothing
+		expect(ok.result.structuredContent.hiddenPlugins).toBe(1); // vault opts out
 	});
 
 	test("text and structured content carry the same information", async () => {
@@ -155,7 +160,7 @@ describe("MCP conformance", () => {
 		expect(uris).toHaveLength(6);
 		expect(resources.every((r: { mimeType: string; name: string }) => r.mimeType === "text/markdown" && r.name)).toBe(true);
 		const { resourceTemplates } = (await request("resources/templates/list")).result;
-		expect(resourceTemplates).toEqual([expect.objectContaining({ uriTemplate: "toolbelt://screens/{plugin}/{screen}{?table,parent,offset,max_rows,details}", name: "screen", mimeType: "text/markdown" })]);
+		expect(resourceTemplates).toEqual([expect.objectContaining({ uriTemplate: "toolbelt://screens/{plugin}/{screen}{?table,parent,offset,max_rows,details,view,search}", name: "screen", mimeType: "text/markdown" })]);
 		// A paged resource read is read_screen with the same paging.
 		const paged = (await request("resources/read", { uri: "toolbelt://screens/kit/queue?table=jobs&offset=247&max_rows=2&details=false" })).result.contents[0];
 		expect(paged.uri).toBe("toolbelt://screens/kit/queue?table=jobs&offset=247&max_rows=2&details=false");
@@ -166,8 +171,14 @@ describe("MCP conformance", () => {
 		const first = (await request("resources/read", { uri: "toolbelt://screens/kit/queue?table=jobs&max_rows=3" })).result.contents[0].text;
 		expect(first).toContain("read toolbelt://screens/kit/queue?table=jobs&offset=3 for more");
 		expect(first).not.toContain("read again with table");
-		for (const bad of ["offset=x", "colour=red", "details=maybe"])
+		for (const bad of ["offset=x", "colour=red", "details=maybe", "view=mine", "filter.nope=x"])
 			expect((await request("resources/read", { uri: `toolbelt://screens/kit/queue?${bad}` })).error.code).toBe(-32602);
+		// A view in the URI: the agent's own, searched and filtered; paging hints keep it.
+		const viewed = (await request("resources/read", { uri: "toolbelt://screens/desk/tasks?filter.status=&search=passport" })).result.contents[0].text;
+		expect(viewed).toContain('Your view: search "passport"; Status: all.');
+		expect(viewed).toContain("Renew passport");
+		expect((await request("resources/read", { uri: "toolbelt://screens/desk/tasks?view=person" })).result.contents[0].text).toContain("The person's view");
+		expect((await request("resources/read", { uri: "toolbelt://screens/desk/tasks?filter.status=nope" })).error.code).toBe(-32602);
 		const read = (await request("resources/read", { uri: "toolbelt://screens/desk/settings" })).result;
 		expect(read.contents).toEqual([{ uri: "toolbelt://screens/desk/settings", mimeType: "text/markdown", text: expect.stringContaining("Mark stalled tasks: on") }]);
 		expect((await request("resources/read", { uri: "toolbelt://screens/vault/processes" })).error.code).toBe(-32002);
@@ -184,6 +195,15 @@ describe("MCP conformance", () => {
 		await world.person({ event: { screen: "desk/tasks", name: "reopen", payload: { rowId: "7" } } });
 		await Bun.sleep(1300);
 		expect(client.notifications().slice(after).filter((n) => n.method === "notifications/resources/updated")).toEqual([]);
+
+		// A subscription to a view watches that view's instance.
+		const viewUri = "toolbelt://screens/desk/tasks?filter.status=done";
+		expect((await request("resources/subscribe", { uri: viewUri })).result).toEqual({});
+		expect((await request("resources/subscribe", { uri: "toolbelt://screens/desk/tasks?filter.nope=x" })).error.code).toBe(-32602);
+		const beforeView = client.notifications().length;
+		await world.person({ event: { screen: "desk/tasks", name: "settle", payload: { rowId: "5" } } });
+		await until(() => client.notifications().slice(beforeView).find((n) => n.method === "notifications/resources/updated" && n.params.uri === viewUri), 2500, "an update of the view");
+		expect((await request("resources/unsubscribe", { uri: viewUri })).result).toEqual({});
 
 		const changed = client.notifications().length;
 		await world.person({ access: { plugin: "kit", level: "none" } });

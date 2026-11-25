@@ -1,7 +1,9 @@
 # Agent interface: proposal and feasibility
 
 Status: **proposal**, not implemented. Nothing in this document describes current behavior
-except where it says "today". Analysis date: 2026-11-24.
+except where it says "today". Analysis date: 2026-11-24. Revised 2026-11-25: backward
+compatibility dropped, view state and instances moved first, and agents may change the
+person's view under a timed grant (R6, R14, Part 5).
 
 Analyzed versions (each repository's `main` equals its latest release):
 
@@ -46,7 +48,7 @@ structure. A CLI complements it for coding agents and scripts.
 | 2 | Loopback MCP server plus a stdio shim | Any MCP client (Claude Code, Claude Desktop, Codex, IDEs) can operate ToolBelt. Surfaces become MCP resources with change notifications; risk maps to tool annotations; approvals use elicitation where the requester is the person | 1 |
 | 3 | `toolbelt` CLI and a skill file | Token-cheap, scriptable access for coding agents and humans (`toolbelt screen read processes`, `--json`) | 1 (same socket as 2) |
 | 4 | In-app chat as an ACP client | The person plugs in Claude Code, Codex or Gemini CLI through the Agent Client Protocol; ToolBelt hosts the conversation and points the agent at its own MCP server. ToolBelt doesn't own model choice, keys or the agent loop | 1, 2 |
-| 5 | Plugin-declared tools in the SDK | High-level, parameterized operations with typed results (`ontrack.addTask`, `upkeep.plan`) instead of driving screens | 1; the core moves into phase 1c (see 5.3) |
+| 5 | Plugin-declared tools in the SDK | High-level, parameterized operations with typed results (`ontrack.addTask`, `upkeep.plan`) instead of driving screens | 1; the core moves into wave B1 (see 5.3) |
 | 6 | *Optional, added later:* ToolBelt-hosted autonomous agents | Scheduled agent sessions that ToolBelt starts itself through ACP and that run within standing grants the person defined (R13) | 1, 4 |
 
 The rest of this document is the feasibility analysis of step 1: the inventory of what exists,
@@ -289,16 +291,16 @@ SDK Explorer coverage together, per AGENTS.md).
 - **Recommendation:** every request carries an `Actor` (`window`, `popover`, `remote:<device>`,
   `agent:<client>/<session>`). The host keeps an append-only `agent-audit.jsonl` in the profile
   (actor, address, risk, approval, outcome) and shows it in Settings → Agents (R12).
-  Optionally (contract, capability `event.origin`) events tell plugins `origin: "person" | "agent"`
-  so a plugin can refuse or adapt. Replace the global `lastEvent` with per-actor routing.
+  Events tell plugins `origin: "person" | "agent"` (contract, wave B1) so a plugin can refuse or
+  adapt. Replace the global `lastEvent` with per-actor routing.
 
 ### R3: Risk declaration and agent policy (C4, C3)
 
 - **Options:** infer risk from `tone`/`confirm` only; declare it.
 - **Recommendation: declare it (contract).** Add `Action.effect: "read" | "view" | "write" |
   "external" | "destructive"` and `Action.agent: "allow" | "confirm" | "deny"`; the manifest can
-  set defaults per action id. Undeclared actions default to `write` with confirmation for
-  agents. Map to MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
+  set defaults per action id. `effect` is required: the manifest and tree checks reject an
+  action without one, rather than inferring it from `tone`/`confirm`. Map to MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`). A host policy (per plugin, per actor, editable in Settings) decides
   allow / ask / deny. `trust` operations always ask, whatever the policy or grant says;
   `human-only` operations are never offered to agents.
@@ -318,34 +320,50 @@ SDK Explorer coverage together, per AGENTS.md).
 
 ### R5: Event acknowledgments and results (C5)
 
-- **Recommendation (contract, capability `event.result`):** the host gives each event an id; the
+- **Recommendation (contract, required):** the host gives each event an id; the
   SDK replies `{ type: "result", id, handled: boolean, error?, data?, renders: [surface] }` after
   `onEvent` resolves (OnTrack already returns `false` for unknown events; thrown errors become
-  `error`). Older plugins get a host-synthesized result: "delivered", plus the next render of the
-  surface within a bounded wait. The agent API returns `{ approval, result, toasts, navigated,
+  `error`). There is no host-synthesized fallback. The agent API returns `{ approval, result, toasts, navigated,
   after }` where `after` is a tree diff. Plugins that start background work return ids
   (Upkeep runs/jobs, Processes restart progress) in `data`.
 
 ### R6: Per-viewer view state (C6, C11)
 
-This is the deepest change.
+This is the deepest change, and the first one to ship (wave A). The problem today: you have
+Processes open and an agent types "node" into its search to find a server. Search belongs to
+the surface, so your window's search box changes too and your list filters under you.
 
-- **Options:**
-  - (a) Agents never touch view controls; they read whatever the person's view shows,
-    disclosed as "filtered by search 'x'". Cheap, but incomplete and confusing.
-  - (b) **Surface instances (contract):** `open` carries an `instance` id; the SDK keeps
-    view state (query, filters, sort, choice values, dialog) per instance and renders per
-    instance; plugin state remains shared. Search re-send on mount stops clobbering others.
-    Requires plugin refactors where view state is a module global (all four plugins).
-  - (c) Agents use parameterized reads (R7) instead of view controls.
-- **Recommendation: (c) for agents now, (b) as the long-term protocol fix.** (b) also fixes
-  today's window-versus-phone conflicts.
-- **Interim rule until (b) ships.** Example of the problem: you have Processes open and an agent
-  types "node" into Processes' search to find a server. Because search belongs to the surface,
-  your window's search box also changes to "node" and your list filters under you. So: an
-  agent's view-control events (search, filter, sort, choice controls, opening dialogs) are
-  refused while a person has that surface open, and allowed when nobody does; the host restores
-  the previous view state when the agent releases the surface.
+Decided (2026-11-25): **SDK-owned view state, rendered per instance (contract).**
+
+- **Declared view.** A screen declares its view controls: search, filters (id, label, options,
+  default, single or multiple), sort keys and segmented controls. Options may change between
+  renders (OnTrack's labels). The declaration is the agent-facing *view schema*.
+- **SDK-owned state.** The SDK keeps view state per instance, applies view events itself
+  (`search`, `filter`, `filter-arrange`, `sort`, control changes), validates them against the
+  declaration, and renders with the instance's `view`. Plugins keep their filtering logic but no
+  longer hold view state in module globals. Data and polling stay per surface; rendering is per
+  instance. Dialogs and their drafts are per instance too.
+- **Instances.** `open` carries an instance id and an initial view state. Two kinds:
+  - **The person's view:** one shared instance per surface for every human view (window,
+    popover, paired devices). It works like a remote control: a filter set on the phone shows in
+    the window. The SDK saves its state; page mounts stop re-sending search.
+  - **Agent instances:** private to an agent session, created with the view the agent asked
+    for, never saved, released after the idle hold. Reading with a view never changes what the
+    person sees.
+- **Presentation stays out of the plugin.** Collapse and expand, sections, columns, depth and
+  row selection are renderer state for people and serializer options for agents. Today's
+  `read_screen` already has some (`table`, `parent`, `offset`, `max_rows`, `details`); wave A
+  adds sections, columns, depth and rows by id.
+- **Render failures stay per instance.** A rejected render (an invalid tree or one over the
+  complexity limits) costs only that instance, as it costs only its surface today. An agent's
+  unfiltered view can't break the person's, and a narrow view can still read a screen whose
+  full tree is too large.
+- **Agents read in one step.** `read_screen` takes `view` (plugin-side search, filters, sort,
+  controls) and presentation options; `list_screens` publishes each screen's view schema. Unknown
+  filter ids or option values are refused with the valid ones. The resource URI template gains
+  the view parameters, so subscriptions work on filtered views and the stdio shim replays them
+  after a ToolBelt restart unchanged. `search_screens` can use each plugin's own search.
+- Changing the *person's* view is a separate, approved operation (R14).
 
 ### R7: Parameterized actions and semantic tools (C7, C8, C9)
 
@@ -425,10 +443,8 @@ Owned by the plugin repositories, sequenced per `docs/releases.md`:
   (allow / ask / deny per risk class), connected clients and sessions, standing grants for
   autonomous agents (R13), pending approvals and the audit log (R2). The view still needs to be
   designed.
-- **Compatibility.** `parseManifest` (`src/shared/protocol.ts`) keeps unknown keys, so
-  hosts from 0.3.24 onward accept the field and ignore it. Processes can declare `none` now,
-  before any host enforces it. Hosts released before the agent interface don't need it,
-  since they have no agent surface.
+- **Compatibility.** None from protocol v2 on (5.4): the host refuses plugins built for
+  another protocol version, and Settings → Plugins' compatibility section says why.
 
 ### R13: Autonomous agents (C3)
 
@@ -454,6 +470,36 @@ seconds. Proposed model:
 - **Where autonomous agents come from.** Initially from outside ToolBelt (Claude Code routines,
   cron plus the CLI), connecting through steps 2–3 and declaring autonomous mode. ToolBelt
   running its own scheduled agents through ACP would be a later step 6.
+
+### R14: Agents changing the person's view (C6, C12)
+
+"Show me my overdue tasks" should appear on every screen the person has open, as if they had
+set the filters themselves.
+
+- **Operation.** `show_screen({ plugin, screen, view?, open_window? })` navigates every open
+  human view to the screen and applies the view state to the person's instance (R6). Effect
+  class `view`; it needs the plugin at `read` access or higher.
+- **View-control grant, per agent.** The first call from an agent without a grant prompts on
+  every human screen (the window, paired devices): which agent, what it wants to show, and how
+  long to allow it (this session, 1 hour, today (default), 7 days, 30 days; never forever). The
+  call waits for the answer up to 60 s, then is refused as timed out; the agent can ask again.
+  Grants end on their own, are listed and revocable in Settings → Agents, and every request and
+  decision is audited.
+- **Devices that don't show it.** When any of the person's devices doesn't have ToolBelt open
+  (the Mac's window closed, a paired device not connected), the result tells the agent, which
+  tells the person and asks what to do. With no screen open at all, nobody can approve: the call
+  is refused at once, and `open_window: true` (after the person agrees) opens the window on the
+  Mac and asks there.
+- **"This session"** means the audit session: an MCP connection, or for the CLI the calls one
+  parent process makes (sessions group by `ppid`).
+- **Identity.** A grant is bound to the client name from the hello or MCP `clientInfo`. That is
+  consent, not authentication: the socket is user-only, and any of the user's processes can
+  claim any name.
+- **Visible and reversible.** After an agent changes the person's view, the page shows "Shown by
+  <client>" with **Restore**, which brings back the view from before the agent's first change.
+  The host owns the person's saved view (`views.json`).
+- This is the first approval flow. Wave A builds it as a small approval broker (R4) with timed
+  grants; wave B reuses both for actions and standing grants (R13).
 
 ---
 
@@ -483,8 +529,9 @@ Agent-facing API (in-process, transport-neutral):
 
 ```ts
 host.call(name, params): Result                         // registry operations, policy-checked
-screens.list(): { plugin; screen; title; quick: boolean }[]
-screens.read({ plugin, screen, format?: "text"|"json", table?, cursor?, maxRows? }): Snapshot
+screens.list(): { plugin; screen; title; quick: boolean; view: ViewSchema }[]
+screens.read({ plugin, screen, view?, sections?, columns?, depth?, rows?, format?: "text"|"json", table?, cursor?, maxRows? }): Snapshot  // own instance (R6)
+screens.show({ plugin, screen, view? }): ShowResult     // the person's view, under a view-control grant (R14)
 screens.act({ address, params? }): ActResult            // R1 resolver, R3 policy, R4 approval, R5 result
 screens.watch({ plugin, screen }): AsyncIterable<SnapshotDiff>
 tools.list(): ToolSpec[]                                // R7 manifest tools + parameterized actions
@@ -499,61 +546,82 @@ session.open({ client, mode: "interactive"|"autonomous" }): Session   // actor +
 
 # Part 5: Feasibility and roadmap
 
-Step 1 is feasible. The read side needs only host work. Safe actions need host work and no
-protocol change. Completeness and robustness need protocol additions that touch the SDK and
-all four plugins.
+Step 1 is feasible. The read side needed only host work. Everything after it changes the
+protocol, the SDK and all four plugins.
 
-Step 1 is too large to ship at once, so it is split into phases 1a–1d. Each remedy (or part of
-one) belongs to exactly one phase. The roadmap then interleaves those phases with steps 2–6.
+**No backward compatibility (decided 2026-11-25).** Only the person uses the SDK, so contracts
+change without capability flags or fallbacks. The protocol has one version; the host refuses a
+plugin built for another one and shows it as needing an upgrade, while other plugins keep
+running (per-plugin failure containment still holds). The original phases 1b–1d were ordered
+to protect compatibility. Without that constraint, view state and instances move first: they
+are the foundation for both one-step filtered reads and safe actions, and they remove the R6
+interim rule and most dialog conflicts (C7).
+
+**One spec, two waves.** One protocol v2 specification covers every wave, reviewed once.
+Wave A ships the read side; wave B ships actions. Plugins upgraded in wave A work fully and
+simply don't use wave B's parts yet. Wave B is a second required plugin upgrade.
 
 ## 5.1 Remedies by phase
 
-| Remedy | 0 (plugins now) | 1a Read-only | 1b Guarded actions | 1c Protocol v-next | 1d Instances |
+| Remedy | 0 (done) | 1a Read-only (done) | A View state | B1 Guarded actions | B2 Autonomous |
 | --- | --- | --- | --- | --- | --- |
-| R1 Action resolver | | | ✔ | | |
-| R2 Actors and audit | | Actors, audit log | Per-actor routing replaces `lastEvent` | `event.origin` | |
-| R3 Risk and policy | | | Policy with defaults inferred from `tone`/`confirm` | `effect`/`agent` declarations | |
-| R4 Approval broker | | | ✔ (including plugin management) | | |
-| R5 Event results | | | Host-synthesized result (delivered + next render) | `event.result` from the SDK | |
-| R6 View state | | | Interim rule (no agent view controls while a person views) | Parameterized reads via R7 | Surface instances |
-| R7 Params and tools | | | | ✔ | |
+| R1 Action resolver | | | | ✔, against the agent's instance | |
+| R2 Actors and audit | | Actors, audit log | Instance actors | Per-actor routing replaces `lastEvent`; `event.origin` | |
+| R3 Risk and policy | | | | Required `effect`/`agent`, policy | |
+| R4 Approval broker | | | View-control prompt (R14) | Full broker, including plugin management | |
+| R5 Event results | | | | Required results from the SDK | |
+| R6 View state | | | ✔ SDK-owned view state, instances, view schema | | |
+| R7 Params and tools | | | | `Action.params`, manifest tools | |
 | R8 Redaction | | Serializer masking | | `secret` marker | |
-| R9 ViewHub, agent view | | ViewHub, agent view, freshness | Navigate/toast/handoff/clipboard routing | | |
-| R10 Command registry | | Read operations | Write operations | | |
-| R11 Plugin fixes | Processes declares `none` | | | Upkeep, OnTrack, SDK Explorer fixes | Plugin refactors for instances |
-| R12 Access levels | Plugins declare `agent.access` | Enforcement, Settings → Agents (access, audit) | Settings → Agents (policy, approvals) | Finer-grained access | |
-| R13 Autonomous agents | | | Modes, `pending_approval`, standing grants | | |
+| R9 ViewHub, agent view | | Agent view, freshness | ViewHub with instances and the person's view | Navigate/toast/handoff/clipboard routing | |
+| R10 Command registry | | Read operations | `show_screen`, view schema | Write operations | |
+| R11 Plugin fixes | Processes declares `none` | | View state moves to the SDK in all plugins | Upkeep, OnTrack, SDK Explorer action fixes | |
+| R12 Access levels | Plugins declare `agent.access` | Enforcement, Settings → Agents (access, audit) | Settings → Agents (view-control grants) | Settings → Agents (policy, approvals) | Finer-grained access |
+| R13 Autonomous agents | | | | | Modes, `pending_approval`, standing grants |
+| R14 Person's view | | | ✔ `show_screen`, timed grants, Restore | | |
 
 ## 5.2 Phases
 
 | Phase | Contract change | Resolves | What an agent can do afterwards |
 | --- | --- | --- | --- |
-| 0. Plugin opt-outs | Manifest key, ignored by today's host | — | Nothing yet; Processes is excluded in advance |
-| 1a. Read-only | `agent.access` becomes enforced | C8 (partly), C10 (host side), C11, C14 (partly) | Read every screen of every plugin that allows it, plus host state. Every read is audited |
-| 1b. Guarded actions | None (`EventPayloads` completion is documentation) | C1, C2, C3, C12, C13 | Perform any action a screen offers, and plugin management, with the person approving wherever the UI would ask. Autonomous agents work within standing grants |
-| 1c. Protocol v-next | Optional capabilities with fallbacks | C4, C5, C7, C8, C9, C10, C15 | Call typed operations in one step (`ontrack.addTask`) and get real results and errors instead of driving dialogs |
-| 1d. Surface instances | Yes | C6 | Search, filter and sort without affecting anyone else's view |
+| 0. Plugin opt-outs (done) | Manifest key | — | Nothing yet; Processes is excluded in advance |
+| 1a. Read-only (done) | `agent.access` enforced | C8 (partly), C10 (host side), C11, C14 (partly) | Read every screen of every plugin that allows it, plus host state. Every read is audited |
+| A. View state | Protocol v2: declared views, SDK-owned view state, instances in `open`, per-instance dialogs, required `agent.access` | C6, finding O1 | Read a screen with its own search, filters and sort in one call without touching the person's view; read single rows; show the person a screen and view under a timed grant. Human views share one view on purpose |
+| B1. Guarded actions | Required `effect`/`agent`, `params`, results and `origin`; complete `EventPayloads` | C1–C5, C7, C9, C12, C13, C15 | Perform any action a screen offers, and plugin management, in one typed call with real results, the person approving wherever the UI would ask |
+| B2. Autonomous | None beyond B1 | C3 (autonomous side) | Autonomous agents work within standing grants; anything else returns `pending_approval` |
 
 ## 5.3 Roadmap
 
 One ordered sequence. "Step" refers to the steps at the top of this document; "phase"
-refers to 5.2.
+refers to 5.2. Host, SDK and plugin releases follow the sequencing in
+[docs/releases.md](../docs/releases.md): a wave's host and SDK publish first, then each plugin's
+upgrade.
 
 | # | Work | Phase / step | Remedies | Depends on |
 | --- | --- | --- | --- | --- |
-| 1 | Processes release declaring `agent.access: "none"` | Phase 0 | R11, R12 | — |
-| 2 | Read-only agent API in the host | Phase 1a (step 1, read side) | R2, R8, R9, R10, R12 | — |
-| 3 | MCP server and stdio shim, read-only, interactive sessions only | Step 2 | — | 2 |
-| 4 | `toolbelt` CLI and skill file, read-only, on the same socket | Step 3 | — | 3 |
-| 5 | Guarded actions; MCP and CLI gain actions; external autonomous agents can connect | Phase 1b (step 1, action side) | R1–R6, R9, R10, R12, R13 | 2 |
-| 6 | Protocol v-next in SDK, SDK Explorer and plugins. Most of the original step 5 lands here | Phase 1c (step 1 + core of step 5) | R2, R3, R5, R6, R7, R8, R11, R12 | 5 |
-| 7 | In-app chat as an ACP client | Step 4 | — | 5 (approvals in the app); better after 6 |
-| 8 | Surface instances | Phase 1d | R6, R11 | 6 |
-| 9 | Remaining plugin-declared tools, per plugin | Rest of step 5 | R7 | 6 |
-| 10 | ToolBelt-hosted autonomous agents (scheduled ACP sessions under standing grants) | New step 6, optional | R13 | 5, 7 |
+| 1 | Processes release declaring `agent.access: "none"` (done) | Phase 0 | R11, R12 | — |
+| 2 | Read-only agent API in the host (done) | Phase 1a (step 1, read side) | R2, R8, R9, R10, R12 | — |
+| 3 | MCP server and stdio shim, read-only (done) | Step 2 | — | 2 |
+| 4 | `toolbelt` CLI and skill file, read-only (done) | Step 3 | — | 3 |
+| 5 | Protocol v2 specification for waves A and B | — | R2–R8, R14 | 4 |
+| 6 | Wave A in host, SDK and SDK Explorer | Phase A | R4 (view control), R6, R8, R9, R10, R12, R14 | 5 |
+| 7 | Wave A plugin upgrades (OnTrack, Upkeep, Processes) | Phase A | R11 | 6 |
+| 8 | Wave B1 in host, SDK and SDK Explorer, then plugin upgrades. The core of the original step 5 lands here | Phase B1 (step 1, action side) | R1–R5, R7, R9–R12 | 7 |
+| 9 | Autonomous sessions under standing grants | Phase B2 | R13 | 8 |
+| 10 | In-app chat as an ACP client | Step 4 | — | 8 |
+| 11 | Remaining plugin-declared tools, per plugin | Rest of step 5 | R7 | 8 |
+| 12 | ToolBelt-hosted autonomous agents (scheduled ACP sessions under standing grants) | New step 6, optional | R13 | 9, 10 |
 
 ## 5.4 Decisions
 
+- **No backward compatibility.** One protocol version; plugins built for another are refused
+  and shown as needing an upgrade. No capability flags or fallbacks for these contracts.
+- **One spec, two waves.** Wave A plugins work fully without wave B's parts.
+- **The SDK owns view state** (R6). Plugins declare their view controls and render from `view`.
+- **The person's view is shared** by the window, the popover and paired devices, like a remote
+  control. Agents read through private instances that are never saved.
+- **Agents may change the person's view** under a view-control grant whose duration the person
+  picks when approving, with a visible Restore (R14).
 - **Remote access is human-only.** No remote-access operation is offered to agents, reads
   included (R3 `human-only`).
 - **Plugin management is open to agents, with approval every time.** Install, remove, update and
@@ -562,8 +630,8 @@ refers to 5.2.
 - **Plugins can opt out or limit themselves to read-only** with `agent.access`. The person can
   lower the level further in Settings → Agents. Finer-grained control comes later under the
   same key (R12). Processes opts out.
-- **Agent controls live in Settings → Agents:** access, policy, sessions, grants, approvals and
-  the audit log. The view is still to be designed (R12).
+- **Agent controls live in Settings → Agents:** access, grants, policy, sessions, approvals and
+  the audit log. The approvals view is still to be designed (R12).
 - **Autonomous agents** get their own mode with standing grants and non-blocking approvals
   (R13), and an optional step 6.
 - **Undeclared plugins have no access by default** (revised 2026-11-25, before 0.5.0 shipped;
@@ -577,29 +645,39 @@ refers to 5.2.
   forever (append-only, in the profile).
 - **Pending approvals are shown in Settings → Agents**, alongside access levels and the audit
   log.
-- **View-control conflicts:** until surface instances exist (phase 1d), agents can't change
-  search, filters or sort on a surface a person has open (R6 interim rule).
+- **Decided for wave A (2026-11-25):** `show_screen` with any device not showing ToolBelt tells
+  the agent so it asks the person; grants are per agent; durations end (default today, at most
+  30 days); the host saves the person's view; `agent.access` is required, so Settings → Agents
+  has no "Not declared" state.
 
 ## 5.5 Status
 
-Roadmap items 1–4 are implemented and described in [docs/agent-interface.md](../docs/agent-interface.md). The
+Roadmap items 1–4 are implemented and described in [docs/agent-interface.md](../docs/agent-interface.md).
+Wave A's host and SDK (roadmap 6) are implemented as described there and in
+[docs/plugins.md](../docs/plugins.md#views); the protocol v2 specification (roadmap 5) for
+wave A is those documents. The plugin upgrades (roadmap 7: OnTrack, Upkeep, Processes and SDK
+Explorer, then a new demo seed) remain, and must ship with the host release that refuses
+protocol 1. The
 evaluation, with 17 life-like requests answered through MCP and the CLI, is in
 [agent-interface-eval/report.html](agent-interface-eval/report.html). Its cases now run as
 automated scenarios (5.6).
 
 Built differently from the plan:
 
-- **No ViewHub extraction yet (R9).** The agent's view lives in the agent core and counts as a
-  viewer through `PluginHost.open`/`close`. Window, popover and remote views are unchanged.
-  Extraction moves to phase 1b, where per-actor routing needs it.
+- **No ViewHub extraction yet (R9).** Agent instances are opened by the agent core through
+  `PluginHost.open(plugin, surface, instance, view)`; the person's instance keeps the window,
+  popover and remote views' existing wiring, which forwards only its trees. Extraction moves to
+  wave B1, where per-actor routing needs it.
+- **Row reads and the `secret` marker are not in wave A.** `parent` paging already reads one
+  row's children; reading rows by id and the tree-level `secret` marker move to wave B1.
 - **The registry covers agent operations only (R10).** Five read operations feed MCP and the
   CLI. The renderer's RPC handlers are not migrated.
-- **Pending approvals are not in Settings → Agents yet.** Reads never need approval. The section
-  arrives with the approval broker in 1b.
+- **Approvals.** Wave A's one question (R14) is a dialog on every open person's screen, not a
+  Settings → Agents list; grants are listed there. The full approval broker comes in wave B1.
 - **Freshness (R9).** Trees carry their arrival time, a new plugin process clears its cached
   trees, and the agent opens unwatched surfaces on demand (4 s render wait, 60 s idle hold).
 
-The evaluation found two gaps that later phases should close (findings O1 and O2):
+The evaluation found two gaps; wave A closes the first (findings O1 and O2):
 
 - reads that follow the person's search and filters (C6);
 - whole-screen reads where a row read or a change summary would do.
@@ -669,7 +747,16 @@ development mode, in an isolated profile. Layers 2 and 3 work without a model in
 layer 4 runs on demand. The harness is likely an SDK tool next to the release CLI, so plugins
 consume it through their pinned SDK, and the format becomes a documented, versioned SDK contract.
 
-**Phase 1b extension.** When guarded actions arrive:
+**Wave A extension.** When view state arrives:
+
+- `read_screen` steps gain `view` and presentation options, with facts that rows outside the
+  view are absent and that the person's view is unchanged;
+- steps gain `{ "call": "show_screen", … }`, and person actions gain `approve` (with a
+  duration) and `deny` for a view-control grant, plus `restore`;
+- `expect.view` checks the person's view state after a step, and `expect.audit` covers the
+  grant's lifecycle (requested, granted, denied, expired, used).
+
+**Wave B1 extension.** When guarded actions arrive:
 
 - steps gain `{ "call": "run_action", … }` with `expect.approval: "requested"` (or `"none"` for
   safe actions);
@@ -683,5 +770,5 @@ consume it through their pinned SDK, and the format becomes a documented, versio
 
 ## 5.7 Open questions
 
-None blocking phases 0–1a and steps 2–3. The Settings → Agents view still needs a full design
-once actions and approvals exist (phase 1b).
+None for wave A (decided in 5.4). The Settings → Agents approvals view still needs a full design
+before wave B1.

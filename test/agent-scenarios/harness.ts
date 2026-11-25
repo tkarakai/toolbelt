@@ -5,6 +5,9 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PluginHost } from "../../src/bun/host";
+import { ViewStore } from "../../src/bun/views";
+import { PERSON } from "../../src/shared/protocol";
+import { cleanView } from "../../src/shared/views";
 import { createAgentInterface } from "../../src/bun/agent";
 import { declaredAccess, type AgentSettings } from "../../src/shared/agents";
 import { HOUR, NOW } from "../fixtures/agents/clock";
@@ -40,12 +43,16 @@ const split = (screen: string) => {
 /** ToolBelt with the fixture plugins and the agent interface, in temporary folders. */
 export async function createWorld(setup: Scenario["setup"] = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "tb-sc-"));
-	const host = new PluginHost({ dirs: [FIXTURES], bun: process.execPath, host: { name: "ToolBelt", version: "0.3.24" }, data: join(dir, "data") });
+	const views = new ViewStore(join(dir, "views.json"), 0);
+	const host = new PluginHost({ dirs: [FIXTURES], bun: process.execPath, host: { name: "ToolBelt", version: "0.3.24" }, data: join(dir, "data"), views });
+	// The person's screens, as show_screen sees them: the Mac's window and paired devices.
+	const devices = { window: setup.devices?.window ?? true, paired: setup.devices?.paired ?? [] };
+	const navigated: string[] = [];
 	const trees: { plugin: string; surface: string; at: number }[] = [];
 	host.subscribe({ plugins: () => {}, tree: (plugin, surface) => void trees.push({ plugin, surface, at: Date.now() }), toast: () => {} });
 	host.start();
 	await until(() => host.list().every((p) => p.state === "running"), 10_000, "fixture plugins to start");
-	let settings: AgentSettings = { enabled: setup.agents ?? true, access: { ...(setup.access ?? {}) } };
+	let settings: AgentSettings = { enabled: setup.agents ?? true, access: { ...(setup.access ?? {}) }, grants: [] };
 	const agents = createAgentInterface({
 		host,
 		settings: () => settings,
@@ -69,6 +76,18 @@ export async function createWorld(setup: Scenario["setup"] = {}) {
 		changed: () => {},
 		now: () => NOW,
 		holdMs: 5000,
+		approvalMs: 3000,
+		person: {
+			devices: () => [{ name: "the Mac", kind: "mac" as const, showing: devices.window }, ...devices.paired.map((d) => ({ name: d.name, kind: "device" as const, showing: d.connected }))],
+			openWindow: () => void (devices.window = true),
+			navigate: (plugin, screen) => void navigated.push(`${plugin}/${screen}`),
+			view: (plugin, surface) => host.personView(plugin, surface),
+			setView: (plugin, surface, view) => {
+				const clean = cleanView(host.declaredView(plugin, surface) ?? undefined, view);
+				if ((host.snapshot(plugin, surface, PERSON)?.viewers ?? 0) > 0) host.setView(plugin, surface, PERSON, clean);
+				else views.save(plugin, surface, clean);
+			},
+		},
 	});
 	await agents.start();
 	const socket = agents.server.path;
@@ -78,6 +97,12 @@ export async function createWorld(setup: Scenario["setup"] = {}) {
 		agents,
 		socket,
 		settings: () => settings,
+		navigated,
+		/** Answers show_screen's question once it's asked (or gives up after a few seconds). */
+		async answer(answer: { allow: boolean; duration?: string }) {
+			const asked = await until(() => agents.core.state().approvals[0], 4000, "the person to be asked").catch(() => null);
+			if (asked) agents.handle({ operation: "answer", id: asked.id, allow: answer.allow, duration: answer.duration as never });
+		},
 		audit: () =>
 			readFileSync(join(dir, "agent-audit.jsonl"), "utf8")
 				.split("\n")
@@ -105,6 +130,14 @@ export async function createWorld(setup: Scenario["setup"] = {}) {
 			} else if ("agents" in action) {
 				agents.handle({ operation: "setEnabled", enabled: action.agents });
 				await until(() => agents.server.listening === action.agents, 4000, `agents ${action.agents ? "on" : "off"}`);
+			} else if ("restore" in action) {
+				const { plugin, surface } = split(action.restore);
+				agents.handle({ operation: "restoreView", plugin, surface });
+				await Bun.sleep(100);
+			} else if ("revoke" in action) {
+				// "*": every agent's grant.
+				for (const client of action.revoke === "*" ? agents.core.state().grants.map((g) => g.client) : [action.revoke])
+					agents.handle({ operation: "revokeGrant", client });
 			}
 		},
 		async stop() {
@@ -160,12 +193,25 @@ export async function runScenario(s: Scenario, channel: Channel): Promise<RunRec
 			const seen = agent.notifications?.().length ?? 0;
 			const started = Date.now();
 			let outcome: Outcome | null = null;
-			if ("call" in step) outcome = await agent.call(step.call, step.args ?? {}, step.structured === true);
+			const navigatedBefore = world.navigated.length;
+			if ("call" in step) {
+				const answering = step.answer ? world.answer(step.answer) : null;
+				outcome = await agent.call(step.call, step.args ?? {}, step.structured === true);
+				await answering;
+			}
 			else if ("read" in step) outcome = await agent.read!(uriOf(step.read));
 			else if ("subscribe" in step) outcome = await agent.subscribe!(uriOf(step.subscribe));
 			else if ("unsubscribe" in step) outcome = await agent.unsubscribe!(uriOf(step.unsubscribe));
 			else await world.person(step.person);
 			check(step.expect, outcome, failures, where);
+			if (step.expect?.navigated && JSON.stringify(world.navigated.slice(navigatedBefore)) !== JSON.stringify(step.expect.navigated))
+				failures.push(`${where}: expected the person's screens to show ${JSON.stringify(step.expect.navigated)}, got ${JSON.stringify(world.navigated.slice(navigatedBefore))}`);
+			if (step.expect?.personView) {
+				const { plugin, surface } = split(step.expect.personView.screen);
+				const want = JSON.stringify(step.expect.personView.view);
+				const got = await until(() => JSON.stringify(world.host.personView(plugin, surface)) === want && want, 2000, "").catch(() => JSON.stringify(world.host.personView(plugin, surface)));
+				if (got !== want) failures.push(`${where}: expected the person's view of ${step.expect.personView.screen} to be ${want}, got ${got}`);
+			}
 			const got: { method: string; params: unknown }[] = [];
 			if (agent.resources && agent.notifications)
 				for (const n of step.expect?.notifications ?? []) {

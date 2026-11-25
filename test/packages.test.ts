@@ -23,7 +23,7 @@ const manifest = (version = "1.0.0", id = "fixture") => ({
   version,
   repo: "test/fixture",
   entry: "index.js",
-  protocol: 1,
+  protocol: 2, agent: { access: "read" },
   icon: "box",
   screens: [{ id: "main", title: "Main" }],
   requires: { host: ">=0.1.0", bun: ">=1.3.0", platforms: ["portable"] },

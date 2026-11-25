@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { extractArchive } from "../src/bun/packages";
 import { parsePackageManifest } from "../src/shared/package";
+import { PROTOCOL_VERSION } from "../src/shared/protocol";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,14 +25,17 @@ if (new Bun.CryptoHasher("sha256").update(bytes).digest("hex") !== sha256)
 const temp = mkdtempSync(join(tmpdir(), "tb-seed-"));
 try {
   extractArchive(bytes, temp);
-  const manifest = parsePackageManifest(
-    JSON.parse(readFileSync(join(temp, "toolbelt.json"), "utf8")),
-  );
-  if (
-    manifest.id !== "sdk-demo" ||
-    manifest.repo !== "tkarakai/toolbelt-sdk-demo"
-  )
+  const raw = JSON.parse(readFileSync(join(temp, "toolbelt.json"), "utf8"));
+  if (raw?.id !== "sdk-demo" || raw?.repo !== "tkarakai/toolbelt-sdk-demo")
     throw new Error("Seed identity mismatch");
+  // A seed built for another protocol is still bundled (checksum and identity verified): the app
+  // refuses to install it, keeps the profile unseeded, and installs the next compatible seed.
+  // Publish a compatible SDK Explorer and run `bun run seed:update` (docs/releases.md).
+  if (raw.protocol !== PROTOCOL_VERSION)
+    console.warn(
+      `Warning: the demo seed speaks protocol ${raw.protocol}, this host ${PROTOCOL_VERSION}; the app won't install it until seed.config.json names a compatible SDK Explorer`,
+    );
+  else parsePackageManifest(raw);
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

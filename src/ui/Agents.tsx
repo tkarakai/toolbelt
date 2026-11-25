@@ -60,6 +60,7 @@ export function AgentsSettings() {
 			<TabsContent value="access" className="space-y-8">
 				<StatusGroup state={state} go={remember} />
 				<PluginAccessGroup plugins={state.plugins} />
+				<ViewGrantsGroup state={state} />
 			</TabsContent>
 			<TabsContent value="connect" className="space-y-8">
 				{state.command ? (
@@ -111,8 +112,7 @@ const ago = (at: number) => {
 function readableHint(plugins: AgentPlugin[]) {
 	const hidden = plugins.filter((p) => p.effective === "none");
 	if (!hidden.length) return "All plugins";
-	const undeclared = hidden.filter((p) => !p.declared).length;
-	return undeclared ? `${hidden.length} kept from agents, ${undeclared} not declared` : `${hidden.length} kept from agents`;
+	return `${hidden.length} kept from agents`;
 }
 
 /** The switch, whether it's working, and the numbers worth a glance; tiles lead to their tab. */
@@ -265,16 +265,14 @@ function ConnectGroup({ command, enabled, warning }: { command: string[]; enable
 }
 
 /** What the plugin itself says about agents. */
-const PLUGIN_TEXT = (p: AgentPlugin) =>
-	!p.declared ? "Not declared" : p.ceiling === "none" ? "Kept from agents by the plugin" : `Allows ${ACCESS_LABEL[p.ceiling].toLowerCase()}`;
+const PLUGIN_TEXT = (p: AgentPlugin) => (p.ceiling === "none" ? "Kept from agents by the plugin" : `Allows ${ACCESS_LABEL[p.ceiling].toLowerCase()}`);
 
 function PluginAccessGroup({ plugins }: { plugins: AgentPlugin[] }) {
-	const changed = plugins.filter((p) => p.choice !== undefined && p.effective !== p.byDefault).length;
-	const undeclared = plugins.filter((p) => !p.declared).length;
+	const changed = plugins.filter((p) => p.choice !== undefined && p.effective !== p.ceiling).length;
 	return (
 		<SettingsGroup
 			title="Plugin access"
-			description={`What agents may do with each plugin. A plugin says how far it allows agents to go, and you can lower that. Plugins made before agent access existed don’t say, so agents can’t read them unless you allow it.${changed ? ` You’ve changed ${changed}.` : ""}`}
+			description={`What agents may do with each plugin. A plugin says how far it allows agents to go, and you can lower that.${changed ? ` You’ve changed ${changed}.` : ""}`}
 		>
 			{plugins.length === 0 && <p className="px-5 py-4 text-sm text-muted-foreground">No plugins are installed.</p>}
 			{plugins.length > 0 && (
@@ -284,50 +282,63 @@ function PluginAccessGroup({ plugins }: { plugins: AgentPlugin[] }) {
 					<span>Agents may</span>
 				</div>
 			)}
-			{plugins.map((p) => {
-				const allowedByYou = !p.declared && p.effective !== "none";
-				return (
-					<div key={p.id} className="px-5 py-3">
-						<div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)_9rem]">
-							<div className="flex min-w-0 items-center gap-3">
-								<div className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-muted/40">
-									<Icon name={p.icon} className="size-4" />
-								</div>
-								<div className="min-w-0">
-									<h3 className="truncate text-sm font-medium">{p.name}</h3>
-									<p className={cn("truncate text-xs sm:hidden", p.declared ? "text-muted-foreground" : textClass("warning"))}>{PLUGIN_TEXT(p)}{!p.declared && " · made before agent access existed"}</p>
-								</div>
+			{plugins.map((p) => (
+				<div key={p.id} className="px-5 py-3">
+					<div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)_9rem]">
+						<div className="flex min-w-0 items-center gap-3">
+							<div className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-muted/40">
+								<Icon name={p.icon} className="size-4" />
 							</div>
-							<div className="hidden min-w-0 sm:block">
-								<span className={cn("block truncate text-sm", p.declared ? "text-muted-foreground" : textClass("warning"))} title={PLUGIN_TEXT(p)}>
-									{PLUGIN_TEXT(p)}
-								</span>
-								{!p.declared && <span className="block truncate text-xs text-muted-foreground">{p.update ? `Version ${p.update} is available and may declare it` : "Made before agent access existed"}</span>}
+							<div className="min-w-0">
+								<h3 className="truncate text-sm font-medium">{p.name}</h3>
+								<p className="truncate text-xs text-muted-foreground sm:hidden">{PLUGIN_TEXT(p)}</p>
 							</div>
-							{p.ceiling === "none" ? (
-								<span className={cn("justify-self-start rounded-full px-2 py-0.5 text-xs font-medium", pillClass("default"))}>No access</span>
-							) : (
-								<Select value={p.effective} onValueChange={(access) => void run({ operation: "setAccess", plugin: p.id, access: access === p.byDefault ? null : (access as AgentAccess) })}>
-									<SelectTrigger size="sm" aria-label={`Agent access for ${p.name}`} className={cn("w-36", p.effective === "none" && "text-muted-foreground")}>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent position="popper" align="end">
-										<SelectItem value="read">{ACCESS_LABEL.read}</SelectItem>
-										<SelectItem value="none">{ACCESS_LABEL.none}</SelectItem>
-									</SelectContent>
-								</Select>
-							)}
 						</div>
-						{allowedByYou && (
-							<p className={cn("mt-2 rounded-md px-3 py-2 text-xs sm:ml-11", pillClass("warning"))}>
-								You let agents read {p.name}. It never said what’s safe to share, so anything it shows in plain text, such as command lines, paths or tokens, reaches agents. Only fields it marks as secret are hidden.
-							</p>
+						<span className="hidden truncate text-sm text-muted-foreground sm:block" title={PLUGIN_TEXT(p)}>
+							{PLUGIN_TEXT(p)}
+						</span>
+						{p.ceiling === "none" ? (
+							<span className={cn("justify-self-start rounded-full px-2 py-0.5 text-xs font-medium", pillClass("default"))}>No access</span>
+						) : (
+							<Select value={p.effective} onValueChange={(access) => void run({ operation: "setAccess", plugin: p.id, access: access === p.ceiling ? null : (access as AgentAccess) })}>
+								<SelectTrigger size="sm" aria-label={`Agent access for ${p.name}`} className={cn("w-36", p.effective === "none" && "text-muted-foreground")}>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent position="popper" align="end">
+									<SelectItem value="read">{ACCESS_LABEL.read}</SelectItem>
+									<SelectItem value="none">{ACCESS_LABEL.none}</SelectItem>
+								</SelectContent>
+							</Select>
 						)}
-						{!p.declared && p.update && <p className="mt-1 truncate text-xs text-muted-foreground sm:hidden">Version {p.update} is available and may declare it</p>}
 					</div>
-				);
-			})}
-			{undeclared > 0 && <p className="px-5 py-3 text-xs text-muted-foreground">{undeclared === 1 ? "1 plugin doesn’t" : `${undeclared} plugins don’t`} declare agent access yet. Updating may add it: its author decides what’s safe for agents.</p>}
+				</div>
+			))}
+		</SettingsGroup>
+	);
+}
+
+const until = (g: AgentsState["grants"][number]) =>
+	g.session ? "Until it disconnects" : `Until ${new Date(g.until).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
+
+/** Agents the person let change what their screens show, and for how long. */
+function ViewGrantsGroup({ state }: { state: AgentsState }) {
+	return (
+		<SettingsGroup
+			title="Changing your view"
+			description="Agents you let show you screens: they switch every ToolBelt screen you have open, on this Mac and paired devices, and set its search, filters and sort. Each time an agent asks first, you choose for how long; nothing is allowed forever."
+		>
+			{state.grants.length === 0 && <p className="px-5 py-4 text-sm text-muted-foreground">No agent may change your view right now.</p>}
+			{state.grants.map((g) => (
+				<div key={`${g.client}-${g.session ?? ""}`} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+					<div className="min-w-0">
+						<span className="block truncate text-sm font-medium">{g.client}</span>
+						<span className="block truncate text-xs text-muted-foreground">{until(g)}</span>
+					</div>
+					<Button size="sm" variant="outline" onClick={() => void run({ operation: "revokeGrant", client: g.client })}>
+						Revoke
+					</Button>
+				</div>
+			))}
 		</SettingsGroup>
 	);
 }

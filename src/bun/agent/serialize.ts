@@ -178,7 +178,7 @@ type WalkOptions = Required<Omit<ReadOptions, "table" | "parent" | "resource">> 
 function resume(opts: WalkOptions, table: string, next: number, parent?: string) {
 	if (opts.resource) {
 		const q = new URLSearchParams({ table, ...(parent ? { parent } : {}), offset: String(next) });
-		return `read ${opts.resource}?${q}`;
+		return `read ${opts.resource}${opts.resource.includes("?") ? "&" : "?"}${q}`;
 	}
 	return `read again with table "${table}"${parent ? `, parent "${parent}"` : ""} and offset ${next}`;
 }

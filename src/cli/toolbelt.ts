@@ -12,13 +12,22 @@ const HELP = `toolbelt — read ToolBelt's plugin screens from the terminal or a
 
 Usage:
   toolbelt status                       App version, updates, plugins and their screens
-  toolbelt screens [plugin]             Screens agents can read
+  toolbelt screens [plugin]             Screens agents can read, with their view controls
   toolbelt read <plugin> [screen]       A screen as text (the plugin's default screen if omitted)
-      --max-rows N   rows per table (default 100)
+      --max-rows N   rows per table (default 50)
       --table ID --offset N   page through one table (offsets count top-level rows)
       --parent ROW   with --table: page that row's child rows instead
       --no-details   leave out row details
       --json         the plugin's UI tree as JSON
+      View: your own copy of the screen, searched, filtered and sorted (never the person's):
+      --search TEXT          the screen's search
+      --filter ID=A,B        check these options of a filter (ID= for all); repeatable
+      --sort TABLE=KEY       sort a table by a column (-KEY descending); repeatable
+      --control ID=VALUE     set a page control; repeatable
+      --person               read exactly what the person's screens show instead
+  toolbelt show <plugin> [screen]       Show the person a screen on every ToolBelt screen they
+                                        have open, with the same view options (asks them first)
+      --open-window          open ToolBelt's window on the Mac if it's closed
   toolbelt search <words…> [--plugin ID]  Lines mentioning every word, across all screens
   toolbelt plugins                      Installed plugins and available updates
   toolbelt mcp                          Run as an MCP server on stdio (for Claude Code, Codex, …)
@@ -38,10 +47,12 @@ command line is wrong.`;
 class UsageError extends Error {}
 /** Flags each command takes, besides the global ones. */
 const GLOBAL_FLAGS = ["socket", "autonomous", "json", "help", "h"];
+const VIEW_FLAGS = ["search", "filter", "sort", "control"];
 const COMMAND_FLAGS: Record<string, string[]> = {
 	status: [],
 	screens: ["plugin"],
-	read: ["max-rows", "table", "offset", "parent", "no-details"],
+	read: ["max-rows", "table", "offset", "parent", "no-details", "person", ...VIEW_FLAGS],
+	show: ["open-window", ...VIEW_FLAGS],
 	search: ["plugin"],
 	plugins: [],
 	mcp: [],
@@ -49,21 +60,44 @@ const COMMAND_FLAGS: Record<string, string[]> = {
 	help: [],
 };
 
-type Args = { positional: string[]; flags: Map<string, string | true> };
+type Args = { positional: string[]; flags: Map<string, string | true>; repeated: Map<string, string[]> };
+const VALUED = ["socket", "max-rows", "table", "offset", "parent", "plugin", ...VIEW_FLAGS];
+/** Flags that may be given more than once (`--filter a=x --filter b=y`). */
+const REPEATABLE = new Set(["filter", "sort", "control"]);
 function parse(argv: string[]): Args {
 	const positional: string[] = [];
 	const flags = new Map<string, string | true>();
-	const valued = new Set(["socket", "max-rows", "table", "offset", "parent", "plugin"]);
+	const repeated = new Map<string, string[]>();
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a.startsWith("--")) {
-			const [name, inline] = a.slice(2).split("=", 2);
-			if (inline !== undefined) flags.set(name, inline);
-			else if (valued.has(name) && i + 1 < argv.length) flags.set(name, argv[++i]);
-			else flags.set(name, true);
+			const at = a.indexOf("=");
+			const name = at < 0 ? a.slice(2) : a.slice(2, at);
+			const value = at < 0 ? (VALUED.includes(name) && i + 1 < argv.length ? argv[++i] : true) : a.slice(at + 1);
+			flags.set(name, value);
+			if (REPEATABLE.has(name) && typeof value === "string") repeated.set(name, [...(repeated.get(name) ?? []), value]);
 		} else positional.push(a);
 	}
-	return { positional, flags };
+	return { positional, flags, repeated };
+}
+
+/** read_screen/show_screen's `view` from the view flags, or undefined without any. */
+function viewOf(flags: Args["flags"], repeated: Args["repeated"]) {
+	const pairs = (name: string) =>
+		(repeated.get(name) ?? []).map((p) => {
+			const at = p.indexOf("=");
+			if (at <= 0) throw new UsageError(`--${name} needs ID=VALUE (got ${p}). Run toolbelt help.`);
+			return [p.slice(0, at), p.slice(at + 1)] as const;
+		});
+	const view: Record<string, unknown> = {};
+	if (typeof flags.get("search") === "string") view.search = flags.get("search");
+	const filters = pairs("filter");
+	if (filters.length) view.filters = Object.fromEntries(filters.map(([id, v]) => [id, v ? v.split(",") : []]));
+	const sort = pairs("sort");
+	if (sort.length) view.sort = Object.fromEntries(sort);
+	const controls = pairs("control");
+	if (controls.length) view.controls = Object.fromEntries(controls);
+	return Object.keys(view).length ? view : undefined;
 }
 
 function socketPath(flags: Args["flags"]) {
@@ -249,12 +283,12 @@ async function call(path: string, autonomous: boolean, tool: string, args: Recor
 }
 
 async function main() {
-	const { positional, flags } = parse(process.argv.slice(2));
+	const { positional, flags, repeated } = parse(process.argv.slice(2));
 	const [command, ...rest] = positional;
 	if (command && COMMAND_FLAGS[command]) {
 		const unknown = [...flags.keys()].filter((f) => !GLOBAL_FLAGS.includes(f) && !COMMAND_FLAGS[command].includes(f));
 		if (unknown.length) throw new UsageError(`Unknown option${unknown.length === 1 ? "" : "s"} for toolbelt ${command}: ${unknown.map((f) => `--${f}`).join(", ")}. Run toolbelt help.`);
-		for (const name of ["socket", "max-rows", "table", "offset", "parent", "plugin"])
+		for (const name of VALUED)
 			if (flags.get(name) === true) throw new UsageError(`--${name} needs a value. Run toolbelt help.`);
 	}
 	if (!command || command === "help" || flags.has("help") || flags.has("h")) {
@@ -298,7 +332,20 @@ async function main() {
 				...(int("offset") !== undefined ? { offset: int("offset") } : {}),
 				...(flags.has("no-details") ? { details: false } : {}),
 			};
+			{
+				const view = viewOf(flags, repeated);
+				if (view && flags.has("person")) throw new UsageError("--person reads the person's view; it can't be combined with view options.");
+				if (flags.has("person")) args.view = "person";
+				else if (view) args.view = view;
+			}
 			break;
+		case "show": {
+			if (!rest[0]) throw new UsageError("Usage: toolbelt show <plugin> [screen]");
+			tool = "show_screen";
+			const view = viewOf(flags, repeated);
+			args = { plugin: rest[0], ...(rest[1] ? { screen: rest[1] } : {}), ...(view ? { view } : {}), ...(flags.has("open-window") ? { open_window: true } : {}) };
+			break;
+		}
 		case "search":
 			if (!rest.length) throw new UsageError("Usage: toolbelt search <words…>");
 			tool = "search_screens";

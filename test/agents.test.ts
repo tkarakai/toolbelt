@@ -4,8 +4,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentSettings, ceilingOf, declaredAccess, defaultAccess, effectiveAccess } from "../src/shared/agents";
-import { parseManifest, type Manifest, type Node } from "../src/shared/protocol";
+import { agentSettings, declaredAccess, effectiveAccess, grantEnd } from "../src/shared/agents";
+import { parseManifest, type Manifest, type Node, type ViewDeclaration, type ViewState } from "../src/shared/protocol";
+import type { AgentSettings } from "../src/shared/agents";
 import type { PluginInfo } from "../src/shared/plugin-state";
 import { MASK, maskSecrets, redact, treeJson, treeText } from "../src/bun/agent/serialize";
 import { AgentCore, type AgentHost } from "../src/bun/agent/core";
@@ -13,13 +14,14 @@ import { AgentServer } from "../src/bun/agent/server";
 import { AuditLog } from "../src/bun/agent/audit";
 import { commandWarning, createAgentInterface } from "../src/bun/agent";
 import { bundledSettingsFolder } from "../src/shared/variant";
+import { until } from "./agent-scenarios/harness";
 
 const manifest = (id: string, extra: Partial<Manifest> = {}): Manifest => ({
 	id,
 	name: id[0].toUpperCase() + id.slice(1),
 	icon: "box",
 	version: "1.0.0",
-	protocol: 1,
+	protocol: 2,
 	entry: "index.js",
 	screens: [{ id: "main", title: "Main", default: true }, { id: "settings", title: "Settings" }],
 	agent: { access: "read" },
@@ -66,17 +68,23 @@ describe("access levels", () => {
 		expect(effectiveAccess("act", "none")).toBe("none");
 		expect(effectiveAccess("none", "read")).toBe("none");
 	});
-	test("undeclared plugins get no access unless the person allows reading", () => {
-		expect(declaredAccess({})).toBeNull();
-		expect(declaredAccess({ agent: { access: "bogus" } })).toBeNull();
-		expect([ceilingOf(null), defaultAccess(null)]).toEqual(["read", "none"]);
-		expect(effectiveAccess(null)).toBe("none");
-		expect(effectiveAccess(null, "read")).toBe("read");
-		expect(effectiveAccess(null, "act")).toBe("read");
+	test("a record without a declaration (from before protocol 2) gets no access", () => {
+		expect(declaredAccess({})).toBe("none");
+		expect(declaredAccess({ agent: { access: "bogus" } })).toBe("none");
+		expect(effectiveAccess("none", "read")).toBe("none");
 	});
 	test("saved settings are checked", () => {
-		expect(agentSettings({ enabled: "yes", access: { a: "read", b: "all", c: "none" } })).toEqual({ enabled: false, access: { a: "read", c: "none" } });
-		expect(agentSettings(undefined)).toEqual({ enabled: false, access: {} });
+		const grant = { client: "claude-code", granted: 1, until: 2, duration: "hour" };
+		expect(agentSettings({ enabled: "yes", access: { a: "read", b: "all", c: "none" }, grants: [grant, { ...grant, duration: "forever" }, { ...grant, duration: "session" }, { client: 3 }] })).toEqual({ enabled: false, access: { a: "read", c: "none" }, grants: [grant] as never });
+		expect(agentSettings(undefined)).toEqual({ enabled: false, access: {}, grants: [] });
+	});
+	test("every view grant ends", () => {
+		const at = new Date(2026, 10, 25, 9, 30).getTime();
+		expect(grantEnd("session", at)).toBeNull();
+		expect(grantEnd("hour", at)).toBe(at + 3_600_000);
+		expect(grantEnd("today", at)).toBe(new Date(2026, 10, 26).getTime());
+		expect(grantEnd("week", at)).toBe(at + 7 * 86_400_000);
+		expect(grantEnd("month", at)).toBe(at + 30 * 86_400_000);
 	});
 	test("the manifest key is validated", () => {
 		expect(parseManifest(manifest("x", { agent: { access: "none" } })).agent).toEqual({ access: "none" });
@@ -424,8 +432,12 @@ describe("serializer", () => {
 	});
 });
 
-/** A host with plugins whose surfaces render a tree a moment after they open. */
-function fakeHost(plugins: Manifest[], render: (plugin: string, surface: string) => Node | { rejected: string } | null = () => page(3)) {
+/** A host with plugins whose surfaces render a tree a moment after they open (once per instance). */
+function fakeHost(
+	plugins: Manifest[],
+	render: (plugin: string, surface: string, view?: ViewState) => Node | { rejected: string } | null = () => page(3),
+	declared: Record<string, ViewDeclaration> = {},
+) {
 	type L = Parameters<AgentHost["subscribe"]>[0];
 	const listeners = new Set<L>();
 	const trees = new Map<string, { tree: Node; at: number }>();
@@ -437,31 +449,32 @@ function fakeHost(plugins: Manifest[], render: (plugin: string, surface: string)
 		events,
 		infos,
 		list: () => infos,
-		open(plugin, surface) {
-			const key = `${plugin}\n${surface}`;
+		open(plugin, surface, instance = "person", view) {
+			const key = `${plugin}\n${surface}\n${instance}`;
 			viewers.set(key, (viewers.get(key) ?? 0) + 1);
-			events.push(`open ${plugin} ${surface}`);
+			events.push(`open ${plugin} ${surface}${instance === "person" ? "" : ` ${instance}`}`);
 			setTimeout(() => {
-				const tree = render(plugin, surface);
+				const tree = render(plugin, surface, view);
 				if (!tree) return;
 				// A rejected render: the host shows its error tree, and snapshots report the reason.
 				if ("rejected" in tree) {
 					errors.set(key, tree.rejected);
-					listeners.forEach((l) => l.tree(plugin, surface, { type: "empty", title: "This screen couldn't be shown" }));
+					listeners.forEach((l) => l.tree(plugin, surface, { type: "empty", title: "This screen couldn't be shown" }, instance));
 					return;
 				}
 				trees.set(key, { tree, at: Date.now() });
-				listeners.forEach((l) => l.tree(plugin, surface, tree));
+				listeners.forEach((l) => l.tree(plugin, surface, tree, instance));
 			}, 10);
 			return null;
 		},
-		close(plugin, surface) {
-			const key = `${plugin}\n${surface}`;
+		close(plugin, surface, instance = "person") {
+			const key = `${plugin}\n${surface}\n${instance}`;
 			viewers.set(key, Math.max(0, (viewers.get(key) ?? 0) - 1));
-			events.push(`close ${plugin} ${surface}`);
+			events.push(`close ${plugin} ${surface}${instance === "person" ? "" : ` ${instance}`}`);
 		},
-		snapshot(plugin, surface) {
-			const key = `${plugin}\n${surface}`;
+		declaredView: (plugin, surface) => declared[`${plugin}/${surface}`] ?? null,
+		snapshot(plugin, surface, instance = "person") {
+			const key = `${plugin}\n${surface}\n${instance}`;
 			const t = trees.get(key);
 			return { tree: t?.tree ?? null, at: t?.at ?? 0, viewers: viewers.get(key) ?? 0, ...(errors.has(key) ? { error: errors.get(key) } : {}) };
 		},
@@ -477,7 +490,7 @@ const tmp = () => mkdtempSync(join(tmpdir(), "tb-agent-"));
 
 function makeCore(host: AgentHost, access: Record<string, "none" | "read" | "act"> = {}) {
 	const dir = tmp();
-	let settings = { enabled: true, access };
+	let settings: AgentSettings = { enabled: true, access, grants: [] };
 	const core = new AgentCore({
 		host,
 		settings: () => settings,
@@ -516,20 +529,6 @@ describe("agent core", () => {
 		expect(audit[0]).toMatchObject({ client: "test", mode: "interactive" });
 	});
 
-	test("an undeclared plugin is hidden until the person allows it, then readable", async () => {
-		const legacy: Manifest = { ...manifest("legacy"), agent: undefined };
-		const host = fakeHost([manifest("tasks"), legacy]);
-		const { core, settings } = makeCore(host);
-		const session = core.openSession("t", "interactive");
-		expect((await core.call(session, "toolbelt_status")).text).toContain("1 more plugin is not available to agents");
-		expect((await core.call(session, "read_screen", { plugin: "legacy" })).isError).toBe(true);
-		expect(core.state().plugins.find((p) => p.id === "legacy")).toMatchObject({ declared: false, ceiling: "read", byDefault: "none", effective: "none" });
-		core.handle({ operation: "setAccess", plugin: "legacy", access: "read" }, () => {});
-		expect(settings().access).toEqual({ legacy: "read" });
-		expect((await core.call(session, "read_screen", { plugin: "legacy" })).text).toContain("# Legacy › Main");
-		expect((await core.call(session, "list_plugins")).text).toContain("Legacy (legacy)");
-	});
-
 	test("the person's choice lowers access", async () => {
 		const host = fakeHost([manifest("tasks")]);
 		const { core } = makeCore(host, { tasks: "none" });
@@ -546,12 +545,17 @@ describe("agent core", () => {
 		expect(r.isError).toBeUndefined();
 		expect(r.text).toContain("# Tasks › Main");
 		expect(r.text).toContain("Thing 2");
-		expect(r.text).toContain('currently shows: filter "Kind" = Apples');
-		expect(host.events).toEqual(["open tasks screen:main"]);
+		// The agent's own instance, as the screen starts: nothing the person set applies to it.
+		expect(r.text).toContain("Your view: as the screen starts");
+		expect(host.events).toEqual(["open tasks screen:main agent:default"]);
 		await core.call(session, "read_screen", { plugin: "tasks", screen: "main" });
-		expect(host.events).toEqual(["open tasks screen:main"]);
+		expect(host.events).toEqual(["open tasks screen:main agent:default"]);
+		// The person's view, with the state they set.
+		const person = await core.call(session, "read_screen", { plugin: "tasks", view: "person" });
+		expect(person.text).toContain('The person\'s view, currently showing filter "Kind" = Apples');
+		expect(host.events).toEqual(["open tasks screen:main agent:default", "open tasks screen:main"]);
 		await Bun.sleep(150);
-		expect(host.events).toEqual(["open tasks screen:main", "close tasks screen:main"]);
+		expect(host.events).toEqual(["open tasks screen:main agent:default", "open tasks screen:main", "close tasks screen:main agent:default", "close tasks screen:main"]);
 		expect((await core.call(session, "read_screen", { plugin: "tasks", screen: "nope" })).text).toContain("has no screen");
 	});
 
@@ -621,9 +625,9 @@ describe("agent core", () => {
 		const text = await core.call(session, "read_screen", { plugin: "tasks" });
 		expect(text.data).toBeUndefined();
 		expect(text.text).toMatch(/rendered (now|\d+m ago)/);
-		const json = await core.call(session, "read_screen", { plugin: "tasks", format: "json" });
+		const json = await core.call(session, "read_screen", { plugin: "tasks", format: "json", view: "person" });
 		expect(JSON.parse(json.text)).toEqual(json.data);
-		expect(json.data).toMatchObject({ plugin: "tasks", screen: "main", rendered: true, personViewing: false, renderedAtIso: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), viewState: ['filter "Kind" = Apples'] });
+		expect(json.data).toMatchObject({ plugin: "tasks", screen: "main", rendered: true, personViewing: false, view: "person", renderedAtIso: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), viewState: ['filter "Kind" = Apples'] });
 		for (const tool of ["toolbelt_status", "list_screens", "search_screens", "list_plugins"]) {
 			const args = tool === "search_screens" ? { query: "thing" } : {};
 			expect((await core.call(session, tool, args)).data).toBeUndefined();
@@ -718,7 +722,7 @@ describe("agent core", () => {
 		const dir = tmp();
 		const core = new AgentCore({
 			host,
-			settings: () => ({ enabled: true, access: {} }),
+			settings: () => ({ enabled: true, access: {}, grants: [] }),
 			save: () => {},
 			app: () => ({ name: "ToolBelt Dev", version: "9.9.9", channel: "dev", developmentProfile: null, location: "/w/a/build.noindex/Toolbelt-dev.app" }),
 			installed: () => [
@@ -753,9 +757,145 @@ describe("agent core", () => {
 		await core.call(core.openSession("t", "interactive"), "read_screen", { plugin: "tasks" });
 		core.handle({ operation: "setAccess", plugin: "tasks", access: "none" }, () => {});
 		expect(settings().access).toEqual({ tasks: "none" });
-		expect(host.events.at(-1)).toBe("close tasks screen:main");
+		expect(host.events.at(-1)).toBe("close tasks screen:main agent:default");
 		core.handle({ operation: "setAccess", plugin: "tasks", access: null }, () => {});
 		expect(settings().access).toEqual({});
+	});
+});
+
+describe("agent views and the person's view", () => {
+	const declared = { "tasks/screen:main": { search: true, filters: { kind: ["a"] }, sort: { things: null } } };
+	/** A core whose show_screen talks to fake person screens. */
+	function viewCore(o: { window?: boolean; approvalMs?: number } = {}) {
+		const host = fakeHost([manifest("tasks")], (_p, _s, view) => page(3, view?.search ? { summary: `searched ${view.search}` } : {}), declared);
+		const dir = tmp();
+		let settings: AgentSettings = { enabled: true, access: {}, grants: [] };
+		const person = { views: new Map<string, ViewState>(), navigated: [] as string[], window: o.window ?? true, opened: 0 };
+		let viewListener: ((plugin: string, surface: string, view: ViewState) => void) | undefined;
+		const subscribe = host.subscribe;
+		host.subscribe = (l) => ((viewListener = l.view), subscribe(l));
+		const core = new AgentCore({
+			host,
+			settings: () => settings,
+			save: (next) => (settings = next),
+			app: () => ({ name: "ToolBelt", version: "9.9.9", channel: "test", developmentProfile: null }),
+			auditFile: join(dir, "agent-audit.jsonl"),
+			socket: join(dir, "agent.sock"),
+			command: null,
+			changed: () => {},
+			holdMs: 80,
+			renderWaitMs: 500,
+			approvalMs: o.approvalMs ?? 2000,
+			person: {
+				devices: () => [{ name: "the Mac", kind: "mac", showing: person.window }],
+				openWindow: () => void ((person.window = true), person.opened++),
+				navigate: (plugin, screen) => void person.navigated.push(`${plugin}/${screen}`),
+				view: (plugin, surface) => person.views.get(`${plugin}/${surface}`) ?? {},
+				setView: (plugin, surface, view) => {
+					person.views.set(`${plugin}/${surface}`, view);
+					viewListener?.(plugin, surface, view);
+				},
+			},
+		});
+		const answer = async (allow: boolean, duration?: "session" | "hour") => {
+			const asked = await until(() => core.state().approvals[0]);
+			core.handle({ operation: "answer", id: asked.id, allow, duration }, () => {});
+			return asked;
+		};
+		return { core, host, person, answer, settings: () => settings, dir };
+	}
+
+	test("each distinct view is its own instance; ids and options are checked", async () => {
+		const { core, host } = viewCore();
+		const s = core.openSession("t", "interactive");
+		const a = await core.call(s, "read_screen", { plugin: "tasks", view: { search: "x" } });
+		expect(a.text).toContain('Your view: search "x".');
+		expect(a.text).toContain("Summary: searched x");
+		await core.call(s, "read_screen", { plugin: "tasks", view: { search: "x" } });
+		await core.call(s, "read_screen", { plugin: "tasks" });
+		const opened = host.events.filter((e) => e.startsWith("open"));
+		expect(opened).toHaveLength(2);
+		expect(opened[1]).toBe("open tasks screen:main agent:default");
+		expect((await core.call(s, "read_screen", { plugin: "tasks", view: { filters: { kind: ["pears"] } } })).text).toBe('Filter "kind" has no option "pears". Its options: a (Apples), b (Bananas).');
+		const bad = await core.call(s, "read_screen", { plugin: "tasks", view: { controls: { mode: "x" } } });
+		expect(bad).toMatchObject({ isError: true, kind: "invalid", text: "This screen has no control \"mode\". Its controls: none." });
+		expect((await core.call(s, "read_screen", { plugin: "tasks", view: { sort: { things: "-colour" } } })).text).toContain('Table "things" can\'t be sorted by "colour"');
+		const schema = await core.call(s, "list_screens", { format: "json" });
+		expect((schema.data as { screens: { view: unknown }[] }).screens[0].view).toEqual({
+			search: true,
+			filters: [{ id: "kind", label: "Kind", default: ["a"], options: [{ value: "a", label: "Apples" }, { value: "b", label: "Bananas" }] }],
+			sort: [{ table: "things", default: null, keys: [] }],
+			controls: [],
+		});
+	});
+
+	test("show_screen asks once, then uses the grant until it's revoked", async () => {
+		const { core, person, answer, settings } = viewCore();
+		const s = core.openSession("claude-code", "interactive");
+		const shown = core.call(s, "show_screen", { plugin: "tasks", view: { search: "budget" } });
+		const asked = await answer(true, "hour");
+		expect(asked).toMatchObject({ client: "claude-code", what: 'Tasks › Main, search "budget"' });
+		const r = await shown;
+		expect(r.text).toContain('Showing Tasks › Main, search "budget" on the Mac.');
+		expect(person.navigated).toEqual(["tasks/main"]);
+		expect(person.views.get("tasks/screen:main")).toEqual({ search: "budget" });
+		expect(settings().grants).toEqual([expect.objectContaining({ client: "claude-code", duration: "hour" })]);
+		expect(core.state().shown).toEqual([expect.objectContaining({ plugin: "tasks", surface: "screen:main", client: "claude-code" })]);
+		// No question while the grant lasts.
+		expect((await core.call(s, "show_screen", { plugin: "tasks" })).isError).toBeUndefined();
+		expect(core.state().approvals).toEqual([]);
+		// The person changing the view themselves ends the notice; Restore isn't offered any more.
+		person.views.set("tasks/screen:main", { search: "mine" });
+		(core as unknown as { personViewChanged(p: string, s: string, v: ViewState): void }).personViewChanged("tasks", "screen:main", { search: "mine" });
+		expect(core.state().shown).toEqual([]);
+		core.handle({ operation: "revokeGrant", client: "claude-code" }, () => {});
+		expect(settings().grants).toEqual([]);
+	});
+
+	test("Restore puts back the view from before the agent's first change", async () => {
+		const { core, person, answer } = viewCore();
+		person.views.set("tasks/screen:main", { filters: { kind: ["b"] } });
+		const s = core.openSession("claude-code", "interactive");
+		const first = core.call(s, "show_screen", { plugin: "tasks", view: { search: "a" } });
+		await answer(true, "session");
+		await first;
+		await core.call(s, "show_screen", { plugin: "tasks", view: { search: "b" } });
+		core.handle({ operation: "restoreView", plugin: "tasks", surface: "screen:main" }, () => {});
+		expect(person.views.get("tasks/screen:main")).toEqual({ filters: { kind: ["b"] } });
+		expect(core.state().shown).toEqual([]);
+	});
+
+	test("a this-session grant ends with the session; an unanswered question times out", async () => {
+		const { core, answer } = viewCore({ approvalMs: 150 });
+		const s = core.openSession("claude-code", "interactive");
+		const first = core.call(s, "show_screen", { plugin: "tasks" });
+		await answer(true, "session");
+		await first;
+		expect(core.state().grants).toEqual([expect.objectContaining({ client: "claude-code", duration: "session", session: s.id })]);
+		core.closeSession(s);
+		expect(core.state().grants).toEqual([]);
+		const next = core.openSession("claude-code", "interactive");
+		const r = await core.call(next, "show_screen", { plugin: "tasks" });
+		expect(r).toMatchObject({ isError: true, text: expect.stringContaining("didn't answer within 0 seconds") });
+		expect(core.state().approvals).toEqual([]);
+	});
+
+	test("nobody to ask: refused unless the agent may open the window", async () => {
+		const { core, person, answer } = viewCore({ window: false });
+		const s = core.openSession("claude-code", "interactive");
+		const refused = await core.call(s, "show_screen", { plugin: "tasks" });
+		expect(refused.text).toContain("Nobody can approve this: ToolBelt's window is closed on the Mac and no paired device has ToolBelt open.");
+		expect(person.opened).toBe(0);
+		const shown = core.call(s, "show_screen", { plugin: "tasks", open_window: true });
+		await answer(true, "hour");
+		expect((await shown).text).toContain("Showing Tasks › Main on the Mac.");
+		expect(person.opened).toBe(1);
+	});
+
+	test("without the person's screens, show_screen is unavailable", async () => {
+		const { core } = makeCore(fakeHost([manifest("tasks")]));
+		const r = await core.call(core.openSession("t", "interactive"), "show_screen", { plugin: "tasks" });
+		expect(r).toMatchObject({ isError: true, kind: "unavailable" });
 	});
 });
 
@@ -809,8 +949,8 @@ describe("agent socket", () => {
 		c.send({ jsonrpc: "2.0", method: "notifications/initialized" });
 		c.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
 		const tools = (await c.reply(2)).result.tools;
-		expect(tools.map((t: { name: string }) => t.name)).toEqual(["toolbelt_status", "list_screens", "read_screen", "search_screens", "list_plugins"]);
-		expect(tools.every((t: { annotations: { readOnlyHint: boolean } }) => t.annotations.readOnlyHint)).toBe(true);
+		expect(tools.map((t: { name: string }) => t.name)).toEqual(["toolbelt_status", "list_screens", "read_screen", "search_screens", "show_screen", "list_plugins"]);
+		expect(tools.filter((t: { annotations: { readOnlyHint: boolean } }) => !t.annotations.readOnlyHint).map((t: { name: string }) => t.name)).toEqual(["show_screen"]);
 		c.send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "read_screen", arguments: { plugin: "tasks" } } });
 		const read = (await c.reply(3)).result;
 		expect(read.content[0].text).toContain("Thing 0");
@@ -875,7 +1015,7 @@ describe("agent socket", () => {
 	test("the CLI reads through the socket; the factory starts only when enabled", { timeout: 20_000 }, async () => {
 		const host = fakeHost([manifest("tasks")]);
 		const dir = tmp();
-		let settings = { enabled: false, access: {} as Record<string, "none" | "read" | "act"> };
+		let settings: AgentSettings = { enabled: false, access: {}, grants: [] };
 		const agents = createAgentInterface({
 			host,
 			settings: () => settings,

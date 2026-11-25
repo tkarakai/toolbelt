@@ -45,11 +45,12 @@
 		{
 			"call": "read_screen",
 			"args": {
-				"plugin": "desk"
+				"plugin": "desk",
+				"view": "person"
 			},
 			"expect": {
 				"contains": [
-					"currently shows: filter \"Status\" = Done; dialog \"New task\" open",
+					"currently showing filter \"Status\" = Done; dialog \"New task\" open",
 					"Filter Status: Done",
 					"### Done",
 					"Renew passport",
@@ -59,6 +60,23 @@
 				"absent": [
 					"Archive done",
 					"Submit November expense report"
+				]
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": {
+				"plugin": "desk"
+			},
+			"expect": {
+				"contains": [
+					"Your view: as the screen starts",
+					"Filter Status: Ongoing",
+					"Submit November expense report"
+				],
+				"absent": [
+					"Dialog open",
+					"Renew passport"
 				]
 			}
 		},
@@ -76,11 +94,12 @@
 		{
 			"call": "read_screen",
 			"args": {
-				"plugin": "desk"
+				"plugin": "desk",
+				"view": "person"
 			},
 			"expect": {
 				"contains": [
-					"currently shows: filter \"Status\" = Done."
+					"currently showing filter \"Status\" = Done."
 				],
 				"absent": [
 					"Dialog open"
@@ -90,7 +109,7 @@
 	],
 	"rubric": [
 		"Reports the passport renewal as done.",
-		"Notes the person's filter and open dialog shape what it sees."
+		"When reading the person's view, notes their filter and open dialog shape it."
 	],
 	"origin": {
 		"run": "fixtures",

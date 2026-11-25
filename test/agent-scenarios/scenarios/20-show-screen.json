@@ -1,0 +1,187 @@
+{
+	"id": "20-show-screen",
+	"title": "The agent shows the person their finished tasks",
+	"prompt": "Show me my finished tasks",
+	"persona": "Person chatting with Claude Code, with Desk open on the Mac and a paired iPhone without ToolBelt open",
+	"channels": [
+		"mcp",
+		"cli"
+	],
+	"setup": {
+		"devices": {
+			"window": true,
+			"paired": [
+				{
+					"name": "iPhone",
+					"connected": false
+				}
+			]
+		},
+		"person": [
+			{
+				"open": "desk/tasks"
+			},
+			{
+				"event": {
+					"screen": "desk/tasks",
+					"name": "settle",
+					"payload": {
+						"rowId": "6"
+					}
+				}
+			}
+		]
+	},
+	"steps": [
+		{
+			"call": "show_screen",
+			"args": {
+				"plugin": "desk",
+				"view": {
+					"filters": {
+						"status": [
+							"done"
+						]
+					}
+				}
+			},
+			"answer": {
+				"allow": true,
+				"duration": "hour"
+			},
+			"expect": {
+				"contains": [
+					"Showing Desk › Tasks, Status: Done on the Mac.",
+					"Not showing on iPhone (ToolBelt not open). Tell the person and ask what to do."
+				],
+				"navigated": [
+					"desk/tasks"
+				],
+				"personView": {
+					"screen": "desk/tasks",
+					"view": {
+						"filters": {
+							"status": [
+								"done"
+							]
+						}
+					}
+				}
+			}
+		},
+		{
+			"call": "show_screen",
+			"args": {
+				"plugin": "desk",
+				"view": {
+					"search": "passport"
+				}
+			},
+			"expect": {
+				"contains": [
+					"Showing Desk › Tasks, search \"passport\" on the Mac."
+				],
+				"personView": {
+					"screen": "desk/tasks",
+					"view": {
+						"search": "passport"
+					}
+				}
+			}
+		},
+		{
+			"person": {
+				"restore": "desk/tasks"
+			},
+			"expect": {
+				"personView": {
+					"screen": "desk/tasks",
+					"view": {}
+				}
+			}
+		},
+		{
+			"person": {
+				"revoke": "*"
+			}
+		},
+		{
+			"call": "show_screen",
+			"args": {
+				"plugin": "desk"
+			},
+			"answer": {
+				"allow": false
+			},
+			"expect": {
+				"refused": true,
+				"contains": [
+					"The person didn't allow changing their view. Nothing changed."
+				],
+				"navigated": []
+			}
+		},
+		{
+			"call": "show_screen",
+			"args": {
+				"plugin": "desk",
+				"view": {
+					"filters": {
+						"status": [
+							"nope"
+						]
+					}
+				}
+			},
+			"expect": {
+				"refused": true,
+				"contains": [
+					"Filter \"status\" has no option \"nope\""
+				]
+			}
+		}
+	],
+	"expect": {
+		"audit": [
+			{
+				"operation": "view_grant",
+				"outcome": "ok",
+				"plugin": "desk"
+			},
+			{
+				"operation": "show_screen",
+				"outcome": "ok",
+				"plugin": "desk"
+			},
+			{
+				"operation": "show_screen",
+				"outcome": "ok",
+				"plugin": "desk"
+			},
+			{
+				"operation": "view_grant",
+				"outcome": "denied",
+				"plugin": "desk"
+			},
+			{
+				"operation": "show_screen",
+				"outcome": "denied",
+				"plugin": "desk"
+			}
+		]
+	},
+	"rubric": [
+		"Shows the finished tasks and says it's on the Mac.",
+		"Tells the person the iPhone doesn't show it because ToolBelt isn't open there, and asks what to do."
+	],
+	"origin": {
+		"run": "fixtures",
+		"case": "new",
+		"plugins": [
+			"desk"
+		],
+		"channel": "MCP and CLI",
+		"calls": [],
+		"verdict": "new"
+	}
+}

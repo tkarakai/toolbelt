@@ -65,9 +65,7 @@
 			"vault",
 			"Vault",
 			"vault-hunter2",
-			"node server.js",
-			"Jot (jot)",
-			"plumber"
+			"node server.js"
 		],
 		"audit": [
 			{
