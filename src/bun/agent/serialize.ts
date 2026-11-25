@@ -5,7 +5,7 @@ import type { Action, Cell, Dot, Field, GroupLabel, Node, Row, Section, Tag } fr
 export const MASK = "••••••";
 
 export type ReadOptions = {
-	/** Rows per table (top-level rows; children come with their parent). Default 100. */
+	/** Rows per table, child rows included (the last parent may lose some children). Default 50. */
 	maxRows?: number;
 	/** Only this table is paged by `offset`; others start at their first row. */
 	table?: string;
@@ -13,9 +13,14 @@ export type ReadOptions = {
 	/** Include rows' inspector details. Default true. */
 	details?: boolean;
 	now?: number;
+	/** The result's size limit in characters; tables stop at a row boundary to stay under it. */
+	budget?: number;
 };
 
-const MAX_TEXT = 60_000;
+export const DEFAULT_ROWS = 50;
+/** Size limits for agent results, in characters (MCP clients keep tool results small). */
+export const TEXT_BUDGET = 50_000;
+export const JSON_BUDGET = 100_000;
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… (${s.length - n} more characters)` : s);
 
 /** A deep copy with sensitive field values and secret environment values masked. */
@@ -105,9 +110,25 @@ const actionLabels = (actions?: Action[]) => [
 	...new Set((actions ?? []).filter((a) => !a.disabled).map((a) => a.label + (a.menu?.length ? ` (or: ${a.menu.map((m) => m.label).join(", ")})` : ""))),
 ];
 
-type Out = { lines: string[]; notes: string[] };
+type Out = {
+	lines: string[];
+	notes: string[];
+	/** Characters in `lines` up to `counted`. */
+	size?: number;
+	counted?: number;
+	/** Table rows listed so far: the first always comes, whatever its size. */
+	rowsShown?: number;
+};
+/** Characters so far (lines plus line breaks), counted incrementally. */
+function sizeOf(out: Out) {
+	out.size ??= 0;
+	out.counted ??= 0;
+	for (; out.counted < out.lines.length; out.counted++) out.size += out.lines[out.counted].length + 1;
+	return out.size;
+}
 
 type WalkOptions = Required<Omit<ReadOptions, "table">> & { table?: string };
+const resume = (id: string, next: number) => `read again with table "${id}" and offset ${next}`;
 
 /** Labels of the row's own actions when they differ from the table's (`Row.actions` names a subset). */
 function ownActions(row: Row, actions: Action[] | undefined) {
@@ -115,6 +136,39 @@ function ownActions(row: Row, actions: Action[] | undefined) {
 	const all = actionLabels(actions);
 	const mine = actionLabels(actions.filter((a) => row.actions!.includes(a.id)));
 	return mine.length === all.length ? null : mine;
+}
+
+/** A row as paged for an agent: children may be cut, `omittedChildren` counts the rows left out under it. */
+export type PagedRow = Row & { omittedChildren?: number };
+const countRows = (rows: Row[] = []): number => rows.reduce((n, r) => n + 1 + countRows(r.children), 0);
+
+/**
+ * One page of a table's rows from `offset`: at most `maxRows` rows counting children, whole
+ * top-level rows only, except that the first row always comes (with as many children as fit).
+ * `next` is the offset of the first top-level row left out.
+ */
+export function pageRows(all: Row[], offset: number, maxRows: number): { rows: PagedRow[]; next: number | null } {
+	let left = maxRows;
+	const prune = (row: Row): PagedRow => {
+		left--;
+		if (!row.children?.length) return row;
+		const kids: PagedRow[] = [];
+		for (const child of row.children) {
+			if (left <= 0) break;
+			kids.push(prune(child));
+		}
+		const omitted = countRows(row.children) - countRows(kids) + kids.reduce((n, k) => n + (k.omittedChildren ?? 0), 0);
+		return omitted ? { ...row, children: kids, omittedChildren: omitted } : { ...row, children: kids };
+	};
+	const rows: PagedRow[] = [];
+	let i = Math.max(0, offset);
+	// A top-level row comes whole when it fits; only the first may be cut to fit at all.
+	for (; i < all.length && left > 0; i++) {
+		const size = 1 + countRows(all[i].children);
+		if (rows.length && size > left) break;
+		rows.push(prune(all[i]));
+	}
+	return { rows, next: i < all.length ? i : null };
 }
 
 type Columns = { key: string; title?: string }[];
@@ -149,6 +203,8 @@ function rowLines(row: Row, cols: Columns, depth: number, opts: WalkOptions, out
 		}
 	}
 	for (const child of row.children ?? []) rowLines(child, cols, depth + 1, opts, out, actions);
+	const omitted = (row as PagedRow).omittedChildren;
+	if (omitted) out.lines.push(`${indent}  (${omitted} more row${omitted === 1 ? "" : "s"} under this one not listed; read with a larger max_rows)`);
 }
 
 /** Declared sections and sub-sections by id: their labels and ids from the top level down. */
@@ -194,7 +250,7 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 		case "table": {
 			const total = node.rows.length;
 			const offset = opts.table === node.id ? Math.max(0, opts.offset) : 0;
-			const rows = node.rows.slice(offset, offset + opts.maxRows);
+			const page = pageRows(node.rows, offset, opts.maxRows);
 			const sortCol = node.sort && node.columns.find((c) => c.key === node.sort!.key);
 			out.lines.push("", `## Table ${node.id}: ${total} row${total === 1 ? "" : "s"}${sortCol ? `, sorted by ${sortCol.title}${node.sort!.desc ? " (descending)" : ""}` : ""}`);
 			if (!total) {
@@ -209,7 +265,11 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			const sections = sectionPaths(node.sections);
 			const used = new Set<string>();
 			let header = "";
-			for (const row of rows) {
+			// Rows render one at a time and stop before the result outgrows its budget.
+			let shown = 0;
+			let stopped: number | null = null;
+			for (const row of page.rows) {
+				const rowOut: Out = { lines: [], notes: [] };
 				const path = row.group === undefined ? [] : typeof row.group === "string" ? [row.group] : row.group;
 				// A row in a sub-section sits under its parent sections too.
 				const declared = path.length ? sections.get(idOf(path[0])) : undefined;
@@ -221,17 +281,30 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 					.join(" › ");
 				if (h !== header) {
 					header = h;
-					if (h) out.lines.push(`### ${h}`);
+					if (h) rowOut.lines.push(`### ${h}`);
 				}
-				rowLines(row, node.columns, 0, opts, out, node.actions);
+				rowLines(row, node.columns, 0, opts, rowOut, node.actions);
+				if (sizeOf(out) + sizeOf(rowOut) > opts.budget && out.rowsShown) {
+					stopped = offset + shown;
+					break;
+				}
+				out.lines.push(...rowOut.lines);
+				out.rowsShown = (out.rowsShown ?? 0) + 1;
+				shown++;
 			}
+			const rows = page.rows.slice(0, shown);
 			// Empty sections are only known when every row was looked at.
 			const empty = [...sections].filter(([id]) => !used.has(id)).map(([, p]) => p.labels.filter((l, i, all) => l !== all[i - 1]).join(" › "));
-			if (empty.length && offset === 0 && rows.length === total) out.lines.push(`Empty sections: ${empty.join(", ")}`);
+			if (empty.length && offset === 0 && rows.length === total && stopped === null) out.lines.push(`Empty sections: ${empty.join(", ")}`);
 			if (total && offset >= total) out.lines.push(`(offset ${offset} is past the end: the table has ${total} row${total === 1 ? "" : "s"}; offsets start at 0)`);
+			else if (stopped !== null)
+				out.lines.push(
+					rows.length
+						? `(showing rows ${offset + 1}–${stopped} of ${total}: the result reached its size limit; ${resume(node.id, stopped)}, or pass details: false for shorter rows)`
+						: `(${total - offset} row${total - offset === 1 ? "" : "s"} not listed: the result reached its size limit; ${resume(node.id, stopped)})`,
+				);
 			else if (total && !rows.length) out.lines.push(`(${total} row${total === 1 ? "" : "s"} not listed: max_rows is 0)`);
-			else if (offset + rows.length < total)
-				out.lines.push(`(showing rows ${offset + 1}–${offset + rows.length} of ${total}; read again with table "${node.id}" and offset ${offset + rows.length} for more)`);
+			else if (page.next !== null) out.lines.push(`(showing rows ${offset + 1}–${page.next} of ${total}; ${resume(node.id, page.next)} for more)`);
 			return;
 		}
 		case "list": {
@@ -311,15 +384,22 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 export function treeText(tree: Node, options: ReadOptions = {}) {
 	const out: Out = { lines: [], notes: [] };
 	walk(redact(tree), {
-		maxRows: options.maxRows ?? 100,
+		maxRows: options.maxRows ?? DEFAULT_ROWS,
+		budget: options.budget ?? TEXT_BUDGET,
 		offset: options.offset ?? 0,
 		details: options.details ?? true,
 		now: options.now ?? Date.now(),
 		table: options.table,
 	}, out);
-	while (out.lines[0] === "") out.lines.shift();
-	let text = out.lines.join("\n");
-	if (text.length > MAX_TEXT) text = `${text.slice(0, MAX_TEXT)}\n(truncated at ${MAX_TEXT} characters; read one table at a time with a smaller max_rows)`;
+	const lines = out.lines.flatMap((l) => l.split("\n"));
+	while (lines[0] === "") lines.shift();
+	let text = lines.join("\n");
+	// Content outside tables (logs, Markdown) can still overflow: cut at a line, and say where.
+	const budget = options.budget ?? TEXT_BUDGET;
+	if (text.length > budget) {
+		const kept = lines.slice(0, text.slice(0, budget).split("\n").length - 1);
+		text = `${kept.join("\n")}\n(truncated after line ${kept.length} of ${lines.length} at the result's size limit; read one table at a time with table and offset, or pass details: false)`;
+	}
 	return { text, viewState: out.notes };
 }
 
@@ -327,28 +407,137 @@ export function treeText(tree: Node, options: ReadOptions = {}) {
 const TIME_KEYS = ["at", "metaAt", "edited"];
 /** Row fields that are the row's inspector details, left out with `details: false`. */
 const DETAIL_KEYS = ["details", "stats", "pane"];
+/**
+ * Protocol fields that only affect how the UI looks or is operated (icons, sizes, emphasis,
+ * placeholders, drag and drop): left out of agent JSON. Plugin-chosen keys (a row's
+ * `cells`, a field's `value`) are never touched.
+ */
+const VISUAL_KEYS = new Set([
+	"icon", "dropIcon", "dropLabel", "width", "minWidth", "maxWidth", "grow", "shrink", "wide", "align", "resizable",
+	"inset", "mono", "muted", "strong", "style", "titleStyle", "appearance", "autofocus", "placeholder",
+	"pill", "overflow", "layoutVersion", "selectEvents", "reorderOnto", "reorderable", "sortable", "focus",
+]);
+/** `cells` is keyed by the plugin's column keys (its values are protocol cells); a field's `value` is plugin data. */
+type DataScope = false | "keys" | "all";
+const dataScope = (key: string, scope: DataScope): DataScope => (scope === "all" || key === "value" ? "all" : key === "cells" ? "keys" : false);
 
-/** A surface as redacted JSON, tables cut to `maxRows` rows (from `offset` for `table`). */
+/**
+ * A surface as redacted JSON for agents: the tree without visual-only fields, tables paged like
+ * text (`maxRows` rows counting children, from `offset` for `table`), and outer tables cut at a
+ * row boundary when the whole result would outgrow `budget` characters. A paged table gets
+ * `paging: { offset, total, next }`, with `reason: "size"` when the budget cut it.
+ */
 export function treeJson(tree: Node, options: ReadOptions = {}): Node {
-	const maxRows = options.maxRows ?? 100;
+	const maxRows = options.maxRows ?? DEFAULT_ROWS;
 	const details = options.details ?? true;
-	const cut = (value: unknown, row = false): unknown => {
-		if (Array.isArray(value)) return value.map((v) => cut(v, row));
+	const budget = options.budget ?? JSON_BUDGET;
+	const outer: Record<string, unknown>[] = [];
+	const cut = (value: unknown, ctx: { row: boolean; inRow: boolean; data: DataScope }): unknown => {
+		if (Array.isArray(value)) return value.map((v) => cut(v, ctx));
 		if (!value || typeof value !== "object") return value;
 		const o: Record<string, unknown> = {};
 		for (const [k, v] of Object.entries(value)) {
-			if (row && !details && DETAIL_KEYS.includes(k)) continue;
+			if (!ctx.data && VISUAL_KEYS.has(k)) continue;
+			if (ctx.row && !details && DETAIL_KEYS.includes(k)) continue;
 			// Rows (and their children) are the objects under a table's `rows`.
-			o[k] = cut(v, k === "rows" || (row && k === "children"));
-			if (TIME_KEYS.includes(k) && typeof v === "number") o[`${k}Iso`] = new Date(v).toISOString();
+			const row = !ctx.data && (k === "rows" || (ctx.row && k === "children"));
+			o[k] = cut(v, { row, inRow: ctx.inRow || ctx.row, data: ctx.data === "keys" ? false : dataScope(k, ctx.data) });
+			if (!ctx.data && TIME_KEYS.includes(k) && typeof v === "number") o[`${k}Iso`] = new Date(v).toISOString();
 		}
-		if (o.type === "table" && Array.isArray(o.rows)) {
+		if (!ctx.data && o.type === "table" && Array.isArray(o.rows)) {
 			const offset = options.table === o.id ? Math.max(0, options.offset ?? 0) : 0;
 			const total = o.rows.length;
-			o.rows = o.rows.slice(offset, offset + maxRows);
-			if (offset || total > offset + maxRows) o.paging = { offset, total };
+			const page = pageRows(o.rows as Row[], offset, maxRows);
+			o.rows = page.rows;
+			if (offset || page.next !== null) o.paging = { offset, total, next: page.next };
+			if (!ctx.inRow) outer.push(o);
 		}
 		return o;
 	};
-	return cut(redact(tree)) as Node;
+	const result = cut(redact(tree), { row: false, inRow: false, data: false }) as Node;
+	if (JSON.stringify(result).length <= budget) return result;
+	// Over budget: keep rows table by table, in order, while they fit.
+	const all = outer.map((t) => t.rows as unknown[]);
+	for (const t of outer) t.rows = [];
+	let size = JSON.stringify(result).length + outer.length * 80; // room for paging notes
+	outer.forEach((t, i) => {
+		const rows = all[i];
+		let kept = 0;
+		for (const r of rows) {
+			const n = JSON.stringify(r).length + 1;
+			if (size + n > budget && (kept || size > budget)) break;
+			size += n;
+			kept++;
+		}
+		t.rows = rows.slice(0, kept);
+		if (kept < rows.length) {
+			const paging = (t.paging as { offset: number; total: number } | undefined) ?? { offset: 0, total: rows.length };
+			t.paging = { offset: paging.offset, total: paging.total, next: paging.offset + kept, reason: "size" };
+		}
+	});
+	return result;
+}
+
+/** Lines that describe a screen's controls, not its content: search skips them. */
+const CONTROL_LINE = /^(#|Columns:|Row actions:|Bulk actions:|Toolbar actions:|Actions:|Filter |Control |Empty sections:|\(showing|\(offset |\(\d+ (rows?|items) not listed|\(truncated)/;
+const ROW_LINE = /^- .*\{id: [^}]*\}/;
+export const SEARCH_CLIP = 300;
+
+/** A long line shortened to `n` characters, keeping a row's trailing `{id: …}` and flags. */
+export function clipLine(line: string, n = SEARCH_CLIP) {
+	if (line.length <= n) return line;
+	const tail = line.match(/\s+\{id: [^}]*\}.*$/)?.[0] ?? "";
+	return `${line.slice(0, Math.max(20, n - tail.length - 1)).trimEnd()}…${tail.length <= n / 2 ? tail : ""}`;
+}
+/** The part of a long line around `word`. */
+function around(line: string, word: string, n = 160) {
+	const at = line.toLowerCase().indexOf(word);
+	if (line.length <= n || at < 0) return clipLine(line, n);
+	const start = Math.max(0, at - Math.floor(n / 3));
+	return `${start ? "…" : ""}${line.slice(start, start + n).trim()}${start + n < line.length ? "…" : ""}`;
+}
+
+export type SearchHit = {
+	/** The heading the match is under: a table's section, or a card or form title. */
+	section: string;
+	/** The matching row's line (or the matching line, outside rows), shortened. */
+	line: string;
+	/** The row's matching detail lines, and where the row line was shortened past a match, the part around it. */
+	matched: string[];
+};
+
+/**
+ * Content lines of a screen's text that contain every word, grouped by row: a row that matches on
+ * its line and its details is one hit. Lines are shortened to SEARCH_CLIP characters.
+ */
+export function searchText(text: string, words: string[]): SearchHit[] {
+	const hits: SearchHit[] = [];
+	let section = "";
+	let row: { indent: number; line: string; hit?: SearchHit } | null = null;
+	for (const raw of text.split("\n")) {
+		const line = raw.trim();
+		if (/^#{2,3} /.test(raw)) {
+			section = raw.replace(/^#+ /, "");
+			row = null;
+			continue;
+		}
+		const indent = raw.length - raw.trimStart().length;
+		const isRow = ROW_LINE.test(line);
+		if (isRow) row = { indent, line };
+		else if (row && indent <= row.indent) row = null;
+		if (!line || CONTROL_LINE.test(line)) continue;
+		const lower = line.toLowerCase();
+		if (!words.every((w) => lower.includes(w))) continue;
+		const shortened = clipLine(line);
+		const missing = shortened !== line && !words.every((w) => shortened.toLowerCase().includes(w));
+		if (row) {
+			if (!row.hit) {
+				row.hit = { section, line: clipLine(row.line.replace(/^- /, "")), matched: [] };
+				hits.push(row.hit);
+			}
+			if (!isRow) row.hit.matched.push(shortened);
+			if (missing) row.hit.matched.push(around(line, words.find((w) => !shortened.toLowerCase().includes(w))!));
+		} else hits.push({ section, line: shortened, matched: missing ? [around(line, words.find((w) => !shortened.toLowerCase().includes(w))!)] : [] });
+	}
+	return hits;
 }

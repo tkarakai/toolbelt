@@ -20,7 +20,7 @@ import {
 	type AuditPage,
 } from "../../shared/agents";
 import { AuditLog } from "./audit";
-import { treeJson, treeText, when } from "./serialize";
+import { searchText, treeJson, treeText, TEXT_BUDGET, when, type SearchHit } from "./serialize";
 
 /** The parts of PluginHost the agent interface uses. */
 export type AgentHost = {
@@ -282,7 +282,7 @@ export class AgentCore {
 	}
 
 	/** One screen, read for an agent. Throws AgentRefusal when it isn't available, AgentUnavailable when it can't be read now. */
-	async readScreen(pluginId: unknown, screenId: unknown, options: { format?: "text" | "json"; maxRows?: number; table?: string; offset?: number; details?: boolean } = {}) {
+	async readScreen(pluginId: unknown, screenId: unknown, options: { format?: "text" | "json"; maxRows?: number; table?: string; offset?: number; details?: boolean; budget?: number } = {}) {
 		const p = this.plugin(pluginId);
 		const manifest = p.info.manifest as Manifest;
 		const wanted = typeof screenId === "string" ? screenId.trim().toLowerCase() : "";
@@ -475,7 +475,8 @@ export class AgentCore {
 					const reads = await Promise.all(
 						screens.map(async (s) => {
 							try {
-								const r = await this.readScreen(s.plugin, s.screen, { maxRows: 1000 });
+								// The whole screen: search isn't bound by a read's size limit.
+								const r = await this.readScreen(s.plugin, s.screen, { maxRows: 5000, budget: Number.MAX_SAFE_INTEGER });
 								if (r.rendered) return r;
 								failed.push({ plugin: s.plugin, screen: s.screen, reason: "it hasn't rendered yet" });
 							} catch (error) {
@@ -485,24 +486,25 @@ export class AgentCore {
 						}),
 					);
 					const searched = reads.filter((r) => r !== null).length;
-					const hits: { plugin: string; screen: string; section: string; line: string }[] = [];
-					for (const r of reads) {
-						if (!r) continue;
-						let section = "";
-						for (const line of r.text.split("\n")) {
-							if (/^#{2,3} /.test(line)) section = line.replace(/^#+ /, "");
-							// Content only: not the screen's controls (actions, filters, columns, headings).
-							if (/^(#|Columns:|Row actions:|Bulk actions:|Toolbar actions:|Actions:|Filter |Control |Empty sections:|\(showing)/.test(line.trim())) continue;
-							if (words.every((w) => line.toLowerCase().includes(w)))
-								hits.push({ plugin: r.ref.plugin, screen: r.ref.screen, section, line: line.trim() });
-						}
+					const hits: (SearchHit & { plugin: string; screen: string })[] = [];
+					for (const r of reads) if (r) for (const hit of searchText(r.text, words)) hits.push({ plugin: r.ref.plugin, screen: r.ref.screen, ...hit, matched: hit.matched.slice(0, 5) });
+					// Shown until the text's size limit, at most 40 hits of 3 matched lines each.
+					const shown: typeof hits = [];
+					let size = 0;
+					for (const h of hits.slice(0, 40)) {
+						size += h.line.length + h.matched.slice(0, 3).reduce((n, m) => n + m.length + 8, 0) + 80;
+						if (size > TEXT_BUDGET / 2 && shown.length) break;
+						shown.push(h);
 					}
-					const shown = hits.slice(0, 60);
 					const names = new Map(screens.map((s) => [`${s.plugin}/${s.screen}`, `${s.pluginName} › ${s.title}`]));
 					const plural = (n: number) => `${n} screen${n === 1 ? "" : "s"}`;
 					const lines = shown.length
 						? [
-								...shown.map((h) => `- ${names.get(`${h.plugin}/${h.screen}`)}${h.section ? ` › ${h.section}` : ""}: ${h.line}`),
+								...shown.flatMap((h) => [
+									`- ${names.get(`${h.plugin}/${h.screen}`)}${h.section ? ` › ${h.section}` : ""}: ${h.line}`,
+									...h.matched.slice(0, 3).map((m) => `    ↳ ${m}`),
+									...(h.matched.length > 3 ? [`    ↳ (${h.matched.length - 3} more matching lines; read_screen shows the row)`] : []),
+								]),
 								...(hits.length > shown.length ? [`(${hits.length - shown.length} more matches; narrow the query or pass plugin)`] : []),
 							]
 						: [searched ? `Nothing on ${plural(searched)} mentions "${words.join(" ")}".` : "No screen could be searched."];
@@ -510,7 +512,7 @@ export class AgentCore {
 						lines.push(`${plural(failed.length)} couldn't be searched, so matches there are unknown:`, ...failed.map((f) => `- ${names.get(`${f.plugin}/${f.screen}`)}: ${f.reason}`));
 					return {
 						text: lines.join("\n"),
-						data: { matches: hits.slice(0, 200), matchCount: hits.length, screensSearched: searched, failed },
+						data: { matches: hits.slice(0, 100), matchCount: hits.length, screensSearched: searched, failed },
 					};
 				},
 			},

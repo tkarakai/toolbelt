@@ -83,7 +83,7 @@ The server negotiates protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26`
 | `toolbelt_status` | App name, version, channel and development profile, app update availability, visible plugins with state, badge and screens, and the count of hidden plugins |
 | `list_screens` | Readable screens as plugin and screen ids, optionally for one plugin |
 | `read_screen` | One screen as text (default) or redacted JSON, with `max_rows`, `table` and `offset` paging and `details` |
-| `search_screens` | Content lines containing every query word, across readable screens or one plugin, and the screens that couldn't be read |
+| `search_screens` | Content lines containing every query word, across readable screens or one plugin, grouped by row (a row's line with its matching details, each shortened to 300 characters), and the screens that couldn't be read |
 | `list_plugins` | Installed plugins agents may see: version, repository, phase, channel, available update |
 
 Every tool is declared `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`.
@@ -103,7 +103,9 @@ pages the screen's only table (refused when there are several).
 
 Every readable screen of a running plugin is also a resource, `toolbelt://screens/<plugin>/<screen>` (text/markdown).
 Reading one that doesn't exist for agents is `-32002`; reading one whose plugin can't be read
-now (crashed, failed render) is `-32603` with the reason.
+now (crashed, failed render) is `-32603` with the reason. The template
+`toolbelt://screens/{plugin}/{screen}{?table,offset,max_rows,details}` reads a screen with
+`read_screen`'s paging; an unknown or malformed parameter is `-32602`.
 `resources/subscribe` keeps that surface open for the session and sends
 `notifications/resources/updated` at most once a second per screen while its tree changes. A
 change in plugins or access sends `notifications/resources/list_changed`.
@@ -140,10 +142,18 @@ counts as a viewer through `PluginHost.open`/`close`:
   with " / ", so each value stays on its line and indentation.
 - Lists, forms, stats, cards, details, logs and terminals (last 40 lines), conversations (last
   20 messages), timelines, progress and Markdown. Composers are left out.
-- Tables are paged per table, 100 rows by default, and the result names the next offset.
-  `max_rows: 0` lists each table's size and columns without rows. An offset past the end says
-  so. Text is capped at 60,000 characters.
+- Tables are paged per table, 50 rows by default, counting child rows. Top-level rows come whole;
+  only a first row too big for the page is cut, its remaining children counted
+  (`omittedChildren` in JSON). The result names the next offset. `max_rows: 0` lists each
+  table's size and columns without rows. An offset past the end says so.
+- Results have size budgets: 50,000 characters of text, 100,000 of JSON (`TEXT_BUDGET`,
+  `JSON_BUDGET`). Tables stop at a row boundary before the budget and name the offset to resume
+  from; a later table that no longer fits still gets its heading and how to read it. JSON tables
+  cut this way get `paging.reason: "size"`. Content outside tables is cut at a line boundary,
+  saying after which line. Search reads screens without the budget.
 - `details: false` leaves rows' details, stats and panes out of both text and JSON.
+- JSON leaves out fields that only affect the UI's look or operation (icons, widths, emphasis,
+  placeholders, drag and drop; `VISUAL_KEYS`), never plugin-named data such as a row's cells.
 - `text` fields with `sensitive` and `secret` environment entries are masked as `••••••` in both
   text and JSON. Other plugin text passes through unchanged.
 

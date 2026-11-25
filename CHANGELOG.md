@@ -7,6 +7,9 @@
 - Agents can name plugins and screens in any case or by title, and get suggestions for mistyped ones.
 - A crashed plugin is reported to agents as unavailable (logged as a failure, not a refusal), without its stale badge, and its screens leave the MCP resource list until it runs again.
 - The `toolbelt` command rejects unknown options instead of ignoring them.
+- Agent reads stay within a size limit, in text and JSON: long tables stop at a whole row and say which offset to continue from, instead of cutting text mid-value or returning megabytes of JSON. A row limit now counts nested rows (such as process trees), reads default to 50 rows, and JSON leaves out icons, widths and other display-only fields.
+- Agent search groups matches by row and shortens long lines, so one process no longer shows up three times with its whole command line.
+- MCP screen resources can be paged: `toolbelt://screens/{plugin}/{screen}?table=…&offset=…&max_rows=…&details=false`.
 
 ## 0.5.3 — 2026-11-25
 - Settings → Agents is available on paired phones and tablets too: turn agents on or off, change what each plugin shares, and see connected agents and their activity, like on the Mac.

@@ -125,16 +125,103 @@ describe("serializer", () => {
 	});
 	test("pages long tables in text and JSON", () => {
 		const first = treeText(page(250)).text;
-		expect(first).toContain("Thing 99 ");
-		expect(first).not.toContain("Thing 100 ");
-		expect(first).toContain('read again with table "things" and offset 100');
+		expect(first).toContain("Thing 49 ");
+		expect(first).not.toContain("Thing 50 ");
+		expect(first).toContain('(showing rows 1–50 of 250; read again with table "things" and offset 50 for more)');
 		const next = treeText(page(250), { table: "things", offset: 200, maxRows: 100 }).text;
 		expect(next).toContain("Thing 249 ");
 		expect(next).not.toContain("Thing 199 ");
 		const json = treeJson(page(250), { maxRows: 10 }) as Extract<Node, { type: "page" }>;
 		const table = json.children[0] as Extract<Node, { type: "table" }> & { paging?: unknown };
 		expect(table.rows).toHaveLength(10);
-		expect(table.paging).toEqual({ offset: 0, total: 250 });
+		expect(table.paging).toEqual({ offset: 0, total: 250, next: 10 });
+	});
+	test("max_rows counts child rows; top-level rows stay whole except a first one that can't fit", () => {
+		const tree = (children: number, rows = 3): Node => ({
+			type: "table",
+			id: "procs",
+			columns: [{ key: "name", title: "Name" }],
+			rows: Array.from({ length: rows }, (_, i) => ({
+				id: `p${i}`,
+				cells: { name: `Parent ${i}` },
+				children: Array.from({ length: children }, (_, j) => ({ id: `p${i}c${j}`, cells: { name: `Child ${i}.${j}` } })),
+			})),
+		});
+		// One process tree bigger than the page: the parent and as many children as fit.
+		const big = treeText(tree(48), { maxRows: 5 }).text;
+		expect(big.match(/\{id: /g)).toHaveLength(5);
+		expect(big).toContain("Child 0.3");
+		expect(big).not.toContain("Child 0.4");
+		expect(big).toContain("  (44 more rows under this one not listed; read with a larger max_rows)");
+		expect(big).toContain('(showing rows 1–1 of 3; read again with table "procs" and offset 1 for more)');
+		// Smaller trees come whole: two of four rows each fit in 10.
+		const whole = treeText(tree(3), { maxRows: 10 }).text;
+		expect(whole).toContain("Child 1.2");
+		expect(whole).not.toContain("Parent 2");
+		expect(whole).not.toContain("more rows under");
+		expect(whole).toContain("offset 2 for more");
+		const json = treeJson(tree(48), { maxRows: 5 }) as Extract<Node, { type: "table" }> & { paging: unknown };
+		expect(json.rows).toHaveLength(1);
+		expect(json.rows[0]).toMatchObject({ omittedChildren: 44 });
+		expect(json.rows[0].children).toHaveLength(4);
+		expect(json.paging).toEqual({ offset: 0, total: 3, next: 1 });
+	});
+	test("a result over its size budget stops at a row boundary, names where to resume, and loses no table", () => {
+		const big: Node = {
+			type: "page",
+			children: [
+				{ type: "table", id: "procs", columns: [{ key: "name", title: "Name" }], rows: Array.from({ length: 40 }, (_, i) => ({ id: `p${i}`, cells: { name: `Proc ${i}` }, details: [{ label: "Command", value: `/usr/bin/thing --flag ${"x".repeat(400)} end${i}` }] })) },
+				{ type: "table", id: "kept", columns: [{ key: "name", title: "Name" }], rows: [{ id: "k", cells: { name: "Kept one" }, details: [{ label: "Note", value: "z".repeat(1000) }] }] },
+			],
+		};
+		const { text } = treeText(big, { budget: 4000 });
+		expect(text.length).toBeLessThan(4600);
+		const stop = text.match(/\(showing rows 1–(\d+) of 40: the result reached its size limit; read again with table "procs" and offset (\d+), or pass details: false for shorter rows\)/);
+		expect(stop).not.toBeNull();
+		expect(stop![1]).toBe(stop![2]);
+		const last = Number(stop![2]) - 1;
+		// The last row shown is complete, details and all; the next one is absent.
+		expect(text).toContain(`end${last}`);
+		expect(text).not.toContain(`Proc ${last + 1} `);
+		// A later table is still announced, with how to read it.
+		expect(text).toContain("## Table kept: 1 row");
+		expect(text).toContain('(1 row not listed: the result reached its size limit; read again with table "kept" and offset 0)');
+		// Resuming continues where it stopped.
+		expect(treeText(big, { budget: 4000, table: "procs", offset: last + 1 }).text).toContain(`Proc ${last + 1} `);
+	});
+	test("content outside tables is cut at a line boundary, saying where", () => {
+		const tree: Node = { type: "markdown", text: Array.from({ length: 400 }, (_, i) => `line ${i} ${"y".repeat(30)}`).join("\n") };
+		const { text } = treeText(tree, { budget: 2000 });
+		expect(text.length).toBeLessThan(2200);
+		const lines = text.split("\n");
+		expect(lines.at(-1)).toMatch(/^\(truncated after line \d+ of \d+ at the result's size limit; read one table at a time with table and offset, or pass details: false\)$/);
+		expect(lines.slice(0, -1).every((l) => /^line \d+ y{30}$/.test(l))).toBe(true);
+	});
+	test("JSON is cut to its size budget at row boundaries, with where to resume", () => {
+		const tree = page(500);
+		const json = treeJson(tree, { maxRows: 500, budget: 20_000 }) as Extract<Node, { type: "page" }>;
+		expect(JSON.stringify(json).length).toBeLessThanOrEqual(20_000);
+		const table = json.children[0] as Extract<Node, { type: "table" }> & { paging: { offset: number; total: number; next: number; reason: string } };
+		expect(table.rows.length).toBeGreaterThan(10);
+		expect(table.paging).toEqual({ offset: 0, total: 500, next: table.rows.length, reason: "size" });
+		expect(table.rows.at(-1)!.id).toBe(`t${table.rows.length - 1}`);
+		// The form after the table is kept whole.
+		expect(JSON.stringify(json.children[1])).toContain('"Secrets"');
+	});
+	test("JSON leaves out visual-only fields but never plugin data named like them", () => {
+		const tree: Node = {
+			type: "table",
+			id: "t",
+			columns: [{ key: "icon", title: "Icon", width: 40 }, { key: "width", title: "Width" }],
+			actions: [{ id: "open", label: "Open", icon: "external-link", key: "o" }],
+			rows: [{ id: "a", cells: { icon: "🙂", width: { text: "12 cm", strong: "12" } } }],
+		};
+		const json = JSON.stringify(treeJson(tree));
+		expect(json).not.toContain("external-link");
+		expect(json).not.toContain('"width":40');
+		expect(json).not.toContain('"strong"');
+		expect(json).toContain('"cells":{"icon":"🙂","width":{"text":"12 cm"}}');
+		expect(json).toContain('"label":"Open"');
 	});
 	test("an offset past the end says so instead of calling sections empty", () => {
 		const text = treeText(page(13), { table: "things", offset: 50 }).text;
@@ -192,7 +279,7 @@ describe("serializer", () => {
 						pane: [{ type: "timeline", id: "updates", entries: [{ id: "e", at: Date.UTC(2026, 10, 25), text: "first line\nsecond line" }] }],
 					}],
 				},
-				{ type: "log", id: "log", lines: ["one\ntwo"] },
+				{ type: "log", id: "log", lines: [{ text: "one\ntwo" }] },
 			],
 		};
 		const lines = treeText(tree).text.split("\n");
@@ -446,6 +533,43 @@ describe("agent core", () => {
 		const data = r.data as { matches: { line: string }[]; screensSearched: number; failed: unknown[] };
 		expect(data.matches.map((m) => m.line)).toEqual(["tasks settings: dark mode on", "notes settings: dark mode on"]);
 		expect(data).toMatchObject({ screensSearched: 4, failed: [] });
+	});
+
+	test("search groups a row's matches into one hit and shortens long lines", async () => {
+		const command = `/usr/local/bin/node ${"--max-old-space-size=4096 ".repeat(12)}server.js --port 3000`;
+		const procs: Node = {
+			type: "table",
+			id: "procs",
+			columns: [{ key: "name", title: "Name" }, { key: "cmd", title: "Command" }],
+			rows: [
+				{ id: "1", cells: { name: "node", cmd: command }, details: [{ label: "Command", value: command }, { label: "Resume with", value: `cd ~/app && ${command}` }] },
+				{ id: "2", cells: { name: "postgres", cmd: "postgres -D /data" }, details: [{ label: "Port", value: "5432" }] },
+			],
+		};
+		const host = fakeHost([manifest("processes")], (_p, surface) => (surface === "screen:main" ? procs : { type: "text", text: "nothing" }));
+		const { core } = makeCore(host);
+		const session = core.openSession("t", "interactive");
+		const r = await core.call(session, "search_screens", { query: "server.js", format: "json" });
+		const data = r.data as { matches: { line: string; matched: string[]; section: string }[] };
+		// One hit for the row, though its line and two details all mention server.js.
+		expect(data.matches).toHaveLength(1);
+		const hit = data.matches[0];
+		expect(hit.section).toBe("Table procs: 2 rows");
+		expect(hit.line.length).toBeLessThanOrEqual(300);
+		expect(hit.line).toStartWith("node · /usr/local/bin/node");
+		expect(hit.line).toEndWith("{id: 1}");
+		// The detail that matched comes along, shortened, plus the part of the lines around the match;
+		// the Command detail repeats the Command cell, so it isn't listed.
+		expect(hit.matched.length).toBeGreaterThanOrEqual(2);
+		expect(hit.matched.every((m) => m.length <= 300)).toBe(true);
+		expect(hit.matched.some((m) => m.includes("server.js --port 3000"))).toBe(true);
+		const text = (await core.call(session, "search_screens", { query: "server.js" })).text;
+		expect(text.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(1);
+		expect(text).toContain("    ↳ Resume with: cd ~/app && /usr/local/bin/node");
+		expect(text).not.toContain("↳ Command:");
+		// A match only in a detail still names its row.
+		const port = (await core.call(session, "search_screens", { query: "5432" })).text;
+		expect(port).toBe("- Processes › Main › Table procs: 2 rows: postgres · postgres -D /data  {id: 2}\n    ↳ Port: 5432");
 	});
 
 	test("search reports screens it couldn't read instead of a clean 'nothing found'", async () => {
