@@ -63,7 +63,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 // xterm.js is large and few surfaces show a terminal: Terminal.tsx is its own chunk, loaded on first use.
 const TerminalView = lazy(() => import("./Terminal").then((m) => ({ default: m.TerminalView })));
 
-const ACTIVE_QUERY = "border-primary! bg-primary/10! ring-1 ring-primary/30";
+/** How a search box or filter that is narrowing the view looks. */
+export const ACTIVE_QUERY = "border-primary! bg-primary/10! ring-1 ring-primary/30";
 
 export type Emit = (name: string, payload?: unknown) => void;
 
@@ -578,7 +579,7 @@ type Arranged = {
  * hears it as a `filter` event and filters. Arranged (`arranged`), it also shows its grouping
  * level and opens with a Group by switch, and the row moves it.
  */
-function FilterMenu({ filter, emit, arranged }: { filter: Filter; emit: Emit; arranged?: Arranged }) {
+export function FilterMenu({ filter, emit, arranged }: { filter: Filter; emit: Emit; arranged?: Arranged }) {
 	// Ticks show immediately; the plugin's next render confirms them.
 	const [picked, setPicked] = useState(filter.selected);
 	const searchInput = useRef<HTMLInputElement>(null);

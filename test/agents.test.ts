@@ -453,7 +453,7 @@ describe("audit log", () => {
 
 	test("filters by words, plugin, result, mode and time, and fetches what's newer", () => {
 		const l = log(300);
-		const page = l.query({ limit: 500, filter: { plugin: "tasks", outcome: "denied", mode: "interactive", since: 1_000_000 + 100_000 } });
+		const page = l.query({ limit: 500, filter: { plugins: ["tasks"], outcomes: ["denied"], modes: ["interactive"], since: 1_000_000 + 100_000 } });
 		expect(page.entries.length).toBeGreaterThan(0);
 		expect(page.entries.every((e) => e.plugin === "tasks" && e.outcome === "denied" && e.mode === "interactive" && e.at >= 1_100_000)).toBe(true);
 		// Labels match too: "Read a screen" is read_screen.
@@ -465,6 +465,28 @@ describe("audit log", () => {
 		expect(newer.entries.map((e) => e.detail!.split(" ")[1])).toEqual(["301", "300"]);
 		expect(newer.next).toBeNull();
 		expect(l.query({ after: newer.entries[0].id }).entries).toEqual([]);
+	});
+
+	test("a list matches any of its values", () => {
+		const l = log(100);
+		const both = l.query({ limit: 500, filter: { outcomes: ["denied", "error"] } }).entries;
+		expect(new Set(both.map((e) => e.outcome))).toEqual(new Set(["denied", "error"]));
+		expect(l.query({ limit: 500, filter: { plugins: ["tasks", "updates"] } }).entries).toHaveLength(100);
+	});
+
+	test("a past time range is found without scanning the whole log, and is exact", () => {
+		// Entries every second; the range is 20 seconds a third of the way into a ~600 KB log.
+		const l = log(3000, 300 * 1024);
+		const since = 1_000_000 + 1000 * 1000;
+		const until = since + 19_000;
+		const page = l.query({ limit: 100, filter: { since, until } });
+		expect(page.entries.map((e) => e.at)).toEqual(Array.from({ length: 20 }, (_, i) => until - i * 1000));
+		// Past the start it stops: no cursor into older entries.
+		expect(page.next).toBeNull();
+		// Pages within the range continue from the cursor.
+		const first = l.query({ limit: 8, filter: { since, until } });
+		const second = l.query({ limit: 100, before: first.next!, filter: { since, until } });
+		expect([...first.entries, ...second.entries].map((e) => e.at)).toEqual(page.entries.map((e) => e.at));
 	});
 
 	test("a search stops at its scan budget and continues from the cursor", () => {
@@ -485,5 +507,23 @@ describe("audit log", () => {
 
 	test("a missing log is an empty page", () => {
 		expect(new AuditLog(join(tmp(), "none.jsonl")).query()).toEqual({ entries: [], next: null });
+	});
+});
+
+describe("Activity time ranges", () => {
+	test("bounds and labels", async () => {
+		const { rangeBounds, rangeLabel, localTime } = await import("../src/ui/lib/time-range");
+		const now = new Date(2026, 10, 25, 15, 30).getTime();
+		expect(rangeBounds({ preset: "1h" }, now)).toEqual({ since: now - 3_600_000 });
+		expect(rangeBounds({ preset: "today" }, now)).toEqual({ since: new Date(2026, 10, 25).getTime() });
+		expect(rangeBounds({ preset: "yesterday" }, now)).toEqual({ since: new Date(2026, 10, 24).getTime(), until: new Date(2026, 10, 25).getTime() - 1 });
+		// A date alone covers the whole day; a time covers its whole minute.
+		expect(rangeBounds({ from: "2026-11-20", to: "2026-11-20" })).toEqual({ since: new Date(2026, 10, 20).getTime(), until: new Date(2026, 10, 21).getTime() - 1 });
+		expect(rangeBounds({ from: "2026-11-20T09:00", to: "" })).toEqual({ since: new Date(2026, 10, 20, 9).getTime(), until: undefined });
+		expect(localTime("2026-11-20T11:00", true)).toBe(new Date(2026, 10, 20, 11, 1).getTime() - 1);
+		expect(rangeLabel(null)).toBeNull();
+		expect(rangeLabel({ preset: "7d" })).toBe("Last 7 days");
+		expect(rangeLabel({ from: "2026-11-20T09:00", to: "2026-11-20T11:00" })).toMatch(/^Nov 20, .*9.*00.* – .*11.*00/);
+		expect(rangeLabel({ from: "2026-11-20", to: "" })).toBe("Since Nov 20");
 	});
 });

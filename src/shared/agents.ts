@@ -68,15 +68,18 @@ export type AuditEntry = {
 /** An audit entry as read back: `id` is its position in the log, the cursor for paging. */
 export type AuditRecord = AuditEntry & { id: number };
 
-/** What the person filters Settings → Agents → Activity by. All parts must match. */
+/** What the person filters Settings → Agents → Activity by. Every part given must match; a
+ *  list matches any of its values. */
 export type AuditFilter = {
 	/** Words that must all appear in the entry: operation (or its label), plugin, screen, agent, detail. */
 	query?: string;
-	plugin?: string;
-	outcome?: AuditEntry["outcome"];
-	mode?: AgentMode;
-	/** Only entries at or after this time (epoch ms). */
+	plugins?: string[];
+	outcomes?: AuditEntry["outcome"][];
+	modes?: AgentMode[];
+	/** Entries at or after this time (epoch ms). */
 	since?: number;
+	/** Entries at or before this time (epoch ms). */
+	until?: number;
 };
 
 /** A page of the audit log, newest first. `next` continues it with `before`; null at the start. */
@@ -93,10 +96,11 @@ export const OPERATION_LABELS: Record<string, string> = {
 
 /** Whether an entry matches a filter. */
 export function auditMatches(e: AuditEntry, f: AuditFilter = {}): boolean {
-	if (f.plugin && e.plugin !== f.plugin) return false;
-	if (f.outcome && e.outcome !== f.outcome) return false;
-	if (f.mode && e.mode !== f.mode) return false;
+	if (f.plugins?.length && !f.plugins.includes(e.plugin ?? "")) return false;
+	if (f.outcomes?.length && !f.outcomes.includes(e.outcome)) return false;
+	if (f.modes?.length && !f.modes.includes(e.mode)) return false;
 	if (f.since !== undefined && e.at < f.since) return false;
+	if (f.until !== undefined && e.at > f.until) return false;
 	const words = (f.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
 	if (!words.length) return true;
 	const text = [e.operation, OPERATION_LABELS[e.operation], e.plugin, e.screen, e.client, e.detail].filter(Boolean).join(" ").toLowerCase();

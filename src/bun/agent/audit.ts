@@ -9,6 +9,9 @@ import { auditMatches, type AuditEntry, type AuditFilter, type AuditPage, type A
 const CHUNK = 256 * 1024;
 /** Bytes one query may scan before it returns what it has, with a cursor to go on. */
 const SCAN_BUDGET = 8 * 1024 * 1024;
+/** Entries are appended in time order; this much clock adjustment is tolerated when a time range
+ *  lets a query skip ahead or stop early. */
+const CLOCK_SLACK = 5 * 60_000;
 
 export type AuditQuery = {
 	limit?: number;
@@ -45,6 +48,9 @@ export class AuditLog {
 			// Lines start at `floor` or later; `after` is itself a line start (and excluded).
 			const floor = after !== undefined ? Math.min(after, size) : 0;
 			let pos = before !== undefined ? Math.min(before, size) : size;
+			// A range that ends in the past: start where it ends, found by bisecting the log.
+			if (filter?.until !== undefined && after === undefined) pos = Math.min(pos, this.endOf(fd, floor, pos, filter.until + CLOCK_SLACK));
+			const stopBefore = filter?.since !== undefined ? filter.since - CLOCK_SLACK : undefined;
 			let tail = Buffer.alloc(0);
 			let scanned = 0;
 			while (pos > floor) {
@@ -74,6 +80,8 @@ export class AuditLog {
 					if (!lines[i].trim() || (after !== undefined && id <= after)) continue;
 					try {
 						const entry = JSON.parse(lines[i]) as AuditEntry;
+						// Older than the range's start: nothing before it can match.
+						if (stopBefore !== undefined && entry.at < stopBefore) return { entries, next: null };
 						if (!auditMatches(entry, filter)) continue;
 						entries.push({ ...entry, id });
 						if (entries.length >= limit) return { entries, next: after !== undefined ? null : id };
@@ -87,6 +95,33 @@ export class AuditLog {
 			return { entries, next: null };
 		} finally {
 			closeSync(fd);
+		}
+	}
+
+	/** A line start in [lo, hi] after which every entry is later than `time` (hi if none is found). */
+	private endOf(fd: number, lo: number, hi: number, time: number) {
+		while (hi - lo > CHUNK) {
+			const line = this.lineAt(fd, Math.floor((lo + hi) / 2), hi);
+			if (!line) break;
+			if (line.at > time) hi = line.start;
+			else lo = line.start + 1;
+		}
+		return hi;
+	}
+
+	/** The first whole line starting after `offset` (before `limit`): where it starts and its time. */
+	private lineAt(fd: number, offset: number, limit: number): { start: number; at: number } | null {
+		const buffer = Buffer.alloc(Math.min(16 * 1024, limit - offset));
+		const read = readSync(fd, buffer, 0, buffer.length, offset);
+		const first = buffer.subarray(0, read).indexOf(10);
+		if (first < 0) return null;
+		const end = buffer.subarray(first + 1, read).indexOf(10);
+		if (end < 0) return null;
+		try {
+			const at = (JSON.parse(buffer.subarray(first + 1, first + 1 + end).toString("utf8")) as AuditEntry).at;
+			return typeof at === "number" ? { start: offset + first + 1, at } : null;
+		} catch {
+			return null;
 		}
 	}
 }

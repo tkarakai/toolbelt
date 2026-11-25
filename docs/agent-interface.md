@@ -128,11 +128,13 @@ The log is append-only and never pruned.
 `AuditLog.query` reads it back newest first, in pages. An entry's id is the byte offset of its
 line, so paging stays stable while entries are appended: `before` continues with older entries
 (the previous page's `next`), and `after` fetches entries newer than the newest one shown. It
-reads the file backwards in 256 KB chunks and filters with `auditMatches` (words across
-operation and its label, plugin, screen, agent and detail; plugin; outcome; mode; a start
-time). A filtered query stops after scanning 8 MB and returns a cursor to go on from, so a rare
-search in a large log never blocks the host. The `agentsState` message carries the newest 50
-entries, unfiltered.
+reads the file backwards in 256 KB chunks and filters with `auditMatches`: words across
+operation and its label, plugin, screen, agent and detail; lists of plugins, outcomes and modes
+(any of each); and a time range (`since`, `until`). Entries are appended in time order, so a
+range that ends in the past starts by bisecting the file for its end, and a scan stops once it
+passes the range's start (both allow 5 minutes of clock adjustment). Otherwise a filtered query
+stops after scanning 8 MB and returns a cursor to go on from, so a rare search in a large log
+never blocks the host. The `agentsState` message carries the newest 50 entries, unfiltered.
 
 Settings → Agents has four sub-tabs (`src/ui/Agents.tsx`), the chosen one remembered:
 
@@ -141,11 +143,16 @@ Settings → Agents has four sub-tabs (`src/ui/Agents.tsx`), the chosen one reme
 - **Connect:** the commands to add ToolBelt to agents and remove it again (see Transport).
 - **Plugins:** each plugin's ceiling and the person's choice.
 - **Activity** (`src/ui/AgentActivity.tsx`): the log as a table of time, activity and detail,
-  plugin and screen, agent and mode, and result. Search and filters for plugin, result
-  (allowed, refused, failed), agent mode and time frame are applied by the host. New entries
-  matching the filters fade in at the top when `agentsState` shows the log grew, and "Display
-  more…" adds older pages at the end. Narrow windows fold the plugin and agent columns into the
-  activity cell.
+  plugin and screen, agent and mode, and result. The search box and the Plugin, Result and
+  Agent mode filters are the renderer's page search and multi-select `FilterMenu`, as plugin
+  pages use them. Plugin lists installed plugins and any others the log mentions. Time
+  (`src/ui/components/time-range-filter.tsx`, logic in `src/ui/lib/time-range.ts`) offers quick
+  ranges (last 15 minutes to last 30 days, today, yesterday) and a From–To range made of two
+  renderer datetime fields in `past` mode, where a typed "nov 20" or "fri" is the latest past
+  one. A date alone covers its whole day and a time its whole minute. The host applies every
+  filter. New entries matching the filters fade in at the top when `agentsState` shows the log
+  grew, and "Display more…" adds older pages at the end. Narrow windows fold the plugin and
+  agent columns into the activity cell.
 
 ## Testing
 

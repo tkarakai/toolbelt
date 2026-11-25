@@ -1,26 +1,25 @@
 // Settings → Agents → Activity (docs/agent-interface.md): the agent audit log as a table, newest
-// first. The host filters and pages it (search, plugin, result, agent mode, time frame); new
+// first. The host filters and pages it (search, plugin, result, agent mode, time range); new
 // entries are added at the top as they happen, and "Display more" adds older ones at the end.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Search, X } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "./components/ui/input-group";
-import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { cn } from "./lib/utils";
 import { pillClass } from "./renderer/colors";
 import { ENTERING, enterStyle } from "./renderer/row-motion";
+import { ACTIVE_QUERY, FilterMenu } from "./renderer/Render";
+import { TimeRangeFilter, rangeBounds, type TimeRange } from "./components/time-range-filter";
 import { agentAudit } from "./lib/store";
-import { OPERATION_LABELS, type AgentPlugin, type AuditFilter, type AuditRecord } from "../shared/agents";
+import { OPERATION_LABELS, type AgentMode, type AgentPlugin, type AuditEntry, type AuditFilter, type AuditRecord } from "../shared/agents";
 
 const PAGE = 50;
 const HOUR = 3_600_000;
-const RANGES = { hour: { label: "Last hour", ms: HOUR }, day: { label: "Last 24 hours", ms: 24 * HOUR }, week: { label: "Last 7 days", ms: 7 * 24 * HOUR }, month: { label: "Last 30 days", ms: 30 * 24 * HOUR } } as const;
-const OUTCOMES = { ok: "Allowed", denied: "Refused", error: "Failed" } as const;
-type Range = keyof typeof RANGES;
-type Filters = { query: string; plugin: string; outcome: "" | keyof typeof OUTCOMES; mode: "" | "interactive" | "autonomous"; range: "" | Range };
-const NO_FILTERS: Filters = { query: "", plugin: "", outcome: "", mode: "", range: "" };
-const ANY = "any";
+const OUTCOMES: Record<AuditEntry["outcome"], string> = { ok: "Allowed", denied: "Refused", error: "Failed" };
+const MODES: Record<AgentMode, string> = { interactive: "Interactive", autonomous: "Autonomous" };
+type Filters = { query: string; plugins: string[]; outcomes: AuditEntry["outcome"][]; modes: AgentMode[]; range: TimeRange };
+const NO_FILTERS: Filters = { query: "", plugins: [], outcomes: [], modes: [], range: null };
 
 /** "2m ago", "3h ago", "Yesterday 14:05", "12 Nov 09:30". */
 function relative(at: number, now: number) {
@@ -67,12 +66,12 @@ export function AgentActivity({ plugins, newest }: { plugins: AgentPlugin[]; new
 	const filter = useMemo<AuditFilter>(
 		() => ({
 			...(query ? { query } : {}),
-			...(filters.plugin ? { plugin: filters.plugin } : {}),
-			...(filters.outcome ? { outcome: filters.outcome } : {}),
-			...(filters.mode ? { mode: filters.mode } : {}),
-			...(filters.range ? { since: Date.now() - RANGES[filters.range].ms } : {}),
+			...(filters.plugins.length ? { plugins: filters.plugins } : {}),
+			...(filters.outcomes.length ? { outcomes: filters.outcomes } : {}),
+			...(filters.modes.length ? { modes: filters.modes } : {}),
+			...rangeBounds(filters.range),
 		}),
-		[query, filters.plugin, filters.outcome, filters.mode, filters.range],
+		[query, filters.plugins, filters.outcomes, filters.modes, filters.range],
 	);
 	const [rows, setRows] = useState<AuditRecord[]>([]);
 	const [next, setNext] = useState<number | null>(null);
@@ -86,7 +85,12 @@ export function AgentActivity({ plugins, newest }: { plugins: AgentPlugin[]; new
 	rowsRef.current = rows;
 	const now = useNow(30_000);
 	const names = useMemo(() => new Map(plugins.map((p) => [p.id, p.name])), [plugins]);
-	const active = filters.query !== "" || filters.plugin !== "" || filters.outcome !== "" || filters.mode !== "" || filters.range !== "";
+	// Installed plugins, plus ones the log mentions that are gone now (and any already picked).
+	const pluginOptions = useMemo(() => {
+		const ids = new Set([...plugins.map((p) => p.id), ...rows.flatMap((r) => (r.plugin ? [r.plugin] : [])), ...filters.plugins]);
+		return [...ids].map((id) => ({ value: id, label: names.get(id) ?? id })).sort((a, b) => a.label.localeCompare(b.label));
+	}, [plugins, rows, filters.plugins, names]);
+	const active = filters.query !== "" || filters.plugins.length > 0 || filters.outcomes.length > 0 || filters.modes.length > 0 || filters.range !== null;
 
 	useEffect(() => {
 		const g = ++generation.current;
@@ -135,7 +139,8 @@ export function AgentActivity({ plugins, newest }: { plugins: AgentPlugin[]; new
 	};
 
 	const set = <K extends keyof Filters>(key: K, value: Filters[K]) => setFilters((f) => ({ ...f, [key]: value }));
-	const pick = (key: "plugin" | "outcome" | "mode" | "range") => (v: string) => set(key, (v === ANY ? "" : v) as never);
+	/** A renderer filter menu's `filter` event → this filter's values. */
+	const pick = (key: "plugins" | "outcomes" | "modes") => (_name: string, payload?: unknown) => set(key, ((payload as { values: string[] }).values ?? []) as never);
 
 	return (
 		<section aria-label="Activity" className="min-w-0 space-y-3">
@@ -148,12 +153,12 @@ export function AgentActivity({ plugins, newest }: { plugins: AgentPlugin[]; new
 			</div>
 			<p className="px-1 text-sm text-muted-foreground">Everything agents asked ToolBelt for, newest first. It’s kept for good in agent-audit.jsonl in ToolBelt’s folder.</p>
 
-			<div data-view-control className="flex flex-wrap items-center gap-2">
-				<InputGroup className="h-8 w-full min-w-48 flex-1 sm:w-auto">
+			<div className="flex flex-wrap items-center gap-2">
+				<InputGroup data-view-control data-filtering={!!filters.query} className={cn("h-8 w-full min-w-48 flex-1 transition-colors duration-200 sm:w-auto", !!filters.query && ACTIVE_QUERY)}>
 					<InputGroupAddon>
 						<Search />
 					</InputGroupAddon>
-					<InputGroupInput value={filters.query} onChange={(e) => set("query", e.target.value)} placeholder="Search activity" aria-label="Search activity" />
+					<InputGroupInput value={filters.query} onChange={(e) => set("query", e.target.value)} onKeyDown={(e) => e.key === "Escape" && filters.query && (e.preventDefault(), set("query", ""))} placeholder="Search activity" aria-label="Search activity" />
 					{filters.query && (
 						<InputGroupAddon align="inline-end">
 							<InputGroupButton size="icon-xs" onClick={() => set("query", "")} aria-label="Clear search">
@@ -162,10 +167,13 @@ export function AgentActivity({ plugins, newest }: { plugins: AgentPlugin[]; new
 						</InputGroupAddon>
 					)}
 				</InputGroup>
-				<FilterSelect label="Plugin" value={filters.plugin} onChange={pick("plugin")} all="All plugins" options={plugins.map((p) => [p.id, p.name])} />
-				<FilterSelect label="Result" value={filters.outcome} onChange={pick("outcome")} all="Any result" options={Object.entries(OUTCOMES)} />
-				<FilterSelect label="Agent mode" value={filters.mode} onChange={pick("mode")} all="Any mode" options={[["interactive", "Interactive"], ["autonomous", "Autonomous"]]} />
-				<FilterSelect label="Time" value={filters.range} onChange={pick("range")} all="Any time" options={Object.entries(RANGES).map(([k, r]) => [k, r.label])} />
+				<FilterMenu filter={{ id: "plugins", label: "Plugin", icon: "puzzle", options: pluginOptions, selected: filters.plugins }} emit={pick("plugins")} />
+				<FilterMenu
+					filter={{ id: "outcomes", label: "Result", icon: "circle-check", options: (Object.keys(OUTCOMES) as AuditEntry["outcome"][]).map((o) => ({ value: o, label: OUTCOMES[o], dot: o === "ok" ? "success" : o === "denied" ? "warning" : "danger" })), selected: filters.outcomes }}
+					emit={pick("outcomes")}
+				/>
+				<FilterMenu filter={{ id: "modes", label: "Agent mode", icon: "bot", options: (Object.keys(MODES) as AgentMode[]).map((m) => ({ value: m, label: MODES[m] })), selected: filters.modes }} emit={pick("modes")} />
+				<TimeRangeFilter value={filters.range} onChange={(range) => set("range", range)} />
 				{active && (
 					<Button variant="ghost" size="sm" onClick={() => setFilters(NO_FILTERS)}>
 						Clear filters
@@ -268,24 +276,5 @@ export function AgentActivity({ plugins, newest }: { plugins: AgentPlugin[]; new
 				)}
 			</div>
 		</section>
-	);
-}
-
-function FilterSelect({ label, value, onChange, all, options }: { label: string; value: string; onChange: (v: string) => void; all: string; options: [string, string][] }) {
-	return (
-		<Select value={value || ANY} onValueChange={onChange}>
-			<SelectTrigger size="sm" aria-label={label} className={cn("h-8 w-auto min-w-28", value && "border-foreground/35 bg-accent font-medium text-foreground")}>
-				<SelectValue />
-			</SelectTrigger>
-			<SelectContent position="popper" align="start">
-				<SelectItem value={ANY}>{all}</SelectItem>
-				{options.length > 0 && <SelectSeparator />}
-				{options.map(([v, l]) => (
-					<SelectItem key={v} value={v}>
-						{l}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</Select>
 	);
 }
