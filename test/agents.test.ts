@@ -339,10 +339,11 @@ describe("serializer", () => {
 });
 
 /** A host with plugins whose surfaces render a tree a moment after they open. */
-function fakeHost(plugins: Manifest[], render: (plugin: string, surface: string) => Node | null = () => page(3)) {
+function fakeHost(plugins: Manifest[], render: (plugin: string, surface: string) => Node | { rejected: string } | null = () => page(3)) {
 	type L = Parameters<AgentHost["subscribe"]>[0];
 	const listeners = new Set<L>();
 	const trees = new Map<string, { tree: Node; at: number }>();
+	const errors = new Map<string, string>();
 	const viewers = new Map<string, number>();
 	const events: string[] = [];
 	const infos: PluginInfo[] = plugins.map((m) => ({ manifest: m, state: "running", badge: null }));
@@ -357,6 +358,12 @@ function fakeHost(plugins: Manifest[], render: (plugin: string, surface: string)
 			setTimeout(() => {
 				const tree = render(plugin, surface);
 				if (!tree) return;
+				// A rejected render: the host shows its error tree, and snapshots report the reason.
+				if ("rejected" in tree) {
+					errors.set(key, tree.rejected);
+					listeners.forEach((l) => l.tree(plugin, surface, { type: "empty", title: "This screen couldn't be shown" }));
+					return;
+				}
 				trees.set(key, { tree, at: Date.now() });
 				listeners.forEach((l) => l.tree(plugin, surface, tree));
 			}, 10);
@@ -370,7 +377,7 @@ function fakeHost(plugins: Manifest[], render: (plugin: string, surface: string)
 		snapshot(plugin, surface) {
 			const key = `${plugin}\n${surface}`;
 			const t = trees.get(key);
-			return { tree: t?.tree ?? null, at: t?.at ?? 0, viewers: viewers.get(key) ?? 0 };
+			return { tree: t?.tree ?? null, at: t?.at ?? 0, viewers: viewers.get(key) ?? 0, ...(errors.has(key) ? { error: errors.get(key) } : {}) };
 		},
 		subscribe(l) {
 			listeners.add(l);
@@ -476,6 +483,19 @@ describe("agent core", () => {
 		expect((await core.call(session, "list_screens")).text).toContain('screen "main" (default) (unavailable: Tasks is crashed)');
 		const audit = readFileSync(join(dir, "agent-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
 		expect(audit[0]).toMatchObject({ operation: "read_screen", outcome: "error", detail: expect.stringContaining("crashed") });
+	});
+
+	test("a screen whose render the host rejected is unavailable; the plugin's other screens still read", async () => {
+		const host = fakeHost([manifest("upkeep")], (_p, surface) => (surface === "screen:main" ? { rejected: "Protocol complexity limit: more than 50000 values" } : page(1)));
+		const { core, dir } = makeCore(host);
+		const session = core.openSession("t", "interactive");
+		const r = await core.call(session, "read_screen", { plugin: "upkeep" });
+		expect(r).toEqual({ isError: true, kind: "unavailable", text: "Upkeep › Main couldn't be shown: Protocol complexity limit: more than 50000 values" });
+		expect((await core.call(session, "read_screen", { plugin: "upkeep", screen: "settings" })).text).toContain("Thing 0");
+		const search = await core.call(session, "search_screens", { query: "thing" });
+		expect(search.text).toContain("- Upkeep › Main: Upkeep › Main couldn't be shown");
+		const audit = readFileSync(join(dir, "agent-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+		expect(audit[0]).toMatchObject({ operation: "read_screen", outcome: "error" });
 	});
 
 	test("ids match in any case or by title, and mistakes get suggestions only among visible plugins", async () => {

@@ -79,6 +79,13 @@ trees are not resent. Field/search/sort/action events let the plugin update its 
 selection, typing and scrolling remain in the renderer. Use stderr for diagnostics; stdout
 belongs exclusively to the SDK's JSON-lines transport.
 
+A tree the host can't accept (an invalid node or value, more than the complexity limits, an
+undeclared asset) costs only its surface: the host logs why in the plugin's log, shows an error
+in place of that screen, and shows the plugin's next valid tree for it. The plugin keeps
+running. Transport, rate and handshake violations, renders before `ready` and renders of
+undeclared surfaces still stop the plugin. Older hosts stop the plugin on any invalid tree, so
+keep trees within the SDK's exported limits.
+
 ## Manifest
 
 Place `toolbelt.json` at the archive root beside the bundled entrypoint:

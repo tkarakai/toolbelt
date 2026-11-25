@@ -120,6 +120,8 @@ counts as a viewer through `PluginHost.open`/`close`:
   keep it open until they end.
 - `PluginHost.snapshot` returns the cached tree, when it arrived and how many viewers have the
   surface open. A plugin process that starts again clears its cached trees.
+- A screen whose last render the host rejected (see [architecture](architecture.md)) is
+  unavailable with the reason; the plugin's other screens still read.
 - A plugin that isn't running is reported with its state and first error line, not read. This
   is a failure (`unavailable`, audited as `error`), not a refusal. `toolbelt_status` marks it,
   leaves out its stale badge, and `list_screens` marks its screens unavailable.
