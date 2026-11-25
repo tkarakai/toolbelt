@@ -255,3 +255,32 @@ test("views: the SDK owns each instance's search, filters, sort and controls", a
 	await tick();
 	expect(ctx.open.has("screen:a")).toBe(false);
 });
+
+test("views from data: declareViews re-reads them, tells the host and drops what's gone", async () => {
+	const h = harness();
+	const raw: string[] = [];
+	let labels = ["home", "work"];
+	const ctx = definePlugin(
+		{
+			views: () => ({ "screen:a": { filters: Object.fromEntries(labels.map((l) => [`label:${l}`, []])) } }),
+			render: { "screen:a": (_c, view) => ({ type: "text", text: JSON.stringify(view.filters) }) },
+		},
+		{ write: (line) => (raw.push(line), h.write(line)), input: h.input },
+	);
+	await tick();
+	h.send({ type: "hello", protocol: 2, plugin: { id: "t" }, host: { name: "test", version: "0" } });
+	await tick();
+	expect(JSON.parse(raw.find((l) => l.includes('"hello"'))!).views).toEqual({ "screen:a": { filters: { "label:home": [], "label:work": [] } } });
+	h.send({ type: "open", surface: "screen:a", instance: "person", view: { filters: { "label:work": ["x"], "label:gone": ["y"] } } });
+	await tick();
+	expect(h.out.at(-1)).toMatchObject({ type: "render", tree: { text: '{"label:home":[],"label:work":["x"]}' } });
+	labels = ["home", "garden"];
+	ctx.declareViews();
+	await tick();
+	expect(h.out.find((m) => m.type === "views")).toEqual({ type: "views", views: { "screen:a": { filters: { "label:home": [], "label:garden": [] } } } });
+	expect(h.out.at(-1)).toMatchObject({ type: "render", tree: { text: '{"label:home":[],"label:garden":[]}' } });
+	// A filter that's declared now is the SDK's.
+	h.send({ type: "event", surface: "screen:a", instance: "person", name: "filter", payload: { filter: "label:garden", values: ["roses"] } });
+	await tick();
+	expect(h.out.at(-1)).toMatchObject({ type: "render", tree: { text: '{"label:home":[],"label:garden":["roses"]}' } });
+});

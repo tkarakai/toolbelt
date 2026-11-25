@@ -618,6 +618,9 @@ export class PluginProcess {
         } else if (this.viewers.get(instanceKey(msg.surface, msg.instance)))
           this.instanceViews.set(instanceKey(msg.surface, msg.instance), msg.view);
         break;
+      case "views":
+        this.declaredViews = Object.fromEntries(Object.entries(msg.views).filter(([surface]) => this.declared(surface)));
+        break;
       case "badge":
         this.badge = msg.value;
         this.changed();

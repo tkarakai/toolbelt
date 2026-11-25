@@ -121,11 +121,15 @@ definePlugin({
   also set it (an agent showing the person something, the person's Restore).
 - The declaration is the screen's view schema for agents: ids and defaults from it, option
   values from the rendered tree. Keep filter option values and column keys stable.
+- **View controls from data.** `views` may be a function of the context, read at the handshake.
+  When the data it comes from changes (a filter per label, and the person adds a label), call
+  `ctx.declareViews()`: the SDK reads it again, sends the host the new declarations (a `views`
+  message) and drops each instance's state for ids no longer declared.
 
 Protocol 2 messages: the host sends `open`/`close` with `instance` (and `open` with the view to
 start from), `view` to set an instance's view and `event` with `instance`; the plugin sends
 `render` with `instance`, `view` when an instance's view changes, and its declarations as
-`views` in `hello`. The host refuses plugins built for another protocol version.
+`views` in `hello` and again in a `views` message when they change. The host refuses plugins built for another protocol version.
 
 A tree the host can't accept (an invalid node or value, more than the complexity limits, an
 undeclared asset) costs only its instance of the surface: the host logs why in the plugin's log,

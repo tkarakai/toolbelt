@@ -151,6 +151,11 @@ export type Context = {
   navigate(screen: string, options?: { select?: string }): boolean;
   /** Surfaces with at least one open instance: poll and watch only for these. */
   readonly open: ReadonlySet<string>;
+  /**
+   * Re-read `views` (when it's a function) and send the declarations to the host. Call it when
+   * the data they come from changed, such as filters built from labels the person edits.
+   */
+  declareViews(): void;
 };
 
 /** What an event is about beyond its surface: which instance sent it. */
@@ -169,8 +174,10 @@ export type PluginDefinition = {
    * applies its `search`, `filter`, `filter-arrange`, `sort` and page-control `field` events
    * itself (they don't reach `onEvent`), fills the tree's `search.query`, filters' `selected`,
    * tables' `sort` and controls' `value` from it, and tells the host so it can save the person's.
+   * A function is read at the handshake and again on `ctx.declareViews()`, for view controls that
+   * come from data (a filter per label).
    */
-  views?: Record<string, ViewDeclaration>;
+  views?: Record<string, ViewDeclaration> | ((ctx: Context) => Record<string, ViewDeclaration>);
   /** Surface → its UI, rendered once per open instance. Surfaces: `screen:<id>` and `quick`. */
   render: Record<string, (ctx: Context, view: View) => Node | Promise<Node>>;
   onEvent?: (
@@ -205,7 +212,8 @@ export function definePlugin(
   const capabilities = new Set<string>();
   const last = new Map<string, string>();
   let pending: Set<string> | "all" | null = null;
-  const views = def.views ?? {};
+  let views: Record<string, ViewDeclaration> = {};
+  const readViews = () => (views = (typeof def.views === "function" ? def.views(ctx) : def.views) ?? {});
 
   const renderInstance = async (surface: string, instance: string, state: ViewState) => {
     const fn = def.render[surface];
@@ -267,6 +275,13 @@ export function definePlugin(
       return true;
     },
     open,
+    declareViews() {
+      send({ type: "views", views: readViews() });
+      // Declared ids may have gone: each instance keeps only what is still declared.
+      for (const [surface, of] of instances)
+        for (const [instance, state] of of) of.set(instance, cleanView(views[surface], state));
+      ctx.invalidate();
+    },
   };
 
   const setView = (surface: string, instance: string, state: ViewState, report: boolean) => {
@@ -291,7 +306,7 @@ export function definePlugin(
           protocol: PROTOCOL_VERSION,
           sdk: SDK_VERSION,
           capabilities: [...CAPABILITIES],
-          views,
+          views: readViews(),
         });
         await def.start?.(ctx);
         send({ type: "ready" });
