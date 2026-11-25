@@ -65,6 +65,7 @@ layout below and shares only `settings.json`; see [plugin-development.md](plugin
 | `settings.json` | Host appearance, shortcut, remote access and agent access preferences |
 | `agent.sock` | The agent interface's Unix socket while it is on (config folder, not the development profile) |
 | `agent-audit.jsonl` | Every agent operation, append-only ([agent-interface.md](agent-interface.md)) |
+| `views.json` | The person's view (search, filters, sort, controls) of each plugin surface, saved by the host ([plugins.md](plugins.md#views)) |
 | `plugins/registry.json` | Source bindings, active selections, channel, enabled/removal/data state, history and update schedule |
 | `plugins/packages/<id>/<version>-<hash>/` | Verified package files; plugins treat them as immutable |
 | `plugins/staging/` | Incomplete package extraction; never runtime discovery |
@@ -85,8 +86,14 @@ sibling repositories and shared `node_modules` are not runtime dependencies. The
 The host starts a detached process with package-local cwd, selected environment values and
 explicit profile/package/data/lifecycle variables. It sends `hello`; the plugin replies with
 its protocol/SDK/capabilities and explicit `ready`. No tree is published before readiness.
-Surfaces are `screen:<id>` and optional `quick`. Visibility produces `open`/`close`; actions,
-fields, search and sort produce `event`. Plugin messages include complete render trees,
+Surfaces are `screen:<id>` and optional `quick`, each rendered per instance: every person's
+screen (window, popover, paired devices) shares the `person` instance, and agents open
+`agent:…` instances with views of their own. Visibility produces `open`/`close` with the
+instance (and the view to start from); actions, fields, search and sort produce `event` from
+the person's instance, and the host can set an instance's `view`. The SDK owns each instance's
+view (search, filters, sort, page controls) and reports the person's, which the host saves in
+`views.json` ([plugins.md](plugins.md#views)). Only the person's instance's trees reach the web
+views and remote clients. Protocol 2 is the only one the host accepts. Plugin messages include complete render trees,
 badges, toasts, clipboard requests and screen navigation. The host honors navigation only for
 a declared screen, within 10 s after it delivered an event to that plugin, and once per event.
 It then reuses window navigation and the selection handoff. stdout is protocol only; stderr is diagnostic output.
@@ -100,8 +107,8 @@ and 10,000 entries. `src/shared/package.ts` is authoritative for limits.
 Crashes use bounded backoff and eventually leave the plugin failed. Invalid protocol and
 rendering failures are contained per plugin; host settings and other plugins remain usable.
 An invalid render tree from a running plugin for a declared surface is contained to that
-surface: `PluginProcess.rejectRender` logs it, replaces the tree with a host error tree, and
-`snapshot` reports `error` with no tree until a valid render arrives.
+instance of the surface: `PluginProcess.rejectRender` logs it, replaces the tree with a host
+error tree, and `snapshot` reports `error` with no tree until a valid render arrives.
 Owned process groups receive graceful termination followed by a bounded forced stop. Parent
 exit alone does not establish descendant exit. Observed jobs and independently launched
 terminal sessions must not belong to a plugin-owned process group.
@@ -230,12 +237,13 @@ press, edge swipe, swipe to dismiss), all in the host renderer: see
 ## Agent interface
 
 The agent interface ([agent-interface.md](agent-interface.md)) lets local AI agents read plugin screens. Its core
-is an extra viewer of plugin surfaces beside the window, popover and remote views: it opens a
-surface through `PluginHost` when an agent reads it and releases it when idle. Text and JSON
-come from `src/bun/agent/serialize.ts` with sensitive values masked. Transports are adapters
-over one operation registry: MCP over a `0600` Unix socket, and the `toolbelt` CLI with its
-stdio shim. Access is the lower of the manifest's `agent.access` (default `read`) and the
-person's choice; agents can't send events.
+opens agent instances of plugin surfaces through `PluginHost`, one per distinct view an agent
+asks for, and releases them when idle; it reads the person's instance only when asked. Text and
+JSON come from `src/bun/agent/serialize.ts` with sensitive values masked. Transports are
+adapters over one operation registry: MCP over a `0600` Unix socket, and the `toolbelt` CLI with
+its stdio shim. Access is the lower of the manifest's required `agent.access` and the person's
+choice; agents can't send events. `show_screen` changes the person's view and navigates their
+open screens, after the person grants it on those screens for a time they choose.
 
 ## Keyboard
 

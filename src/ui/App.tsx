@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { committed, rpc, sendEvent, useCommand, useDevelopment, useNavigate, usePlugins, usePluginsKnown, useSettings, useSurface } from "@/lib/store";
 import { THEMES, tokens } from "./themes";
 import { QuitDialog } from "./QuitDialog";
+import { ShownNotice, ViewApprovalDialog } from "./AgentPrompts";
 import { SurfaceContext, isTyping, useHeldModifiers, usePersisted } from "@/lib/uistate";
 import { WindowZoom, ZoomKeys } from "@/lib/zoom";
 import { FocusHint, FocusRegions, FocusRescue, TabbableControls, focusIsIdle, overlayOpen, useRovingFocus, useWindowKeys } from "@/lib/keyboard";
@@ -183,6 +184,7 @@ export default function App() {
 			<TabbableControls />
 			<FocusHint />
 			<QuitDialog />
+			<ViewApprovalDialog />
 			<ZoomKeys />
 			<WindowZoom />
 			<AppSidebar plugins={plugins} current={route.plugin === TOOLBELT ? TOOLBELT : pluginId} go={go} width={width} onResize={setWidth} />
@@ -440,8 +442,11 @@ function Screen({ plugin, surface, handoff, onHandoffApplied }: { plugin: string
 		<SurfaceContext.Provider value={`${plugin}/${surface}`}>
             <SelectionRequestContext.Provider value={handoff}>
             <SelectionHandoffContext.Provider value={target && handoff ? { ...target, token: handoff.token, onApplied: onHandoffApplied } : null}>
-			<div className="h-full min-h-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
-                <SharedSelectionProvider plugin={plugin} tree={tree} seedLegacy><Render node={tree} emit={emit} /></SharedSelectionProvider>
+			<div className="flex h-full min-h-0 flex-col animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
+				<ShownNotice plugin={plugin} surface={surface} />
+				<div className="min-h-0 flex-1">
+					<SharedSelectionProvider plugin={plugin} tree={tree} seedLegacy><Render node={tree} emit={emit} /></SharedSelectionProvider>
+				</div>
 			</div>
             </SelectionHandoffContext.Provider>
             </SelectionRequestContext.Provider>

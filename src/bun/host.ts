@@ -4,6 +4,7 @@ import { terminateOwned } from "./owned-process";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
 import {
+  PERSON,
   PROTOCOL_VERSION,
   parseManifest,
   splitLines,
@@ -12,6 +13,8 @@ import {
   type Node,
   type PluginMessage,
   type ToastAction,
+  type ViewDeclaration,
+  type ViewState,
 } from "../shared/protocol";
 import {
   LIMITS,
@@ -57,9 +60,29 @@ export function discover(
   return [...found.values()];
 }
 
+/**
+ * Trees, viewers and render errors are kept per instance of a surface. The person's instance
+ * is keyed by the surface alone; an agent instance by `surface\ninstance`.
+ */
+export const instanceKey = (surface: string, instance: string = PERSON) =>
+  instance === PERSON ? surface : `${surface}\n${instance}`;
+const splitKey = (key: string) => {
+  const i = key.indexOf("\n");
+  return i < 0 ? { surface: key, instance: PERSON } : { surface: key.slice(0, i), instance: key.slice(i + 1) };
+};
+
+/** Where the host keeps the person's view of each surface (`views.json`, host-owned). */
+export type PersonViews = {
+  load(plugin: string, surface: string): ViewState | undefined;
+  save(plugin: string, surface: string, view: ViewState): void;
+};
+
 type Listener = {
   plugins(list: PluginInfo[]): void;
-  tree(plugin: string, surface: string, tree: Node): void;
+  /** A surface instance rendered: `instance` is PERSON for every person's view. */
+  tree(plugin: string, surface: string, tree: Node, instance: string): void;
+  /** The person's view of a surface changed (saved already). */
+  view?(plugin: string, surface: string, view: ViewState): void;
   toast(
     plugin: string,
     text: string,
@@ -140,13 +163,18 @@ export class PluginProcess {
   /** When the host last delivered a person's action (event) to this plugin. */
   userEventAt = 0;
   error?: string;
+  /** Instance key (`instanceKey`) → its latest tree. */
   trees = new Map<string, Node>();
-  /** Surface → when its tree arrived (epoch ms). */
+  /** Instance key → when its tree arrived (epoch ms). */
   treeAt = new Map<string, number>();
-  /** Surfaces whose last render was rejected, with why: they show the host's error tree. */
+  /** Instance keys whose last render was rejected, with why: they show the host's error tree. */
   renderErrors = new Map<string, string>();
-  /** Surface → how many viewers have it open. */
+  /** Instance key → how many viewers have it open. */
   viewers = new Map<string, number>();
+  /** Agent instance key → the view it was opened with, as the plugin last reported it. */
+  instanceViews = new Map<string, ViewState>();
+  /** Surface → its view declaration, from the handshake. */
+  declaredViews: Record<string, ViewDeclaration> = {};
   private proc?: ReturnType<typeof Bun.spawn>;
   private stderrTail: string[] = [];
   private restarts = 0;
@@ -165,6 +193,7 @@ export class PluginProcess {
       mode?: "probe" | "active";
       diagnostic?: (plugin: string, kind: string, detail: unknown) => void;
       verify?: () => void;
+      views?: PersonViews;
     },
     private readonly changed: () => void,
     private readonly listener: Listener,
@@ -292,18 +321,43 @@ export class PluginProcess {
     } catch {}
   }
 
-  open(surface: string) {
-    const n = (this.viewers.get(surface) ?? 0) + 1;
-    this.viewers.set(surface, n);
-    if (n === 1 && this.state === "running")
-      this.send({ type: "open", surface });
-    return this.trees.get(surface) ?? null;
+  /** The view an instance opens with: the person's saved view, or the agent instance's own. */
+  private viewOf(surface: string, instance: string) {
+    return instance === PERSON
+      ? this.opts.views?.load(this.manifest.id, surface)
+      : this.instanceViews.get(instanceKey(surface, instance));
   }
 
-  close(surface: string) {
-    const n = Math.max(0, (this.viewers.get(surface) ?? 0) - 1);
-    this.viewers.set(surface, n);
-    if (n === 0) this.send({ type: "close", surface });
+  /** Counts a viewer of an instance (the person's by default); an agent instance starts with `view`. */
+  open(surface: string, instance: string = PERSON, view?: ViewState) {
+    const key = instanceKey(surface, instance);
+    const n = (this.viewers.get(key) ?? 0) + 1;
+    this.viewers.set(key, n);
+    if (n === 1 && instance !== PERSON) this.instanceViews.set(key, view ?? {});
+    if (n === 1 && this.state === "running")
+      this.send({ type: "open", surface, instance, view: this.viewOf(surface, instance) });
+    return this.trees.get(key) ?? null;
+  }
+
+  close(surface: string, instance: string = PERSON) {
+    const key = instanceKey(surface, instance);
+    const n = Math.max(0, (this.viewers.get(key) ?? 0) - 1);
+    this.viewers.set(key, n);
+    if (n === 0) {
+      this.send({ type: "close", surface, instance });
+      if (instance !== PERSON) {
+        this.viewers.delete(key);
+        this.instanceViews.delete(key);
+        this.trees.delete(key);
+        this.treeAt.delete(key);
+        this.renderErrors.delete(key);
+      }
+    }
+  }
+
+  /** Sets an open instance's view (the plugin reports it back cleaned, and re-renders). */
+  setView(surface: string, instance: string, view: ViewState) {
+    if (this.state === "running") this.send({ type: "view", surface, instance, view });
   }
 
   private async read(
@@ -358,7 +412,7 @@ export class PluginProcess {
           // A running plugin's invalid screen costs only that screen: the tree never reaches the
           // renderer, and the plugin and its other screens keep working.
           if (this.renderable(msg)) {
-            this.rejectRender(msg.surface, protocolReason(error));
+            this.rejectRender(msg.surface, protocolReason(error), typeof msg.instance === "string" ? msg.instance : PERSON);
             continue;
           }
           // Say what was wrong (which field, or which limit), so a plugin author can fix it.
@@ -410,7 +464,7 @@ export class PluginProcess {
   }
 
   /** A render for a declared surface, sent while running, within the render rate. */
-  private renderable(msg: unknown): msg is { type: "render"; surface: string } {
+  private renderable(msg: unknown): msg is { type: "render"; surface: string; instance?: unknown } {
     const m = msg as { type?: unknown; surface?: unknown } | null;
     if (!m || typeof m !== "object" || m.type !== "render" || typeof m.surface !== "string" || this.state !== "running") return false;
     if (!this.declared(m.surface)) return false;
@@ -425,22 +479,24 @@ export class PluginProcess {
     return this.manifest.screens.some((s) => `screen:${s.id}` === surface) || (!!this.manifest.quickView && surface === "quick");
   }
 
-  /** Shows the host's error in place of a surface's invalid tree, and logs why. */
-  private rejectRender(surface: string, reason: string) {
+  /** Shows the host's error in place of an instance's invalid tree, and logs why. */
+  private rejectRender(surface: string, reason: string, instance: string = PERSON) {
     if (this.state !== "running") return;
-    this.log(`Rejected a render of ${surface}: ${reason}`);
-    const previous = this.renderErrors.get(surface);
-    this.renderErrors.set(surface, reason);
+    const key = instanceKey(surface, instance);
+    if (instance !== PERSON && !this.viewers.get(key)) return; // a closed agent instance
+    this.log(`Rejected a render of ${surface}${instance === PERSON ? "" : ` (${instance})`}: ${reason}`);
+    const previous = this.renderErrors.get(key);
+    this.renderErrors.set(key, reason);
     const tree: Node = {
       type: "empty",
       icon: "triangle-alert",
       title: "This screen couldn't be shown",
       description: `${this.manifest.name} sent a screen ToolBelt can't display (${reason}). The rest of the plugin keeps working; it shows the screen again once it sends a valid one.`,
     };
-    this.trees.set(surface, tree);
-    this.treeAt.set(surface, Date.now());
+    this.trees.set(key, tree);
+    this.treeAt.set(key, Date.now());
     // The same error again needn't redraw.
-    if (previous !== reason) this.listener.tree(this.manifest.id, surface, tree);
+    if (previous !== reason) this.listener.tree(this.manifest.id, surface, tree, instance);
   }
 
   private handle(msg: PluginMessage) {
@@ -457,6 +513,9 @@ export class PluginProcess {
       }
       this.greeted = true;
       this.sdk = typeof msg.sdk === "string" ? msg.sdk.slice(0, 64) : undefined;
+      this.declaredViews = Object.fromEntries(
+        Object.entries(msg.views ?? {}).filter(([surface]) => this.declared(surface)),
+      );
       return;
     }
     if (msg.type === "ready") {
@@ -470,8 +529,11 @@ export class PluginProcess {
       this.readyResolve = undefined;
       for (const message of this.startupMessages) this.handle(message);
       this.startupMessages = [];
-      for (const [surface, n] of this.viewers)
-        if (n > 0) this.send({ type: "open", surface });
+      for (const [key, n] of this.viewers)
+        if (n > 0) {
+          const { surface, instance } = splitKey(key);
+          this.send({ type: "open", surface, instance, view: this.viewOf(surface, instance) });
+        }
       this.changed();
       return;
     }
@@ -507,6 +569,8 @@ export class PluginProcess {
           this.fail("Undeclared surface");
           return;
         }
+        // A render for an instance that has closed (or never opened) is late, not wrong.
+        if (msg.instance !== PERSON && !this.viewers.get(instanceKey(msg.surface, msg.instance))) return;
         try {
           const check = (value: unknown): void => {
             if (!value || typeof value !== "object") return;
@@ -532,13 +596,27 @@ export class PluginProcess {
           };
           check(msg.tree);
         } catch (error) {
-          this.rejectRender(msg.surface, protocolReason(error));
+          this.rejectRender(msg.surface, protocolReason(error), msg.instance);
           return;
         }
-        this.renderErrors.delete(msg.surface);
-        this.trees.set(msg.surface, msg.tree);
-        this.treeAt.set(msg.surface, Date.now());
-        this.listener.tree(this.manifest.id, msg.surface, msg.tree);
+        {
+          const key = instanceKey(msg.surface, msg.instance);
+          this.renderErrors.delete(key);
+          this.trees.set(key, msg.tree);
+          this.treeAt.set(key, Date.now());
+        }
+        this.listener.tree(this.manifest.id, msg.surface, msg.tree, msg.instance);
+        break;
+      case "view":
+        if (!this.declared(msg.surface)) {
+          this.fail("Undeclared surface");
+          return;
+        }
+        if (msg.instance === PERSON) {
+          this.opts.views?.save(this.manifest.id, msg.surface, msg.view);
+          this.listener.view?.(this.manifest.id, msg.surface, msg.view);
+        } else if (this.viewers.get(instanceKey(msg.surface, msg.instance)))
+          this.instanceViews.set(instanceKey(msg.surface, msg.instance), msg.view);
         break;
       case "badge":
         this.badge = msg.value;
@@ -624,6 +702,8 @@ export class PluginHost {
       env?: Record<string, string | undefined>;
       host: { name: string; version: string };
       data: string;
+      /** Where the person's views are saved; without it they last only while the plugin runs. */
+      views?: PersonViews;
     },
   ) {}
 
@@ -676,31 +756,49 @@ export class PluginHost {
     return [...this.plugins.values()].map((p) => p.info());
   }
 
-  open(plugin: string, surface: string) {
-    return this.get(plugin).open(surface);
+  /** Counts a viewer of a surface instance: the person's by default, or an agent's with its view. */
+  open(plugin: string, surface: string, instance: string = PERSON, view?: ViewState) {
+    return this.get(plugin).open(surface, instance, view);
   }
 
-  close(plugin: string, surface: string) {
-    this.plugins.get(plugin)?.close(surface);
+  close(plugin: string, surface: string, instance: string = PERSON) {
+    this.plugins.get(plugin)?.close(surface, instance);
   }
 
-  /** The latest tree of a surface, without counting a viewer. */
+  /** Sets an open instance's view: the person's (an agent showing them something, Restore). */
+  setView(plugin: string, surface: string, instance: string, view: ViewState) {
+    this.get(plugin).setView(surface, instance, view);
+  }
+
+  /** A surface's view declaration from the plugin's handshake (null when it declares none). */
+  declaredView(plugin: string, surface: string): ViewDeclaration | null {
+    return this.plugins.get(plugin)?.declaredViews[surface] ?? null;
+  }
+
+  /** The person's view of a surface: saved state, else nothing (the declared defaults apply). */
+  personView(plugin: string, surface: string): ViewState {
+    return this.opts.views?.load(plugin, surface) ?? {};
+  }
+
+  /** The latest tree of a surface's person instance, without counting a viewer. */
   tree(plugin: string, surface: string) {
     return this.get(plugin).trees.get(surface) ?? null;
   }
 
-  /** The latest tree of a surface with when it arrived, and how many viewers have it open. */
-  snapshot(plugin: string, surface: string) {
+  /** The latest tree of an instance with when it arrived, and how many viewers have it open. */
+  snapshot(plugin: string, surface: string, instance: string = PERSON) {
     const p = this.plugins.get(plugin);
     if (!p) return null;
+    const key = instanceKey(surface, instance);
     return {
-      tree: p.renderErrors.has(surface) ? null : (p.trees.get(surface) ?? null),
-      at: p.treeAt.get(surface) ?? 0,
-      viewers: p.viewers.get(surface) ?? 0,
-      ...(p.renderErrors.has(surface) ? { error: p.renderErrors.get(surface)! } : {}),
+      tree: p.renderErrors.has(key) ? null : (p.trees.get(key) ?? null),
+      at: p.treeAt.get(key) ?? 0,
+      viewers: p.viewers.get(key) ?? 0,
+      ...(p.renderErrors.has(key) ? { error: p.renderErrors.get(key)! } : {}),
     };
   }
 
+  /** A person's event (every person's screen is the PERSON instance). */
   event(plugin: string, surface: string, name: string, payload?: unknown) {
     if (
       typeof name !== "string" ||
@@ -712,7 +810,7 @@ export class PluginHost {
     validateEventPayload(payload);
     const p = this.get(plugin);
     p.userEventAt = Date.now();
-    p.send({ type: "event", surface, name, payload });
+    p.send({ type: "event", surface, instance: PERSON, name, payload });
   }
 
   async restart(plugin: string) {
@@ -743,14 +841,17 @@ export class PluginHost {
     this.emitPlugins();
   }
   async activate(installed: Installed) {
-    const viewers = new Map(this.plugins.get(installed.id)?.viewers ?? []);
+    const previous = this.plugins.get(installed.id);
+    const viewers = new Map(previous?.viewers ?? []);
+    const instanceViews = new Map(previous?.instanceViews ?? []);
     this.remove(installed.id);
     const p = this.makeProcess(
       installed.manifest,
       installed.packageRoot,
       this.opts.data,
     );
-    for (const [surface, count] of viewers) p.viewers.set(surface, count);
+    for (const [key, count] of viewers) p.viewers.set(key, count);
+    for (const [key, view] of instanceViews) p.instanceViews.set(key, view);
     this.plugins.set(installed.id, p);
     p.start();
     await p.waitReady();
@@ -784,6 +885,7 @@ export class PluginHost {
         data,
         configRoot: this.opts.registryRoot,
         diagnostic: this.opts.diagnostic,
+        views: this.opts.views,
         verify: this.opts.registryRoot
           ? () => {
               const m = parsePackageManifest(manifest),
@@ -810,10 +912,16 @@ export class PluginHost {
       () => this.emitPlugins(),
       {
         plugins: () => {},
-        tree: (plugin, surface, tree) =>
+        tree: (plugin, surface, tree, instance) =>
           this.listeners.forEach((l) => {
             try {
-              l.tree(plugin, surface, tree);
+              l.tree(plugin, surface, tree, instance);
+            } catch {}
+          }),
+        view: (plugin, surface, view) =>
+          this.listeners.forEach((l) => {
+            try {
+              l.view?.(plugin, surface, view);
             } catch {}
           }),
         toast: (plugin, text, tone, action) =>

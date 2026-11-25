@@ -6,39 +6,72 @@ export const AGENT_ACCESS = ["none", "read", "act"] as const;
 export type AgentAccess = (typeof AGENT_ACCESS)[number];
 const RANK: Record<AgentAccess, number> = { none: 0, read: 1, act: 2 };
 
-/** The manifest's `agent.access`, or null when the plugin doesn't declare one. */
-export function declaredAccess(manifest: { agent?: { access?: unknown } }): AgentAccess | null {
+/**
+ * The manifest's `agent.access`: both the default and the most the person may allow. Manifests
+ * must declare it; a record without one (an installation from before protocol 2) gets `none`.
+ */
+export function declaredAccess(manifest: { agent?: { access?: unknown } }): AgentAccess {
 	const access = manifest.agent?.access;
-	return AGENT_ACCESS.includes(access as AgentAccess) ? (access as AgentAccess) : null;
+	return AGENT_ACCESS.includes(access as AgentAccess) ? (access as AgentAccess) : "none";
 }
 
-/**
- * The most the person may allow: what the plugin declares. A plugin that declares nothing was
- * made before agent access existed and never said what's safe to share; the person may still
- * let agents read it.
- */
-export const ceilingOf = (declared: AgentAccess | null): AgentAccess => declared ?? "read";
-
-/** What applies without a choice: what the plugin declares, or no access when it declares nothing. */
-export const defaultAccess = (declared: AgentAccess | null): AgentAccess => declared ?? "none";
-
-/** What applies: the person's choice (else the default), never above the ceiling. */
-export function effectiveAccess(declared: AgentAccess | null, choice?: AgentAccess): AgentAccess {
-	const wanted = choice ?? defaultAccess(declared);
-	const ceiling = ceilingOf(declared);
-	return RANK[wanted] < RANK[ceiling] ? wanted : ceiling;
+/** What applies: the person's choice (else what the plugin declares), never above the declaration. */
+export function effectiveAccess(declared: AgentAccess, choice?: AgentAccess): AgentAccess {
+	const wanted = choice ?? declared;
+	return RANK[wanted] < RANK[declared] ? wanted : declared;
 }
 
 export const atLeast = (access: AgentAccess, needed: AgentAccess) => RANK[access] >= RANK[needed];
+
+/**
+ * How long the person lets an agent change what their screens show (`show_screen`). There is no
+ * "forever": every grant ends.
+ */
+export const GRANT_DURATIONS = [
+	{ id: "session", label: "This session" },
+	{ id: "hour", label: "1 hour" },
+	{ id: "today", label: "Today" },
+	{ id: "week", label: "7 days" },
+	{ id: "month", label: "30 days" },
+] as const;
+export type GrantDuration = (typeof GRANT_DURATIONS)[number]["id"];
+export const DEFAULT_GRANT: GrantDuration = "today";
+
+/** When a grant given at `at` for `duration` ends (epoch ms); null for "this session". */
+export function grantEnd(duration: GrantDuration, at: number): number | null {
+	switch (duration) {
+		case "session":
+			return null;
+		case "hour":
+			return at + 3_600_000;
+		case "today": {
+			const end = new Date(at);
+			end.setHours(24, 0, 0, 0);
+			return end.getTime();
+		}
+		case "week":
+			return at + 7 * 86_400_000;
+		case "month":
+			return at + 30 * 86_400_000;
+	}
+}
+
+/**
+ * The person lets an agent (by client name) change what their screens show, until `until`.
+ * Saved grants always end; "this session" grants live only in memory, tied to the session.
+ */
+export type ViewGrant = { client: string; granted: number; until: number; duration: GrantDuration };
 
 /** Saved in settings.json under `agents`. */
 export type AgentSettings = {
 	/** The agent interface listens only while this is on. Off by default. */
 	enabled: boolean;
-	/** The person's choice per plugin id; a missing entry means the plugin's default (`defaultAccess`). */
+	/** The person's choice per plugin id; a missing entry means what the plugin declares. */
 	access: Record<string, AgentAccess>;
+	/** Agents allowed to change the person's view, until each grant ends. */
+	grants: ViewGrant[];
 };
-export const AGENT_DEFAULTS: AgentSettings = { enabled: false, access: {} };
+export const AGENT_DEFAULTS: AgentSettings = { enabled: false, access: {}, grants: [] };
 
 /** Saved agent settings, each field checked; anything malformed takes its default. */
 export function agentSettings(saved: unknown): AgentSettings {
@@ -47,7 +80,18 @@ export function agentSettings(saved: unknown): AgentSettings {
 	if (s.access && typeof s.access === "object")
 		for (const [id, value] of Object.entries(s.access as Record<string, unknown>))
 			if (AGENT_ACCESS.includes(value as AgentAccess)) access[id] = value as AgentAccess;
-	return { enabled: s.enabled === true, access };
+	const grants: ViewGrant[] = [];
+	if (Array.isArray(s.grants))
+		for (const g of s.grants as Record<string, unknown>[])
+			if (
+				g &&
+				typeof g.client === "string" &&
+				typeof g.granted === "number" &&
+				typeof g.until === "number" &&
+				GRANT_DURATIONS.some((d) => d.id === g.duration && d.id !== "session")
+			)
+				grants.push({ client: g.client.slice(0, 64), granted: g.granted, until: g.until, duration: g.duration as GrantDuration });
+	return { enabled: s.enabled === true, access, grants };
 }
 
 /** `interactive`: a person is talking to the agent. `autonomous`: nobody is assumed present. */
@@ -103,6 +147,8 @@ export const OPERATION_LABELS: Record<string, string> = {
 	read_screen: "Read a screen",
 	search_screens: "Searched screens",
 	list_plugins: "Listed plugins",
+	show_screen: "Showed you a screen",
+	view_grant: "Asked to change your view",
 };
 
 /** Whether an entry matches a filter. */
@@ -122,17 +168,32 @@ export type AgentPlugin = {
 	id: string;
 	name: string;
 	icon: string;
-	/** The most the person may allow (`ceilingOf`). */
+	/** What the plugin declares: the default and the most the person may allow. */
 	ceiling: AgentAccess;
-	/** What applies without a choice (`defaultAccess`). */
-	byDefault: AgentAccess;
 	/** What the person chose, if anything. */
 	choice?: AgentAccess;
 	effective: AgentAccess;
-	/** Whether the manifest declares `agent.access`; plugins made before it existed don't. */
-	declared: boolean;
-	/** A newer version of the plugin, when one is available. */
-	update?: string;
+};
+
+/** An agent asking the person to let it change what their screens show. */
+export type ViewApproval = {
+	id: string;
+	client: string;
+	mode: AgentMode;
+	/** What it wants to show: "Desk › Tasks, filtered by Status: Done". */
+	what: string;
+	at: number;
+	/** When the agent stops waiting (epoch ms). */
+	expires: number;
+};
+
+/** A screen an agent changed for the person, with how to put it back. */
+export type ShownView = {
+	plugin: string;
+	/** The surface (`screen:<id>`). */
+	surface: string;
+	client: string;
+	at: number;
 };
 
 export type AgentsState = {
@@ -150,12 +211,24 @@ export type AgentsState = {
 	/** The newest audit entries, newest first. */
 	/** The newest entries, unfiltered: Settings → Agents refreshes its activity when they change. */
 	audit: AuditRecord[];
+	/** Agents allowed to change the person's view, saved ones and this-session ones. */
+	grants: (ViewGrant & { session?: string })[];
+	/** Agents waiting for the person to answer, oldest first: every person's screen asks. */
+	approvals: ViewApproval[];
+	/** Screens an agent changed, each page showing "Shown by …" with Restore. */
+	shown: ShownView[];
 };
 
 export type AgentsRequest =
 	| { operation: "read" }
 	| { operation: "setEnabled"; enabled: boolean }
 	| { operation: "setAccess"; plugin: string; access: AgentAccess | null }
+	/** The person's answer to a view-control request. */
+	| { operation: "answer"; id: string; allow: boolean; duration?: GrantDuration }
+	| { operation: "revokeGrant"; client: string }
+	/** Put back the person's view from before an agent changed it, or keep it and drop the notice. */
+	| { operation: "restoreView"; plugin: string; surface: string }
+	| { operation: "dismissShown"; plugin: string; surface: string }
 	/** A page of activity: older than the cursor `before`, or newer than `after` (an entry id). */
 	| { operation: "audit"; before?: number; after?: number; limit?: number; filter?: AuditFilter };
 

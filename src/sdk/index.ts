@@ -2,20 +2,26 @@
 //
 //   import { definePlugin } from "../../src/sdk";
 //   definePlugin({
-//     render: { "screen:main": () => ({ type: "text", text: "hello" }) },
-//     onEvent: (surface, name, payload, ctx) => { … ctx.invalidate(); },
+//     views: { "screen:main": { search: true, filters: { status: ["open"] } } },
+//     render: { "screen:main": (ctx, view) => page(view.search, view.filters.status) },
+//     onEvent: (surface, name, payload, ctx, { instance }) => { … ctx.invalidate(); },
 //   });
 //
-// `render` functions are called for surfaces that are open, whenever `ctx.invalidate()` is
-// called. Unchanged trees aren't sent again.
+// `render` functions are called once per open instance of a surface (every person's screens
+// share one, each agent view has its own), whenever `ctx.invalidate()` is called, with that
+// instance's view. Unchanged trees aren't sent again.
 import {
+  PERSON,
   PROTOCOL_VERSION,
   splitLines,
   type HostMessage,
   type Node,
   type PluginMessage,
   type ToastAction,
+  type ViewDeclaration,
+  type ViewState,
 } from "../shared/protocol";
+import { applyView, cleanView, resolveView, viewChange, type View } from "../shared/views";
 import { resolve, sep } from "node:path";
 import {
   CAPABILITIES,
@@ -56,8 +62,11 @@ export type {
   HostMessage,
   PluginMessage,
   ToastAction,
+  ViewState,
+  ViewDeclaration,
 } from "../shared/protocol";
-export { HUES, MAX_SECTION_DEPTH } from "../shared/protocol";
+export { HUES, MAX_SECTION_DEPTH, PERSON } from "../shared/protocol";
+export { applyView, cleanView, resolveView, type View } from "../shared/views";
 export { leastUsedHue } from "../shared/hues";
 export { duration, relative } from "../shared/time";
 
@@ -118,7 +127,7 @@ export type Context = {
   readonly mode: "probe" | "active";
   /** Negotiated host capabilities; authors provide fallbacks for unavailable optional features. */
   readonly capabilities: ReadonlySet<string>;
-  /** Re-render open surfaces (all, or the ones named). */
+  /** Re-render open surfaces (all, or the ones named), every open instance of each. */
   invalidate(...surfaces: string[]): void;
   badge(value: number | string | null): void;
   /**
@@ -140,9 +149,12 @@ export type Context = {
    * `navigate` capability.
    */
   navigate(screen: string, options?: { select?: string }): boolean;
-  /** Surfaces the host currently shows. */
+  /** Surfaces with at least one open instance: poll and watch only for these. */
   readonly open: ReadonlySet<string>;
 };
+
+/** What an event is about beyond its surface: which instance sent it. */
+export type EventInfo = { instance: string };
 
 export type PluginDefinition = {
   prepare?: (
@@ -152,17 +164,29 @@ export type PluginDefinition = {
     | { ready: boolean; reason?: string }
     | Promise<{ ready: boolean; reason?: string }>;
   stop?: (ctx: Context) => void | Promise<void>;
-  /** Surface → its UI. Surfaces: `screen:<id>` and `quick`. */
-  render: Record<string, (ctx: Context) => Node | Promise<Node>>;
+  /**
+   * Surface → its view controls and their starting values. The SDK keeps each instance's view,
+   * applies its `search`, `filter`, `filter-arrange`, `sort` and page-control `field` events
+   * itself (they don't reach `onEvent`), fills the tree's `search.query`, filters' `selected`,
+   * tables' `sort` and controls' `value` from it, and tells the host so it can save the person's.
+   */
+  views?: Record<string, ViewDeclaration>;
+  /** Surface → its UI, rendered once per open instance. Surfaces: `screen:<id>` and `quick`. */
+  render: Record<string, (ctx: Context, view: View) => Node | Promise<Node>>;
   onEvent?: (
     surface: string,
     name: string,
     payload: any,
     ctx: Context,
+    event: EventInfo,
   ) => void | Promise<void>;
+  /** An instance's view changed (after the SDK applied it and before it renders). */
+  onView?: (surface: string, view: View, ctx: Context) => void;
   /** Called once after the host said hello. */
   start?: (ctx: Context) => void | Promise<void>;
+  /** A surface's first instance opened. */
   onOpen?: (surface: string, ctx: Context) => void;
+  /** A surface's last instance closed. */
   onClose?: (surface: string, ctx: Context) => void;
 };
 
@@ -176,9 +200,39 @@ export function definePlugin(
   const write = io.write ?? ((line: string) => void process.stdout.write(line));
   const send = (m: PluginMessage) => write(JSON.stringify(m) + "\n");
   const open = new Set<string>();
+  /** Surface → instance → its view state. */
+  const instances = new Map<string, Map<string, ViewState>>();
   const capabilities = new Set<string>();
   const last = new Map<string, string>();
   let pending: Set<string> | "all" | null = null;
+  const views = def.views ?? {};
+
+  const renderInstance = async (surface: string, instance: string, state: ViewState) => {
+    const fn = def.render[surface];
+    if (!fn) return;
+    const declared = views[surface];
+    const view = resolveView(declared, state, instance);
+    let tree: Node;
+    try {
+      tree = applyView(await fn(ctx, view), view, declared);
+    } catch (e) {
+      tree = {
+        type: "empty",
+        icon: "triangle-alert",
+        title: "This view failed to render",
+        description: String((e as Error)?.message ?? e),
+      };
+    }
+    // The instance may have closed while rendering.
+    if (!instances.get(surface)?.has(instance)) return;
+    const json = JSON.stringify(tree);
+    const key = `${surface}\n${instance}`;
+    if (last.get(key) === json) return;
+    last.set(key, json);
+    write(
+      `{"type":"render","surface":${JSON.stringify(surface)},"instance":${JSON.stringify(instance)},"tree":${json}}\n`,
+    );
+  };
 
   const flush = async () => {
     const which =
@@ -186,27 +240,9 @@ export function definePlugin(
         ? [...open]
         : [...(pending ?? [])].filter((s) => open.has(s));
     pending = null;
-    for (const surface of which) {
-      const fn = def.render[surface];
-      if (!fn) continue;
-      let tree: Node;
-      try {
-        tree = await fn(ctx);
-      } catch (e) {
-        tree = {
-          type: "empty",
-          icon: "triangle-alert",
-          title: "This view failed to render",
-          description: String((e as Error)?.message ?? e),
-        };
-      }
-      const json = JSON.stringify(tree);
-      if (last.get(surface) === json) continue;
-      last.set(surface, json);
-      write(
-        `{"type":"render","surface":${JSON.stringify(surface)},"tree":${json}}\n`,
-      );
-    }
+    for (const surface of which)
+      for (const [instance, state] of [...(instances.get(surface) ?? [])])
+        await renderInstance(surface, instance, state);
   };
 
   const ctx: Context = {
@@ -233,6 +269,15 @@ export function definePlugin(
     open,
   };
 
+  const setView = (surface: string, instance: string, state: ViewState, report: boolean) => {
+    const of = instances.get(surface);
+    if (!of?.has(instance)) return;
+    of.set(instance, state);
+    if (report) send({ type: "view", surface, instance, view: state });
+    def.onView?.(surface, resolveView(views[surface], state, instance), ctx);
+    ctx.invalidate(surface);
+  };
+
   const handle = async (msg: HostMessage) => {
     switch (msg.type) {
       case "hello":
@@ -246,6 +291,7 @@ export function definePlugin(
           protocol: PROTOCOL_VERSION,
           sdk: SDK_VERSION,
           capabilities: [...CAPABILITIES],
+          views,
         });
         await def.start?.(ctx);
         send({ type: "ready" });
@@ -260,19 +306,44 @@ export function definePlugin(
       case "shutdown":
         await def.stop?.(ctx);
         break;
-      case "open":
-        open.add(msg.surface);
-        last.delete(msg.surface); // a new viewer needs the full tree
-        def.onOpen?.(msg.surface, ctx);
+      case "open": {
+        const instance = typeof msg.instance === "string" ? msg.instance : PERSON;
+        let of = instances.get(msg.surface);
+        if (!of) instances.set(msg.surface, (of = new Map()));
+        of.set(instance, cleanView(views[msg.surface], msg.view));
+        last.delete(`${msg.surface}\n${instance}`); // a new viewer needs the full tree
+        if (!open.has(msg.surface)) {
+          open.add(msg.surface);
+          def.onOpen?.(msg.surface, ctx);
+        }
         ctx.invalidate(msg.surface);
         break;
-      case "close":
-        open.delete(msg.surface);
-        def.onClose?.(msg.surface, ctx);
+      }
+      case "close": {
+        const instance = typeof msg.instance === "string" ? msg.instance : PERSON;
+        const of = instances.get(msg.surface);
+        of?.delete(instance);
+        last.delete(`${msg.surface}\n${instance}`);
+        if (of && of.size === 0) {
+          instances.delete(msg.surface);
+          open.delete(msg.surface);
+          def.onClose?.(msg.surface, ctx);
+        }
         break;
-      case "event":
-        await def.onEvent?.(msg.surface, msg.name, msg.payload, ctx);
+      }
+      case "view": {
+        // The host sets an instance's view; it gets the cleaned state back.
+        setView(msg.surface, msg.instance, cleanView(views[msg.surface], msg.view), true);
         break;
+      }
+      case "event": {
+        const instance = typeof msg.instance === "string" ? msg.instance : PERSON;
+        const state = instances.get(msg.surface)?.get(instance);
+        const next = state ? viewChange(views[msg.surface], state, msg.name, msg.payload) : null;
+        if (next) setView(msg.surface, instance, cleanView(views[msg.surface], next), true);
+        else await def.onEvent?.(msg.surface, msg.name, msg.payload, ctx, { instance });
+        break;
+      }
     }
   };
 

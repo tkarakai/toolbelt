@@ -74,17 +74,66 @@ definePlugin({
 });
 ```
 
-`render` produces complete trees for open surfaces. `invalidate()` coalesces updates; unchanged
-trees are not resent. Field/search/sort/action events let the plugin update its model, while
-selection, typing and scrolling remain in the renderer. Use stderr for diagnostics; stdout
-belongs exclusively to the SDK's JSON-lines transport.
+`render` produces complete trees for open surfaces, once per open instance (see Views).
+`invalidate()` coalesces updates and re-renders every instance; unchanged trees are not resent.
+Field/action events let the plugin update its model, while selection, typing and scrolling remain
+in the renderer. Use stderr for diagnostics; stdout belongs exclusively to the SDK's JSON-lines
+transport.
+
+## Views
+
+A surface's search, filters, sort and page controls are its *view*. The SDK owns it: declare the
+view controls and where they start, and render from the `view` argument.
+
+```ts
+definePlugin({
+  views: {
+    "screen:tasks": {
+      search: true,
+      filters: { status: ["open"] },        // filter id → starting selection
+      sort: { tasks: { key: "due", desc: false } }, // table id → starting sort (null: unsorted)
+      controls: { layout: "list" },         // page control id → starting value
+    },
+  },
+  render: {
+    "screen:tasks": (ctx, view) => tasksPage(view.search, view.filters.status, view.sort.tasks),
+  },
+  onEvent: (surface, name, payload, ctx, { instance }) => { /* actions */ },
+});
+```
+
+- The SDK applies `search`, `filter`, `filter-arrange` (with `arrange` declared), `sort` and
+  page-control `field` events (form and field are the control's id) for declared ids. They don't
+  reach `onEvent`; `onView(surface, view, ctx)` says the view changed, before the render.
+  Events for undeclared ids reach `onEvent` as before.
+- The SDK fills the tree from the view: the page's `search.query`, each declared filter's
+  `selected`, each declared table's `sort` and each declared control's `value`. Filtering the
+  data stays the plugin's: render only what the view lets through.
+- **Instances.** Each open instance of a surface has its own view and renders separately; data
+  and polling stay per surface (`ctx.open` lists surfaces with any open instance). Every person's
+  screen (the window, the popover, paired devices) shares one instance, `PERSON` (`"person"`):
+  a filter set on a phone shows in the window. AI agents read through instances of their own
+  (`agent:…`) that never change what the person sees. `view.instance` names the instance being
+  rendered and `onEvent`'s fifth argument the one that sent an event: keep per-viewer state such
+  as an open dialog per instance.
+- **The host saves the person's view** in `views.json` in the plugin profile and sends it back
+  when the person's instance opens, so plugins don't persist view state themselves. The host can
+  also set it (an agent showing the person something, the person's Restore).
+- The declaration is the screen's view schema for agents: ids and defaults from it, option
+  values from the rendered tree. Keep filter option values and column keys stable.
+
+Protocol 2 messages: the host sends `open`/`close` with `instance` (and `open` with the view to
+start from), `view` to set an instance's view and `event` with `instance`; the plugin sends
+`render` with `instance`, `view` when an instance's view changes, and its declarations as
+`views` in `hello`. The host refuses plugins built for another protocol version.
 
 A tree the host can't accept (an invalid node or value, more than the complexity limits, an
-undeclared asset) costs only its surface: the host logs why in the plugin's log, shows an error
-in place of that screen, and shows the plugin's next valid tree for it. The plugin keeps
-running. Transport, rate and handshake violations, renders before `ready` and renders of
-undeclared surfaces still stop the plugin. Older hosts stop the plugin on any invalid tree, so
-keep trees within the SDK's exported limits.
+undeclared asset) costs only its instance of the surface: the host logs why in the plugin's log,
+shows an error in place of that screen, and shows the plugin's next valid tree for it. The
+plugin, its other screens and other instances keep working, so an agent's unfiltered view that
+grows too large never breaks the person's. Transport, rate and handshake violations, renders
+before `ready` and renders of undeclared surfaces still stop the plugin. A render for an instance
+that has closed is ignored.
 
 ## Manifest
 
@@ -98,7 +147,8 @@ Place `toolbelt.json` at the archive root beside the bundled entrypoint:
   "version": "1.0.0",
   "repo": "example/counter",
   "entry": "index.js",
-  "protocol": 1,
+  "protocol": 2,
+  "agent": { "access": "read" },
   "icon": "plus",
   "requires": {
     "host": ">=0.1.0",
@@ -134,15 +184,14 @@ prevent activation; declaring a feature optional does not implement its fallback
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing
 another app, and requires a corresponding `native.handoff` declaration.
 
-`agent: { "access": "none" | "read" | "act" }` sets the most AI agents may do with the plugin
-through ToolBelt's agent interface ([agent-interface.md](agent-interface.md)). `none` hides it from agents, `read`
-lets them read its screens, and `act` is reserved for actions. Without the key, agents can't
-see the plugin unless the person allows reading in Settings → Agents, which marks it as not
-declared: declare the key so people don't have to guess. Declare `none` when screens show data
-agents shouldn't see (command lines, environment values, credentials). The person can lower a
-declared level, never raise it. Agents read the same trees
-people see, so mark secrets in forms with `sensitive` or `secret` environment entries; other text
-reaches agents unchanged. Hosts before the agent interface ignore the key.
+`agent: { "access": "none" | "read" | "act" }` (required) sets the most AI agents may do with
+the plugin through ToolBelt's agent interface ([agent-interface.md](agent-interface.md)). `none`
+hides it from agents, `read` lets them read its screens (each with a view of its own) and show
+the person a screen when asked, and `act` is reserved for actions. Declare `none` when screens
+show data agents shouldn't see (command lines, environment values, credentials). The person can
+lower the level, never raise it. Agents read the same trees people see, so mark secrets in forms
+with `sensitive` or `secret` environment entries; other text reaches agents unchanged, apart from
+values that look like tokens or passwords.
 
 `src/shared/package.ts` and `protocol.ts`, exported in the SDK, are authoritative for the
 complete metadata/node types and validation limits. Do not infer an API from source comments

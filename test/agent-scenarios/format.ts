@@ -6,8 +6,8 @@
 export type Channel = "mcp" | "cli";
 export const CHANNELS: Channel[] = ["mcp", "cli"];
 
-export type Tool = "toolbelt_status" | "list_screens" | "read_screen" | "search_screens" | "list_plugins";
-export const TOOLS: Tool[] = ["toolbelt_status", "list_screens", "read_screen", "search_screens", "list_plugins"];
+export type Tool = "toolbelt_status" | "list_screens" | "read_screen" | "search_screens" | "list_plugins" | "show_screen";
+export const TOOLS: Tool[] = ["toolbelt_status", "list_screens", "read_screen", "search_screens", "list_plugins", "show_screen"];
 
 export type Access = "none" | "read" | "act";
 
@@ -21,7 +21,14 @@ export type PersonAction =
 	/** Settings → Agents: a plugin's access (null: back to the plugin's own level). */
 	| { access: { plugin: string; level: Access | null } }
 	/** Settings → Agents: the master switch. */
-	| { agents: boolean };
+	| { agents: boolean }
+	/** "Shown by" › Restore on a screen an agent changed ("plugin/screen"). */
+	| { restore: string }
+	/** Settings → Agents › Changing your view › Revoke, for an agent by client name. */
+	| { revoke: string };
+
+/** The person's answer to show_screen's question, given as soon as it's asked. */
+export type Answer = { allow: boolean; duration?: "session" | "hour" | "today" | "week" | "month" };
 
 export type Notification = {
 	method: "notifications/resources/updated" | "notifications/resources/list_changed";
@@ -41,10 +48,21 @@ export type Expect = {
 	unreachable?: boolean;
 	/** Notifications that arrive after this step, on channels that deliver them (MCP). */
 	notifications?: Notification[];
+	/** The person's saved view of a screen after this step (compared as JSON). */
+	personView?: { screen: string; view: Record<string, unknown> };
+	/** Screens shown on the person's screens by this step, in order ("plugin/screen"). */
+	navigated?: string[];
 };
 
 export type Step =
-	| { call: Tool; args?: Record<string, unknown>; /** The structured result (MCP structuredContent, CLI --json) instead of text. */ structured?: boolean; expect?: Expect }
+	| {
+			call: Tool;
+			args?: Record<string, unknown>;
+			/** The structured result (MCP structuredContent, CLI --json) instead of text. */ structured?: boolean;
+			/** For show_screen: how the person answers if asked; without it, nobody answers. */
+			answer?: Answer;
+			expect?: Expect;
+	  }
 	/** Resource steps: channels with resources only (MCP). */
 	| { read: string; expect?: Expect }
 	| { subscribe: string; expect?: Expect }
@@ -66,6 +84,8 @@ export type Scenario = {
 		agents?: boolean;
 		/** The person's per-plugin choices at the start. */
 		access?: Record<string, Access>;
+		/** The person's devices: whether the Mac's window is open (default yes), and paired devices. */
+		devices?: { window?: boolean; paired?: { name: string; connected: boolean }[] };
 		/** What the person does before the agent starts. */
 		person?: PersonAction[];
 	};
@@ -103,6 +123,8 @@ export function validateScenario(value: unknown): Scenario {
 		else if ("event" in p) (screen(p.event?.screen, where), typeof p.event.name === "string" || fail(`${where}: event name`));
 		else if ("access" in p) (typeof p.access?.plugin === "string" && (p.access.level === null || ["none", "read", "act"].includes(p.access.level))) || fail(`${where}: access`);
 		else if ("agents" in p) typeof p.agents === "boolean" || fail(`${where}: agents`);
+		else if ("restore" in p) screen(p.restore, where);
+		else if ("revoke" in p) typeof p.revoke === "string" || fail(`${where}: revoke`);
 		else fail(`${where}: unknown person action ${keys[0]}`);
 	};
 	for (const p of s.setup?.person ?? []) person(p, "setup");

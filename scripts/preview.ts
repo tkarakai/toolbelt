@@ -23,6 +23,9 @@ import type { Phase, UpdateState } from "../src/bun/updater";
 import { githubMetadata } from "../src/bun/github-metadata";
 import { mkdirSync } from "node:fs";
 import { createAgentInterface, declaredAccess } from "../src/bun/agent";
+import { ViewStore } from "../src/bun/views";
+import { cleanView } from "../src/shared/views";
+import { PERSON } from "../src/shared/protocol";
 import {
   DEVELOPMENT_ENV,
   DevelopmentController,
@@ -56,12 +59,14 @@ const root = developmentProfile
   : configDir(homedir());
 mkdirSync(root, { recursive: true });
 const developmentLog = new DiagnosticLog();
+const personViews = new ViewStore(join(root, "views.json"));
 const host = new PluginHost({
   dirs: [],
   registryRoot: root,
   bun: process.execPath,
   host: { name: "Toolbelt preview", version: pkg.version },
   data: join(root, "data"),
+  views: personViews,
   diagnostic: (plugin, kind, detail) => developmentLog.record(kind, { plugin, detail }),
 });
 const packages = new PackageManager(
@@ -106,6 +111,18 @@ const agents = createAgentInterface({
   cliScript: join(import.meta.dir, "../src/cli/toolbelt.ts"),
   bun: process.execPath,
   changed: (state) => broadcast("agentsState", state),
+  // The preview's browser tabs stand in for the person's screens.
+  person: {
+    devices: () => [{ name: "the browser preview", kind: "mac" as const, showing: true }],
+    openWindow: () => {},
+    navigate: (plugin, screen) => broadcast("navigate", { plugin, screen }),
+    view: (plugin, surface) => host.personView(plugin, surface),
+    setView: (plugin, surface, view) => {
+      const clean = cleanView(host.declaredView(plugin, surface) ?? undefined, view);
+      if ((host.snapshot(plugin, surface, PERSON)?.viewers ?? 0) > 0) host.setView(plugin, surface, PERSON, clean);
+      else personViews.save(plugin, surface, clean);
+    },
+  },
 });
 
 const icons = new FileIcons(join(root, "cache/icons"));
@@ -128,7 +145,9 @@ const development = new DevelopmentController({
 });
 host.subscribe({
   plugins: (list) => broadcast("plugins", list),
-  tree: (plugin, surface, tree) => broadcast("tree", { plugin, surface, tree }),
+  tree: (plugin, surface, tree, instance) => {
+    if (instance === PERSON) broadcast("tree", { plugin, surface, tree });
+  },
   toast: (plugin, text, tone, action) =>
     broadcast("toast", { plugin, text, tone, action }),
   clipboard: (_plugin, text) => {

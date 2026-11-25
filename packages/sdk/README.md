@@ -2,8 +2,9 @@
 
 Bun SDK for Toolbelt's declarative plugin protocol. Install a pinned SDK release archive in
 your plugin repository; no Toolbelt source checkout is required. The current SDK version is
-`0.2.0-dev.5`, package format 1 and protocol 1. SDK build version is diagnostic; host/Bun
-ranges and negotiated capabilities determine compatibility.
+`0.2.0-dev.5`, package format 1 and protocol 2. SDK build version is diagnostic; host/Bun
+ranges and negotiated capabilities determine compatibility. Hosts run only plugins built for
+their protocol.
 
 ```ts
 import { definePlugin, dataDir, packageRoot, payload, asset } from "@toolbelt/sdk";
@@ -21,7 +22,14 @@ import { definePlugin, dataDir, packageRoot, payload, asset } from "@toolbelt/sd
 | `@toolbelt/sdk/search` | Search, edit distance and highlighting helpers |
 
 Render keys are `screen:<manifest-screen-id>` and optional `quick`. `Context.invalidate()`
-coalesces renders; unchanged trees are not resent. `Context.capabilities` contains negotiated
+coalesces renders; unchanged trees are not resent.
+
+`views` declares each surface's search, filters, sort and page controls with their starting
+values. The SDK keeps one view per open instance (every person's screen shares `PERSON`, each
+agent view has its own), applies the view events itself, writes the view into the tree's
+controls and calls `render(ctx, view)` per instance; filter the data by `view`. `onEvent`'s
+fifth argument names the instance that sent an event. The host saves the person's view, so
+plugins don't persist view state. `Context.capabilities` contains negotiated
 host support. Declare used features required or implement an actual fallback when optional
 capabilities are absent. Keep stdout protocol-only; use stderr for diagnostics.
 

@@ -504,7 +504,7 @@ const node: Schema = (v, p) => {
     }),
     page: object({
       ...base,
-      search: optional(object({ placeholder: text })),
+      search: optional(object({ placeholder: text, query: optional(text) })),
       controls: optional(array(union(segmented, choice))),
       actions,
       summary: optional(text),
@@ -708,6 +708,27 @@ export function validateTree(value: unknown): asserts value is Node {
   bounded(value);
   node(value, "tree");
 }
+const sortKey = object({ key: text, desc: bool });
+const arrangement = object({ order: array(text), grouped: array(text) });
+/** A view state (`ViewState`), as plugins report it and hosts send it. */
+export const viewState: Schema = object({
+  search: optional(text),
+  filters: optional(record(array(text))),
+  sort: optional(record(sortKey)),
+  controls: optional(record(text)),
+  arrange: optional(arrangement),
+});
+const viewDeclaration: Schema = object({
+  search: optional(bool),
+  filters: optional(record(array(text))),
+  sort: optional(record(union(sortKey, literal(null)))),
+  controls: optional(record(text)),
+  arrange: optional(arrangement),
+});
+export function validateViewState(value: unknown) {
+  bounded(value);
+  viewState(value, "view");
+}
 export function validateMessage(
   value: unknown,
 ): asserts value is PluginMessage {
@@ -719,6 +740,7 @@ export function validateMessage(
       protocol: number,
       sdk: text,
       capabilities: array(text),
+      views: optional(record(viewDeclaration)),
     }),
     ready: object({ type: literal("ready") }),
     prepared: object({
@@ -727,7 +749,8 @@ export function validateMessage(
       ready: bool,
       reason: optional(text),
     }),
-    render: object({ type: literal("render"), surface: text, tree: node }),
+    render: object({ type: literal("render"), surface: text, instance: text, tree: node }),
+    view: object({ type: literal("view"), surface: text, instance: text, view: viewState }),
     badge: object({
       type: literal("badge"),
       value: union(text, number, literal(null)),

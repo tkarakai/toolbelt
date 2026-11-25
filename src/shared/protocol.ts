@@ -23,7 +23,48 @@
 // Each plugin gets a folder of its own for data: the `TOOLBELT_DATA_DIR` environment variable
 // (`~/Library/Application Support/Toolbelt/data/<id>/`).
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
+
+/**
+ * The instance every person's view shares: the window, the popover and paired devices show the
+ * same search, filters and sort, like a remote control. Agents read through instances of their
+ * own (`agent:…`), which never change what the person sees.
+ */
+export const PERSON = "person";
+
+/**
+ * What a surface's view shows: its search, filters, sort and page controls. The SDK keeps one per
+ * instance, applies the view events itself and renders with it; plugins filter their data by it.
+ */
+export type ViewState = {
+	/** The page's search text. */
+	search?: string;
+	/** Filter id → checked option values (none: no filtering). */
+	filters?: Record<string, string[]>;
+	/** Table id → the column it's sorted by. */
+	sort?: Record<string, { key: string; desc: boolean }>;
+	/** Page control id (`segmented`, `choice`) → its value. */
+	controls?: Record<string, string>;
+	/** Filter arrangement (`Filter.group`): every filter id in order, and the grouping ones in level order. */
+	arrange?: { order: string[]; grouped: string[] };
+};
+
+/**
+ * A surface's view controls and where they start: the SDK's `views` declaration, sent in the
+ * handshake. Agents see it as the screen's view schema; options come from the rendered tree.
+ */
+export type ViewDeclaration = {
+	/** The page has a search box. */
+	search?: boolean;
+	/** Filter id → its starting selection. */
+	filters?: Record<string, string[]>;
+	/** Table id → its starting sort, or null when it starts unsorted. */
+	sort?: Record<string, { key: string; desc: boolean } | null>;
+	/** Page control id → its starting value. */
+	controls?: Record<string, string>;
+	/** The filters can be arranged and group rows, starting like this. */
+	arrange?: { order: string[]; grouped: string[] };
+};
 
 /** `toolbelt.json`, next to the plugin's entry file. */
 export type Manifest = {
@@ -49,10 +90,10 @@ export type Manifest = {
 	cli?: { command: string };
 	/**
 	 * How far AI agents may go with this plugin (docs/agent-interface.md): `none` hides it from agents,
-	 * `read` lets them read its screens, `act` is reserved for actions. Without it: `read`. The
-	 * person can lower it in Settings → Agents. Older hosts ignore it.
+	 * `read` lets them read its screens, `act` is reserved for actions. Required. The person can
+	 * lower it in Settings → Agents.
 	 */
-	agent?: { access: "none" | "read" | "act" };
+	agent: { access: "none" | "read" | "act" };
 };
 
 export type Tone = "default" | "muted" | "success" | "warning" | "danger" | "info";
@@ -532,8 +573,11 @@ export type Node =
 	| { type: "stack"; direction?: "row" | "column"; gap?: number; children: Node[] }
 	| {
 			type: "page";
-			/** Optional search box; changes arrive as `event` named `search`. */
-			search?: { placeholder: string };
+			/**
+			 * Optional search box. The SDK handles its `search` events and fills `query` from the
+			 * instance's view, so every person's screen shows the same text.
+			 */
+			search?: { placeholder: string; query?: string };
 			/** Buttons in the page toolbar. */
 			actions?: Action[];
 			/**
@@ -724,15 +768,21 @@ export type HostMessage =
 	| { type: "prepare"; requestId: string; reason: string }
 	| { type: "shutdown" }
 	| { type: "hello"; protocol: number; capabilities?: string[]; plugin: { id: string }; host: { name: string; version: string } }
-	| { type: "open"; surface: string }
-	| { type: "close"; surface: string }
-	| { type: "event"; surface: string; name: string; payload?: unknown };
+	/** An instance of a surface opens, starting with `view` (else the declared defaults). */
+	| { type: "open"; surface: string; instance: string; view?: ViewState }
+	| { type: "close"; surface: string; instance: string }
+	/** The host sets an instance's view (an agent showing the person something, Restore). */
+	| { type: "view"; surface: string; instance: string; view: ViewState }
+	| { type: "event"; surface: string; instance: string; name: string; payload?: unknown };
 
 export type PluginMessage =
-	| { type: "hello"; protocol: number; sdk: string; capabilities: string[] }
+	/** `views`: each surface's view declaration (`ViewDeclaration`). */
+	| { type: "hello"; protocol: number; sdk: string; capabilities: string[]; views?: Record<string, ViewDeclaration> }
 	| { type: "ready" }
 	| { type: "prepared"; requestId: string; ready: boolean; reason?: string }
-	| { type: "render"; surface: string; tree: Node }
+	| { type: "render"; surface: string; instance: string; tree: Node }
+	/** An instance's view changed (a person's search, filter or sort): the host saves the person's. */
+	| { type: "view"; surface: string; instance: string; view: ViewState }
 	| { type: "badge"; value: number | string | null }
 	| { type: "toast"; text: string; tone?: "default" | "success" | "error"; action?: ToastAction }
 	/** Put text on the clipboard. */
@@ -804,9 +854,8 @@ export function parseManifest(json: unknown): Manifest {
         }
     }
 	need(
-		m.agent === undefined ||
-			(!!m.agent && typeof m.agent === "object" && ["none", "read", "act"].includes((m.agent as { access?: unknown }).access as string)),
-		"`agent.access` must be none, read or act",
+		!!m.agent && typeof m.agent === "object" && ["none", "read", "act"].includes((m.agent as { access?: unknown }).access as string),
+		"`agent.access` is required: none, read or act",
 	);
 	return {
 		...m,

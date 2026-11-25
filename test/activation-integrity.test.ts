@@ -18,7 +18,7 @@ async function fixture() {
       version: "1.0.0",
       repo: "test/fixture",
       entry: "index.js",
-      protocol: 1,
+      protocol: 2, agent: { access: "read" },
       screens: [{ id: "main", title: "Main" }],
       requires: { host: ">=0.1.0", bun: ">=1.3.0", platforms: ["portable"] },
       capabilities: { required: ["ui.core"], optional: [] },
@@ -27,7 +27,7 @@ async function fixture() {
   );
   writeFileSync(
     join(source, "index.js"),
-    `const send=m=>console.log(JSON.stringify(m));send({type:'hello',protocol:1,sdk:'fixture',capabilities:['ui.core']});send({type:'ready'});let buf='';for await(const c of Bun.stdin.stream()){buf+=new TextDecoder().decode(c);let n;while((n=buf.indexOf('\\n'))>=0){const m=JSON.parse(buf.slice(0,n));buf=buf.slice(n+1);if(m.type==='prepare')send({type:'prepared',requestId:m.requestId,ready:true});if(m.type==='event'&&m.name==='boom')process.exit(1);}}`.replaceAll(
+    `const send=m=>console.log(JSON.stringify(m));send({type:'hello',protocol:2,sdk:'fixture',capabilities:['ui.core']});send({type:'ready'});let buf='';for await(const c of Bun.stdin.stream()){buf+=new TextDecoder().decode(c);let n;while((n=buf.indexOf('\\n'))>=0){const m=JSON.parse(buf.slice(0,n));buf=buf.slice(n+1);if(m.type==='prepare')send({type:'prepared',requestId:m.requestId,ready:true});if(m.type==='event'&&m.name==='boom')process.exit(1);}}`.replaceAll(
       "'\\\\n'",
       "'\\n'",
     ),

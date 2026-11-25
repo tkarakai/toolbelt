@@ -404,6 +404,15 @@ export class RemoteAccess {
 		}
 	}
 
+	/**
+	 * Paired devices and whether each has ToolBelt open now (a live connection). Empty while remote
+	 * access is off: then no device can show anything.
+	 */
+	devices(): { name: string; connected: boolean }[] {
+		if (!this.options.settings().enabled) return [];
+		return this.pairedDevices().map((d) => ({ name: d.name, connected: !!d.live }));
+	}
+
 	/** Paired devices, connected ones first, each with its live connections. */
 	private pairedDevices(): PairedDevice[] {
 		const byDevice = new Map<string, RemoteClient[]>();

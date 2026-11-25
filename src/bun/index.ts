@@ -59,6 +59,9 @@ import { RemoteAccess } from "./remote-access";
 import { buildIdOf, remoteSender } from "./remote-server";
 import { REMOTE_DEFAULT_PORT } from "../shared/remote";
 import { createAgentInterface, declaredAccess } from "./agent";
+import { ViewStore } from "./views";
+import { cleanView } from "../shared/views";
+import { PERSON } from "../shared/protocol";
 import pkg from "../../package.json" with { type: "json" };
 
 /** Last requested list geometry, reused when the native popover is shown again. */
@@ -118,12 +121,15 @@ const viewUrl = (hash = "") =>
 
 // ── plugins ──────────────────────────────────────────────────────────────
 const developmentLog = new DiagnosticLog();
+// The person's view of each screen, shared by every person's screen and saved by the host.
+const personViews = new ViewStore(join(profileRoot, "views.json"));
 const host = new PluginHost({
   dirs: [],
   registryRoot: profileRoot,
   bun: process.execPath,
   host: { name: variant.name, version: pkg.version },
   data: join(profileRoot, "data"),
+  views: personViews,
   ...(developmentProfile
     ? {
         diagnostic: (plugin: string, kind: string, detail: unknown) =>
@@ -179,6 +185,25 @@ const agents = createAgentInterface({
   bun: process.execPath,
   // Paired remote devices are trusted like the Mac: they get Settings → Agents too.
   changed: (state) => views.forEach((v) => v.send.agentsState(state)),
+  // What show_screen changes: the person's screens (the Mac's window and paired devices).
+  person: {
+    devices: () => [
+      { name: "the Mac", kind: "mac" as const, showing: !!win },
+      ...remoteAccess.devices().map((d) => ({ name: d.name, kind: "device" as const, showing: d.connected })),
+    ],
+    openWindow: () => showWindow(),
+    navigate: (plugin, screen) => {
+      if (win) winRPC?.send.navigate({ plugin, screen });
+      for (const view of views) if (remoteViews.has(view)) view.send.navigate({ plugin, screen });
+    },
+    view: (plugin, surface) => host.personView(plugin, surface),
+    setView: (plugin, surface, view) => {
+      const clean = cleanView(host.declaredView(plugin, surface) ?? undefined, view);
+      // Open somewhere: the plugin applies it and reports it back to be saved. Else saved for next time.
+      if ((host.snapshot(plugin, surface, PERSON)?.viewers ?? 0) > 0) host.setView(plugin, surface, PERSON, clean);
+      else personViews.save(plugin, surface, clean);
+    },
+  },
 });
 const seedDemo = () =>
   materializeSeed(packages, join(PATHS.RESOURCES_FOLDER, "app/seed"));
@@ -374,8 +399,10 @@ function releaseView(rpc: View) {
 
 host.subscribe({
   plugins: (list) => views.forEach((v) => v.send.plugins(list)),
-  tree: (plugin, surface, tree) =>
-    views.forEach((v) => v.send.tree({ plugin, surface, tree })),
+  // People's screens show the person's instance; agent instances are the agent interface's.
+  tree: (plugin, surface, tree, instance) => {
+    if (instance === PERSON) views.forEach((v) => v.send.tree({ plugin, surface, tree }));
+  },
   toast: (plugin, text, tone, action) =>
     views.forEach((v) => v.send.toast({ plugin, text, tone, action })),
   clipboard: (_plugin, text) => Utils.clipboardWriteText(text),
@@ -808,6 +835,7 @@ Electrobun.events.on("before-quit", () => {
   void remoteAccess.stop();
   agents.stop();
   host.stop();
+  personViews.flush();
 });
 
 // ── debug channel (dev builds, TOOLBELT_DEBUG_PORT) ─────────────────────

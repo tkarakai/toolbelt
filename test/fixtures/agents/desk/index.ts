@@ -1,10 +1,12 @@
 // Agent scenario fixture (test/agent-scenarios): a task list shaped like the trees real task
 // plugins render. Sections with sub-sections and an empty one, nested rows, row panes with an
-// inline form and a timeline, a filter with a default, search with a highlight and a dialog.
-// Events: `search`, `filter`, `settle`/`reopen` ({ rowId }), `new-task` opens a dialog and
-// `dialog-close` closes it. Times are fixed around clock.ts's NOW.
+// inline form and a timeline, a filter with a default, search with a highlight, a sortable
+// column and a dialog. Search, the Status filter and the sort are SDK-owned views (each
+// instance has its own); the dialog is per instance too. Events: `settle`/`reopen` ({ rowId }),
+// `new-task` opens the sender's dialog and `dialog-close` closes it. Times are fixed around
+// clock.ts's NOW.
 import type { Node, Row } from "../../../../src/shared/protocol";
-import { definePlugin } from "../../../../src/sdk";
+import { definePlugin, type View } from "../../../../src/sdk";
 import { DAY, HOUR, MIN, NOW } from "../clock";
 
 type Task = {
@@ -52,13 +54,12 @@ const tasks: Task[] = [
 	},
 ];
 
-let query = "";
-let statusFilter = ["open", "waiting"];
-let dialog = false;
+/** Instances with the New task dialog open. */
+const dialogs = new Set<string>();
 const settled = new Map<string, string>();
 
-const matches = (t: Task): boolean =>
-	!query || `${t.title} ${t.project}`.toLowerCase().includes(query.toLowerCase()) || (t.children ?? []).some(matches);
+const matches = (query: string) => (t: Task): boolean =>
+	!query || `${t.title} ${t.project}`.toLowerCase().includes(query.toLowerCase()) || (t.children ?? []).some(matches(query));
 
 function row(t: Task): Row {
 	const pane: Node[] | undefined = t.history
@@ -92,8 +93,14 @@ function row(t: Task): Row {
 	};
 }
 
-function tasksPage(): Node {
-	const visible = tasks.filter(matches).filter((t) => statusFilter.includes(settled.has(t.id) ? "done" : t.section === "waiting" ? "waiting" : "open") || !statusFilter.length);
+function tasksPage(view: View): Node {
+	const query = view.search;
+	const statusFilter = view.filters.status ?? [];
+	const sort = view.sort.tasks;
+	const visible = tasks
+		.filter(matches(query))
+		.filter((t) => statusFilter.includes(settled.has(t.id) ? "done" : t.section === "waiting" ? "waiting" : "open") || !statusFilter.length)
+		.sort((a, b) => (sort?.key === "title" ? a.title.localeCompare(b.title) * (sort.desc ? -1 : 1) : 0));
 	return {
 		type: "page",
 		search: { placeholder: "Search tasks" },
@@ -117,7 +124,7 @@ function tasksPage(): Node {
 			{
 				type: "table",
 				id: "tasks",
-				columns: [{ key: "title", title: "Task" }, { key: "due", title: "Due" }, { key: "project", title: "Project" }],
+				columns: [{ key: "title", title: "Task", sortable: true }, { key: "due", title: "Due" }, { key: "project", title: "Project" }],
 				actions: [{ id: "settle", label: "Settle" }, { id: "snooze", label: "Snooze" }, { id: "settle", label: "Settle", inline: true }],
 				bulkActions: [{ id: "settle-all", label: "Settle selected" }],
 				sections: [
@@ -131,7 +138,7 @@ function tasksPage(): Node {
 				rows: visible.map(row),
 			},
 		],
-		dialog: dialog
+		dialog: dialogs.has(view.instance)
 			? {
 					id: "new-task",
 					title: "New task",
@@ -144,8 +151,9 @@ function tasksPage(): Node {
 
 definePlugin({
 	start: (ctx) => ctx.badge(1),
+	views: { "screen:tasks": { search: true, filters: { status: ["open", "waiting"] }, sort: { tasks: null } } },
 	render: {
-		"screen:tasks": tasksPage,
+		"screen:tasks": (_ctx, view) => tasksPage(view),
 		"screen:settings": () => ({
 			type: "form",
 			id: "settings",
@@ -156,13 +164,11 @@ definePlugin({
 			],
 		}),
 	},
-	onEvent(_surface, name, payload, ctx) {
-		if (name === "search") query = String(payload?.query ?? "");
-		else if (name === "filter") statusFilter = payload.values;
-		else if (name === "settle") settled.set(payload.rowId, "done");
+	onEvent(_surface, name, payload, ctx, { instance }) {
+		if (name === "settle") settled.set(payload.rowId, "done");
 		else if (name === "reopen") settled.delete(payload.rowId);
-		else if (name === "new-task") dialog = true;
-		else if (name === "dialog-close") dialog = false;
+		else if (name === "new-task") dialogs.add(instance);
+		else if (name === "dialog-close") dialogs.delete(instance);
 		ctx.invalidate();
 	},
 });

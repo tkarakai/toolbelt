@@ -7,16 +7,20 @@ description: Read the person's ToolBelt (Mac menu bar app) plugin screens — ta
 
 ToolBelt is a Mac menu bar app. Its plugins show the person's own information: tasks
 (OnTrack), software updates (Upkeep), and others. The `toolbelt` command reads what those
-plugins show, through the running app. Access is **read-only**: you can look things up and
-explain them, but you can't change anything. When the person wants something done, tell them
-where to do it in ToolBelt (plugin › screen › action).
+plugins show, through the running app. You can look things up and explain them, and, when the
+person asks to see something, show it on their screens. You can't change their data: when the
+person wants something done, tell them where to do it in ToolBelt (plugin › screen › action).
 
 ## Commands
 
 ```sh
 toolbelt status                      # app version, plugins, their screens — start here
-toolbelt screens [plugin]            # screen ids for `read`
+toolbelt screens [plugin]            # screen ids for `read`, with each screen's view controls
 toolbelt read <plugin> [screen]      # one screen as text (default screen if omitted)
+toolbelt read <plugin> <screen> --filter status=done --sort tasks=-due --search budget
+                                     # your own view: searched, filtered, sorted in one call
+toolbelt read <plugin> <screen> --person   # exactly what the person's screens show now
+toolbelt show <plugin> [screen] --filter status=done   # show the person (asks them first)
 toolbelt read <plugin> <screen> --max-rows 20 --no-details   # smaller
 toolbelt read <plugin> <screen> --table <id> --offset 100    # next page of a long table
 toolbelt read <plugin> <screen> --table <id> --parent <row id>   # a row's child rows
@@ -33,9 +37,16 @@ request was refused or failed (unknown plugin, screen, table or option, plugin n
 
 - Tables print as `- cell · cell · cell  {id: …}` under `### section` headings, followed by
   indented row details. Times are absolute local time with a relative hint.
-- `Filter`, `Search` and `Dialog open` lines describe view state the person set. The view is
-  shared with them, so rows outside a filter are not listed: say so rather than claiming
-  something doesn't exist.
+- `read` gives you your own copy of the screen as it starts (the plugin's default filters,
+  which may hide finished items). Narrow or widen it with `--search`, `--filter` (`ID=` for
+  all options), `--sort` and `--control`; `screens` lists each screen's controls and options.
+  The person's screens never change when you read.
+- `--person` reads what the person sees; its `Filter`, `Search` and `Dialog open` lines are
+  what they set, so rows outside them are not listed.
+- `show` changes what the person's screens show. Use it only when they ask to see something.
+  The first time, ToolBelt asks them to allow it and for how long, and waits up to a minute.
+  It reports devices that don't show it (window closed, device without ToolBelt open): tell
+  the person and ask what to do; `--open-window` opens the window on the Mac.
 - `Row actions` and `Toolbar actions` name what the person can do on that screen; a row that
   allows fewer lists its own `(actions: …)`.
 - `search` lists screens it couldn't read: matches there are unknown, not absent.

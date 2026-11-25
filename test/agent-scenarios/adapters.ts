@@ -177,6 +177,19 @@ export class CliAdapter implements ChannelAdapter {
 	readonly resources = false;
 	constructor(private readonly o: Options) {}
 
+	/** read_screen/show_screen's `view` as the CLI's view flags. */
+	static viewFlags(view: unknown): string[] {
+		if (view === undefined) return [];
+		if (view === "person") return ["--person"];
+		const v = view as { search?: string; filters?: Record<string, string[]>; sort?: Record<string, string>; controls?: Record<string, string> };
+		return [
+			...(v.search !== undefined ? ["--search", v.search] : []),
+			...Object.entries(v.filters ?? {}).flatMap(([id, values]) => ["--filter", `${id}=${values.join(",")}`]),
+			...Object.entries(v.sort ?? {}).flatMap(([table, key]) => ["--sort", `${table}=${key}`]),
+			...Object.entries(v.controls ?? {}).flatMap(([id, value]) => ["--control", `${id}=${value}`]),
+		];
+	}
+
 	/** The command line for a tool call: the CLI's documented mapping (`toolbelt help`). */
 	static argv(tool: Tool, args: Record<string, unknown>, structured: boolean): string[] {
 		const known = (allowed: string[]) => {
@@ -196,12 +209,16 @@ export class CliAdapter implements ChannelAdapter {
 			case "search_screens":
 				known(["query", "plugin"]);
 				return ["search", ...String(args.query).split(/\s+/), ...(args.plugin ? ["--plugin", String(args.plugin)] : []), ...json];
+			case "show_screen":
+				known(["plugin", "screen", "view", "open_window"]);
+				return ["show", String(args.plugin), ...(args.screen ? [String(args.screen)] : []), ...CliAdapter.viewFlags(args.view), ...(args.open_window ? ["--open-window"] : []), ...json];
 			case "read_screen":
-				known(["plugin", "screen", "format", "max_rows", "table", "offset", "parent", "details"]);
+				known(["plugin", "screen", "format", "max_rows", "table", "offset", "parent", "details", "view"]);
 				return [
 					"read",
 					String(args.plugin),
 					...(args.screen ? [String(args.screen)] : []),
+					...CliAdapter.viewFlags(args.view),
 					...(args.max_rows !== undefined ? ["--max-rows", String(args.max_rows)] : []),
 					...(args.table !== undefined ? ["--table", String(args.table)] : []),
 					...(args.offset !== undefined ? ["--offset", String(args.offset)] : []),

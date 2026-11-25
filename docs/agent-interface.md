@@ -1,9 +1,12 @@
 # Agent interface
 
 AI agents (Claude Code, Codex, Claude Desktop, scripts) can read ToolBelt's plugin screens on
-this Mac through an MCP server and the `toolbelt` command. Access is read-only: agents can't
-send plugin events, change settings or manage plugins. The person turns the interface on in
-**Settings → Agents** and chooses per plugin what agents may read.
+this Mac through an MCP server and the `toolbelt` command. Each agent reads its own instance of a
+screen and can search, filter and sort it in the same call without changing what the person
+sees. The one thing an agent changes is the person's view (`show_screen`), when the person allows
+it on their own screens. Agents can't send plugin events, change settings or manage plugins. The
+person turns the interface on in **Settings → Agents** and chooses per plugin what agents may
+read.
 
 The plan for later phases (actions with approvals, autonomous agents, an in-app chat) is in
 [plans/agent-interface.md](../plans/agent-interface.md); this document describes what exists.
@@ -17,24 +20,23 @@ The plan for later phases (actions with approvals, autonomous agents, an in-app 
 | Wiring for the app and the browser preview | `src/bun/agent/index.ts`, `src/bun/index.ts`, `scripts/preview.ts` |
 | `toolbelt` CLI, stdio MCP shim, skill file | `src/cli/toolbelt.ts`, `src/cli/SKILL.md` |
 | Settings → Agents | `src/ui/Agents.tsx` |
+| The approval dialog and "Shown by" notice on the person's screens | `src/ui/AgentPrompts.tsx` |
+| Views and instances (SDK, host, the person's saved view) | `src/shared/views.ts`, `src/sdk/index.ts`, `src/bun/host.ts`, `src/bun/views.ts`; see [plugins.md](plugins.md#views) |
 
 ## Access
 
 - **Master switch.** `settings.json` → `agents.enabled`, off by default. While it is off, no
   socket exists.
-- **What the plugin declares.** The manifest's optional `agent.access`: `none` hides the
-  plugin from agents entirely, `read` lets them read its screens, `act` is reserved for
-  actions. `parseManifest` rejects other values. Older hosts keep the key without acting on it.
-  A declared level is both the default and the most the person may allow.
-- **Undeclared plugins.** A plugin that declares nothing was made before agent access existed
-  and never said what's safe to share, so it has no access by default (`defaultAccess`). The
-  person may allow up to `read` for it (`ceilingOf`); Settings → Agents marks it as not
-  declared, mentions an available update, and warns once reading is allowed that its
-  plain text reaches agents. A host default is the only safe one: an old plugin can't opt out.
+- **What the plugin declares.** The manifest's required `agent.access`: `none` hides the
+  plugin from agents entirely, `read` lets them read its screens and show the person a screen,
+  `act` is reserved for actions. `parseManifest` rejects a manifest without it or with another
+  value. The declared level is both the default and the most the person may allow. A registry
+  record from before protocol 2 that declares nothing counts as `none` (`declaredAccess`); such
+  a plugin can't run on this host anyway.
 - **The person's choice.** `agents.access[<plugin id>]` in `settings.json`, set in Settings →
-  Agents. Effective access is the choice, else the default, never above the ceiling
-  (`effectiveAccess`). Choosing the default clears the entry. Lowering access releases surfaces
-  the agent holds for that plugin and ends resource subscriptions to it.
+  Agents. Effective access is the choice, else the declaration, never above it
+  (`effectiveAccess`). Choosing the declared level clears the entry. Lowering access releases
+  instances the agent holds for that plugin and ends resource subscriptions to it.
 - A plugin below `read` is absent from every result. Asking for it by id gets the same refusal
   as an unknown plugin. `toolbelt_status` says only how many plugins are hidden.
 - Remote access, plugin development mode and Settings → Agents itself are not reachable by
@@ -68,7 +70,7 @@ is restarting or off), reconnects with backoff from 250 ms to 5 s and right away
 arrives, replays the client's `initialize` (its reply swallowed), `notifications/initialized`
 and resource subscriptions on the new session, and sends the client
 `notifications/resources/list_changed`. The other
-commands (`status`, `screens`, `read`, `search`, `plugins`) make one MCP tool call each and print
+commands (`status`, `screens`, `read`, `show`, `search`, `plugins`) make one MCP tool call each and print
 its text, or with `--json` ask for `format: "json"` and print the structured content. Each command
 accepts only its own options; an unknown option, a missing value or a wrong number is a usage
 error. Exit codes: 1 when the socket can't be reached, 2 when the call was refused or failed or
@@ -99,12 +101,15 @@ The server negotiates protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26`
 | Tool | What it returns |
 | --- | --- |
 | `toolbelt_status` | The runtime view, where agents start: app name, version, channel and development profile, the app bundle answering and its process id (two builds of one version on one profile are otherwise indistinguishable; the second can't serve the socket and says so in Settings → Agents), app update availability, visible plugins with state, badge (only while running), screens and available update, and the count of hidden plugins |
-| `list_screens` | Readable screens as plugin and screen ids, optionally for one plugin |
-| `read_screen` | One screen as text (default) or redacted JSON, with `max_rows`, `table` and `offset` paging and `details` |
+| `list_screens` | Readable screens as plugin and screen ids, optionally for one plugin, each with its view schema: search, filters with option values (once the screen has rendered) and defaults, sortable tables with their column keys, page controls |
+| `read_screen` | One screen as text (default) or redacted JSON, with `max_rows`, `table` and `offset` paging and `details`, read through the agent's own instance with an optional `view`, or `view: "person"` for the person's |
+| `show_screen` | Shows the person a screen, optionally with a view, on every person's screen that is open, after the person allows it; reports devices that don't show it (see Showing the person a screen) |
 | `search_screens` | Content lines containing every query word, across readable screens or one plugin, grouped by row (a row's line with its matching details, each shortened to 300 characters), and the screens that couldn't be read |
 | `list_plugins` | The installation view: every installed plugin agents may see, enabled or not, with version, state (the runtime state while enabled, else `disabled`), access, available update, repository and channel |
 
-Every tool is declared `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`.
+Every tool is declared `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`,
+and `readOnlyHint: true` except `show_screen` (risk `view`: it changes what the person's screens
+show, never data).
 Every tool takes `format`: `text` (default) or `json`. A text result is one text content item
 with everything the agent needs (times, whether a person has the screen open, hints, failed
 screens) and no `structuredContent`, because some clients (Claude Code) show `structuredContent`
@@ -123,26 +128,49 @@ pages the screen's only table (refused when there are several).
 Every readable screen of a running plugin is also a resource, `toolbelt://screens/<plugin>/<screen>` (text/markdown).
 Reading one that doesn't exist for agents is `-32002`; reading one whose plugin can't be read
 now (crashed, failed render) is `-32603` with the reason. The template
-`toolbelt://screens/{plugin}/{screen}{?table,parent,offset,max_rows,details}` reads a screen with
-`read_screen`'s paging; an unknown or malformed parameter is `-32602`. A resource read's paging
-notes name the URI to read next (`toolbelt://screens/kit/queue?table=jobs&offset=50`) rather than
+`toolbelt://screens/{plugin}/{screen}{?table,parent,offset,max_rows,details,view,search}` reads a
+screen with `read_screen`'s paging and view: `search=…`, `filter.<id>=a,b` (empty for all),
+`sort.<table>=-key` and `control.<id>=value`, or `view=person`. An unknown or malformed
+parameter, or a view control or option the screen doesn't offer, is `-32602`. A resource read's
+paging notes name the URI to read next, keeping its view
+(`toolbelt://screens/kit/queue?filter.state=failed&table=jobs&offset=50`), rather than
 `read_screen` options.
-`resources/subscribe` keeps that surface open for the session and sends
-`notifications/resources/updated` at most once a second per screen while its tree changes. A
-change in plugins or access sends `notifications/resources/list_changed`.
+`resources/subscribe` keeps that URI's instance open for the session and sends
+`notifications/resources/updated` at most once a second per URI while that instance's tree
+changes; the shim replays subscriptions, views included, after a ToolBelt restart. A change in
+plugins or access sends `notifications/resources/list_changed`.
 
 ## Reading surfaces
 
-The core keeps its own view of plugin surfaces next to the window, popover and remote views. It
-counts as a viewer through `PluginHost.open`/`close`:
+Agents read plugin surfaces through instances ([plugins.md](plugins.md#views)). The person's
+screens share one, `PERSON`; the core opens agent instances of its own through
+`PluginHost.open(plugin, surface, instance, view)`:
 
-- A read of a surface nobody has open opens it, waits up to 4 s for its first render and keeps it
-  open for 60 s after the last read, so plugins render and poll only while needed. Subscriptions
-  keep it open until they end.
-- `PluginHost.snapshot` returns the cached tree, when it arrived and how many viewers have the
-  surface open. A plugin process that starts again clears its cached trees.
-- A screen whose last render the host rejected (see [architecture](architecture.md)) is
-  unavailable with the reason; the plugin's other screens still read.
+- **Its own view.** `read_screen` without `view` reads `agent:default`: the screen as it starts,
+  with the plugin's default search, filters and sort, whatever the person set. With `view`
+  (`{ search, filters: { id: [values] }, sort: { table: "key" | "-key" }, controls: { id: value } }`)
+  it reads the declared defaults overlaid with those. Each distinct view (canonical JSON) is one
+  instance, `agent:<hash>`, shared by every session that asks for it; reads never send events,
+  so sharing is safe. The person's screens never change.
+- **Checked against the screen.** View fields the screen doesn't declare are refused with the
+  ones it does (`ViewRefusal`, kind `invalid`, audited as `denied`); after the instance renders,
+  option values, control values and sort keys it doesn't offer are refused with the valid ones.
+  The result's header says `Your view: …` (the view in words, or "as the screen starts").
+- **The person's view.** `view: "person"` reads the person's instance, counting as one more
+  viewer of it. Its header lists the view state the person set (a search, a non-default filter,
+  an open dialog) and that rows outside it are not listed; JSON carries the same notes as
+  `viewState`. `personViewing` says whether someone besides the agent has the person's view open.
+- `viewSchema` (in `list_screens`) takes ids and defaults from the plugin's declaration and
+  options from the person's or the default agent instance's latest tree, so options appear once
+  the screen has rendered.
+- A read of an instance nobody has open opens it, waits up to 4 s for its first render and keeps
+  it open for 60 s after the last read, so plugins render and poll only while needed.
+  Subscriptions keep it open until they end.
+- `PluginHost.snapshot(plugin, surface, instance)` returns the instance's cached tree, when it
+  arrived and how many viewers have it open. A plugin process that starts again clears its cached
+  trees and reopens every instance with its view.
+- An instance whose last render the host rejected (see [architecture](architecture.md)) is
+  unavailable with the reason; the plugin's other screens and instances still read.
 - A plugin that isn't running is reported with its state and first error line, not read. This
   is a failure (`unavailable`, audited as `error`), not a refusal. `toolbelt_status` marks it,
   leaves out its stale badge, and `list_screens` marks its screens unavailable.
@@ -193,9 +221,45 @@ counts as a viewer through `PluginHost.open`/`close`:
   GitLab, npm, Google API keys, JWTs). Names stay; only values are masked. This is a safety net,
   not a guarantee: plugins should mark sensitive values themselves.
 
-Search, filters, sort and dialogs are plugin view state shared by every viewer. A read
-therefore shows what the person's view shows, and the result says so when a search, a
-non-default filter or a dialog applies. Agents never send view events.
+`search_screens` reads each screen's default agent instance, so the person's search or filters
+don't hide matches; screens are searched as they start (a plugin's default filter may still
+leave out, say, finished tasks: read with a view to include them).
+
+## Showing the person a screen
+
+`show_screen({ plugin, screen?, view?, open_window? })` changes the person's view: it is what an
+agent uses when the person asks "show me my overdue tasks". It needs the plugin at `read` access.
+
+- **The person's screens.** The app gives the core `PersonScreens`: the devices (the Mac, showing
+  while its window is open, and each paired device, showing while it has ToolBelt open), opening
+  the window, navigating every open person's screen (the window and remote views) to a plugin
+  screen, and reading and setting the person's view. Setting it applies at once when the person's
+  instance is open (`PluginHost.setView`; the plugin echoes the cleaned view and the host saves
+  it), else saves it in `views.json` for next time. `view` replaces the person's view: the
+  screen's defaults overlaid with it. Without `view` only the screen changes.
+- **A view-control grant.** The first call from an agent (by client name) without a grant asks
+  on every open person's screen: the dialog (`ViewApprovalDialog`) names the agent and what it
+  wants to show, offers how long to allow it (this session, 1 hour, today, 7 days, 30 days;
+  default today; never forever) and counts down. The call waits up to 60 s (`approvalMs`). No
+  answer or a refusal returns a refusal and changes nothing. Saved grants
+  (`settings.json` → `agents.grants`) end at their time; a this-session grant lives in memory and
+  ends when the session does (for the CLI, the grouped session of one shell or script). Grants
+  are consent, not authentication: the socket is user-only and any of the user's processes can
+  claim any client name. Settings → Agents → Access lists them under **Changing your view** with
+  Revoke.
+- **Nobody to ask.** With no person's screen open and no grant, the call is refused at once,
+  saying the window is closed and which devices don't have ToolBelt open, and telling the agent
+  to ask the person; `open_window: true` (only when the person asked for it or agreed) opens the
+  window on the Mac and asks there.
+- **Devices that don't show it.** The result lists the devices showing the screen and the ones
+  that don't (the Mac's window closed, a paired device without ToolBelt open), and tells the
+  agent to tell the person and ask what to do.
+- **Restore.** The page shows "Shown by <agent>" (`ShownNotice`) with **Restore**, which puts
+  back the person's view from before the agent's first change, and a close button that keeps the
+  view. A later change of the person's own (a view that differs from what the agent set) removes
+  the notice. The value checks of `read_screen` apply before anything reaches the person.
+- **Audit.** Each question is a `view_grant` entry (`ok` with the duration, `denied` for a
+  refusal or no answer), and each call a `show_screen` entry.
 
 ## Sessions and audit
 
@@ -222,8 +286,8 @@ Settings → Agents has three sub-tabs (`src/ui/Agents.tsx`), the chosen one rem
   the socket, and four tiles: active sessions, readable plugins, requests today with refusals
   and failures (counted by an audit query from midnight, up to 1,000), and the last activity.
   The sessions, requests and last-activity tiles open Activity. Under it, **Plugin access**:
-  what each plugin declares (or "Not declared", with an available update) and the person's
-  choice, with a warning for undeclared plugins the person lets agents read.
+  what each plugin declares and the person's choice, then **Changing your view**: the agents
+  allowed to change the person's view, until when, each with Revoke.
 - **Connect:** **Setup commands** to add ToolBelt to agents and remove it again (see
   Transport).
 - **Activity:** **Active sessions** first (client name, mode, how long connected; also
@@ -245,7 +309,7 @@ Three layers run in `bun test` (and so in CI), without a model:
 
 | Layer | Where | What it checks |
 | --- | --- | --- |
-| Unit | `test/agents.test.ts` | Access levels, the manifest key, redaction, text and JSON paging, the core against a fake host (hiding, refusals, holds and release, crashed plugins, search, access changes), the socket and CLI |
+| Unit | `test/agents.test.ts`, `test/views.test.ts`, `test/sdk.test.ts` | Access levels, the manifest key, grants and their ends, redaction, text and JSON paging, the core against a fake host (hiding, refusals, holds and release, crashed plugins, search, access changes, view instances and checks, show_screen's questions, grants, timeouts, Restore), the socket and CLI; views and instances through a real SDK plugin (the person's saved view, agent instances, restarts, per-instance render errors) and the SDK's view handling |
 | Scenarios | `test/agent-scenarios.test.ts`, `test/agent-scenarios/` | Life-like prompts with the tool calls an agent makes to answer them, run through every channel each lists, against real plugin processes |
 | MCP conformance | `test/agent-mcp-conformance.test.ts` | Version negotiation (also unsupported versions), tool input schemas compiled as JSON Schema 2020-12 in strict mode, annotations, JSON-RPC error codes (-32601, -32602, -32600, -32700), refusals as `isError` results, in-order answers, hello-less connections, resources (list, read, templates, subscribe and unsubscribe, `list_changed`) |
 
@@ -261,10 +325,15 @@ A scenario (`test/agent-scenarios/format.ts`, one JSON file per case in
 - `steps`: tool calls (`call`, `args`, `structured` for MCP `structuredContent` or CLI
   `--json`), resource steps (`read`, `subscribe`, `unsubscribe`, MCP only) and person actions:
   `open` and `close` a screen, a UI `event` such as `search`, `filter` or an action id, `access`
-  for a plugin, or the `agents` switch.
+  for a plugin, the `agents` switch, `restore` on a screen an agent changed, or `revoke` a grant
+  (`"*"` for every agent's). A `show_screen` call step takes `answer` (`allow`, `duration`): the
+  person's answer as soon as they're asked; without it nobody answers.
+- `setup.devices`: whether the Mac's window is open (default yes) and paired devices with whether
+  each has ToolBelt open, as `show_screen` sees them.
 - `expect` on a step: `contains` (facts), `absent` (secrets, hidden plugin ids), `refused`,
-  `unreachable` (agents off), and `notifications` that must arrive within a time after the step.
-  Notifications are checked on channels that deliver them.
+  `unreachable` (agents off), `notifications` that must arrive within a time after the step,
+  `personView` (the person's saved view of a screen afterwards) and `navigated` (the screens shown
+  on the person's screens by the step). Notifications are checked on channels that deliver them.
 - `expect` on the scenario: facts and absences over all outputs together, and audit log entries
   in order (operation, outcome, plugin, mode).
 - `rubric`: what a good final answer does, for model-based evaluation. Scripted tests ignore it.
@@ -282,8 +351,8 @@ server or CLI needs only another adapter.
 
 The fixtures mirror the shapes real plugins render without depending on any plugin
 implementation: `desk` (a task list with sections, sub-sections and empty sections, nested
-rows, row panes with an inline form and a timeline, a filter with a default, search with a
-highlight and a dialog), `kit` (updates with status sections and split actions, nested activity
+rows, row panes with an inline form and a timeline, SDK-owned views: a filter with a default,
+search with a highlight and a sortable column; and a per-instance dialog), `kit` (updates with status sections and split actions, nested activity
 runs, a form with a sensitive field and secret environment entries, a 250-row table beside a
 short one) and `vault`, which declares `agent.access: none`. They date content around
 `test/fixtures/agents/clock.ts`, and the harness gives the core the same clock (`now` in
@@ -294,7 +363,9 @@ absolute times are local to the machine running the tests.
 evaluation in `plans/agent-interface-eval/` (its `cases.json`, `steps.json` files and CLI
 transcripts). It maps that run's plugins and screens onto the fixtures and adds each case's
 facts and rubric from its overlay table. Change the overlay, not the generated files, for those
-cases. New scenarios can be added to the converter's extras or written directly as JSON.
+cases. Its extras add scenarios 18–21: the person's dialog and filter, the agent's own views
+(19), showing the person a screen with grants, Restore and refusals (20), and nobody to ask
+(21). New scenarios can be added to the converter's extras or written directly as JSON.
 
 `bun run test:agents` runs the three layers. `AGENT_SCENARIOS_OUT=<dir>` also writes each
 scenario run as Markdown (`<id>.<channel>.md`: the prompt, every step with what the agent got

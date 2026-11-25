@@ -406,26 +406,34 @@ export function EmptyState({ title, description, icon }: { title: string; descri
 
 // ── page: toolbar + content ──────────────────────────────────────────────
 function Page({ node, emit }: { node: Extract<Node, { type: "page" }>; emit: Emit }) {
-	// The filter text is remembered per surface; send it whenever the page opens, so the plugin
-	// and the box always agree (after a plugin restart, or a reload that forgot the text).
-	const [query, setQuery] = useUIState("search", "");
+	// The search text is the person's view, shared by every person's screen (the SDK fills
+	// `search.query`): the box follows it when another screen or an agent changes it, and keeps
+	// what is being typed here until the plugin has it.
+	const shared = node.search?.query ?? "";
+	const [query, setQuery] = useState(shared);
+	const sent = useRef(shared);
+	useEffect(() => {
+		if (shared === sent.current) return; // our own text coming back
+		sent.current = shared;
+		clearTimeout(timer.current);
+		setQuery(shared);
+	}, [shared]);
     const selectionRequest = useContext(SelectionRequestContext);
     const lastRequest = useRef<number | null>(null);
     useEffect(() => {
         if (!selectionRequest || lastRequest.current === selectionRequest.token) return;
         lastRequest.current = selectionRequest.token;
-        if (node.search && query) { setQuery(""); emit("search", { query: "" }); }
-    }, [selectionRequest, node.search, query, setQuery, emit]);
+        if (node.search && query) { setQuery(""); sent.current = ""; emit("search", { query: "" }); }
+    }, [selectionRequest, node.search, query, emit]);
 	const input = useRef<HTMLInputElement>(null);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-	useEffect(() => {
-		if (node.search) emit("search", { query: selectionRequest ? "" : query });
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
 	const onQuery = (q: string) => {
 		setQuery(q);
 		clearTimeout(timer.current);
-		timer.current = setTimeout(() => emit("search", { query: q }), 120);
+		timer.current = setTimeout(() => {
+			sent.current = q;
+			emit("search", { query: q });
+		}, 120);
 	};
 	useWindowKeys((e) => {
 		const pane = input.current?.closest<HTMLElement>("[data-keyboard-pane]");
