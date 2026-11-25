@@ -99,6 +99,9 @@ and 10,000 entries. `src/shared/package.ts` is authoritative for limits.
 
 Crashes use bounded backoff and eventually leave the plugin failed. Invalid protocol and
 rendering failures are contained per plugin; host settings and other plugins remain usable.
+An invalid render tree from a running plugin for a declared surface is contained to that
+surface: `PluginProcess.rejectRender` logs it, replaces the tree with a host error tree, and
+`snapshot` reports `error` with no tree until a valid render arrives.
 Owned process groups receive graceful termination followed by a bounded forced stop. Parent
 exit alone does not establish descendant exit. Observed jobs and independently launched
 terminal sessions must not belong to a plugin-owned process group.

@@ -150,7 +150,7 @@ const OVERLAY: Record<string, Overlay> = {
 		channels: ["mcp", "cli"],
 		expect: {
 			0: { contains: ["Desk › Tasks › Today", "Q4 budget review with finance", "Draft budget slides"] },
-			1: { contains: ["Timeline history-2: 2 entries", "you: Waiting for the headcount figures from HR before the meeting.", "(1d ago)", "Moved to Working: Sent the draft numbers to Maria.", "Status: Working", "Labels: Area: Finance", "  - [#3] Draft budget slides"] },
+			1: { contains: ["Timeline: 2 entries", "you: Waiting for the headcount figures from HR before the meeting.", "(1d ago)", "Moved to Working: Sent the draft numbers to Maria.", "Status: Working", "Labels: Area: Finance", "  - [#3] Draft budget slides"] },
 		},
 		rubric: ["Gives the meeting time (today, in about 5 hours).", "Quotes the latest update: waiting for HR's headcount figures.", "Mentions the unstarted slides subtask."],
 	},
@@ -166,14 +166,14 @@ const OVERLAY: Record<string, Overlay> = {
 	},
 	"05-update-ollama": {
 		channels: ["mcp", "cli"],
-		expect: { 0: { contains: ["Kit › Updates › Review first: - Ollama · 0.5.1 → 0.6.2", "{id: ollama} [unread]"] } },
+		expect: { 0: { contains: ["Kit › Updates › Review first: Ollama · 0.5.1 → 0.6.2", "{id: ollama} [unread]"] } },
 		rubric: ["Says it can't update software: access is read-only.", "Points to Kit › Updates and its Review & update… action.", "Gives the versions 0.5.1 → 0.6.2."],
 	},
 	"06-waiting-on-others": {
 		channels: ["mcp", "cli"],
 		expect: {
 			0: { contains: ["you: Waiting for the headcount figures from HR before the meeting.", "Quote for the office printers"] },
-			1: { contains: ["Waiting on: Acme / (asked a week ago, watching weekly)"] },
+			1: { contains: ["Waiting on: Acme ⏎ (asked a week ago, watching weekly)"] },
 		},
 		rubric: ["Names HR's headcount figures and Acme's printer quote.", "Gives the printer quote's next check-in time."],
 	},
@@ -188,8 +188,9 @@ const OVERLAY: Record<string, Overlay> = {
 	"08-toolbelt-updates": {
 		channels: ["mcp", "cli"],
 		expect: {
-			0: { contains: ["ToolBelt 0.3.24 (stable)", "App update available: 0.4.0"] },
-			1: { contains: ["Kit (kit) 0.4.1 from example/kit: enabled; update available: 0.5.0", "Desk (desk) 1.2.0 from example/desk: enabled"] },
+			// Status, the place to start, shows plugin updates too.
+			0: { contains: ["ToolBelt 0.3.24 (stable)", "App update available: 0.4.0", "Kit (kit) 0.4.1: running, badge 2; update available: 0.5.0"] },
+			1: { contains: ["Kit (kit) 0.4.1 from example/kit: running; update available: 0.5.0", "Desk (desk) 1.2.0 from example/desk: running"] },
 		},
 		run: { absent: HIDDEN },
 		rubric: ["Reports ToolBelt 0.4.0 and Kit 0.5.0.", "Says one plugin isn't visible to agents, so the list may be incomplete (finding O4)."],
@@ -219,7 +220,7 @@ const OVERLAY: Record<string, Overlay> = {
 			0: { notifications: [{ method: "notifications/resources/list_changed", withinMs: 1000 }] },
 			1: { refused: true, contains: ['No plugin "desk" is available to agents'] },
 			2: { contains: ["3 more plugins are not available to agents"], absent: ["Desk (desk)"] },
-			4: { contains: ["Submit November expense report", 'read again with table "tasks" and offset 2'] },
+			4: { contains: ["Submit November expense report", 'read again with table "tasks" and offset 1'] },
 		},
 		run: { audit: [{ operation: "read_screen", plugin: "desk", outcome: "denied" }, { operation: "read_screen", plugin: "desk", outcome: "ok" }] },
 		rubric: ["Says the task list isn't available to agents and the person can change that in Settings → Agents."],
@@ -237,7 +238,7 @@ const OVERLAY: Record<string, Overlay> = {
 		channels: ["mcp", "cli"],
 		expect: {
 			0: { contains: ["Desk (desk)", "App update available: 0.4.0"] },
-			1: { contains: ["Desk › Tasks › Overdue: - [#1] Submit November expense report"] },
+			1: { contains: ["Desk › Tasks › Overdue: [#1] Submit November expense report"] },
 			2: { contains: ["Ollama · 0.5.1 → 0.6.2"], absent: ["Found: Today's scheduled check"] },
 			3: { contains: ["Submit November expense report"], absent: ["Waiting for the headcount figures"] },
 		},
@@ -287,7 +288,7 @@ const OVERLAY: Record<string, Overlay> = {
 		expect: {
 			0: { contains: ["## Table jobs: 250 rows", "Job 003", '(showing rows 1–3 of 250; read again with table "jobs" and offset 3 for more)', "## Table workers: 3 rows", "Worker gamma"], absent: ["Job 004"] },
 			1: { contains: ["Job 248", "Job 250"], absent: ["Job 247 ", "(showing rows"] },
-			2: { contains: ['"paging":{"offset":0,"total":250}', '"name":"Job 003"'], absent: ["Job 004"] },
+			2: { contains: ['"paging":{"offset":0,"total":250,"next":3}', '"name":"Job 003"'], absent: ["Job 004"] },
 		},
 		rubric: ["Explains the table is paged and fetches the remaining pages before listing."],
 	},

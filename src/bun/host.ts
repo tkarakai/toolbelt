@@ -143,6 +143,8 @@ export class PluginProcess {
   trees = new Map<string, Node>();
   /** Surface → when its tree arrived (epoch ms). */
   treeAt = new Map<string, number>();
+  /** Surfaces whose last render was rejected, with why: they show the host's error tree. */
+  renderErrors = new Map<string, string>();
   /** Surface → how many viewers have it open. */
   viewers = new Map<string, number>();
   private proc?: ReturnType<typeof Bun.spawn>;
@@ -204,6 +206,7 @@ export class PluginProcess {
     // A new process renders afresh: trees from the previous one no longer describe it.
     this.trees.clear();
     this.treeAt.clear();
+    this.renderErrors.clear();
     const entry = resolve(this.dir, this.manifest.entry);
     const data =
       (this as any).dataOverride ?? join(this.opts.data, this.manifest.id);
@@ -352,6 +355,12 @@ export class PluginProcess {
         try {
           validateMessage(msg);
         } catch (error) {
+          // A running plugin's invalid screen costs only that screen: the tree never reaches the
+          // renderer, and the plugin and its other screens keep working.
+          if (this.renderable(msg)) {
+            this.rejectRender(msg.surface, protocolReason(error));
+            continue;
+          }
           // Say what was wrong (which field, or which limit), so a plugin author can fix it.
           this.fail(`Invalid protocol message: ${protocolReason(error)}`);
           return;
@@ -398,6 +407,40 @@ export class PluginProcess {
     this.state = "crashed";
     this.error = error;
     this.changed();
+  }
+
+  /** A render for a declared surface, sent while running, within the render rate. */
+  private renderable(msg: unknown): msg is { type: "render"; surface: string } {
+    const m = msg as { type?: unknown; surface?: unknown } | null;
+    if (!m || typeof m !== "object" || m.type !== "render" || typeof m.surface !== "string" || this.state !== "running") return false;
+    if (!this.declared(m.surface)) return false;
+    if (++this.renderCount > LIMITS.rendersPerSecond) {
+      this.fail("Render rate exceeded");
+      return false;
+    }
+    return true;
+  }
+
+  private declared(surface: string) {
+    return this.manifest.screens.some((s) => `screen:${s.id}` === surface) || (!!this.manifest.quickView && surface === "quick");
+  }
+
+  /** Shows the host's error in place of a surface's invalid tree, and logs why. */
+  private rejectRender(surface: string, reason: string) {
+    if (this.state !== "running") return;
+    this.log(`Rejected a render of ${surface}: ${reason}`);
+    const previous = this.renderErrors.get(surface);
+    this.renderErrors.set(surface, reason);
+    const tree: Node = {
+      type: "empty",
+      icon: "triangle-alert",
+      title: "This screen couldn't be shown",
+      description: `${this.manifest.name} sent a screen ToolBelt can't display (${reason}). The rest of the plugin keeps working; it shows the screen again once it sends a valid one.`,
+    };
+    this.trees.set(surface, tree);
+    this.treeAt.set(surface, Date.now());
+    // The same error again needn't redraw.
+    if (previous !== reason) this.listener.tree(this.manifest.id, surface, tree);
   }
 
   private handle(msg: PluginMessage) {
@@ -460,7 +503,11 @@ export class PluginProcess {
           this.fail("Render rate exceeded");
           return;
         }
-        {
+        if (!this.declared(msg.surface)) {
+          this.fail("Undeclared surface");
+          return;
+        }
+        try {
           const check = (value: unknown): void => {
             if (!value || typeof value !== "object") return;
             for (const [key, child] of Object.entries(value)) {
@@ -484,16 +531,11 @@ export class PluginProcess {
             }
           };
           check(msg.tree);
-        }
-        if (
-          !this.manifest.screens.some(
-            (s) => `screen:${s.id}` === msg.surface,
-          ) &&
-          !(this.manifest.quickView && msg.surface === "quick")
-        ) {
-          this.fail("Undeclared surface");
+        } catch (error) {
+          this.rejectRender(msg.surface, protocolReason(error));
           return;
         }
+        this.renderErrors.delete(msg.surface);
         this.trees.set(msg.surface, msg.tree);
         this.treeAt.set(msg.surface, Date.now());
         this.listener.tree(this.manifest.id, msg.surface, msg.tree);
@@ -652,9 +694,10 @@ export class PluginHost {
     const p = this.plugins.get(plugin);
     if (!p) return null;
     return {
-      tree: p.trees.get(surface) ?? null,
+      tree: p.renderErrors.has(surface) ? null : (p.trees.get(surface) ?? null),
       at: p.treeAt.get(surface) ?? 0,
       viewers: p.viewers.get(surface) ?? 0,
+      ...(p.renderErrors.has(surface) ? { error: p.renderErrors.get(surface)! } : {}),
     };
   }
 

@@ -16,7 +16,7 @@
 			},
 			"expect": {
 				"contains": [
-					"Kit › Updates › Review first: - Ollama · 0.5.1 → 0.6.2",
+					"Kit › Updates › Review first: Ollama · 0.5.1 → 0.6.2",
 					"{id: ollama} [unread]"
 				]
 			}

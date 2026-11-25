@@ -19,12 +19,15 @@ toolbelt screens [plugin]            # screen ids for `read`
 toolbelt read <plugin> [screen]      # one screen as text (default screen if omitted)
 toolbelt read <plugin> <screen> --max-rows 20 --no-details   # smaller
 toolbelt read <plugin> <screen> --table <id> --offset 100    # next page of a long table
+toolbelt read <plugin> <screen> --table <id> --parent <row id>   # a row's child rows
 toolbelt search <words…> [--plugin <id>]   # lines mentioning all words, across screens
 toolbelt plugins                     # installed plugins and available plugin updates
 ```
 
-Add `--json` for structured output. Exit code 2 means the request was refused (unknown
-plugin or screen, plugin not running); 1 means ToolBelt couldn't be reached.
+Add `--json` for structured output (times also as ISO 8601). `--max-rows 0` shows only each
+table's size and columns. Plugin and screen ids match in any case. Exit code 2 means the
+request was refused or failed (unknown plugin, screen, table or option, plugin not running);
+1 means ToolBelt couldn't be reached.
 
 ## Reading screens
 
@@ -33,8 +36,11 @@ plugin or screen, plugin not running); 1 means ToolBelt couldn't be reached.
 - `Filter`, `Search` and `Dialog open` lines describe view state the person set. The view is
   shared with them, so rows outside a filter are not listed: say so rather than claiming
   something doesn't exist.
-- `Row actions` and `Toolbar actions` name what the person can do on that screen.
-- Values marked `••••••` are secrets ToolBelt keeps from agents.
+- `Row actions` and `Toolbar actions` name what the person can do on that screen; a row that
+  allows fewer lists its own `(actions: …)`.
+- `search` lists screens it couldn't read: matches there are unknown, not absent.
+- Values marked `••••••` are secrets ToolBelt keeps from agents (fields the plugin marks
+  sensitive, and anything that looks like a token or password, such as in command lines).
 
 ## Limits
 

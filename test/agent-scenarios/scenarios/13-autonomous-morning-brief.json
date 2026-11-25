@@ -25,7 +25,7 @@
 			},
 			"expect": {
 				"contains": [
-					"Desk › Tasks › Overdue: - [#1] Submit November expense report"
+					"Desk › Tasks › Overdue: [#1] Submit November expense report"
 				]
 			}
 		},

@@ -65,7 +65,7 @@
 			"expect": {
 				"contains": [
 					"Submit November expense report",
-					"read again with table \"tasks\" and offset 2"
+					"read again with table \"tasks\" and offset 1"
 				]
 			}
 		}

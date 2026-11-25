@@ -59,7 +59,7 @@
 			},
 			"expect": {
 				"contains": [
-					"\"paging\":{\"offset\":0,\"total\":250}",
+					"\"paging\":{\"offset\":0,\"total\":250,\"next\":3}",
 					"\"name\":\"Job 003\""
 				],
 				"absent": [

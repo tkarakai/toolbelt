@@ -29,7 +29,7 @@
 			},
 			"expect": {
 				"contains": [
-					"Timeline history-2: 2 entries",
+					"Timeline: 2 entries",
 					"you: Waiting for the headcount figures from HR before the meeting.",
 					"(1d ago)",
 					"Moved to Working: Sent the draft numbers to Maria.",

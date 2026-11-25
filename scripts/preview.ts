@@ -87,7 +87,7 @@ const agents = createAgentInterface({
   save: (next) => {
     settings = { ...settings, agents: next };
   },
-  app: () => ({ name: "Toolbelt preview", version: pkg.version, channel: "preview", developmentProfile }),
+  app: () => ({ name: "Toolbelt preview", version: pkg.version, channel: "preview", developmentProfile, location: join(import.meta.dir, "..") }),
   appUpdate: () => ({ available: update.available?.version ?? null, lastChecked: update.lastChecked }),
   installed: () =>
     manager.read().plugins.map((p) => ({

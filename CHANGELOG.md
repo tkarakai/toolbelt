@@ -1,6 +1,24 @@
 # Changelog
 
 ## Unreleased
+- Agents reading ToolBelt over MCP get the whole screen: Claude Code showed only a screen's metadata, without its rows, because results also carried structured data that it displays instead of the text. Tools now return text by default, and structured data (with ISO times) only when asked for with `format: "json"`.
+- Agent search says which screens it couldn't read (such as a crashed plugin's) instead of reporting nothing found there.
+- Agent reads are more accurate: `details: false` also trims JSON, an offset past the end of a table says so, an unknown table is refused with the screen's tables, `max_rows: 0` gives only table sizes, multi-line values no longer break the layout, rows list only the actions that apply to them, and headings no longer show plugins' internal ids.
+- Agents can name plugins and screens in any case or by title, and get suggestions for mistyped ones.
+- A crashed plugin is reported to agents as unavailable (logged as a failure, not a refusal), without its stale badge, and its screens leave the MCP resource list until it runs again.
+- The `toolbelt` command rejects unknown options instead of ignoring them.
+- Agent reads stay within a size limit, in text and JSON: long tables stop at a whole row and say which offset to continue from, instead of cutting text mid-value or returning megabytes of JSON. A row limit now counts nested rows (such as process trees), reads default to 50 rows, and JSON leaves out icons, widths and other display-only fields.
+- Agent search groups matches by row and shortens long lines, so one process no longer shows up three times with its whole command line.
+- A plugin that sends a screen ToolBelt can't display (for example one too large to show) no longer stops: that screen shows an error saying why, the plugin's other screens keep working, and the screen comes back with the plugin's next valid update. Opening such a screen, by you or by an agent, used to leave the whole plugin stopped until it was restarted.
+- Agents no longer see likely secrets in plugin text that the plugin didn't mark sensitive, such as tokens, passwords and API keys in process command lines and URLs; ToolBelt masks them as ••••••.
+- Agents connected over MCP keep working across a ToolBelt restart or update: the server stays connected to the agent, says ToolBelt is restarting while it's away, and reconnects by itself. Before, the agent's MCP server showed as failed until it was reconnected by hand.
+- `toolbelt_status` also lists plugin updates, and the plugin list uses the same words for a plugin's state.
+- The `toolbelt` command bundled with ToolBelt Dev talks to ToolBelt Dev, and one script's or shell's calls show up as one session in Settings → Agents → Activity.
+- Settings → Agents → Connect warns when its commands point into a development build, whose agent setup stops working once that build is removed.
+- Agents can page a row's nested rows (such as a process's many children) with `parent`, and paging notes say that offsets count top-level rows while `max_rows` counts nested ones too. When a resource read is cut short, its note names the next resource URI to read.
+- Agent text marks line breaks inside values with ⏎ instead of /, leaves out empty form fields and duplicate empty-list counts, and no longer repeats a long command line in a row's details or under each child process.
+- `toolbelt_status` says which ToolBelt build is answering (its app location and process), so agents can tell two builds of the same version apart.
+- MCP screen resources can be paged: `toolbelt://screens/{plugin}/{screen}?table=…&offset=…&max_rows=…&details=false`.
 
 ## 0.5.3 — 2026-11-25
 - Settings → Agents is available on paired phones and tablets too: turn agents on or off, change what each plugin shares, and see connected agents and their activity, like on the Mac.

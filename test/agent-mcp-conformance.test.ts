@@ -80,9 +80,39 @@ describe("MCP conformance", () => {
 			expect(r.result.content[0].type).toBe("text");
 			expect(r.result.structuredContent).toBeUndefined();
 		}
-		const ok = await request("tools/call", { name: "toolbelt_status", arguments: {} });
+		const ok = await request("tools/call", { name: "toolbelt_status", arguments: { format: "json" } });
 		expect(ok.result.isError).toBeUndefined();
 		expect(ok.result.structuredContent.hiddenPlugins).toBe(2); // vault opts out; jot declares nothing
+	});
+
+	test("text and structured content carry the same information", async () => {
+		// Clients may show either: Claude Code shows structuredContent when present. So a text result
+		// has none, and a JSON result's text is its structuredContent serialized (as MCP recommends).
+		const { request } = await rpc();
+		const calls: [string, Record<string, unknown>][] = [
+			["toolbelt_status", {}],
+			["list_screens", {}],
+			["list_screens", { plugin: "desk" }],
+			["read_screen", { plugin: "desk", screen: "tasks" }],
+			["read_screen", { plugin: "kit", screen: "updates", max_rows: 2, details: false }],
+			["search_screens", { query: "job" }],
+			["list_plugins", {}],
+		];
+		for (const [name, args] of calls) {
+			const text = (await request("tools/call", { name, arguments: args })).result;
+			expect(text.isError).toBeUndefined();
+			expect(text.structuredContent).toBeUndefined();
+			expect(text.content).toHaveLength(1);
+			const json = (await request("tools/call", { name, arguments: { ...args, format: "json" } })).result;
+			expect(json.structuredContent).toBeObject();
+			expect(JSON.parse(json.content[0].text)).toEqual(json.structuredContent);
+		}
+		// The facts a text read gives are in the JSON read too.
+		const text = (await request("tools/call", { name: "read_screen", arguments: { plugin: "desk", screen: "tasks" } })).result.content[0].text;
+		const json = (await request("tools/call", { name: "read_screen", arguments: { plugin: "desk", screen: "tasks", format: "json" } })).result.structuredContent;
+		expect(text).toContain("Q4 budget review with finance");
+		expect(JSON.stringify(json.tree)).toContain("Q4 budget review with finance");
+		expect(json).toMatchObject({ plugin: "desk", screen: "tasks", rendered: true, renderedAtIso: expect.any(String), personViewing: expect.any(Boolean), viewState: expect.any(Array) });
 	});
 
 	test("answers requests on a connection in order", async () => {
@@ -124,7 +154,20 @@ describe("MCP conformance", () => {
 		expect(of("kit")).toEqual(["toolbelt://screens/kit/updates", "toolbelt://screens/kit/activity", "toolbelt://screens/kit/connection", "toolbelt://screens/kit/queue"]);
 		expect(uris).toHaveLength(6);
 		expect(resources.every((r: { mimeType: string; name: string }) => r.mimeType === "text/markdown" && r.name)).toBe(true);
-		expect((await request("resources/templates/list")).result).toEqual({ resourceTemplates: [] });
+		const { resourceTemplates } = (await request("resources/templates/list")).result;
+		expect(resourceTemplates).toEqual([expect.objectContaining({ uriTemplate: "toolbelt://screens/{plugin}/{screen}{?table,parent,offset,max_rows,details}", name: "screen", mimeType: "text/markdown" })]);
+		// A paged resource read is read_screen with the same paging.
+		const paged = (await request("resources/read", { uri: "toolbelt://screens/kit/queue?table=jobs&offset=247&max_rows=2&details=false" })).result.contents[0];
+		expect(paged.uri).toBe("toolbelt://screens/kit/queue?table=jobs&offset=247&max_rows=2&details=false");
+		expect(paged.text).toContain("Job 248");
+		expect(paged.text).toContain("(showing rows 248–249 of 250");
+		expect(paged.text).not.toContain("Job 247 ");
+		// Its hints name the next URI to read, not read_screen options.
+		const first = (await request("resources/read", { uri: "toolbelt://screens/kit/queue?table=jobs&max_rows=3" })).result.contents[0].text;
+		expect(first).toContain("read toolbelt://screens/kit/queue?table=jobs&offset=3 for more");
+		expect(first).not.toContain("read again with table");
+		for (const bad of ["offset=x", "colour=red", "details=maybe"])
+			expect((await request("resources/read", { uri: `toolbelt://screens/kit/queue?${bad}` })).error.code).toBe(-32602);
 		const read = (await request("resources/read", { uri: "toolbelt://screens/desk/settings" })).result;
 		expect(read.contents).toEqual([{ uri: "toolbelt://screens/desk/settings", mimeType: "text/markdown", text: expect.stringContaining("Mark stalled tasks: on") }]);
 		expect((await request("resources/read", { uri: "toolbelt://screens/vault/processes" })).error.code).toBe(-32002);
@@ -147,6 +190,33 @@ describe("MCP conformance", () => {
 		await until(() => client.notifications().slice(changed).some((n) => n.method === "notifications/resources/list_changed"), 1000, "list_changed");
 		expect((await request("resources/list")).result.resources.some((r: { uri: string }) => r.uri.includes("/kit/"))).toBe(false);
 		await world.person({ access: { plugin: "kit", level: null } });
+	});
+
+	test("the stdio shim survives ToolBelt going away and continues the client's session", { timeout: 20_000 }, async () => {
+		const { request, client } = await rpc();
+		const uri = "toolbelt://screens/desk/tasks";
+		expect((await request("resources/subscribe", { uri })).result).toEqual({});
+		await world.person({ agents: false });
+		// The shim stays up and answers for ToolBelt, so the client doesn't mark the server failed.
+		const down = await request("tools/call", { name: "toolbelt_status", arguments: {} });
+		expect(down.error).toMatchObject({ code: -32000, data: { reason: "unreachable" } });
+		expect(down.error.message).toContain("ToolBelt isn't reachable right now");
+		expect((await request("ping")).error.data.reason).toBe("unreachable");
+		const before = client.notifications().length;
+		await world.person({ agents: true });
+		// The next request reconnects; the client never initializes again.
+		const up = await request("tools/call", { name: "toolbelt_status", arguments: {} });
+		expect(up.result.content[0].text).toContain("Desk (desk)");
+		// The replayed initialize named the new session after the client, and its reply wasn't passed on.
+		expect(world.agents.core.state().sessions.some((s) => s.client === "conformance")).toBe(true);
+		expect(client.lines.some((l) => l.includes("toolbelt-shim-"))).toBe(false);
+		await until(() => client.notifications().slice(before).some((n) => n.method === "notifications/resources/list_changed"), 2000, "list_changed after reconnecting");
+		// The subscription was restored on the new session.
+		const seen = client.notifications().length;
+		await world.person({ event: { screen: "desk/tasks", name: "settle", payload: { rowId: "7" } } });
+		await until(() => client.notifications().slice(seen).some((n) => n.method === "notifications/resources/updated" && n.params.uri === uri), 3000, "an update after reconnecting");
+		await world.person({ event: { screen: "desk/tasks", name: "reopen", payload: { rowId: "7" } } });
+		expect((await request("resources/unsubscribe", { uri })).result).toEqual({});
 	});
 
 	test.skipIf(!process.env.TOOLBELT_MCP_INSPECTOR)("MCP Inspector CLI lists and calls tools (optional smoke check)", { timeout: 120_000 }, async () => {

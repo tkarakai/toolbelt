@@ -124,13 +124,15 @@ export class McpAdapter implements ChannelAdapter {
 		const c = await this.connection();
 		if (!c) return null;
 		const r = await c.request(method, params);
-		return r.closed ? null : r;
+		// The shim answers for ToolBelt while it can't reach it (agents off, a restart).
+		return r.closed || r.error?.data?.reason === "unreachable" ? null : r;
 	}
 
 	private static unreachable: Outcome = { text: "", refused: false, unreachable: true };
 
 	async call(tool: Tool, args: Record<string, unknown>, structured: boolean): Promise<Outcome> {
-		const r = await this.rpc("tools/call", { name: tool, arguments: args });
+		// A structured step asks for JSON, as the CLI's --json does.
+		const r = await this.rpc("tools/call", { name: tool, arguments: structured ? { ...args, format: "json" } : args });
 		if (!r) return McpAdapter.unreachable;
 		if (r.error) return { text: r.error.message, refused: true, unreachable: false };
 		const text = structured && r.result.structuredContent !== undefined ? compact(r.result.structuredContent) : r.result.content.map((c: { text: string }) => c.text).join("\n");
@@ -195,7 +197,7 @@ export class CliAdapter implements ChannelAdapter {
 				known(["query", "plugin"]);
 				return ["search", ...String(args.query).split(/\s+/), ...(args.plugin ? ["--plugin", String(args.plugin)] : []), ...json];
 			case "read_screen":
-				known(["plugin", "screen", "format", "max_rows", "table", "offset", "details"]);
+				known(["plugin", "screen", "format", "max_rows", "table", "offset", "parent", "details"]);
 				return [
 					"read",
 					String(args.plugin),
@@ -203,6 +205,7 @@ export class CliAdapter implements ChannelAdapter {
 					...(args.max_rows !== undefined ? ["--max-rows", String(args.max_rows)] : []),
 					...(args.table !== undefined ? ["--table", String(args.table)] : []),
 					...(args.offset !== undefined ? ["--offset", String(args.offset)] : []),
+					...(args.parent !== undefined ? ["--parent", String(args.parent)] : []),
 					...(args.details === false ? ["--no-details"] : []),
 					...(args.format === "json" || structured ? ["--json"] : []),
 				];
