@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.5.3 — 2026-11-25
 - Settings → Agents is available on paired phones and tablets too: turn agents on or off, change what each plugin shares, and see connected agents and their activity, like on the Mac.
 
 ## 0.5.2 — 2026-11-25
