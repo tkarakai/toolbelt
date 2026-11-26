@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.6.0 — 2026-11-26
 - **Plugins need upgrading.** ToolBelt speaks plugin protocol 2 and runs only plugins built for it; older plugins show that they need an update. Plugins must declare `agent.access`, so Settings → Agents no longer has plugins that are "Not declared".
 - Every screen you have open, here and on paired devices, shows the same search, filters and sort, and ToolBelt remembers them across restarts and plugin updates: set a filter on your phone and the window follows.
 - Agents read their own copy of a screen and can search, filter and sort it in the same call, without changing what you see. Before, agents saw whatever your screen happened to show, and your search could hide what they were looking for. `list_screens` tells agents which searches, filters and sorts each screen offers; `toolbelt read` takes `--search`, `--filter`, `--sort` and `--control`, and `--person` reads exactly what your screens show.
