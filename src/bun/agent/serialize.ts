@@ -10,7 +10,7 @@ export type ReadOptions = {
 	/** Only this table is paged by `offset`; others start at their first row. */
 	table?: string;
 	offset?: number;
-	/** Include rows' inspector details. Default true. */
+	/** Include rows' inspector details (details, stats, drawer) and their own action lists. Default false. */
 	details?: boolean;
 	now?: number;
 	/** The result's size limit in characters; tables stop at a row boundary to stay under it. */
@@ -120,6 +120,14 @@ export function cellText(cell: Cell | undefined, now: number, withDot = true): s
 const labelOf = (g: GroupLabel) => (typeof g === "string" ? g : g.label + (g.sub ? ` (${g.sub})` : ""));
 const idOf = (g: GroupLabel) => (typeof g === "string" ? g : (g.id ?? g.label));
 
+/** A tags field's values as they read: "Project: Houses", or a flag's label alone. */
+function tagLabels(f: Extract<Field, { type: "tags" }>) {
+	return f.value.map((t) => {
+		const label = f.keys.find((k) => k.key === t.key)?.label ?? t.key;
+		return t.value === undefined ? label : `${label}: ${t.value}`;
+	});
+}
+
 function fieldText(f: Field, now: number): string {
 	switch (f.type) {
 		case "text":
@@ -136,10 +144,7 @@ function fieldText(f: Field, now: number): string {
 		case "color":
 			return f.value;
 		case "tags":
-			return f.value.map((t) => {
-				const label = f.keys.find((k) => k.key === t.key)?.label ?? t.key;
-				return t.value === undefined ? label : `${label}: ${t.value}`;
-			}).join(", ") || "none";
+			return tagLabels(f).join(", ") || "none";
 		case "options":
 			return f.value.map((o) => o.text).join(", ") || "none";
 		case "duration":
@@ -149,6 +154,22 @@ function fieldText(f: Field, now: number): string {
 	}
 	void now;
 	return "";
+}
+
+/** A field with nothing in it: in a row's drawer it says nothing, so it is left out. */
+function emptyField(f: Field): boolean {
+	switch (f.type) {
+		case "tags":
+		case "options":
+		case "environment":
+			return !f.value.length;
+		case "duration":
+			return f.value === null;
+		case "switch":
+			return false;
+		default:
+			return !String(f.value ?? "").trim();
+	}
 }
 
 /** Enabled actions' labels, each once (plugins often offer variants under one label). */
@@ -173,7 +194,17 @@ function sizeOf(out: Out) {
 	return out.size;
 }
 
-type WalkOptions = Required<Omit<ReadOptions, "table" | "parent" | "resource">> & { table?: string; parent?: string; resource?: string };
+type WalkOptions = Required<Omit<ReadOptions, "table" | "parent" | "resource">> & {
+	table?: string;
+	parent?: string;
+	resource?: string;
+	/**
+	 * Set inside a row's drawer: values the row line or its section headings already show (its
+	 * first cell's text, cell subtitles, section labels). A drawer value equal to one of them, an
+	 * empty field and an empty timeline or list are left out.
+	 */
+	drawer?: Set<string>;
+};
 /** How to read on from `next`: read_screen options, or for a resource read, the URI to read. */
 function resume(opts: WalkOptions, table: string, next: number, parent?: string) {
 	if (opts.resource) {
@@ -183,6 +214,13 @@ function resume(opts: WalkOptions, table: string, next: number, parent?: string)
 	return `read again with table "${table}"${parent ? `, parent "${parent}"` : ""} and offset ${next}`;
 }
 const detailsOff = (opts: WalkOptions) => (opts.resource ? "add details=false" : "pass details: false");
+const detailsOn = (opts: WalkOptions) => (opts.resource ? "add details=true" : "pass details: true");
+/** Whether any row (at any depth) has inspector content that `details: false` leaves out. */
+const hasDetails = (rows: Row[]): boolean => rows.some((r) => !!(r.details?.length || r.stats?.length || r.pane?.length) || hasDetails(r.children ?? []));
+/** A value as the drawer comparison sees it: on one line, trimmed. */
+const norm = (s: string) => oneLine(s).trim();
+/** Whether the previous line is a heading with nothing under it yet: a timeline or list there doesn't add its own. */
+const underHeading = (out: Out) => /^## /.test(out.lines.at(-1) ?? "");
 /** A row anywhere under `rows`, by id. */
 export function findRow(rows: Row[], id: string): Row | undefined {
 	for (const r of rows) {
@@ -237,7 +275,14 @@ export function pageRows(all: Row[], offset: number, maxRows: number): { rows: P
 type Columns = { key: string; title?: string }[];
 
 /** What rowLines needs about the table and the row's parent. */
-type RowContext = { table: string; actions?: Action[]; /** The parent row's cell texts: a child's detail repeating one is left out. */ parentCells: string[] };
+type RowContext = {
+	table: string;
+	actions?: Action[];
+	/** The parent row's cell texts: a child's detail repeating one is left out. */
+	parentCells: string[];
+	/** The labels of the section headings the row is under. */
+	sections: string[];
+};
 
 function rowLines(row: Row, cols: Columns, depth: number, opts: WalkOptions, out: Out, ctx: RowContext) {
 	const actions = ctx.actions;
@@ -254,7 +299,8 @@ function rowLines(row: Row, cols: Columns, depth: number, opts: WalkOptions, out
 		.filter(Boolean);
 	const rowDot = dotText(row.dot);
 	const flags = [row.unread ? "unread" : "", row.context ? `context for ${row.context}` : "", rowDot && !plain.some((p) => p.includes(rowDot)) ? rowDot : ""].filter(Boolean);
-	const own = ownActions(row, actions);
+	// A row's own action list is part of its details: without them, the table's list stands.
+	const own = opts.details ? ownActions(row, actions) : null;
 	out.lines.push(`${indent}- ${cells.join(" · ")}  {id: ${row.id}}${flags.length ? ` [${flags.join(", ")}]` : ""}${own ? ` (actions: ${own.length ? own.join(", ") : "none"})` : ""}`);
 	if (opts.details) {
 		// A stat or detail that repeats the row line's cell of the same name is left out, as is a
@@ -269,7 +315,15 @@ function rowLines(row: Row, cols: Columns, depth: number, opts: WalkOptions, out
 		// The details drawer (`pane`): forms, timelines and cards about this row.
 		if (row.pane?.length) {
 			const pane: Out = { lines: [], notes: [] };
-			for (const node of row.pane) walk(node, { ...opts, maxRows: Math.min(opts.maxRows, 20) }, pane);
+			const first = row.cells[columns[0]];
+			const drawer = new Set<string>(ctx.sections.map(norm));
+			const title = first === null || first === undefined ? "" : typeof first === "object" ? first.text : String(first);
+			if (norm(title)) drawer.add(norm(title));
+			for (const k of columns) {
+				const cell = row.cells[k];
+				if (cell && typeof cell === "object" && cell.sub && norm(cell.sub)) drawer.add(norm(cell.sub));
+			}
+			for (const node of row.pane) walk(node, { ...opts, maxRows: Math.min(opts.maxRows, 20), drawer }, pane);
 			for (const line of pane.lines) for (const part of line.split("\n")) if (part.trim()) out.lines.push(`${indent}    ${part.replace(/^#+ /, "")}`);
 		}
 	}
@@ -336,7 +390,10 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 				out.lines.push(`Columns: ${node.columns.map((c) => c.title || c.key).join(" · ")}`);
 			}
 			const rowActions = actionLabels(node.actions);
-			if (rowActions.length) out.lines.push(`Row actions: ${rowActions.join(", ")}${node.rows.some((r) => ownActions(r, node.actions)) ? " (a row that allows fewer lists its own)" : ""}`);
+			const fewer = node.rows.some((r) => ownActions(r, node.actions));
+			if (rowActions.length)
+				out.lines.push(`Row actions: ${rowActions.join(", ")}${fewer ? (opts.details ? " (a row that allows fewer lists its own)" : ` (a row may allow fewer: ${detailsOn(opts)} to list each row's own)`) : ""}`);
+			if (!opts.details && hasDetails(page.rows)) out.lines.push(`(rows' details left out: ${detailsOn(opts)} to include them)`);
 			const bulk = actionLabels(node.bulkActions);
 			if (bulk.length) out.lines.push(`Bulk actions: ${bulk.join(", ")}`);
 			const sections = sectionPaths(node.sections);
@@ -360,7 +417,7 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 					header = h;
 					if (h) rowOut.lines.push(`### ${h}`);
 				}
-				rowLines(row, node.columns, 0, opts, rowOut, { table: node.id, actions: node.actions, parentCells: [] });
+				rowLines(row, node.columns, 0, opts, rowOut, { table: node.id, actions: node.actions, parentCells: [], sections: h ? h.split(" › ") : [] });
 				if (sizeOf(out) + sizeOf(rowOut) > opts.budget - HINT_ROOM && out.rowsShown) {
 					stopped = offset + shown;
 					break;
@@ -380,7 +437,7 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			else if (stopped !== null)
 				out.lines.push(
 					rows.length
-						? `(showing rows ${offset + 1}–${stopped} of ${total}: the result reached its size limit; ${resume(opts, node.id, stopped, under)}, or ${detailsOff(opts)} for shorter rows)`
+						? `(showing rows ${offset + 1}–${stopped} of ${total}: the result reached its size limit; ${resume(opts, node.id, stopped, under)}${opts.details ? `, or ${detailsOff(opts)} for shorter rows` : ""})`
 						: `(${rowsWord(total - offset)} not listed: the result reached its size limit; ${resume(opts, node.id, stopped, under)})`,
 				);
 			else if (total && !rows.length) out.lines.push(`(${rowsWord(total)} not listed: max_rows is 0)`);
@@ -388,8 +445,11 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			return;
 		}
 		case "list": {
-			// Empty: the plugin's empty message says so; no "0 items" beside it.
-			out.lines.push("", node.items.length || !node.empty ? `## List: ${node.items.length} item${node.items.length === 1 ? "" : "s"}` : "## List");
+			// In a drawer, an empty list says nothing.
+			if (opts.drawer && !node.items.length) return;
+			// Under a heading of its own (a card's title), the heading names it; otherwise
+			// empty, the plugin's empty message says so, with no "0 items" beside it.
+			if (!underHeading(out)) out.lines.push("", node.items.length || !node.empty ? `## List: ${node.items.length} item${node.items.length === 1 ? "" : "s"}` : "## List");
 			if (!node.items.length && node.empty) out.lines.push(`(empty: ${node.empty.title})`);
 			for (const item of node.items.slice(0, opts.maxRows)) {
 				const meta = item.metaAt !== undefined ? when(item.metaAt, now) : item.meta;
@@ -408,6 +468,8 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			if (node.title || node.description) out.lines.push(`## Form${node.title ? `: ${node.title}` : ""}${node.description ? ` — ${node.description}` : ""}`);
 			for (const f of node.fields) {
 				const value = oneLine(fieldText(f, now)).trim();
+				// In a drawer: an empty field, or a value the row line or its section already shows, is left out.
+				if (opts.drawer && (emptyField(f) || opts.drawer.has(value))) continue;
 				if (f.label || value) out.lines.push(`- ${f.label ? `${oneLine(f.label)}: ` : ""}${value}`);
 			}
 			return;
@@ -415,17 +477,24 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			out.lines.push(`(empty: ${node.title}${node.description ? ` — ${node.description}` : ""})`);
 			return;
 		case "text":
+			if (opts.drawer && (!node.text.trim() || opts.drawer.has(norm(node.text)))) return;
 			out.lines.push(node.text);
 			return;
 		case "card": {
-			out.lines.push("", `## ${node.title ?? "Card"}${node.description ? ` — ${node.description}` : ""}`);
 			const acts = actionLabels(node.actions);
-			for (const child of node.children) walk(child, opts, out);
-			if (acts.length) out.lines.push(`Actions: ${acts.join(", ")}`);
+			const body: Out = { lines: ["", `## ${node.title ?? "Card"}${node.description ? ` — ${node.description}` : ""}`], notes: out.notes };
+			for (const child of node.children) walk(child, opts, body);
+			if (acts.length) body.lines.push(`Actions: ${acts.join(", ")}`);
+			// A card with nothing in it (its timeline empty, say) and nothing to say about itself is left out.
+			if (body.lines.length === 2 && !node.description) return;
+			out.lines.push(...body.lines);
 			return;
 		}
 		case "details":
-			for (const i of node.items) out.lines.push(`- ${i.label ? `${i.label}: ` : ""}${oneLine(clip(i.value, 1000))}`);
+			for (const i of node.items) {
+				if (opts.drawer && (!i.value.trim() || opts.drawer.has(norm(i.value)))) continue;
+				out.lines.push(`- ${i.label ? `${i.label}: ` : ""}${oneLine(clip(i.value, 1000))}`);
+			}
 			return;
 		case "log":
 		case "terminal": {
@@ -443,7 +512,10 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			return;
 		}
 		case "timeline":
-			out.lines.push("", node.entries.length || !node.empty ? `## Timeline: ${node.entries.length} entr${node.entries.length === 1 ? "y" : "ies"}` : "## Timeline");
+			// In a drawer, an empty timeline says nothing. Under a heading of its own (a card's
+			// title, "Updates · 3"), the heading names it and the entries count themselves.
+			if (opts.drawer && !node.entries.length) return;
+			if (!underHeading(out)) out.lines.push("", node.entries.length || !node.empty ? `## Timeline: ${node.entries.length} entr${node.entries.length === 1 ? "y" : "ies"}` : "## Timeline");
 			if (!node.entries.length && node.empty) out.lines.push(`(empty: ${node.empty.title})`);
 			for (const e of node.entries.slice(0, opts.maxRows))
 				out.lines.push(`- ${when(e.at, now)}${e.author ? ` · ${oneLine(e.author)}` : ""}${e.title ? ` · ${oneLine(e.title)}` : ""}: ${oneLine(clip(e.text, 600))}`);
@@ -475,7 +547,7 @@ export function treeText(tree: Node, options: ReadOptions = {}) {
 		parent: options.parent,
 		resource: options.resource,
 		offset: options.offset ?? 0,
-		details: options.details ?? true,
+		details: options.details ?? false,
 		now: options.now ?? Date.now(),
 		table: options.table,
 	}, out);
@@ -486,15 +558,16 @@ export function treeText(tree: Node, options: ReadOptions = {}) {
 	const budget = options.budget ?? TEXT_BUDGET;
 	if (text.length > budget) {
 		const kept = lines.slice(0, text.slice(0, budget).split("\n").length - 1);
-		text = `${kept.join("\n")}\n(truncated after line ${kept.length} of ${lines.length} at the result's size limit; read one table at a time with ${options.resource ? "?table=…&offset=…, or add details=false" : "table and offset, or pass details: false"})`;
+		const shorter = options.details ? (options.resource ? ", or add details=false" : ", or pass details: false") : "";
+		text = `${kept.join("\n")}\n(truncated after line ${kept.length} of ${lines.length} at the result's size limit; read one table at a time with ${options.resource ? "?table=…&offset=…" : "table and offset"}${shorter})`;
 	}
 	return { text, viewState: out.notes };
 }
 
 /** Protocol fields that hold epoch-millisecond times: JSON gets an ISO 8601 copy beside each (`atIso`). */
 const TIME_KEYS = ["at", "metaAt", "edited"];
-/** Row fields that are the row's inspector details, left out with `details: false`. */
-const DETAIL_KEYS = ["details", "stats", "pane"];
+/** Row fields that are the row's inspector details (and its own action list), left out with `details: false`. */
+const DETAIL_KEYS = ["details", "stats", "pane", "actions"];
 /**
  * Protocol fields that only affect how the UI looks or is operated (icons, sizes, emphasis,
  * placeholders, drag and drop): left out of agent JSON. Plugin-chosen keys (a row's
@@ -504,7 +577,24 @@ const VISUAL_KEYS = new Set([
 	"icon", "dropIcon", "dropLabel", "width", "minWidth", "maxWidth", "grow", "shrink", "wide", "align", "resizable",
 	"inset", "mono", "muted", "strong", "style", "titleStyle", "appearance", "autofocus", "placeholder",
 	"pill", "overflow", "layoutVersion", "selectEvents", "reorderOnto", "reorderable", "sortable", "focus",
+	"priority", "optional", "sortDesc", "collapsed", "contextSelect", "paneButtons", "enter", "inline", "primary",
+	"shade", "shades", "colors", "heading",
 ]);
+/**
+ * Keys whose name other protocol objects use for data, left out only where they are visual:
+ * `color` except on a status dot (where it is the state), an action's keyboard `key` and menu
+ * `group` (an object with an `id` and a `label`; a row's `group` is data), a section's drag `order`
+ * and a textarea's height in `rows`.
+ */
+function visualHere(key: string, value: unknown, o: Record<string, unknown>, parentKey: string): boolean {
+	if (key === "color") return parentKey !== "dot";
+	if (key === "key" || key === "group") return typeof value === "string" && typeof o.id === "string" && typeof o.label === "string";
+	if (key === "order") return !Array.isArray(value);
+	if (key === "rows") return typeof value === "number";
+	return false;
+}
+/** Field types whose choices (`options`, a tags field's `keys`) are repeated in every row's drawer. */
+const CHOICE_FIELDS = new Set(["select", "combobox", "tags"]);
 /** `cells` is keyed by the plugin's column keys (its values are protocol cells); a field's `value` is plugin data. */
 type DataScope = false | "keys" | "all";
 const dataScope = (key: string, scope: DataScope): DataScope => (scope === "all" || key === "value" ? "all" : key === "cells" ? "keys" : false);
@@ -517,20 +607,29 @@ const dataScope = (key: string, scope: DataScope): DataScope => (scope === "all"
  */
 export function treeJson(tree: Node, options: ReadOptions = {}): Node {
 	const maxRows = options.maxRows ?? DEFAULT_ROWS;
-	const details = options.details ?? true;
+	const details = options.details ?? false;
 	const budget = options.budget ?? JSON_BUDGET;
 	const outer: Record<string, unknown>[] = [];
-	const cut = (value: unknown, ctx: { row: boolean; inRow: boolean; data: DataScope }): unknown => {
-		if (Array.isArray(value)) return value.map((v) => cut(v, ctx));
+	const cut = (value: unknown, ctx: { row: boolean; inRow: boolean; data: DataScope; key?: string }): unknown => {
+		if (Array.isArray(value)) return value.map((v) => cut(v, { ...ctx }));
 		if (!value || typeof value !== "object") return value;
+		const source = value as Record<string, unknown>;
 		const o: Record<string, unknown> = {};
-		for (const [k, v] of Object.entries(value)) {
-			if (!ctx.data && VISUAL_KEYS.has(k)) continue;
+		// A choice field in a row's drawer: its value's labels instead of the choices, which every row repeats.
+		const choices = !ctx.data && ctx.inRow && typeof source.type === "string" && CHOICE_FIELDS.has(source.type) && "value" in source;
+		for (const [k, v] of Object.entries(source)) {
+			if (!ctx.data && (VISUAL_KEYS.has(k) || visualHere(k, v, source, ctx.key ?? ""))) continue;
 			if (ctx.row && !details && DETAIL_KEYS.includes(k)) continue;
+			if (choices && (k === "options" || k === "keys")) continue;
 			// Rows (and their children) are the objects under a table's `rows`.
 			const row = !ctx.data && (k === "rows" || (ctx.row && k === "children"));
-			o[k] = cut(v, { row, inRow: ctx.inRow || ctx.row, data: ctx.data === "keys" ? false : dataScope(k, ctx.data) });
+			o[k] = cut(v, { row, inRow: ctx.inRow || ctx.row, data: ctx.data === "keys" ? false : dataScope(k, ctx.data), key: k });
 			if (!ctx.data && TIME_KEYS.includes(k) && typeof v === "number") o[`${k}Iso`] = new Date(v).toISOString();
+		}
+		if (choices) {
+			const f = source as Field;
+			if (f.type === "tags") o.valueLabels = tagLabels(f);
+			else o.valueLabel = fieldText(f, 0);
 		}
 		if (!ctx.data && o.type === "table" && Array.isArray(o.rows)) {
 			const paged = options.table === o.id;

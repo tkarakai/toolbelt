@@ -126,11 +126,11 @@ describe("serializer", () => {
 		for (const [input, masked] of cases) expect(maskSecrets(input)).toBe(masked);
 		// Applied everywhere: cells, details and JSON alike.
 		const tree: Node = { type: "table", id: "p", columns: [{ key: "cmd", title: "Command" }], rows: [{ id: "1", cells: { cmd: "app --password=pw1" }, details: [{ label: "Resume with", value: "GH_TOKEN=xyz app" }] }] };
-		expect(treeText(tree).text).not.toMatch(/pw1|xyz/);
-		expect(JSON.stringify(treeJson(tree))).not.toMatch(/pw1|xyz/);
+		expect(treeText(tree, { details: true }).text).not.toMatch(/pw1|xyz/);
+		expect(JSON.stringify(treeJson(tree, { details: true }))).not.toMatch(/pw1|xyz/);
 	});
 	test("text lists sections, rows, details, enabled actions and shared view state", () => {
-		const { text, viewState } = treeText(page(2), { now: Date.UTC(2026, 10, 25, 10) });
+		const { text, viewState } = treeText(page(2), { now: Date.UTC(2026, 10, 25, 10), details: true });
 		expect(text).toContain("Summary: 2 things");
 		expect(text).toContain("Filter Kind: Apples");
 		expect(text).toContain("Toolbar actions: Refresh");
@@ -143,7 +143,11 @@ describe("serializer", () => {
 		expect(text).toContain("(in 2h)");
 		expect(text).toContain("Empty sections: Later");
 		expect(viewState).toEqual(['filter "Kind" = Apples']);
-		expect(treeText(page(2), { details: false }).text).not.toContain("note 1");
+		// Details are left out unless asked for, and the result says how to get them.
+		const lean = treeText(page(2)).text;
+		expect(lean).not.toContain("note 1");
+		expect(lean).toContain("(rows' details left out: pass details: true to include them)");
+		expect(treeText(page(2), { details: false }).text).toBe(lean);
 	});
 	test("rows in sub-sections sit under their parent; empty sub-sections name it", () => {
 		const tree: Node = {
@@ -209,7 +213,7 @@ describe("serializer", () => {
 				{ type: "table", id: "kept", columns: [{ key: "name", title: "Name" }], rows: [{ id: "k", cells: { name: "Kept one" }, details: [{ label: "Note", value: "z".repeat(1000) }] }] },
 			],
 		};
-		const { text } = treeText(big, { budget: 4000 });
+		const { text } = treeText(big, { budget: 4000, details: true });
 		expect(text.length).toBeLessThan(4600);
 		const stop = text.match(/\(showing rows 1–(\d+) of 40: the result reached its size limit; read again with table "procs" and offset (\d+), or pass details: false for shorter rows\)/);
 		expect(stop).not.toBeNull();
@@ -222,14 +226,14 @@ describe("serializer", () => {
 		expect(text).toContain("## Table kept: 1 row");
 		expect(text).toContain('(1 row not listed: the result reached its size limit; read again with table "kept" and offset 0)');
 		// Resuming continues where it stopped.
-		expect(treeText(big, { budget: 4000, table: "procs", offset: last + 1 }).text).toContain(`Proc ${last + 1} `);
+		expect(treeText(big, { budget: 4000, details: true, table: "procs", offset: last + 1 }).text).toContain(`Proc ${last + 1} `);
 	});
 	test("content outside tables is cut at a line boundary, saying where", () => {
 		const tree: Node = { type: "markdown", text: Array.from({ length: 400 }, (_, i) => `line ${i} ${"y".repeat(30)}`).join("\n") };
 		const { text } = treeText(tree, { budget: 2000 });
 		expect(text.length).toBeLessThan(2200);
 		const lines = text.split("\n");
-		expect(lines.at(-1)).toMatch(/^\(truncated after line \d+ of \d+ at the result's size limit; read one table at a time with table and offset, or pass details: false\)$/);
+		expect(lines.at(-1)).toMatch(/^\(truncated after line \d+ of \d+ at the result's size limit; read one table at a time with table and offset\)$/);
 		expect(lines.slice(0, -1).every((l) => /^line \d+ y{30}$/.test(l))).toBe(true);
 	});
 	test("JSON is cut to its size budget at row boundaries, with where to resume", () => {
@@ -293,7 +297,8 @@ describe("serializer", () => {
 		expect(lean).toContain('"Alpha"');
 		expect(lean).toContain('"Child"');
 		for (const gone of ["secret plan", "3%", "pane body", "child note"]) expect(lean).not.toContain(gone);
-		expect(JSON.stringify(treeJson(tree))).toContain("child note");
+		expect(JSON.stringify(treeJson(tree))).toBe(lean);
+		expect(JSON.stringify(treeJson(tree, { details: true }))).toContain("child note");
 	});
 	test("JSON times get an ISO 8601 copy", () => {
 		const at = Date.UTC(2026, 10, 25, 12);
@@ -317,7 +322,7 @@ describe("serializer", () => {
 				{ type: "log", id: "log", lines: [{ text: "one\ntwo" }] },
 			],
 		};
-		const lines = treeText(tree).text.split("\n");
+		const lines = treeText(tree, { details: true }).text.split("\n");
 		// " ⏎ ", not "/": commands and paths are full of slashes.
 		expect(lines.find((l) => l.includes("bash -c"))).toContain("bash -c ' ⏎ exec \"$@\"' t3");
 		expect(lines.find((l) => l.includes("first line"))).toMatch(/^ {4}- .*first line ⏎ second line$/);
@@ -339,7 +344,7 @@ describe("serializer", () => {
 				{ type: "timeline", id: "updates", entries: [] },
 			],
 		};
-		const text = treeText(tree).text;
+		const text = treeText(tree, { details: true }).text;
 		// The table id stays: it is what `table` pages.
 		expect(text).toContain("## Table tasks: 1 row");
 		expect(text).toContain("### Progressing\n- Alpha");
@@ -378,7 +383,7 @@ describe("serializer", () => {
 				],
 			}],
 		};
-		const text = treeText(tree).text;
+		const text = treeText(tree, { details: true }).text;
 		expect(text.split(cmd).length - 1).toBe(1);
 		// Short values are kept even when they match: "41" may be a different fact.
 		expect(text.match(/PID: 41/g)).toHaveLength(2);
@@ -405,9 +410,11 @@ describe("serializer", () => {
 		expect(json.paging).toEqual({ offset: 28, total: 30, next: null, parent: "b1" });
 	});
 	test("a resource read's hints name the URI to read next", () => {
-		const text = treeText(page(80), { resource: "toolbelt://screens/desk/tasks", budget: 3000 }).text;
+		const text = treeText(page(80), { resource: "toolbelt://screens/desk/tasks", budget: 3000, details: true }).text;
 		expect(text).toMatch(/read toolbelt:\/\/screens\/desk\/tasks\?table=things&offset=\d+, or add details=false for shorter rows\)/);
 		expect(text).not.toContain("read again with table");
+		const lean = treeText(page(80), { resource: "toolbelt://screens/desk/tasks", budget: 3000 }).text;
+		expect(lean).toContain("(rows' details left out: add details=true to include them)");
 	});
 	test("a row lists its own actions when it allows fewer, and details don't repeat its cells", () => {
 		const tree: Node = {
@@ -421,7 +428,7 @@ describe("serializer", () => {
 				{ id: "c", cells: { name: "Gamma", cpu: "0%" } },
 			],
 		};
-		const text = treeText(tree).text;
+		const text = treeText(tree, { details: true }).text;
 		expect(text).toContain("Row actions: Archive, Unarchive, Mark read (a row that allows fewer lists its own)");
 		expect(text).toContain("{id: a} (actions: Archive, Mark read)");
 		expect(text).toMatch(/\{id: b\}\n/);
@@ -429,6 +436,113 @@ describe("serializer", () => {
 		// The CPU stat repeats the CPU cell; Threads has the same value but is another fact.
 		expect(text).not.toContain("CPU: 3%");
 		expect(text).toContain("Threads: 3%");
+		// Without details, a row's own actions are left out with them, and the table says so.
+		const lean = treeText(tree).text;
+		expect(lean).toContain("Row actions: Archive, Unarchive, Mark read (a row may allow fewer: pass details: true to list each row's own)");
+		expect(lean).not.toContain("(actions:");
+	});
+	test("a row's drawer leaves out empty values and what the row line or its section already shows", () => {
+		const keys = [{ key: "p", label: "Project" }, { key: "rel", label: "Related to" }];
+		const tree: Node = {
+			type: "table",
+			id: "tasks",
+			columns: [{ key: "name", title: "Task" }],
+			sections: [{ id: "inbox", label: "Inbox" }],
+			rows: [{
+				id: "1",
+				group: "inbox",
+				cells: { name: { text: "Renew passport", sub: "Photos are in the drawer." } },
+				pane: [
+					{
+						type: "form",
+						id: "task",
+						fields: [
+							{ type: "text", id: "name", label: "Name", value: "Renew passport" },
+							{ type: "select", id: "state", label: "Workflow", value: "inbox", options: [{ value: "inbox", label: "Inbox" }, { value: "done", label: "Done" }] },
+							{ type: "datetime", id: "due", label: "Due", value: "", placeholder: "No due date" },
+							{ type: "tags", id: "labels", label: "Labels", value: [{ key: "p", value: "Home" }, { key: "rel", value: "Paulo, TwoImpulse" }], keys },
+							{ type: "tags", id: "related", label: "Related", value: [], keys },
+							{ type: "textarea", id: "desc", label: "", value: "Photos are in the drawer." },
+							{ type: "text", id: "owner", label: "Owner", value: "Ann" },
+						],
+					},
+					{ type: "text", text: "Photos are in the drawer." },
+					{ type: "card", id: "updates", title: "Updates · 2", children: [
+						{ type: "composer", id: "add", action: { id: "add", label: "Add" } },
+						{ type: "timeline", id: "updates", entries: [{ id: "a", at: Date.UTC(2026, 10, 24), text: "Booked a slot" }, { id: "b", at: Date.UTC(2026, 10, 23), text: "Found the form" }] },
+					] },
+					{ type: "card", id: "empty", title: "Notes", children: [{ type: "timeline", id: "notes", entries: [], empty: { title: "No notes yet" } }] },
+					{ type: "card", id: "links", title: "Links · 1", children: [{ type: "list", id: "links", items: [{ id: "l", title: "Town hall form" }] }] },
+					{ type: "list", id: "files", items: [], empty: { title: "No files" } },
+				],
+			}],
+		};
+		const text = treeText(tree, { details: true, now: Date.UTC(2026, 10, 25) }).text;
+		const drawer = text.slice(text.indexOf("{id: 1}"));
+		// The title, the section ("Inbox"), the subtitle and empty values aren't repeated.
+		for (const gone of ["Name:", "Workflow:", "Due:", "No due date", "Related:", "none", "Notes", "No notes yet", "No files"]) expect(drawer).not.toContain(gone);
+		expect(drawer.split("Photos are in the drawer.").length - 1).toBe(0);
+		expect(text.split("Photos are in the drawer.").length - 1).toBe(1);
+		// Everything else stays, and a timeline or list under its own heading isn't counted again.
+		expect(drawer).toContain("- Labels: Project: Home, Related to: Paulo, TwoImpulse");
+		expect(drawer).toContain("- Owner: Ann");
+		expect(drawer).toContain("    Updates · 2\n    - 2026-11-24");
+		expect(drawer).toContain("    Links · 1\n    - Town hall form");
+		for (const gone of ["Timeline:", "List:"]) expect(drawer).not.toContain(gone);
+		// The same nodes outside a drawer keep their empty values and messages.
+		const form = treeText({ type: "stack", children: [tree.rows[0].pane![0], tree.rows[0].pane![3]] }).text;
+		expect(form).toContain("- Name: Renew passport");
+		expect(form).toContain("- Due: No due date");
+		expect(form).toContain("## Notes\n(empty: No notes yet)");
+	});
+	test("JSON lists a drawer field's value labels, not the choices every row repeats, and drops more visual-only fields", () => {
+		const keys = [{ key: "p", label: "Project", values: ["Home", "Work"], colors: { Home: "lime" as const }, freeform: true }];
+		const field = { type: "tags" as const, id: "labels", label: "Labels", value: [{ key: "p", value: "Home, garden" }], keys };
+		const select = { type: "select" as const, id: "state", label: "Workflow", value: "inbox", options: [{ value: "inbox", label: "Inbox" }, { value: "done", label: "Done" }] };
+		const tree: Node = {
+			type: "page",
+			children: [
+				{
+					type: "table",
+					id: "tasks",
+					columns: [{ key: "name", title: "Task", priority: 1 }],
+					sections: [{ id: "inbox", label: "Inbox", order: "fixed", collapsed: true }],
+					actions: [{ id: "work", label: "Start", key: "p", group: "flow", inline: true }],
+					paneButtons: true,
+					rows: [{
+						id: "1",
+						group: "inbox",
+						dot: { color: "green", label: "Running" },
+						actions: ["work"],
+						cells: { name: { text: "Renew", tags: [{ text: "Home", color: "lime", shade: 1 }] } },
+						pane: [{ type: "form", id: "task", fields: [field, select, { type: "textarea", id: "desc", label: "", value: "x", rows: 6 }] }],
+					}],
+				},
+				{ type: "form", id: "settings", fields: [select] },
+			],
+		};
+		const lean = JSON.stringify(treeJson(tree));
+		// Details (the drawer and the row's own actions) are left out by default.
+		expect(lean).not.toContain('"pane"');
+		expect(lean).not.toContain('"actions":["work"]');
+		const json = treeJson(tree, { details: true }) as Extract<Node, { type: "page" }>;
+		const table = json.children[0] as Extract<Node, { type: "table" }>;
+		const row = table.rows[0];
+		const fields = (row.pane![0] as Extract<Node, { type: "form" }>).fields as unknown as Record<string, unknown>[];
+		expect(fields[0]).toEqual({ type: "tags", id: "labels", label: "Labels", value: [{ key: "p", value: "Home, garden" }], valueLabels: ["Project: Home, garden"] });
+		expect(fields[1]).toEqual({ type: "select", id: "state", label: "Workflow", value: "inbox", valueLabel: "Inbox" });
+		expect(fields[2]).toEqual({ type: "textarea", id: "desc", label: "", value: "x" });
+		// A form of the screen's own keeps its choices.
+		expect((json.children[1] as Extract<Node, { type: "form" }>).fields[0]).toMatchObject({ options: select.options });
+		// A dot's color is its state; a tag's color, an action's keyboard key and menu group, a section's drag order and collapsing are looks.
+		expect(row.dot).toEqual({ color: "green", label: "Running" });
+		expect(row.cells.name).toEqual({ text: "Renew", tags: [{ text: "Home" }] });
+		expect(table.actions).toEqual([{ id: "work", label: "Start" }]);
+		expect(table.sections).toEqual([{ id: "inbox", label: "Inbox" }]);
+		expect(table.columns).toEqual([{ key: "name", title: "Task" }]);
+		expect(row.group).toBe("inbox");
+		expect(row.actions).toEqual(["work"]);
+		expect(JSON.stringify(json)).not.toContain("paneButtons");
 	});
 });
 

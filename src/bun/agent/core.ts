@@ -801,7 +801,7 @@ export class AgentCore {
 				name: "read_screen",
 				title: "Read a screen",
 				description:
-					"Read one plugin screen: tables with their rows and details, lists, forms, stats and logs, with times as absolute and relative. It reads your own copy of the screen as it starts (the plugin's default search, filters and sort), never changing what the person sees. Pass view to search, filter or sort it in the same call (list_screens shows each screen's view controls), or view: \"person\" to read exactly what the person's screens show now. Long tables are paged.",
+					"Read one plugin screen: tables with one line per row (pass details: true for each row's inspector details), lists, forms, stats and logs, with times as absolute and relative. It reads your own copy of the screen as it starts (the plugin's default search, filters and sort), never changing what the person sees. Pass view to search, filter or sort it in the same call (list_screens shows each screen's view controls), or view: \"person\" to read exactly what the person's screens show now. Long tables are paged.",
 				risk: "read",
 				params: {
 					type: "object",
@@ -813,7 +813,7 @@ export class AgentCore {
 						table: str("The table that `offset` pages."),
 						offset: int("First row of `table` to return, counting top-level rows (or the `parent` row's children)."),
 						parent: str("A row id in `table`: page that row's child rows (such as a process's children) with `offset` instead of the table's rows."),
-						details: { type: "boolean", description: "Include each row's inspector details (default true)." },
+						details: { type: "boolean", description: "Include each row's inspector details: its notes, history and drawer, and the actions it allows when fewer than the table's (default false). Narrow with table and offset or a view first on long tables." },
 						view: VIEW_PARAM,
 					},
 					required: ["plugin"],
@@ -864,7 +864,7 @@ export class AgentCore {
 						screens.map(async (s) => {
 							try {
 								// The whole screen: search isn't bound by a read's size limit.
-								const r = await this.readScreen(s.plugin, s.screen, { maxRows: 5000, budget: Number.MAX_SAFE_INTEGER });
+								const r = await this.readScreen(s.plugin, s.screen, { maxRows: 5000, budget: Number.MAX_SAFE_INTEGER, details: true });
 								if (r.rendered) return r;
 								failed.push({ plugin: s.plugin, screen: s.screen, reason: "it hasn't rendered yet" });
 							} catch (error) {

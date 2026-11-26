@@ -21,7 +21,7 @@ toolbelt read <plugin> <screen> --filter status=done --sort tasks=-due --search 
                                      # your own view: searched, filtered, sorted in one call
 toolbelt read <plugin> <screen> --person   # exactly what the person's screens show now
 toolbelt show <plugin> [screen] --filter status=done   # show the person (asks them first)
-toolbelt read <plugin> <screen> --max-rows 20 --no-details   # smaller
+toolbelt read <plugin> <screen> --details   # with each row's details: notes, history, drawer
 toolbelt read <plugin> <screen> --table <id> --offset 100    # next page of a long table
 toolbelt read <plugin> <screen> --table <id> --parent <row id>   # a row's child rows
 toolbelt search <words…> [--plugin <id>]   # lines mentioning all words, across screens
@@ -35,8 +35,9 @@ request was refused or failed (unknown plugin, screen, table or option, plugin n
 
 ## Reading screens
 
-- Tables print as `- cell · cell · cell  {id: …}` under `### section` headings, followed by
-  indented row details. Times are absolute local time with a relative hint.
+- Tables print as `- cell · cell · cell  {id: …}` under `### section` headings; with
+  `--details`, each row is followed by its indented details. Narrow a long table first
+  (`--table … --offset …`, `--filter`, `--search`). Times are absolute local time with a relative hint.
 - `read` gives you your own copy of the screen as it starts (the plugin's default filters,
   which may hide finished items). Narrow or widen it with `--search`, `--filter` (`ID=` for
   all options), `--sort` and `--control`; `screens` lists each screen's controls and options.

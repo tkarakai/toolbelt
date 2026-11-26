@@ -25,7 +25,8 @@
 			"call": "read_screen",
 			"args": {
 				"plugin": "desk",
-				"screen": "tasks"
+				"screen": "tasks",
+				"details": true
 			},
 			"expect": {
 				"contains": [

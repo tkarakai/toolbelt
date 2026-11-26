@@ -102,7 +102,7 @@ The server negotiates protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26`
 | --- | --- |
 | `toolbelt_status` | The runtime view, where agents start: app name, version, channel and development profile, the app bundle answering and its process id (two builds of one version on one profile are otherwise indistinguishable; the second can't serve the socket and says so in Settings → Agents), app update availability, visible plugins with state, badge (only while running), screens and available update, and the count of hidden plugins |
 | `list_screens` | Readable screens as plugin and screen ids, optionally for one plugin, each with its view schema: search, filters with option values (once the screen has rendered) and defaults, sortable tables with their column keys, page controls |
-| `read_screen` | One screen as text (default) or redacted JSON, with `max_rows`, `table` and `offset` paging and `details`, read through the agent's own instance with an optional `view`, or `view: "person"` for the person's |
+| `read_screen` | One screen as text (default) or redacted JSON, with `max_rows`, `table` and `offset` paging and `details` (rows' inspector content, off by default), read through the agent's own instance with an optional `view`, or `view: "person"` for the person's |
 | `show_screen` | Shows the person a screen, optionally with a view, on every person's screen that is open, after the person allows it; reports devices that don't show it (see Showing the person a screen) |
 | `search_screens` | Content lines containing every query word, across readable screens or one plugin, grouped by row (a row's line with its matching details, each shortened to 300 characters), and the screens that couldn't be read |
 | `list_plugins` | The installation view: every installed plugin agents may see, enabled or not, with version, state (the runtime state while enabled, else `disabled`), access, available update, repository and channel |
@@ -183,11 +183,17 @@ screens share one, `PERSON`; the core opens agent instances of its own through
   controls, search highlight, enabled toolbar actions and an open dialog.
 - Tables: sections and groups as headings (a sub-section as `Upcoming › This week`, a
   sub-section named like its parent only once), one line per row with its cells, id and flags,
-  children indented, and row details, stats and pane content underneath. A stat or detail that
+  children indented, and, with `details: true`, row details, stats and pane content underneath. A stat or detail that
   repeats the row's cell of the same name is left out, as is a long value (40 characters or more,
   such as a command line) that the row line or its parent row's line already shows. Enabled row and bulk action labels appear
-  once per table; a row whose `actions` allow fewer lists its own. Empty declared sections are
-  listed when every row was read.
+  once per table; with details, a row whose `actions` allow fewer lists its own (without, the
+  table's list says a row may allow fewer). Empty declared sections are listed when every row was read.
+- A row's drawer (`pane`) leaves out what says nothing or repeats the row: empty fields, empty
+  timelines and lists (no empty message), a card left with nothing in it, and a field, detail or
+  text whose value equals the row's first cell's text, a cell's subtitle or one of the row's
+  section labels. The same nodes outside a drawer keep their empty values and messages.
+- A timeline or list directly under a heading (a card's title such as `Updates · 3`) adds no
+  heading or count of its own.
 - Headings use labels, not the plugin's ids: `Timeline`, `List`, an untitled form without a
   heading, and a field without a label shows only its value (or nothing, without one). An empty
   timeline or list shows the plugin's empty message without a count. Table ids stay, because
@@ -210,9 +216,18 @@ screens share one, `PERSON`; the core opens agent instances of its own through
   longer fits still gets its heading and how to read it. JSON tables
   cut this way get `paging.reason: "size"`. Content outside tables is cut at a line boundary,
   saying after which line. Search reads screens without the budget.
-- `details: false` leaves rows' details, stats and panes out of both text and JSON.
+- `details` defaults to false: rows' details, stats, panes and own action lists are left out of
+  both text and JSON, and a text table whose rows have any says
+  `(rows' details left out: pass details: true to include them)` (`add details=true` for a
+  resource read). Search reads screens with details.
 - JSON leaves out fields that only affect the UI's look or operation (icons, widths, emphasis,
-  placeholders, drag and drop; `VISUAL_KEYS`), never plugin-named data such as a row's cells.
+  placeholders, drag and drop, column hiding, collapsing, keyboard shortcuts, colors and shades;
+  `VISUAL_KEYS`), never plugin-named data such as a row's cells. Keys other objects use for data
+  are left out only where they are visual (`visualHere`): `color` except on a status dot, an
+  action's `key` and `group`, a section's drag `order`, a textarea's `rows`.
+- In a row's drawer, JSON choice fields (`select`, `combobox`, `tags`) drop their choices
+  (`options`, `keys`), which every row repeats, and carry `valueLabel` (`tags`: `valueLabels`,
+  as in text, `Project: Houses`) beside the raw `value`. Forms outside rows keep their choices.
 - `text` fields with `sensitive` and `secret` environment entries are masked as `••••••` in both
   text and JSON. In all other plugin text, `maskSecrets` masks values that look like secrets:
   secret-named flags and variables (`--token=…`, `--api-key …`, `GITHUB_TOKEN=…`, `"api_key": "…"`,

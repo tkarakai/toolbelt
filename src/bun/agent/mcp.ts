@@ -8,6 +8,7 @@ export const MCP_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-
 const INSTRUCTIONS =
 	"ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. " +
 	"Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. " +
+	"read_screen lists one line per row; pass details: true for rows' notes and history, narrowed with a view or table and offset on long screens. " +
 	"read_screen reads your own copy of a screen; its view parameter searches, filters and sorts it in the same call without changing what the person sees. " +
 	"When the person asks you to show them something, show_screen changes what their screens show, after they allow it. " +
 	"Otherwise access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. " +
@@ -191,7 +192,7 @@ export class McpSession {
 							uriTemplate: TEMPLATE,
 							name: "screen",
 							title: "A ToolBelt screen, paged",
-							description: "One screen as text, with read_screen's paging and view: table and offset for the next page of a long table, parent to page one row's child rows, max_rows, details=false for shorter rows; search, filter.<id>=a,b, sort.<table>=-key and control.<id>=value for your own view of it, or view=person for the person's.",
+							description: "One screen as text, with read_screen's paging and view: table and offset for the next page of a long table, parent to page one row's child rows, max_rows, details=true for rows' inspector details; search, filter.<id>=a,b, sort.<table>=-key and control.<id>=value for your own view of it, or view=person for the person's.",
 							mimeType: "text/markdown",
 						},
 					],
