@@ -655,9 +655,9 @@ upgrade.
 Roadmap items 1–4 are implemented and described in [docs/agent-interface.md](../docs/agent-interface.md).
 Wave A's host and SDK (roadmap 6) are implemented as described there and in
 [docs/plugins.md](../docs/plugins.md#views); the protocol v2 specification (roadmap 5) for
-wave A is those documents. The plugin upgrades (roadmap 7: OnTrack, Upkeep, Processes and SDK
-Explorer, then a new demo seed) remain, and must ship with the host release that refuses
-protocol 1. The
+wave A is those documents. Wave A shipped on 2026-11-26: SDK 0.4.0, ToolBelt 0.6.0 (with SDK
+Explorer 0.3.0 as its demo seed), OnTrack 0.15.0 and Upkeep 0.3.0 (both now `read`) and
+Processes 0.2.0 (`none`), all on protocol 2. The
 evaluation, with 17 life-like requests answered through MCP and the CLI, is in
 [agent-interface-eval/report.html](agent-interface-eval/report.html). Its cases now run as
 automated scenarios (5.6).
@@ -681,6 +681,22 @@ The evaluation found two gaps; wave A closes the first (findings O1 and O2):
 
 - reads that follow the person's search and filters (C6);
 - whole-screen reads where a row read or a change summary would do.
+
+Contract gaps the plugin upgrades found, for the SDK's next protocol revision:
+
+- `onOpen`/`onClose` fire for a surface's first and last instance without saying whose; plugins
+  can't tell the person's screen from an agent's (Upkeep skips a "run finished" toast while only
+  an agent has the screen open) or clear per-instance state when one instance closes.
+- `onEvent` gets the instance but not its view, and `onView` doesn't fire when an instance opens
+  with a saved view: OnTrack keeps the person's last rendered view to resolve `open-task`.
+- The SDK can't refuse a view change (OnTrack's 10-level grouping cap moved to render time), and
+  control values aren't checked against their options.
+- `applyView` fills `sort` only for tables in the page or a `stack`, not in cards or dialogs;
+  `cleanView` keeps removed filter ids in `arrange`; a sorted table can't return to unsorted.
+- `views` is read before `start`, so declarations built from data loaded in `start` need a
+  `declareViews()` at its end.
+- Each plugin's release config pins the host version its packaging probe runs as; protocol
+  changes need it raised by hand.
 
 ## 5.6 Evaluation
 
