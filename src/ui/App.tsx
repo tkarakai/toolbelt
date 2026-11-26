@@ -13,7 +13,7 @@ import { DevelopmentSettings } from "./Development";
 // ⌘W closes the window (app menu). The shared rules live in lib/keyboard.tsx.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowLeft, ChevronRight, ExternalLink, Check, FlaskConical, Menu, PanelLeft, RotateCw, Settings, X } from "lucide-react";
-import { defaultScreen, type Manifest } from "../shared/protocol";
+import { defaultScreen, PROTOCOL_VERSION, type Manifest } from "../shared/protocol";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
 import { pillClass } from "@/renderer/colors";
@@ -426,7 +426,7 @@ function PluginPane({ info, screen, go, handoff, onHandoffApplied }: { info: Plu
 				<div ref={setActions} className="electrobun-webkit-app-region-no-drag -mr-2 flex shrink-0 items-center gap-1 empty:hidden" />
 			</PaneHeader>
 			</MobileBar>
-			<div ref={pane} data-plugin-pane data-focus-region="content" tabIndex={0} role="region" aria-label={`${m.name} content`} className="min-h-0 flex-1 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring">{info.state === "crashed" ? <Crashed info={info} /> : <PaneActionsContext.Provider value={actions}><Screen key={screen} plugin={m.id} surface={`screen:${screen}`} handoff={handoff} onHandoffApplied={onHandoffApplied} /></PaneActionsContext.Provider>}</div>
+			<div ref={pane} data-plugin-pane data-focus-region="content" tabIndex={0} role="region" aria-label={`${m.name} content`} className="min-h-0 flex-1 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring">{info.state === "crashed" ? <Crashed info={info} go={go} /> : <PaneActionsContext.Provider value={actions}><Screen key={screen} plugin={m.id} surface={`screen:${screen}`} handoff={handoff} onHandoffApplied={onHandoffApplied} /></PaneActionsContext.Provider>}</div>
 			{isMobile && m.screens.length > 1 && <SlideAway edge="bottom" hidden={barsHidden} onFocus={showBars}><MobileTabBar hidden={barsHidden} label={`${m.name} tabs`} value={screen} onChange={(s) => go(m.id, s)} tabs={m.screens.map((s) => ({ id: s.id, label: s.title, icon: <Icon name={s.icon ?? "circle"} /> }))} /></SlideAway>}
 		</div>
 	);
@@ -454,7 +454,20 @@ function Screen({ plugin, surface, handoff, onHandoffApplied }: { plugin: string
 	);
 }
 
-function Crashed({ info }: { info: PluginInfo }) {
+function Crashed({ info, go }: { info: PluginInfo; go: (plugin: string, screen?: string) => void }) {
+	// Built for another plugin protocol: ToolBelt never started it; updating it is the fix.
+	if (info.manifest.protocol !== PROTOCOL_VERSION)
+		return (
+			<div className="mx-auto max-w-xl px-6 py-12">
+				<EmptyState icon="download" title={`${info.manifest.name} needs an update`} description={`This version was made for an earlier ToolBelt, so ToolBelt doesn't start it. Update it in Settings → Plugins; its data is kept.`} />
+				<div className="mt-4 flex justify-center">
+					<Button onClick={() => go(TOOLBELT, "plugins")}>
+						<Settings />
+						Open Settings → Plugins
+					</Button>
+				</div>
+			</div>
+		);
 	return (
 		<div className="mx-auto max-w-xl px-6 py-12">
 			<EmptyState icon="bug" title={`${info.manifest.name} stopped working`} description="It crashed a few times in a row, so ToolBelt stopped restarting it." />

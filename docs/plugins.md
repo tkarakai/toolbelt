@@ -129,7 +129,7 @@ definePlugin({
 Protocol 2 messages: the host sends `open`/`close` with `instance` (and `open` with the view to
 start from), `view` to set an instance's view and `event` with `instance`; the plugin sends
 `render` with `instance`, `view` when an instance's view changes, and its declarations as
-`views` in `hello` and again in a `views` message when they change. The host refuses plugins built for another protocol version.
+`views` in `hello` and again in a `views` message when they change. The host refuses to install or start plugins built for another protocol version; an installed one stays listed as needing an update.
 
 A tree the host can't accept (an invalid node or value, more than the complexity limits, an
 undeclared asset) costs only its instance of the surface: the host logs why in the plugin's log,

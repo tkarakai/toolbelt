@@ -7,6 +7,7 @@ import {
   PERSON,
   PROTOCOL_VERSION,
   parseManifest,
+  requireProtocol,
   splitLines,
   type HostMessage,
   type Manifest,
@@ -711,15 +712,22 @@ export class PluginHost {
   ) {}
 
   start() {
-    const entries = this.opts.registryRoot
-      ? Object.values(readRegistry(this.opts.registryRoot).plugins)
-          .filter((p) => p.enabled && !p.removed)
-          .map((p) => ({ manifest: p.manifest, dir: p.packageRoot }))
-      : discover(this.opts.dirs);
+    let entries: { manifest: Manifest; dir: string }[] = [];
+    try {
+      entries = this.opts.registryRoot
+        ? Object.values(readRegistry(this.opts.registryRoot).plugins)
+            .filter((p) => p.enabled && !p.removed)
+            .map((p) => ({ manifest: p.manifest, dir: p.packageRoot }))
+        : discover(this.opts.dirs);
+    } catch (error) {
+      // A plugin list ToolBelt can't read starts no plugins; the plugin manager says why.
+      console.error(`plugins: ${(error as Error).message}`);
+    }
     for (const { manifest, dir } of entries) {
       const p = this.makeProcess(manifest, dir, this.opts.data);
       this.plugins.set(manifest.id, p);
       try {
+        requireProtocol(manifest);
         if (this.opts.registryRoot) {
           const record = readRegistry(this.opts.registryRoot).plugins[
             manifest.id

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PackageManager, atomicJSON } from "./packages";
+import type { PackageManager } from "./packages";
 /** First-party bundled seed uses the identical validator/transaction installer, once per profile. */
 export async function materializeSeed(manager: PackageManager, seed: string) {
   const registry = manager.registry();
@@ -16,5 +16,5 @@ export async function materializeSeed(manager: PackageManager, seed: string) {
     await manager.install(candidate, true);
   const latest = manager.registry();
   latest.seeded = true;
-  atomicJSON(join(manager.root, "plugins/registry.json"), latest);
+  manager.save(latest);
 }

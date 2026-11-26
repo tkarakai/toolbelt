@@ -88,3 +88,28 @@ for (const operation of ["enable", "restart"])
       rmSync(f.root, { recursive: true, force: true });
     }
   });
+
+test("starting never fails over a plugin: an old protocol's shows it needs an update, a damaged list starts none", async () => {
+  const f = await fixture();
+  const file = join(f.root, "plugins/registry.json");
+  try {
+    const { readFileSync } = await import("node:fs");
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    // Installed by the previous ToolBelt for protocol 1, next to a record this one can't use.
+    saved.plugins.fixture.manifest = { ...saved.plugins.fixture.manifest, protocol: 1, agent: undefined };
+    saved.plugins.broken = { id: "broken" };
+    writeFileSync(file, JSON.stringify(saved));
+    expect(() => f.host.start()).not.toThrow();
+    expect(f.host.list()).toHaveLength(1);
+    expect(f.host.list()[0]).toMatchObject({ state: "crashed" });
+    expect(f.host.list()[0]?.error).toContain("Plugin needs an update: it was built for plugin protocol 1");
+
+    writeFileSync(file, "{ damaged");
+    const fresh = new PluginHost({ dirs: [], registryRoot: f.root, bun: process.execPath, host: { name: "fixture", version: "0.1.0" }, data: join(f.root, "data") });
+    expect(() => fresh.start()).not.toThrow();
+    expect(fresh.list()).toEqual([]);
+  } finally {
+    await f.host.stopPlugin("fixture");
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});

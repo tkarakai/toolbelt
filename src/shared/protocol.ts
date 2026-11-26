@@ -844,7 +844,10 @@ export function parseManifest(json: unknown): Manifest {
 	need(!["toolbelt","constructor"].includes(m.id!),"`id` is reserved by the host");
 	need(typeof m.name === "string" && m.name.trim(), "`name` is required");
 	need(typeof m.entry === "string" && m.entry, "`entry` is required");
-	need(m.protocol === PROTOCOL_VERSION, `\`protocol\` must be ${PROTOCOL_VERSION} (got ${m.protocol})`);
+	// Any protocol parses, so a ToolBelt update doesn't lose the plugins installed for the previous
+	// one: they stay listed as needing an update. Installing, packing or starting one checks it
+	// (requireProtocol).
+	need(Number.isSafeInteger(m.protocol) && m.protocol! >= 1, "`protocol` must be a whole number");
 	need(Array.isArray(m.screens) && m.screens.length > 0, "at least one screen is required");
 	const shortcuts = new Set<string>();
     for (const s of m.screens!) {
@@ -855,15 +858,22 @@ export function parseManifest(json: unknown): Manifest {
             shortcuts.add(s.shortcut);
         }
     }
-	need(
-		!!m.agent && typeof m.agent === "object" && ["none", "read", "act"].includes((m.agent as { access?: unknown }).access as string),
-		"`agent.access` is required: none, read or act",
-	);
+	if (m.protocol === PROTOCOL_VERSION || m.agent !== undefined)
+		need(
+			!!m.agent && typeof m.agent === "object" && ["none", "read", "act"].includes((m.agent as { access?: unknown }).access as string),
+			"`agent.access` is required: none, read or act",
+		);
 	return {
 		...m,
 		icon: typeof m.icon === "string" ? m.icon : "box",
 		version: typeof m.version === "string" ? m.version : "0.0.0",
 	} as Manifest;
+}
+
+/** Refuses a plugin built for another plugin protocol than this ToolBelt speaks. */
+export function requireProtocol(m: Pick<Manifest, "protocol">) {
+	if (m.protocol !== PROTOCOL_VERSION)
+		throw new Error(`Plugin needs an update: it was built for plugin protocol ${m.protocol}, and this ToolBelt speaks protocol ${PROTOCOL_VERSION}`);
 }
 
 /** The screen that opens first. */

@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- **ToolBelt 0.6.0 didn't start when plugins built for the previous version were installed**: it quit while reading them. ToolBelt now always starts. Such a plugin shows "needs an update" on its screen and in Settings → Plugins, where you update it; its data is kept.
+- No plugin can stop ToolBelt from starting: an installation ToolBelt can't use is set aside, untouched, and Settings → Plugins says why; a damaged plugin list starts no plugins, is kept as it was, and is reported there too.
 
 ## 0.6.0 — 2026-11-26
 - **Plugins need upgrading.** ToolBelt speaks plugin protocol 2 and runs only plugins built for it; older plugins show that they need an update. Plugins must declare `agent.access`, so Settings → Agents no longer has plugins that are "Not declared".
