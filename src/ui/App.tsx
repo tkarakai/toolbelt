@@ -11,9 +11,10 @@ import { DevelopmentSettings } from "./Development";
 // Keyboard: ⌘1…9 tools (hold ⌘ to see the numbers) · manifest-declared tab shortcuts · ⌃⇥ / ⌃⇧⇥ next and
 // previous tab · F6 / ⇧F6 next and previous region (sidebar, header, content, drawer) · ⌘B sidebar ·
 // ⌘W closes the window (app menu). The shared rules live in lib/keyboard.tsx.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowLeft, ChevronRight, ExternalLink, Check, FlaskConical, Menu, PanelLeft, RotateCw, Settings, X } from "lucide-react";
-import { defaultScreen, PROTOCOL_VERSION, type Manifest } from "../shared/protocol";
+import { defaultScreen, floatingOnly, PROTOCOL_VERSION, type Manifest } from "../shared/protocol";
+import { FloatingLayer, FloatingProvider, FloatingSidebarItems } from "./Floating";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
 import { pillClass } from "@/renderer/colors";
@@ -102,7 +103,9 @@ function parseHash(): { plugin?: string; screen?: string } {
 }
 
 export default function App() {
-	const plugins = usePlugins();
+	const all = usePlugins();
+	// Floating plugins without screens live only in their window and their item at the sidebar's bottom.
+	const plugins = useMemo(() => all.filter((p) => !floatingOnly(p.manifest)), [all]);
 	const pluginsKnown = usePluginsKnown();
 	const [route, setRoute] = useState(parseHash);
 	// Each tool's last tab, remembered across window closes and restarts.
@@ -128,11 +131,14 @@ export default function App() {
     }, [plugins, lastPlugin]);
     const navigationToken = useRef(0);
     useNavigate(useCallback((plugin: string, screen?: string, selection?: NavigationSelection) => {
+        // A floating plugin without screens opens its window instead (Floating.tsx).
+        const target = all.find((p) => p.manifest.id === plugin);
+        if (target && floatingOnly(target.manifest)) return;
         if (selection) writeSharedSelection(plugin, selection);
         go(plugin, screen);
         if (plugin === TOOLBELT && screen === "updates") requestAnimationFrame(() => document.getElementById("updates")?.scrollIntoView({ block: "start" }));
         setHandoff(selection ? { plugin, selection, token: ++navigationToken.current } : null);
-    }, [go]));
+    }, [go, all]));
 
 	// Default route: the remembered plugin, else the first.
 	const pluginId = route.plugin ?? (plugins.some(p => p.manifest.id === lastPlugin) ? lastPlugin ?? undefined : plugins[0]?.manifest.id);
@@ -177,6 +183,7 @@ export default function App() {
 
 	return (
 		<SidebarProvider open={open} onOpenChange={setOpen} style={{ "--sidebar-width": `${width}px` } as CSSProperties}>
+			<FloatingProvider plugins={all}>
 			{!inApp && windowButtons && <FakeTrafficLights />}
 			<MobileGestures />
 			<FocusRegions />
@@ -197,6 +204,8 @@ export default function App() {
 					<div className="p-8"><h1 className="text-lg font-medium">Welcome to ToolBelt</h1><p className="my-3 text-muted-foreground">Install a plugin to get started.</p><Button onClick={()=>go(TOOLBELT)}>Manage plugins</Button></div>
 				)}
 			</SidebarInset>
+			<FloatingLayer />
+			</FloatingProvider>
 		</SidebarProvider>
 	);
 }
@@ -280,6 +289,7 @@ function AppSidebar({ plugins, current, go: navigate, width, onResize }: { plugi
 				</SidebarGroup>
 			</SidebarContent>
 			<SidebarFooter className={cn(isMobile && "pb-[max(env(safe-area-inset-bottom),0.5rem)]")}>
+				<FloatingSidebarItems row={row} active={isMobile ? "" : "bg-sidebar-accent"} />
 				<SidebarMenu>
 					{development?.active && <SidebarMenuItem>
 						<SidebarMenuButton tooltip={`Plugin development: ${development.profile}`} onClick={() => go(TOOLBELT, "plugins")}className={cn(row, pillClass("warning"), "hover:bg-amber-500/25")}>

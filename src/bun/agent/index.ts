@@ -35,6 +35,8 @@ export function createAgentInterface(o: AgentInterfaceOptions) {
 	const server = new AgentServer(core, socket);
 	const enable = (on: boolean) => void (on ? server.start() : server.stop());
 	return {
+		/** `[bun, cli, --socket, path]`: the `toolbelt` command for this ToolBelt, or null without a CLI script. */
+		command,
 		core,
 		server,
 		start: () => (o.settings().enabled ? server.start() : core.setRunning(false, null)),

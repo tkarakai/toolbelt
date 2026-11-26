@@ -44,6 +44,7 @@ export function inspectPlugin(
     data: { schema: manifest.data.schema, supports: manifest.data.supports },
     screens: manifest.screens.length,
     quickView: !!manifest.quickView,
+    floating: !!manifest.floating,
     command: manifest.cli?.command,
   };
 }

@@ -502,6 +502,15 @@ const node: Schema = (v, p) => {
       gap: optional(number),
       children,
     }),
+    floating: object({
+      ...base,
+      mode: enumeration("bar", "panel"),
+      subtitle: optional(text),
+      actions,
+      busy: optional(bool),
+      suggestions: optional(array(object({ id: text, label: text, icon: optional(text) }))),
+      children,
+    }),
     page: object({
       ...base,
       search: optional(object({ placeholder: text, query: optional(text) })),

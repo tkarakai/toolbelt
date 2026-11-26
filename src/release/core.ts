@@ -182,6 +182,7 @@ export async function verifyPlugin(
     checkCompatibility(m, hostVersion);
     const surfaces = m.screens.map((s) => `screen:${s.id}`);
     if (m.quickView) surfaces.push("quick");
+    if (m.floating) surfaces.push("floating");
     const environment = {
       HOME: root,
       PATH: "/usr/bin:/bin:/usr/sbin:/sbin",

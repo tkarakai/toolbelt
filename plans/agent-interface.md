@@ -47,7 +47,7 @@ structure. A CLI complements it for coding agents and scripts.
 | 1 | Internal agent API in Bun: screens as tools plus host operations | One place that defines addressing, serialization, risk, approval, audit and redaction. An in-process LLM loop, a command palette, cross-plugin search and semantic tests can use it directly | — |
 | 2 | Loopback MCP server plus a stdio shim | Any MCP client (Claude Code, Claude Desktop, Codex, IDEs) can operate ToolBelt. Surfaces become MCP resources with change notifications; risk maps to tool annotations; approvals use elicitation where the requester is the person | 1 |
 | 3 | `toolbelt` CLI and a skill file | Token-cheap, scriptable access for coding agents and humans (`toolbelt screen read processes`, `--json`) | 1 (same socket as 2) |
-| 4 | In-app chat as an ACP client | The person plugs in Claude Code, Codex or Gemini CLI through the Agent Client Protocol; ToolBelt hosts the conversation and points the agent at its own MCP server. ToolBelt doesn't own model choice, keys or the agent loop | 1, 2 |
+| 4 | In-app chat as an ACP client | The person plugs in Claude Code, Codex or Gemini CLI through the Agent Client Protocol; ToolBelt hosts the conversation and points the agent at its own MCP server. ToolBelt doesn't own model choice, keys or the agent loop. Built as the Agent plugin (`tkarakai/toolbelt-agent`), a floating plugin: an ask bar that grows into a chat over the main screen (5.8) | 1, 2 |
 | 5 | Plugin-declared tools in the SDK | High-level, parameterized operations with typed results (`ontrack.addTask`, `upkeep.plan`) instead of driving screens | 1; the core moves into wave B1 (see 5.3) |
 | 6 | *Optional, added later:* ToolBelt-hosted autonomous agents | Scheduled agent sessions that ToolBelt starts itself through ACP and that run within standing grants the person defined (R13) | 1, 4 |
 
@@ -606,11 +606,12 @@ upgrade.
 | 5 | Protocol v2 specification for waves A and B | — | R2–R8, R14 | 4 |
 | 6 | Wave A in host, SDK and SDK Explorer | Phase A | R4 (view control), R6, R8, R9, R10, R12, R14 | 5 |
 | 7 | Wave A plugin upgrades (OnTrack, Upkeep, Processes) | Phase A | R11 | 6 |
-| 8 | Wave B1 in host, SDK and SDK Explorer, then plugin upgrades. The core of the original step 5 lands here | Phase B1 (step 1, action side) | R1–R5, R7, R9–R12 | 7 |
-| 9 | Autonomous sessions under standing grants | Phase B2 | R13 | 8 |
-| 10 | In-app chat as an ACP client | Step 4 | — | 8 |
-| 11 | Remaining plugin-declared tools, per plugin | Rest of step 5 | R7 | 8 |
-| 12 | ToolBelt-hosted autonomous agents (scheduled ACP sessions under standing grants) | New step 6, optional | R13 | 9, 10 |
+| 8 | Floating plugins in host and SDK (a window over the main screen; phone sheet; popover quick view), `TOOLBELT_AGENT_COMMAND` and `toolbelt mcp --client` | Step 4, host side | — | 7 |
+| 9 | Agent plugin 0.1: in-app chat as an ACP client, read-and-show only (reads screens, `show_screen` under a view grant) | Step 4 | — | 8, its SDK release |
+| 10 | Wave B1 in host, SDK and SDK Explorer, then plugin upgrades. The core of the original step 5 lands here. The Agent plugin gains actions and approval cards | Phase B1 (step 1, action side) | R1–R5, R7, R9–R12 | 9 |
+| 11 | Autonomous sessions under standing grants | Phase B2 | R13 | 10 |
+| 12 | Remaining plugin-declared tools, per plugin | Rest of step 5 | R7 | 10 |
+| 13 | ToolBelt-hosted autonomous agents (scheduled ACP sessions under standing grants) | New step 6, optional | R13 | 9, 11 |
 
 ## 5.4 Decisions
 
@@ -645,6 +646,10 @@ upgrade.
   forever (append-only, in the profile).
 - **Pending approvals are shown in Settings → Agents**, alongside access levels and the audit
   log.
+- **The in-app chat comes before wave B1, read-and-show only (decided 2026-11-26).** It needs
+  only reads and `show_screen`, which wave A has; actions and their approval cards join it in
+  B1, whose approvals design it then informs. It is a plugin, not a host feature, on a generic
+  host feature (floating plugins) that other plugins can use too.
 - **Decided for wave A (2026-11-25):** `show_screen` with any device not showing ToolBelt tells
   the agent so it asks the person; grants are per agent; durations end (default today, at most
   30 days); the host saves the person's view; `agent.access` is required, so Settings → Agents
@@ -653,6 +658,9 @@ upgrade.
 ## 5.5 Status
 
 Roadmap items 1–4 are implemented and described in [docs/agent-interface.md](../docs/agent-interface.md).
+Floating plugins (roadmap 8) are implemented as described in
+[docs/plugins.md](../docs/plugins.md#floating-plugins); the Agent plugin (roadmap 9) is being built
+in `tkarakai/toolbelt-agent` (5.8).
 Wave A's host and SDK (roadmap 6) are implemented as described there and in
 [docs/plugins.md](../docs/plugins.md#views); the protocol v2 specification (roadmap 5) for
 wave A is those documents. Wave A shipped on 2026-11-26: SDK 0.4.0, ToolBelt 0.6.0 (with SDK
@@ -788,3 +796,42 @@ consume it through their pinned SDK, and the format becomes a documented, versio
 
 None for wave A (decided in 5.4). The Settings → Agents approvals view still needs a full design
 before wave B1.
+
+## 5.8 In-app chat (step 4)
+
+The chat is the Agent plugin in its own repository, `tkarakai/toolbelt-agent`, on a host feature
+any plugin can use: floating plugins ([docs/plugins.md](../docs/plugins.md#floating-plugins)).
+
+**Host (roadmap 8).** A floating plugin declares `floating` and capability `ui.floating`, may
+have no screens, and renders a `floating` node: an ask bar (`mode: "bar"`) that grows into a panel
+with a title bar (`mode: "panel"`). ToolBelt draws and owns the window: moving, resizing,
+minimizing into its sidebar item at the bottom of the sidebar (above Settings), stacking, focus,
+an optional ⌘ shortcut, and frames remembered per profile. Windows stay inside ToolBelt's window
+and aren't modal; only host approvals (view grants) block. On a phone one floating plugin at a
+time shows as a bottom sheet; in the popover, a floating plugin's content is its quick view.
+Plugins get `TOOLBELT_AGENT_COMMAND` to start ToolBelt's MCP server for an agent, and
+`toolbelt mcp --client NAME` names that session ("Agent · Claude Code") in grants and the audit
+log. No protocol change: the plugin requires ToolBelt 0.7.0 and the capability.
+
+**Agent plugin (roadmap 9).** An ACP client in its Bun process. It starts the agent's ACP adapter
+and gives it ToolBelt's MCP server through `session/new`. Decided:
+
+- **Agents.** Claude Code's adapter (`@agentclientprotocol/claude-agent-acp`) is bundled in the
+  plugin archive. Codex (`codex-acp`) and Gemini CLI (`gemini --acp`) are detected when installed,
+  with install instructions when not. A custom command runs any ACP agent, such as one backed by
+  a local model; the plugin documents how. The plugin never downloads code at runtime, and logins
+  stay with each tool (ToolBelt never sees keys).
+- **The agent's own tools.** The client offers no ACP file-system or terminal capabilities, runs
+  the agent in an empty folder in the plugin's data, and refuses permission requests for anything
+  but ToolBelt's MCP tools. ToolBelt's own grants and access levels still apply to those.
+- **Settings** live in the floating window: a gear in its title bar swaps the window to the
+  plugin's settings (agent, command, test connection, what agents may see with a link to
+  Settings → Agents); first run opens there.
+- **Rendering.** The plugin renders at most about 10 times a second while an answer streams and
+  sends the recent turns in full, so long conversations stay well inside the 30 renders/s and
+  4 MiB limits.
+- **Self-access.** The Agent plugin declares `agent.access: "none"`.
+
+Deferred: the "current focus" read (the screen and selected row the person is looking at, shown as
+a "Sees" chip above the composer), which needs the renderer's selection reported to the host.
+

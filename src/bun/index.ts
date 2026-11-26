@@ -127,7 +127,10 @@ const viewUrl = (hash = "") =>
 const developmentLog = new DiagnosticLog();
 // The person's view of each screen, shared by every person's screen and saved by the host.
 const personViews = new ViewStore(join(profileRoot, "views.json"));
+// Set once the agent interface exists (below); plugins started before that don't get it.
+let agentCommand: string[] | null = null;
 const host = new PluginHost({
+  agentCommand: () => agentCommand,
   dirs: [],
   registryRoot: profileRoot,
   bun: process.execPath,
@@ -213,6 +216,7 @@ const agents = createAgentInterface({
     },
   },
 });
+agentCommand = agents.command;
 const seedDemo = () =>
   materializeSeed(packages, join(PATHS.RESOURCES_FOLDER, "app/seed"));
 

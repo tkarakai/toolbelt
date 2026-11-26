@@ -9,6 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ChevronLeft, ChevronRight, FlaskConical, Maximize2, Power, Settings } from "lucide-react";
 import { pillClass } from "@/renderer/colors";
 import { defaultScreen } from "../shared/protocol";
+import { FloatingQuickContent } from "./Floating";
 import { popoverLayout, type PopoverLayout } from "../shared/popover";
 import { assignLetters } from "../shared/letters";
 import type { PluginInfo } from "../shared/rpc";
@@ -108,7 +109,8 @@ export default function Popover() {
         return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); clearTimeout(timer); animation.cancel(); };
     }, [shown.n, shown.closing]);
     const letters = useMemo(() => assignLetters(plugins.map(p => ({ id: p.manifest.id, name: p.manifest.name }))), [plugins]);
-    const hasDetails = !!current?.manifest.quickView;
+    // Floating plugins show their window's content here, as their quick view.
+    const hasDetails = !!current?.manifest.quickView || !!current?.manifest.floating;
     const showDetails = hasDetails && revealReady && !shown.closing && !quitRequested;
     // Reserve the submenu geometry before first paint; the delayed reveal only
     // adds the panel, without resizing or moving the already-visible menu.
@@ -364,7 +366,7 @@ export default function Popover() {
 										{letters.get(p.manifest.id)}
 									</Kbd>
 								)}
-								{p.manifest.quickView && <SideChevron className={cn("size-4 text-muted-foreground/50", i === active && "text-selected-foreground")} />}
+								{(p.manifest.quickView || p.manifest.floating) && <SideChevron className={cn("size-4 text-muted-foreground/50", i === active && "text-selected-foreground")} />}
 							</button>
 						))}
 					</div>
@@ -421,7 +423,7 @@ function PluginDetails({ info, onOpen }: { info: PluginInfo; onOpen: () => void 
                 <Maximize2 /> Open
             </Button>
         </div>
-        <QuickContent key={m.id} info={info} />
+        {!m.quickView && m.floating ? <div data-quick-content className="flex min-h-0 flex-1 flex-col"><FloatingQuickContent key={m.id} info={info} /></div> : <QuickContent key={m.id} info={info} />}
     </>;
 }
 

@@ -139,6 +139,74 @@ grows too large never breaks the person's. Transport, rate and handshake violati
 before `ready` and renders of undeclared surfaces still stop the plugin. A render for an instance
 that has closed is ignored.
 
+## Floating plugins
+
+A floating plugin (capability `ui.floating`, ToolBelt 0.7.0 or newer) has a window over the main
+screen instead of, or besides, screens: an in-app chat, a scratchpad, a timer. Declare it in the
+manifest and require the capability:
+
+```json
+"screens": [],
+"floating": { "shortcut": "k" },
+"capabilities": { "required": ["ui.core", "ui.composer", "ui.floating"], "optional": [] }
+```
+
+`screens` may be empty for a floating plugin; it then has no place in the sidebar's tool list.
+Floating plugins have their own items at the bottom of the sidebar, above Settings, stacked in
+install order. `shortcut` is one lowercase letter: ⌘ and that letter opens and focuses the
+window from anywhere in the window except Settings, and wins over a screen tab's ⌘ shortcut with
+the same letter. Letters ToolBelt keeps for itself (A, B, C, F, H, M, O, Q, V, W, X, Z) are refused.
+
+The plugin renders the `floating` surface, whose tree is a `floating` node:
+
+```ts
+render: {
+  floating: () => ({
+    type: "floating",
+    mode: chat.length ? "panel" : "bar",
+    subtitle: "Claude Code",
+    busy: working,
+    actions: [{ id: "new-chat", label: "New chat", icon: "square-pen" }],
+    suggestions: [{ id: "ask-overdue", label: "What's overdue?", icon: "calendar-clock" }],
+    children: [
+      ...(chat.length ? [{ type: "conversation", id: "chat", messages: chat }] : []),
+      { type: "composer", id: "ask", single: true, placeholder: "Ask…", action: { id: "ask", label: "Ask" } },
+    ],
+  }),
+},
+```
+
+- **`mode: "bar"`** draws an ask bar: the first `composer` child becomes the bar's input (↵
+  sends it as usual, with `{ composer, text }`), `suggestions` show above it while it's focused
+  and empty (↑/↓ choose, ↵ or a click sends the suggestion's `id` as an action), and other
+  children show above the input.
+- **`mode: "panel"`** draws a title bar (the plugin's icon and name, `subtitle`, `actions` as
+  icon buttons that send their action ids, and minimize) with the children below it. A
+  `conversation`, `log` or `terminal` child takes the space that's left.
+- Switching modes animates. The window keeps the place it first opened in: a bar grows upward
+  from its bottom edge into a panel.
+- **`busy`** spins the plugin's sidebar item while its window is minimized; when it ends while
+  minimized, the item shows a dot until the window opens. The plugin's badge shows on the item too.
+
+ToolBelt owns the window: people drag the title bar (or the bar's grip) to move it and its edges
+to resize it (a bar only sideways); − or Esc minimizes it into its sidebar item, and the item or
+the shortcut opens it where it was, brings it to the front, or minimizes it when it's already in
+front. Windows aren't modal: clicks and keys outside them reach the screen below. Several floating
+windows can be open, each on its own; the one used last is on top. Windows stay inside the
+ToolBelt window, and where they are and whether they're open is remembered per profile. The
+plugin keeps rendering while its window is minimized (the surface stays open while ToolBelt's
+window is), so work continues and the sidebar item stays current.
+
+On a phone (paired remote access), floating plugins show one at a time: a button above the tab
+bar opens the last one used in a bottom sheet, whose header switches between them. In the menu-bar
+popover, a floating plugin is listed with the others and shows its window's content as its quick
+view; its Open button opens the window.
+
+A plugin that starts an AI agent can give it ToolBelt's MCP server: `agentCommand()` (from
+`TOOLBELT_AGENT_COMMAND`) is `[bun, cli, "--socket", path]` for this ToolBelt; append `"mcp"`
+and `"--client", "<name>"` so grants and the audit log name the session
+([agent-interface.md](agent-interface.md)). It is undefined when ToolBelt has no CLI to offer.
+
 ## Manifest
 
 Place `toolbelt.json` at the archive root beside the bundled entrypoint:
@@ -182,7 +250,7 @@ explicit targets such as `darwin-arm64` or `darwin-x64`; ship every required bin
 
 Capabilities are `ui.core`, `ui.action-key`, `ui.terminal`, `ui.conversation`, `assets`,
 `lifecycle`, `native.handoff`, `ui.split-action`, `navigate`, `ui.rich-fields`, `ui.row-select`,
-`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane`, `ui.composer`, `ui.sub-sections`, `ui.toast-key` and `ui.options-field`. Require what cannot be omitted. For optional features, test
+`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane`, `ui.composer`, `ui.sub-sections`, `ui.toast-key`, `ui.options-field` and `ui.floating` ([floating plugins](#floating-plugins)). Require what cannot be omitted. For optional features, test
 `context.capabilities.has(name)` and render a working fallback. Unknown required features
 prevent activation; declaring a feature optional does not implement its fallback.
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing

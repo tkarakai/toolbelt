@@ -62,7 +62,12 @@ one session in the audit log. The CLI sends `ppid:<parent process id>`: one shel
 calls group.
 
 `toolbelt mcp` is the stdio shim MCP clients start. It writes the hello and then pipes stdin and
-stdout to the socket, with `--autonomous` setting the session's mode. It exits with code 1 if
+stdout to the socket, with `--autonomous` setting the session's mode and `--client NAME` naming the
+session (the hello's `name`): MCP `clientInfo` then doesn't rename it, so a plugin that starts an
+agent itself, like an in-app chat, shows up as "Agent · Claude Code" in grants and the audit log.
+Plugins get the command for this ToolBelt in `TOOLBELT_AGENT_COMMAND` (a JSON array,
+`[bun, cli, "--socket", path]`; the SDK's `agentCommand()`), so they don't depend on the person's
+PATH or reach another build or profile. It exits with code 1 if
 the socket can't be reached at start. When the socket goes away later (a ToolBelt update or
 restart, agents turned off), the shim stays up so the client doesn't mark the server failed: it
 answers requests with JSON-RPC error `-32000` (`data.reason: "unreachable"`, saying ToolBelt

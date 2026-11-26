@@ -32,7 +32,7 @@ describe("discover", () => {
       [join(fixtures, "echo"), fixtures, "/nonexistent"],
       (m) => skipped.push(m),
     );
-    expect(found.map((d) => d.manifest.id).sort()).toEqual(["crash", "echo"]);
+    expect(found.map((d) => d.manifest.id).sort()).toEqual(["crash", "echo", "floater"]);
     expect(found.find((d) => d.manifest.id === "echo")!.dir).toBe(
       join(fixtures, "echo"),
     );
@@ -99,6 +99,28 @@ describe("PluginHost", () => {
       type: "text",
       text: "count 1",
     });
+  });
+
+  test("a floating plugin renders its floating surface and gets the agent command", async () => {
+    const trees: { plugin: string; surface: string; tree: Node }[] = [];
+    const toasts: string[] = [];
+    host = new PluginHost({
+      dirs: [join(fixtures, "floater"), join(fixtures, "echo")],
+      bun: process.execPath,
+      host: { name: "test", version: "0" },
+      data,
+      agentCommand: () => ["/bun", "/cli.js", "--socket", "/agent.sock"],
+    });
+    host.subscribe({ plugins: () => {}, tree: (plugin, surface, tree) => trees.push({ plugin, surface, tree }), toast: (_p, t) => toasts.push(t), navigate: () => {} });
+    host.start();
+    host.open("floater", "floating");
+    await until(() => trees.find((t) => t.plugin === "floater"));
+    expect(trees.at(-1)!.tree).toMatchObject({ type: "floating", mode: "bar", suggestions: [{ id: "ask-hello" }] });
+    host.event("floater", "floating", "send", { composer: "ask", text: "hi" });
+    await until(() => trees.some((t) => (t.tree as { mode?: string }).mode === "panel"));
+    host.event("floater", "floating", "env");
+    await until(() => toasts.length);
+    expect(toasts).toEqual(['agent ["/bun","/cli.js","--socket","/agent.sock"]']);
   });
 
   test("navigation follows the person's action, to declared screens only", async () => {

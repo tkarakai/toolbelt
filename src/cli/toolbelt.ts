@@ -31,6 +31,7 @@ Usage:
   toolbelt search <words…> [--plugin ID]  Lines mentioning every word, across all screens
   toolbelt plugins                      Installed plugins and available updates
   toolbelt mcp                          Run as an MCP server on stdio (for Claude Code, Codex, …)
+      --client NAME  name the session in grants and the audit log (else the MCP client's own name)
   toolbelt skill                        Print the agent skill file (SKILL.md)
 
 Options:
@@ -55,13 +56,13 @@ const COMMAND_FLAGS: Record<string, string[]> = {
 	show: ["open-window", ...VIEW_FLAGS],
 	search: ["plugin"],
 	plugins: [],
-	mcp: [],
+	mcp: ["client"],
 	skill: [],
 	help: [],
 };
 
 type Args = { positional: string[]; flags: Map<string, string | true>; repeated: Map<string, string[]> };
-const VALUED = ["socket", "max-rows", "table", "offset", "parent", "plugin", ...VIEW_FLAGS];
+const VALUED = ["socket", "max-rows", "table", "offset", "parent", "plugin", "client", ...VIEW_FLAGS];
 /** Flags that may be given more than once (`--filter a=x --filter b=y`). */
 const REPEATABLE = new Set(["filter", "sort", "control"]);
 function parse(argv: string[]): Args {
@@ -144,8 +145,8 @@ const RESTARTING =
  * arrives), replays the client's `initialize`, `initialized` and resource subscriptions on the
  * new session, and tells the client the resource list may have changed.
  */
-async function mcp(path: string, autonomous: boolean) {
-	const hello = JSON.stringify({ toolbelt: 1, client: "mcp", mode: autonomous ? "autonomous" : "interactive" }) + "\n";
+async function mcp(path: string, autonomous: boolean, name?: string) {
+	const hello = JSON.stringify({ toolbelt: 1, client: "mcp", ...(name ? { name } : {}), mode: autonomous ? "autonomous" : "interactive" }) + "\n";
 	type Conn = Awaited<ReturnType<typeof connect>>;
 	let socket: Conn | null = null;
 	// Read through a function: callbacks change `socket`, which narrowing can't see.
@@ -301,7 +302,7 @@ async function main() {
 	}
 	const path = socketPath(flags);
 	const autonomous = flags.has("autonomous");
-	if (command === "mcp") return mcp(path, autonomous);
+	if (command === "mcp") return mcp(path, autonomous, typeof flags.get("client") === "string" ? (flags.get("client") as string) : undefined);
 	const int = (name: string) => {
 		const v = flags.get(name);
 		if (typeof v !== "string") return undefined;

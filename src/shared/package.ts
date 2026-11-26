@@ -39,6 +39,7 @@ export const CAPABILITIES = [
   "ui.list-inset",
   "ui.duration-field",
   "ui.filter-sections",
+  "ui.floating",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,
@@ -142,6 +143,8 @@ export function parsePackageManifest(value: unknown): PackageManifest {
     throw new Error(
       "handoffActions requires valid action IDs and native.handoff capability",
     );
+  if (m.floating && !m.capabilities.required.includes("ui.floating"))
+    throw new Error("floating requires the ui.floating capability");
   if (
     m.data.supports !== undefined &&
     (!Array.isArray(m.data.supports) ||
