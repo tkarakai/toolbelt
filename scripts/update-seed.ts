@@ -40,7 +40,10 @@ if (
   descriptor.formatVersion !== 1
 )
   throw Error("Seed publisher/identity mismatch");
-const pkg = descriptor.packages.find((p: any) => p.target === "darwin-arm64");
+// The app runs on Apple silicon: its own build if there is one, else the portable one.
+const pkg =
+  descriptor.packages.find((p: any) => p.target === "darwin-arm64") ??
+  descriptor.packages.find((p: any) => p.target === "portable");
 const asset = release.assets.find((a: any) => a.name === pkg?.asset);
 if (!asset) throw Error("Seed archive missing");
 const bytes = await gh.bytes(asset);

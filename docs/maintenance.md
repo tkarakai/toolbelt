@@ -157,7 +157,7 @@ must work without a ToolBelt checkout. Publish immutable SDK assets and pin them
 repos. Run plugin contract tests and SDK Explorer coverage when changing public behavior.
 
 The seed is an independently built archive from `toolbelt-sdk-demo`. To update it, publish
-and verify the demo package in its own repo, then use `bun run seed:update --tag <tag>` to open a PR updating the exact URL/SHA-256 in
+and verify the demo package in its own repo, then use `bun run seed:update --tag <tag>` (it takes the release's `darwin-arm64` archive, else its `portable` one) to open a PR updating the exact URL/SHA-256 in
 `seed.config.json`. `bun run plugins` verifies/materializes it into ignored `build-seed/`.
 Never replace that step with source compilation. Verify fresh profile installation and that
 removed/disabled/installed selections persist across subsequent app starts and seed versions.
