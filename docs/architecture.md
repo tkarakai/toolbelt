@@ -91,9 +91,11 @@ sibling repositories and shared `node_modules` are not runtime dependencies. The
 ## Transport and rendering
 
 The host starts a detached process with package-local cwd, selected environment values and
-explicit profile/package/data/lifecycle variables. It sends `hello`; the plugin replies with
+explicit profile/package/data/lifecycle variables, plus `TOOLBELT_AGENT_COMMAND` (the `toolbelt`
+command for this ToolBelt's agent socket, for plugins that start an agent). It sends `hello`; the plugin replies with
 its protocol/SDK/capabilities and explicit `ready`. No tree is published before readiness.
-Surfaces are `screen:<id>` and optional `quick`, each rendered per instance: every person's
+Surfaces are `screen:<id>`, optional `quick` and, for floating plugins, `floating` (a window over
+the main screen, `src/ui/Floating.tsx`), each rendered per instance: every person's
 screen (window, popover, paired devices) shares the `person` instance, and agents open
 `agent:…` instances with views of their own. Visibility produces `open`/`close` with the
 instance (and the view to start from); actions, fields, search and sort produce `event` from

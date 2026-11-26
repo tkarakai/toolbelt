@@ -11,7 +11,8 @@
 //                   {"type":"badge","value":…}     the count next to the plugin's name
 //                   {"type":"toast", …}            a short notification in the window
 //
-// Surfaces are `screen:<id>` (a tab in the window) and `quick` (the menu bar quick view).
+// Surfaces are `screen:<id>` (a tab in the window), `quick` (the menu bar quick view) and
+// `floating` (a floating plugin's window over the main screen, rendered as a `floating` node).
 // The plugin describes *what* to show with the nodes below; Toolbelt decides *how* — every
 // node maps to shadcn/ui components, so all plugins look like one app. UI state that has to
 // feel instant (typing, selection, scroll, column widths) stays in Toolbelt; the plugin only
@@ -78,10 +79,20 @@ export type Manifest = {
 	protocol: number;
 	/** The program, relative to the manifest; run with Bun. */
 	entry: string;
-	/** Tabs in the window. The first one with `default: true` (or the first) opens first. */
+	/**
+	 * Tabs in the window. The first one with `default: true` (or the first) opens first. A floating
+	 * plugin may have none: it then lives only in its floating window.
+	 */
 	screens: { id: string; title: string; icon?: string; default?: boolean; shortcut?: string }[];
 	/** The plugin offers a compact view in the menu bar popover. */
 	quickView?: boolean;
+	/**
+	 * A floating plugin (capability `ui.floating`): its `floating` surface is a window over the
+	 * main screen that the person moves, resizes and minimizes into its sidebar item, at the bottom
+	 * of the sidebar. `shortcut` (one lowercase letter) opens and focuses it with ⌘ and that letter
+	 * from anywhere in the window; it wins over a screen tab's ⌘ shortcut with the same letter.
+	 */
+	floating?: { shortcut?: string };
 	repo?: string;
 	updateFeed?: string;
 	/** Action ids that need the host registered frontmost before handing focus to another app. */
@@ -569,8 +580,30 @@ export type Message = {
 	tool?: { name: string; detail?: string };
 };
 
+/** A suggestion an ask bar offers while it's empty: clicking it sends the action `id`. */
+export type Suggestion = { id: string; label: string; icon?: string };
+
 export type Node =
 	| { type: "stack"; direction?: "row" | "column"; gap?: number; children: Node[] }
+	/**
+	 * The root of a floating plugin's `floating` surface (capability `ui.floating`). ToolBelt draws
+	 * the window around it: the frame, the title bar with the plugin's icon and name, `subtitle`,
+	 * `actions` as icon buttons, and the minimize button. `mode: "bar"` draws an ask bar: its
+	 * `composer` child becomes the bar's input, `suggestions` show above it while it's focused and
+	 * empty, and other children show above the input. `mode: "panel"` draws the title bar and the
+	 * children below it. Switching mode animates; the size the person gives the panel is kept.
+	 * `busy` spins the sidebar item while the window is minimized, and when it ends while minimized
+	 * the item shows a dot until the window opens.
+	 */
+	| {
+			type: "floating";
+			mode: "bar" | "panel";
+			subtitle?: string;
+			actions?: Action[];
+			busy?: boolean;
+			suggestions?: Suggestion[];
+			children: Node[];
+	  }
 	| {
 			type: "page";
 			/**
@@ -848,7 +881,13 @@ export function parseManifest(json: unknown): Manifest {
 	// one: they stay listed as needing an update. Installing, packing or starting one checks it
 	// (requireProtocol).
 	need(Number.isSafeInteger(m.protocol) && m.protocol! >= 1, "`protocol` must be a whole number");
-	need(Array.isArray(m.screens) && m.screens.length > 0, "at least one screen is required");
+	if (m.floating !== undefined) {
+		need(!!m.floating && typeof m.floating === "object" && !Array.isArray(m.floating), "`floating` must be an object");
+		const shortcut = (m.floating as { shortcut?: unknown }).shortcut;
+		if (shortcut !== undefined)
+			need(typeof shortcut === "string" && /^[a-z]$/.test(shortcut) && !RESERVED_SHORTCUTS.includes(shortcut), `\`floating.shortcut\` must be one lowercase letter ToolBelt doesn't use itself (not ${RESERVED_SHORTCUTS.join(", ")})`);
+	}
+	need(Array.isArray(m.screens) && (m.screens.length > 0 || m.floating !== undefined), "at least one screen is required (floating plugins may have none)");
 	const shortcuts = new Set<string>();
     for (const s of m.screens!) {
         need(typeof s.id === "string" && typeof s.title === "string", "each screen needs `id` and `title`");
@@ -870,14 +909,23 @@ export function parseManifest(json: unknown): Manifest {
 	} as Manifest;
 }
 
+/**
+ * ⌘ letters ToolBelt or macOS keeps for itself, so a floating plugin can't take them: editing (A, C,
+ * V, X, Z), the sidebar (B), find (F), hide (H), minimize (M), the app menu's O, quit (Q) and close (W).
+ */
+export const RESERVED_SHORTCUTS = ["a", "b", "c", "f", "h", "m", "o", "q", "v", "w", "x", "z"];
+
+/** A plugin that lives only in its floating window: no screens, so no place in the tools list. */
+export const floatingOnly = (m: Pick<Manifest, "screens" | "floating">) => !!m.floating && m.screens.length === 0;
+
 /** Refuses a plugin built for another plugin protocol than this ToolBelt speaks. */
 export function requireProtocol(m: Pick<Manifest, "protocol">) {
 	if (m.protocol !== PROTOCOL_VERSION)
 		throw new Error(`Plugin needs an update: it was built for plugin protocol ${m.protocol}, and this ToolBelt speaks protocol ${PROTOCOL_VERSION}`);
 }
 
-/** The screen that opens first. */
-export const defaultScreen = (m: Manifest) => (m.screens.find((s) => s.default) ?? m.screens[0]).id;
+/** The screen that opens first; undefined for a floating plugin without screens. */
+export const defaultScreen = (m: Pick<Manifest, "screens">): string => (m.screens.find((s) => s.default) ?? m.screens[0])?.id as string;
 
 /** Split a JSON-lines stream into messages; keeps the unfinished tail. */
 export function splitLines(buffer: string): { lines: string[]; rest: string } {

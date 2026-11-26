@@ -350,6 +350,18 @@ test("composers check their action, line mode and key", () => {
   expect(() => validateTree({ type: "timeline", id: "u", entries: [], edit: { id: 1, label: "Edit" } })).toThrow();
 });
 
+test("a floating root checks its mode, header actions and suggestions", () => {
+  const composer = { type: "composer", id: "ask", single: true, action: { id: "send", label: "Ask" } };
+  const floating = { type: "floating", mode: "bar", subtitle: "Claude Code", busy: true, actions: [{ id: "new", label: "New chat", icon: "square-pen" }], suggestions: [{ id: "s1", label: "What's overdue?", icon: "calendar-clock" }], children: [composer] };
+  expect(() => validateTree(floating)).not.toThrow();
+  expect(() => validateTree({ ...floating, mode: "panel", children: [{ type: "conversation", id: "c", messages: [] }, composer] })).not.toThrow();
+  expect(() => validateTree({ ...floating, mode: "window" })).toThrow();
+  expect(() => validateTree({ ...floating, mode: undefined })).toThrow();
+  expect(() => validateTree({ ...floating, suggestions: [{ id: "s1" }] })).toThrow();
+  expect(() => validateTree({ ...floating, busy: "yes" })).toThrow();
+  expect(() => validateTree({ ...floating, children: undefined })).toThrow();
+});
+
 test("a toast button may carry a ⌘ shortcut the host doesn't own", () => {
   const toast = (key: unknown) => ({ type: "toast", text: "Settled #3", action: { id: "undo", label: "Undo", ...(key === undefined ? {} : { key }) } });
   for (const key of ["cmd+z", "cmd+shift+z", "cmd+u", undefined]) expect(() => validateMessage(toast(key))).not.toThrow();

@@ -1,7 +1,8 @@
 // The `conversation` node: an agent session the way a chat app shows it — the person's messages
 // on the right, the agent's on the left (markdown), and tool calls as compact rows that open to
 // show their details. Follows new messages unless the person scrolled up. ⌘+ / ⌘- zoom it.
-import { useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
+import { FloatingSurface } from "./floating-context";
 import { Bot, ChevronRight, User, Wrench } from "lucide-react";
 import type { Message, Node } from "../../shared/protocol";
 import { cn } from "@/lib/utils";
@@ -30,23 +31,25 @@ export function ConversationView({ node }: { node: ConversationNode }) {
 	const pinned = useRef(true);
 	const [zoom, applyZoom, zoomShownAt] = useZoomLevel("toolbelt.conversationZoom");
 	useZoomTarget(applyZoom);
+	// In a floating window the window is the frame: no border of its own, tighter spacing.
+	const compact = useContext(FloatingSurface);
 	useLayoutEffect(() => {
 		const el = box.current;
 		if (el && pinned.current) el.scrollTop = el.scrollHeight;
 	}, [node.messages, zoom]);
 	return (
-		<div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-muted/30">
+		<div className={cn("relative flex min-h-0 flex-1 flex-col overflow-hidden", !compact && "rounded-md border bg-muted/30")}>
 			<div
 				ref={box}
 				onScroll={(e) => {
 					const el = e.currentTarget;
 					pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
 				}}
-				className="min-h-0 flex-1 overflow-auto px-4 py-4"
+				className={cn("min-h-0 flex-1 overflow-auto", compact ? "px-1 py-1" : "px-4 py-4")}
 			>
-				<div className="mx-auto flex max-w-3xl flex-col gap-4" style={{ zoom }}>
+				<div className={cn("mx-auto flex max-w-3xl flex-col", compact ? "gap-3" : "gap-4")} style={{ zoom }}>
 					{!node.messages.length && <p className="py-12 text-center text-sm text-muted-foreground">{node.empty ?? "No messages yet."}</p>}
-					{blocks(node.messages).map((b) => (b.kind === "tools" ? <ToolCalls key={`t${b.items[0].i}`} items={b.items.map((x) => x.m)} /> : <Bubble key={`m${b.i}`} m={b.m} />))}
+					{blocks(node.messages).map((b) => (b.kind === "tools" ? <ToolCalls key={`t${b.items[0].i}`} items={b.items.map((x) => x.m)} compact={compact} /> : compact ? <CompactBubble key={`m${b.i}`} m={b.m} /> : <Bubble key={`m${b.i}`} m={b.m} />))}
 				</div>
 			</div>
 			<ZoomIndicator zoom={zoom} shownAt={zoomShownAt} className="absolute top-2 right-3 z-10" />
@@ -76,11 +79,27 @@ function Bubble({ m }: { m: Message }) {
 	);
 }
 
-function ToolCalls({ items }: { items: Message[] }) {
+/** A floating window's message: the person's in a quiet bubble on the right, the agent's as text. */
+function CompactBubble({ m }: { m: Message }) {
+	if (m.role === "system")
+		return <div className="self-center rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">{m.text}</div>;
+	if (m.role === "user")
+		return <div className="max-w-[85%] self-end rounded-xl rounded-br-sm bg-muted px-3 py-1.5 text-[13px] animate-in fade-in-0 slide-in-from-bottom-1 duration-200 [&_p]:my-0"><Markdown text={m.text} /></div>;
+	return (
+		<div className="flex items-start gap-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
+			<div className="mt-0.5 flex size-5.5 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+				<Bot className="size-3.5" />
+			</div>
+			<div className="min-w-0 flex-1 text-[13px] [&_p]:my-0 [&_p+p]:mt-1.5"><Markdown text={m.text} /></div>
+		</div>
+	);
+}
+
+function ToolCalls({ items, compact }: { items: Message[]; compact?: boolean }) {
 	const [open, setOpen] = useState(false);
 	const names = [...new Set(items.map((m) => m.tool?.name ?? "tool"))];
 	return (
-		<div className="ml-9 max-w-[85%] self-start">
+		<div className={cn("max-w-[85%] self-start", compact ? "ml-7.5 max-w-[calc(100%-1.875rem)]" : "ml-9")}>
 			<button
 				onClick={() => setOpen((o) => !o)}
 				className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:bg-accent hover:text-foreground"

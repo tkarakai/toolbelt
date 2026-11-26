@@ -17,5 +17,6 @@ export type PluginInspection = {
   data: { schema: number; supports?: number[] };
   screens: number;
   quickView: boolean;
+  floating: boolean;
   command?: string;
 };

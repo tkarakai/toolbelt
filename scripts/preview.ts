@@ -60,7 +60,10 @@ const root = developmentProfile
 mkdirSync(root, { recursive: true });
 const developmentLog = new DiagnosticLog();
 const personViews = new ViewStore(join(root, "views.json"));
+// Set once the agent interface exists (below); plugins started before that don't get it.
+let agentCommand: string[] | null = null;
 const host = new PluginHost({
+  agentCommand: () => agentCommand,
   dirs: [],
   registryRoot: root,
   bun: process.execPath,
@@ -124,6 +127,7 @@ const agents = createAgentInterface({
     },
   },
 });
+agentCommand = agents.command;
 
 const icons = new FileIcons(join(root, "cache/icons"));
 // Replaced by the server's broadcast once it listens.

@@ -60,7 +60,7 @@ export function PluginInspectionDetails({ plugin: p }: { plugin: ManagedPlugin }
   const unmet = unmetRequirements(i);
   const agent = agentAccessText(i.agentAccess);
   const unsupportedOptional = i.capabilities.optional.filter((c) => !c.supported).length;
-  const provides = [`${i.screens} ${i.screens === 1 ? "screen" : "screens"}`, ...(i.quickView ? ["quick view"] : []), ...(i.command ? [`the ${i.command} command`] : [])];
+  const provides = [...(i.screens || !i.floating ? [`${i.screens} ${i.screens === 1 ? "screen" : "screens"}`] : []), ...(i.quickView ? ["quick view"] : []), ...(i.floating ? ["a floating window"] : []), ...(i.command ? [`the ${i.command} command`] : [])];
   return <DiagnosticDisclosure
     title="Compatibility and details"
     icon={i.compatible ? <ShieldCheck className="size-4 text-green-600"/> : <ShieldAlert className="size-4 text-destructive"/>}

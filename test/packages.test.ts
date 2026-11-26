@@ -836,3 +836,9 @@ test("a plugin built for another protocol stays installed and is refused only wh
     for (const dir of [root, a.source, old.source]) rmSync(dir, { recursive: true, force: true });
   }
 });
+test("a floating package requires the ui.floating capability and may have no screens", () => {
+  const floating = { ...manifest(), screens: [], floating: { shortcut: "k" } };
+  expect(() => parsePackageManifest(floating)).toThrow("ui.floating");
+  expect(parsePackageManifest({ ...floating, capabilities: { required: ["ui.core", "ui.floating"], optional: [] } }).floating).toEqual({ shortcut: "k" });
+  expect(() => parsePackageManifest({ ...manifest(), screens: [] })).toThrow("at least one screen");
+});

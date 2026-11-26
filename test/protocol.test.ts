@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultScreen, parseManifest, requireProtocol, splitLines } from "../src/shared/protocol";
+import { defaultScreen, floatingOnly, parseManifest, requireProtocol, splitLines } from "../src/shared/protocol";
 
 const base = { id: "demo", name: "Demo", protocol: 2, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "a", title: "A" }] };
 
@@ -25,6 +25,17 @@ describe("parseManifest", () => {
 		expect(() => requireProtocol(old)).toThrow("Plugin needs an update: it was built for plugin protocol 1, and this ToolBelt speaks protocol 2");
 		expect(() => requireProtocol(parseManifest(base))).not.toThrow();
 		expect(() => parseManifest({ ...base, protocol: 1, agent: { access: "all" } })).toThrow("`agent.access`");
+	});
+
+	test("floating plugins: may have no screens, and take a ⌘ letter ToolBelt doesn't use", () => {
+		const m = parseManifest({ ...base, screens: [], floating: { shortcut: "k" } });
+		expect(m.floating).toEqual({ shortcut: "k" });
+		expect(floatingOnly(m)).toBe(true);
+		expect(floatingOnly(parseManifest({ ...base, floating: {} }))).toBe(false);
+		expect(defaultScreen(m)).toBeUndefined();
+		expect(() => parseManifest({ ...base, floating: { shortcut: "w" } })).toThrow("floating.shortcut");
+		expect(() => parseManifest({ ...base, floating: { shortcut: "K" } })).toThrow("floating.shortcut");
+		expect(() => parseManifest({ ...base, floating: true })).toThrow("`floating` must be an object");
 	});
 
 	test("default screen: the one marked default, else the first", () => {

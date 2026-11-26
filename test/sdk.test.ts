@@ -284,3 +284,19 @@ test("views from data: declareViews re-reads them, tells the host and drops what
 	await tick();
 	expect(h.out.at(-1)).toMatchObject({ type: "render", tree: { text: '{"label:home":[],"label:garden":["roses"]}' } });
 });
+
+test("agentCommand reads the command ToolBelt passes to plugins, if any", async () => {
+  const { agentCommand } = await import("../src/sdk");
+  const before = process.env.TOOLBELT_AGENT_COMMAND;
+  try {
+    process.env.TOOLBELT_AGENT_COMMAND = JSON.stringify(["/bun", "/cli.js", "--socket", "/s"]);
+    expect(agentCommand()).toEqual(["/bun", "/cli.js", "--socket", "/s"]);
+    process.env.TOOLBELT_AGENT_COMMAND = "not json";
+    expect(agentCommand()).toBeUndefined();
+    delete process.env.TOOLBELT_AGENT_COMMAND;
+    expect(agentCommand()).toBeUndefined();
+  } finally {
+    if (before === undefined) delete process.env.TOOLBELT_AGENT_COMMAND;
+    else process.env.TOOLBELT_AGENT_COMMAND = before;
+  }
+});

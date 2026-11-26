@@ -195,6 +195,8 @@ export class PluginProcess {
       diagnostic?: (plugin: string, kind: string, detail: unknown) => void;
       verify?: () => void;
       views?: PersonViews;
+      /** How to start `toolbelt` against this ToolBelt (null while there's no CLI script). */
+      agentCommand?: () => string[] | null;
     },
     private readonly changed: () => void,
     private readonly listener: Listener,
@@ -258,6 +260,9 @@ export class PluginProcess {
         TOOLBELT_CONFIG_DIR:
           this.opts.configRoot ?? resolve(this.opts.data, ".."),
         TOOLBELT_LIFECYCLE_MODE: this.opts.mode ?? "active",
+        // The command that reaches this ToolBelt's agent socket (`… mcp` is its MCP server), for
+        // plugins that hand ToolBelt to an agent they start, like an in-app chat.
+        ...(this.opts.agentCommand?.() ? { TOOLBELT_AGENT_COMMAND: JSON.stringify(this.opts.agentCommand()) } : {}),
         ...Object.fromEntries(
           Object.entries(this.opts.env).filter(([k]) =>
             k.startsWith("TOOLBELT_TEST_"),
@@ -477,7 +482,7 @@ export class PluginProcess {
   }
 
   private declared(surface: string) {
-    return this.manifest.screens.some((s) => `screen:${s.id}` === surface) || (!!this.manifest.quickView && surface === "quick");
+    return this.manifest.screens.some((s) => `screen:${s.id}` === surface) || (!!this.manifest.quickView && surface === "quick") || (!!this.manifest.floating && surface === "floating");
   }
 
   /** Shows the host's error in place of an instance's invalid tree, and logs why. */
@@ -708,6 +713,8 @@ export class PluginHost {
       data: string;
       /** Where the person's views are saved; without it they last only while the plugin runs. */
       views?: PersonViews;
+      /** How to start `toolbelt` against this ToolBelt, passed to plugins as `TOOLBELT_AGENT_COMMAND`. */
+      agentCommand?: () => string[] | null;
     },
   ) {}
 
@@ -897,6 +904,7 @@ export class PluginHost {
         configRoot: this.opts.registryRoot,
         diagnostic: this.opts.diagnostic,
         views: this.opts.views,
+        agentCommand: this.opts.agentCommand,
         verify: this.opts.registryRoot
           ? () => {
               const m = parsePackageManifest(manifest),

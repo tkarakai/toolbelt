@@ -123,12 +123,13 @@ export class AgentServer {
 					socket.end();
 					return;
 				}
+				const named = typeof hello.name === "string" && !!hello.name.trim();
 				const session = this.core.openSession(
-					typeof hello.client === "string" ? hello.client : "agent",
+					named ? hello.name!.trim() : typeof hello.client === "string" ? hello.client : "agent",
 					hello.mode === "autonomous" ? "autonomous" : "interactive",
 					typeof hello.group === "string" && hello.group ? hello.group : undefined,
 				);
-				c.session = new McpSession(this.core, session, (m) => this.write(socket, m));
+				c.session = new McpSession(this.core, session, (m) => this.write(socket, m), named);
 				continue;
 			}
 			const session = c.session;

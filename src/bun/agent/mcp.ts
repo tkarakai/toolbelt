@@ -75,6 +75,8 @@ export class McpSession {
 		private readonly core: AgentCore,
 		readonly session: AgentSession,
 		private readonly send: (message: unknown) => void,
+		/** The hello named the session: `clientInfo` doesn't rename it. */
+		private readonly named = false,
 	) {
 		this.offTree = core.onTree((plugin, surface, instance) => {
 			// Subscriptions to a paged URI of the screen's instance are notified with that URI.
@@ -137,7 +139,7 @@ export class McpSession {
 			case "initialize": {
 				const requested = typeof params.protocolVersion === "string" ? params.protocolVersion : "";
 				const client = params.clientInfo as { name?: unknown } | undefined;
-				if (typeof client?.name === "string") this.core.renameSession(this.session, client.name);
+				if (typeof client?.name === "string" && !this.named) this.core.renameSession(this.session, client.name);
 				return {
 					protocolVersion: MCP_VERSIONS.includes(requested) ? requested : MCP_VERSIONS[0],
 					capabilities: { tools: { listChanged: false }, resources: { subscribe: true, listChanged: true } },

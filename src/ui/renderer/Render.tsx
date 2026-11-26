@@ -339,6 +339,15 @@ export function Render({ node, emit }: { node: Node; emit: Emit }): ReactNode {
 	switch (node.type) {
 		case "page":
 			return <Page node={node} emit={emit} />;
+		// A floating plugin's root, shown elsewhere (Floating.tsx draws the window around it).
+		case "floating":
+			return (
+				<div className="flex min-h-0 flex-1 flex-col gap-2">
+					{node.children.map((c, i) => (
+						<Render key={i} node={c} emit={emit} />
+					))}
+				</div>
+			);
 		case "stack":
 			return (
 				<div className={cn("flex", node.direction === "row" ? "flex-row" : "flex-col")} style={{ gap: `${(node.gap ?? 4) * 0.25}rem` }}>

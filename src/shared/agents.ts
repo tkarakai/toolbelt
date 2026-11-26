@@ -237,7 +237,12 @@ export type AgentsRequest =
  * A connection's first line. `group` (at most 64 characters) groups short connections into one
  * session in the audit log: the CLI sends its parent process id, so one script's calls group.
  */
-export type AgentHello = { toolbelt: 1; client?: string; mode?: AgentMode; group?: string };
+/**
+ * A connection's first line. `name` (from `toolbelt mcp --client`) names the session for grants and
+ * the audit log and keeps MCP `clientInfo` from renaming it, for plugins that start an agent
+ * themselves ("Agent · Claude Code").
+ */
+export type AgentHello = { toolbelt: 1; client?: string; name?: string; mode?: AgentMode; group?: string };
 
 /** Where the socket lives: `TOOLBELT_AGENT_SOCKET`, else `agent.sock` in ToolBelt's folder. */
 export const agentSocketPath = (configRoot: string, env: Record<string, string | undefined> = process.env) =>

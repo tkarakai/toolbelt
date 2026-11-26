@@ -8,7 +8,7 @@ import { FocusRescue, TabbableControls, overlayOpen } from "./lib/keyboard";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, FlaskConical, Maximize2, Power, Settings } from "lucide-react";
 import { pillClass } from "@/renderer/colors";
-import { defaultScreen } from "../shared/protocol";
+import { defaultScreen, floatingOnly } from "../shared/protocol";
 import { popoverLayout, type PopoverLayout } from "../shared/popover";
 import { assignLetters } from "../shared/letters";
 import type { PluginInfo } from "../shared/rpc";
@@ -31,7 +31,9 @@ const native = (window as { __electrobunWebviewId?: number }).__electrobunWebvie
 const panelStyle = "flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-xl border bg-popover/95 text-popover-foreground shadow-xl backdrop-blur-xl";
 
 export default function Popover() {
-    const plugins = usePlugins();
+    const all = usePlugins();
+    // Floating plugins without screens belong with the screens they float over, not here.
+    const plugins = useMemo(() => all.filter(p => !floatingOnly(p.manifest)), [all]);
     const drag = usePluginDrag(plugins.map(p => p.manifest.id));
     const development = useUpdateState()?.channel === "dev";
     const pluginDevelopment = useDevelopment();

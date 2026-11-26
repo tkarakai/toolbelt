@@ -56,6 +56,7 @@ export type {
   Dialog,
   LogLine,
   Message,
+  Suggestion,
   DetailItem,
   TimelineEntry,
   Manifest,
@@ -76,6 +77,20 @@ export function dataDir(): string {
     process.env.TOOLBELT_DATA_DIR ??
     `${process.env.TMPDIR ?? "/tmp"}/toolbelt-data/${process.env.TOOLBELT_PLUGIN ?? "plugin"}`
   );
+}
+
+/**
+ * The command that reaches this ToolBelt's agent interface (`[bun, cli, "--socket", path]`), for a
+ * plugin that starts an AI agent and gives it ToolBelt's MCP server: append `"mcp"` (and
+ * `"--client", name`). Undefined when ToolBelt has no CLI to offer.
+ */
+export function agentCommand(): string[] | undefined {
+  try {
+    const command = JSON.parse(process.env.TOOLBELT_AGENT_COMMAND ?? "null");
+    return Array.isArray(command) && command.every((c) => typeof c === "string") ? command : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function packageRoot(): string {
@@ -178,7 +193,10 @@ export type PluginDefinition = {
    * come from data (a filter per label).
    */
   views?: Record<string, ViewDeclaration> | ((ctx: Context) => Record<string, ViewDeclaration>);
-  /** Surface → its UI, rendered once per open instance. Surfaces: `screen:<id>` and `quick`. */
+  /**
+   * Surface → its UI, rendered once per open instance. Surfaces: `screen:<id>`, `quick` and, for a
+   * floating plugin (manifest `floating`), `floating`, whose tree is a `floating` node.
+   */
   render: Record<string, (ctx: Context, view: View) => Node | Promise<Node>>;
   onEvent?: (
     surface: string,
