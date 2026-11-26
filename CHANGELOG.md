@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.6.1 — 2026-11-26
 - **ToolBelt 0.6.0 didn't start when plugins built for the previous version were installed**: it quit while reading them. ToolBelt now always starts. Such a plugin shows "needs an update" on its screen and in Settings → Plugins, where you update it; its data is kept.
 - No plugin can stop ToolBelt from starting: an installation ToolBelt can't use is set aside, untouched, and Settings → Plugins says why; a damaged plugin list starts no plugins, is kept as it was, and is reported there too.
 
