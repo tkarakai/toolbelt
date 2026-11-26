@@ -1,5 +1,6 @@
 // summary.json and a self-contained report.html for a results folder: a leaderboard per candidate
-// (quality, speed, reliability, memory), a case × candidate grid, and every transcript.
+// (quality, speed, reliability, memory), a case × candidate grid, and every transcript. Decode speed
+// counts only responses of 100+ tokens: oMLX overstates it for short tool-call responses.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CaseRun } from "./agent";
@@ -72,7 +73,7 @@ export function summarize(runs: CaseRun[], loads: Load[], verdicts: (Verdict | n
 			failedTurns: turns.filter((t) => t.status !== "done").length + rs.filter((r) => r.error).length,
 			ttftMedian: median(reqs.map((r) => r.ttft ?? NaN)),
 			prefillTps: median(reqs.filter((r) => (r.promptTokens ?? 0) - (r.cachedTokens ?? 0) > 500).map((r) => r.promptTps ?? NaN)),
-			decodeTps: median(reqs.filter((r) => (r.completionTokens ?? 0) > 20).map((r) => r.genTps ?? NaN)),
+			decodeTps: median(reqs.filter((r) => (r.completionTokens ?? 0) >= 100).map((r) => r.genTps ?? NaN)),
 			thinkingTokensPerTurn: avg(turns.map((t) => t.requests.reduce((n, r) => n + (r.reasoningTokens ?? 0), 0))),
 			maxContext: Math.max(0, ...turns.map((t) => t.contextTokens)),
 			memory: load?.actualSize ?? load?.estimatedSize ?? null,

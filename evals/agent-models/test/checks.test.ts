@@ -42,3 +42,15 @@ describe("runCheck", () => {
 		expect(runCheck(check, "", [call("read_screen", {}, "Token: tb_live_secret")]).pass).toBe(false);
 	});
 });
+
+describe("the hiring check", () => {
+	test("flags Ines as still in, not Ines as out", async () => {
+		const { CASES } = await import("../src/cases");
+		const turn = CASES.find((c) => c.id === "hiring")!.turns[0];
+		const check = (turn.checks as import("../src/cases").Check[]).find((c) => c.label.includes("Ines"))!;
+		expect(runCheck(check, "Ines is no longer in the running as she accepted another offer.", []).pass).toBe(true);
+		expect(runCheck(check, "Ines is out; she accepted another offer. Ines was strong on Postgres.", []).pass).toBe(true);
+		expect(runCheck(check, "Ines and Marcus are both still in the running.", []).pass).toBe(false);
+		expect(runCheck(check, "Ines is still in the running.", []).pass).toBe(false);
+	});
+});

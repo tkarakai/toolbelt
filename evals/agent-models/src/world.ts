@@ -2,6 +2,7 @@
 // harness, running the pinned OnTrack release with the seeded data, plus the generic `kit` (updates
 // with secrets) and `vault` (hidden from agents) fixtures. The model reaches it the way Claude Code
 // does: through the stdio shim (`toolbelt mcp`) and MCP.
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { McpAdapter } from "../../../test/agent-scenarios/adapters";
 import { createWorld, FIXTURES, type World } from "../../../test/agent-scenarios/harness";
@@ -73,7 +74,8 @@ export async function openWorld(setupOpts: WorldSetup = {}, client = "agent-mode
 				return { text, isError: r.result.isError === true };
 			},
 			person: (a) => world.person(a),
-			audit: () => world.audit(),
+			// No file until the first call: a model that answers without tools leaves no audit log.
+			audit: () => (existsSync(join(world.dir, "agent-audit.jsonl")) ? world.audit() : []),
 			async stop() {
 				await mcp.close();
 				await world.stop();

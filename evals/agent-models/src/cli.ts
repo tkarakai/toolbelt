@@ -2,18 +2,22 @@
 //   models                         oMLX's chat models with size, context and thinking support
 //   bench  [--models a,b] [--sizes 1000,8000,32000,60000]   load time, memory, prefill/decode speed by prompt size
 //   run    [--models a,b:think] [--cases x,y] [--all] [--repeat n] [--out dir] [--judge provider/model]
+//          [--prompt file]         extra system prompt text (a prompt variant), recorded in meta.json
 //   report <results dir>           rebuilds report.html and summary.json from runs.jsonl
+//   regrade <results dir>          applies the current checks to stored runs (after changing cases.ts)
 // Models are oMLX ids; append ":think" to run with thinking on. Without --models, `run` uses
 // models.json's "default" list.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { runCase, type CaseRun } from "./agent";
+import { regrade, runCase, type CaseRun } from "./agent";
 import { CASES } from "./cases";
 import { bench } from "./bench";
 import { judgeRuns } from "./judge";
 import { isChatCandidate, omlxServer, omlxStatus, parseCandidate, startRecorder, warm } from "./omlx";
 import { writeReport } from "./report";
+import { seedOnTrack } from "./seed";
 import { setup } from "./setup";
 import config from "../models.json";
 
@@ -28,6 +32,7 @@ const { positionals, values } = parseArgs({
 		out: { type: "string" },
 		judge: { type: "string" },
 		sizes: { type: "string" },
+		prompt: { type: "string" },
 		"max-turns": { type: "string", default: "12" },
 		"timeout": { type: "string", default: "600" },
 		"max-output": { type: "string", default: "8192" },
@@ -66,6 +71,8 @@ if (command === "models") {
 		join(out, "meta.json"),
 		JSON.stringify({ startedAt: new Date().toISOString(), omlx: server.version, candidates, cases: cases.map((c) => c.id), repeat, options: values, models: status.models.filter((m) => candidates.some((c) => c.model === m.id)) }, null, "\t"),
 	);
+	const instructions = values.prompt ? readFileSync(values.prompt, "utf8").trim() : undefined;
+	if (instructions) writeFileSync(join(out, "prompt.txt"), instructions);
 	const recorder = startRecorder();
 	const runsFile = join(out, "runs.jsonl");
 	console.log(`results: ${out}`);
@@ -78,7 +85,7 @@ if (command === "models") {
 		for (let r = 0; r < repeat; r++)
 			for (const c of cases) {
 				const run: CaseRun & { repeat: number } = {
-					...(await runCase(c, cand, om, { maxTurns: Number(values["max-turns"]), turnTimeoutMs: Number(values.timeout) * 1000, maxOutput: Number(values["max-output"]), recorder })),
+					...(await runCase(c, cand, om, { maxTurns: Number(values["max-turns"]), turnTimeoutMs: Number(values.timeout) * 1000, maxOutput: Number(values["max-output"]), recorder, instructions })),
 					repeat: r,
 				};
 				appendFileSync(runsFile, JSON.stringify(run) + "\n");
@@ -90,6 +97,27 @@ if (command === "models") {
 	if (values.judge) await judgeRuns(out, values.judge);
 	writeReport(out);
 	console.log(`\nreport: ${join(out, "report.html")}`);
+} else if (command === "regrade") {
+	const dir = rest[0];
+	if (!dir || !existsSync(join(dir, "runs.jsonl"))) throw new Error("usage: regrade <results dir with runs.jsonl>");
+	await setup();
+	const scratch = mkdtempSync(join(tmpdir(), "tb-regrade-"));
+	const seeded = await seedOnTrack(scratch);
+	rmSync(scratch, { recursive: true, force: true });
+	const runs = readFileSync(join(dir, "runs.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as CaseRun);
+	let changed = 0;
+	for (const run of runs) {
+		const c = CASES.find((x) => x.id === run.case);
+		if (!c) continue;
+		// A missing audit log (no tool calls) failed runs before world.ts tolerated it; the turns are intact.
+		if (run.error?.includes("agent-audit.jsonl")) delete run.error;
+		const before = run.pass;
+		regrade(run, c, seeded);
+		if (run.pass !== before) changed++;
+	}
+	writeFileSync(join(dir, "runs.jsonl"), runs.map((r) => JSON.stringify(r)).join("\n") + "\n");
+	writeReport(dir);
+	console.log(`regraded ${runs.length} runs, ${changed} changed pass/fail; ${join(dir, "report.html")}`);
 } else if (command === "report") {
 	const dir = rest[0];
 	if (!dir || !existsSync(join(dir, "runs.jsonl"))) throw new Error("usage: report <results dir with runs.jsonl>");

@@ -147,7 +147,7 @@ export const CASES: Case[] = [
 				checks: [
 					readsOnTrack,
 					{ kind: "mentions", label: "Marcus", items: ["Marcus"] },
-					{ kind: "pattern", label: "says Ines dropped out, if it mentions her", re: "Ines(?![^.]{0,120}(accepted|another offer|withdr|out|no longer|dropped))", flags: "i", not: true },
+					{ kind: "pattern", label: "doesn't say Ines is still in", re: "Ines(?:(?!no longer|\\bnot\\b|n't|\\bout\\b)[^.\\n]){0,80}\\b(still in|in the running|remaining|still a candidate)\\b|both (are )?still in", flags: "i", not: true },
 				],
 			},
 		],

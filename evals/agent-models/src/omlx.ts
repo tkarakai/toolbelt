@@ -51,8 +51,11 @@ export async function omlxServer(): Promise<{ version: string; loaded_models: st
 	return r.ok ? r.json() : { version: "unknown", loaded_models: [], active_requests: 0 };
 }
 
-/** Models that can't hold a conversation: speech, embeddings, speculative-decoding drafts, helpers. */
-const NOT_CHAT = /(embed|asr|audio|orpheus|tts|whisper|markitdown|nomic|dflash|-assistant)/i;
+/**
+ * Models that can't hold a conversation: speech, embeddings, helpers, and speculative-decoding
+ * drafts (DFlash, `-assistant`, `mtp-` multi-token-prediction heads, which oMLX can't load alone).
+ */
+const NOT_CHAT = /(embed|asr|audio|orpheus|tts|whisper|markitdown|nomic|dflash|-assistant|^mtp-)/i;
 
 /** Chat models worth evaluating: not helpers, not hidden, at least 1 GB of weights. */
 export const isChatCandidate = (m: OmlxModel) =>

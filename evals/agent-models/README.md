@@ -6,6 +6,8 @@ and whether it stays honest (reads before answering, invents nothing, admits it 
 things, leaks no secrets). Built for local models served by [oMLX](https://github.com/jundot/omlx),
 so a newly downloaded model can be compared with the ones already tried.
 
+The first evaluation's findings are in [plans/local-model-eval](../../plans/local-model-eval/README.md).
+
 This package is separate from the app: its dependencies aren't ToolBelt's, the app never imports it,
 and plugins it runs are fetched into a cache outside the repository.
 
@@ -58,6 +60,8 @@ bun run eval -- --models Qwen3.8-27B-4bit,Qwen3.8-27B-4bit:think      # quick se
 bun run eval -- --models Qwen3.8-27B-4bit --all --repeat 3            # everything, 3 times
 bun run eval -- --models Qwen3.8-27B-4bit --cases budget-status,hiring
 bun run report -- results/<run> --judge omlx/Qwen3.8-27B-8bit         # add judge scores later
+bun src/cli.ts regrade results/<run>      # apply changed checks to stored transcripts
+bun run eval -- --models Qwen3.8-27B-4bit --prompt prompts/search-guidance.md   # a prompt variant
 ```
 
 `:think` runs a model with thinking on (oMLX's `enable_thinking` chat template switch); without
@@ -75,6 +79,12 @@ Download it in oMLX, check `bun run models` for its allowed context (oMLX's per-
 "max context window" caps what conversations can hold; the native length is shown next to it),
 then run `bench` and `eval` with it next to the current best, ideally `--repeat 3`. Add it to
 `models.json` if it should stay in the default comparison.
+
+### Prompt variants
+
+`--prompt <file>` appends text to the system prompt, for measuring guidance before it moves into
+ToolBelt's tool descriptions. `prompts/search-guidance.md` explains search's exact-word matching,
+the badge and text reads.
 
 ### Adding a case
 
@@ -95,10 +105,13 @@ it in `requires` and is skipped on servers without it.
 | Turn median / p90 | Wall time from the person's message to the answer, tool calls included |
 | Calls/turn, tool errors | How the model uses tools; errors are refused or invalid calls |
 | Failed turns | No answer: turn limit, timeout, model error |
-| TTFT, prefill, decode | oMLX's timings, medians over requests |
+| TTFT, prefill, decode | oMLX's timings, medians over requests; decode counts only responses of 100+ tokens (oMLX overstates it for short tool calls) |
 | Thinking tok/turn | Reasoning tokens spent per answer |
 | Max context | Largest prompt the model held during a conversation |
-| Memory | Model weights as loaded by oMLX (the KV cache comes on top and grows with context) |
+| Memory | What oMLX reports for the model when it's loaded: the weights. oMLX's figure grows once its cache fills (a 20 GB model reads ~29 GB after a run), so treat it as a lower bound |
+
+Checks evolve: when a transcript shows a check was wrong, fix it in `cases.ts` and `regrade` the
+stored runs instead of running the models again.
 
 Small differences on one repeat are noise: sampling varies between runs. Compare with
 `--repeat 3` or more before concluding. Read failing transcripts before trusting a check: a

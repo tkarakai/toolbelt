@@ -1,0 +1,279 @@
+[
+	{
+		"model": "LFM3-1.7B-MLX-8bit",
+		"loadMs": 57,
+		"memory": 1932215688,
+		"size": 1000,
+		"promptTokens": 965,
+		"ttft": 0.28,
+		"promptTps": 3497.6,
+		"genTps": 195.87,
+		"wallMs": 1352
+	},
+	{
+		"model": "LFM3-1.7B-MLX-8bit",
+		"loadMs": 57,
+		"memory": 1932215688,
+		"size": 8000,
+		"promptTokens": 7208,
+		"ttft": 4.1,
+		"promptTps": 1759.39,
+		"genTps": 185.43,
+		"wallMs": 5490
+	},
+	{
+		"model": "LFM3-1.7B-MLX-8bit",
+		"loadMs": 57,
+		"memory": 1932215688,
+		"size": 32000,
+		"promptTokens": 28520,
+		"ttft": 14.64,
+		"promptTps": 1947.78,
+		"genTps": 157.77,
+		"wallMs": 16305
+	},
+	{
+		"model": "Qwen3.5-4B-MLX-8bit",
+		"loadMs": 468,
+		"memory": 5689610056,
+		"size": 1000,
+		"promptTokens": 1077,
+		"ttft": 1.36,
+		"promptTps": 790.73,
+		"genTps": 80.35,
+		"wallMs": 3520
+	},
+	{
+		"model": "Qwen3.5-4B-MLX-8bit",
+		"loadMs": 468,
+		"memory": 5689610056,
+		"size": 8000,
+		"promptTokens": 8193,
+		"ttft": 9.12,
+		"promptTps": 898.45,
+		"genTps": 85.45,
+		"wallMs": 11243
+	},
+	{
+		"model": "Qwen3.5-4B-MLX-8bit",
+		"loadMs": 468,
+		"memory": 5689610056,
+		"size": 32000,
+		"promptTokens": 33055,
+		"ttft": 38.83,
+		"promptTps": 851.31,
+		"genTps": 72.19,
+		"wallMs": 41570
+	},
+	{
+		"model": "Qwen3.5-9B-MLX-8bit",
+		"loadMs": 4588,
+		"memory": 10885144496,
+		"size": 1000,
+		"promptTokens": 1076,
+		"ttft": 1.28,
+		"promptTps": 839.58,
+		"genTps": 40.99,
+		"wallMs": 6067
+	},
+	{
+		"model": "Qwen3.5-9B-MLX-8bit",
+		"loadMs": 4588,
+		"memory": 10885144496,
+		"size": 8000,
+		"promptTokens": 8195,
+		"ttft": 15.38,
+		"promptTps": 532.68,
+		"genTps": 42.45,
+		"wallMs": 19854
+	},
+	{
+		"model": "Qwen3.5-9B-MLX-8bit",
+		"loadMs": 4588,
+		"memory": 10885144496,
+		"size": 32000,
+		"promptTokens": 33056,
+		"ttft": 62.7,
+		"promptTps": 527.2,
+		"genTps": 32.66,
+		"wallMs": 67938
+	},
+	{
+		"model": "gemma-4-E4B-it-MLX-8bit",
+		"loadMs": 7306,
+		"memory": 9293994848,
+		"size": 1000,
+		"promptTokens": 1069,
+		"ttft": 0.62,
+		"promptTps": 1724.77,
+		"genTps": 69.67,
+		"wallMs": 3681
+	},
+	{
+		"model": "gemma-4-E4B-it-MLX-8bit",
+		"loadMs": 7306,
+		"memory": 9293994848,
+		"size": 8000,
+		"promptTokens": 8192,
+		"ttft": 4.89,
+		"promptTps": 1674.21,
+		"genTps": 47.36,
+		"wallMs": 8940
+	},
+	{
+		"model": "gemma-4-12B-it-8bit",
+		"loadMs": 7585,
+		"memory": 13085909704,
+		"size": 1000,
+		"promptTokens": 1075,
+		"ttft": 3.79,
+		"promptTps": 283.95,
+		"genTps": 21.98,
+		"wallMs": 15435
+	},
+	{
+		"model": "gemma-4-12B-it-8bit",
+		"loadMs": 7585,
+		"memory": 13085909704,
+		"size": 8000,
+		"promptTokens": 8197,
+		"ttft": 31.45,
+		"promptTps": 260.64,
+		"genTps": 21.08,
+		"wallMs": 40409
+	},
+	{
+		"model": "gemma-4-12B-it-8bit",
+		"loadMs": 7585,
+		"memory": 13085909704,
+		"size": 32000,
+		"promptTokens": 33062,
+		"ttft": 121.47,
+		"promptTps": 272.18,
+		"genTps": 21.66,
+		"wallMs": 130186
+	},
+	{
+		"model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+		"loadMs": 18837,
+		"memory": 22746226896,
+		"size": 1000,
+		"promptTokens": 1074,
+		"ttft": 0.52,
+		"promptTps": 2076.5,
+		"genTps": 199.65,
+		"wallMs": 1809
+	},
+	{
+		"model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+		"loadMs": 18837,
+		"memory": 22746226896,
+		"size": 8000,
+		"promptTokens": 8195,
+		"ttft": 6.38,
+		"promptTps": 1284.25,
+		"genTps": 137.87,
+		"wallMs": 7923
+	},
+	{
+		"model": "mlx-community--Qwen3.6-35B-A3B-4bit",
+		"loadMs": 18837,
+		"memory": 22746226896,
+		"size": 32000,
+		"promptTokens": 33057,
+		"ttft": 36.09,
+		"promptTps": 915.89,
+		"genTps": 116.97,
+		"wallMs": 38060
+	},
+	{
+		"model": "Qwen3.8-27B-4bit",
+		"loadMs": 39303,
+		"memory": 20314879032,
+		"size": 1000,
+		"promptTokens": 1075,
+		"ttft": 3.82,
+		"promptTps": 281.15,
+		"genTps": 29.73,
+		"wallMs": 11573
+	},
+	{
+		"model": "Qwen3.8-27B-4bit",
+		"loadMs": 39303,
+		"memory": 20314879032,
+		"size": 8000,
+		"promptTokens": 8192,
+		"ttft": 27.74,
+		"promptTps": 295.33,
+		"genTps": 38.97,
+		"wallMs": 34307
+	},
+	{
+		"model": "Qwen3.8-27B-4bit",
+		"loadMs": 39303,
+		"memory": 20314879032,
+		"size": 32000,
+		"promptTokens": 33060,
+		"ttft": 134.87,
+		"promptTps": 245.12,
+		"genTps": 23.91,
+		"wallMs": 144426
+	},
+	{
+		"model": "Qwen3.8-27B-8bit",
+		"loadMs": 91892,
+		"memory": 33823538368,
+		"size": 1000,
+		"promptTokens": 1079,
+		"ttft": 3.89,
+		"promptTps": 277.07,
+		"genTps": 24.36,
+		"wallMs": 14207
+	},
+	{
+		"model": "Qwen3.8-27B-8bit",
+		"loadMs": 91892,
+		"memory": 33823538368,
+		"size": 8000,
+		"promptTokens": 8195,
+		"ttft": 24.61,
+		"promptTps": 333.04,
+		"genTps": 23.34,
+		"wallMs": 35616
+	},
+	{
+		"model": "Qwen3.8-27B-8bit",
+		"loadMs": 91892,
+		"memory": 33823538368,
+		"size": 32000,
+		"promptTokens": 33059,
+		"ttft": 124.91,
+		"promptTps": 264.65,
+		"genTps": 19.8,
+		"wallMs": 135844
+	},
+	{
+		"model": "mtp-Qwen3.8-27B-Q8_0",
+		"loadMs": -1,
+		"memory": null,
+		"size": 1000,
+		"wallMs": 2,
+		"error": "{\"error\":{\"message\":\"Model 'mtp-Qwen3.8-27B-Q8_0' is unavailable after a previous load failure: Splash exited with code 1 while loading mtp-Qwen3.8-27B-Q8_0-9da1e1c09616: error: GGUF tensors this build cannot load: attn_norm.weight (missing) in 64 layers, attn_qkv.weight (missing) in 48 layers, attn"
+	},
+	{
+		"model": "mtp-Qwen3.8-27B-Q8_0",
+		"loadMs": -1,
+		"memory": null,
+		"size": 8000,
+		"wallMs": 2,
+		"error": "{\"error\":{\"message\":\"Model 'mtp-Qwen3.8-27B-Q8_0' is unavailable after a previous load failure: Splash exited with code 1 while loading mtp-Qwen3.8-27B-Q8_0-9da1e1c09616: error: GGUF tensors this build cannot load: attn_norm.weight (missing) in 64 layers, attn_qkv.weight (missing) in 48 layers, attn"
+	},
+	{
+		"model": "mtp-Qwen3.8-27B-Q8_0",
+		"loadMs": -1,
+		"memory": null,
+		"size": 32000,
+		"wallMs": 3,
+		"error": "{\"error\":{\"message\":\"Model 'mtp-Qwen3.8-27B-Q8_0' is unavailable after a previous load failure: Splash exited with code 1 while loading mtp-Qwen3.8-27B-Q8_0-9da1e1c09616: error: GGUF tensors this build cannot load: attn_norm.weight (missing) in 64 layers, attn_qkv.weight (missing) in 48 layers, attn"
+	}
+]

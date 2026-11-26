@@ -7,6 +7,7 @@ import { createRegistry, defineExtension, defineTool, Harness, MemoryStorage, se
 import type { Case } from "./cases";
 import { runCheck, type CheckResult, type ToolCall } from "./checks";
 import { omlxProvider, piModel, type Candidate, type OmlxModel, type RequestRecord } from "./omlx";
+import type { Seeded } from "./seed";
 import { openWorld, type EvalWorld } from "./world";
 
 const context = BACKGROUND_CONTEXT;
@@ -54,6 +55,8 @@ export type CaseRun = {
 	error?: string;
 	systemPrompt: string;
 	tools: string[];
+	/** What the seeded data held, for regrading. */
+	seeded?: Seeded;
 	audit: unknown[];
 };
 
@@ -100,6 +103,7 @@ export async function runCase(c: Case, candidate: Candidate, om: OmlxModel, o: R
 		const missing = (c.requires ?? []).filter((t) => !w.tools.some((x) => x.name === t));
 		if (missing.length) throw new Error(`skipped: the server has no ${missing.join(", ")}`);
 		run.tools = w.tools.map((t) => t.name);
+		run.seeded = w.seeded;
 
 		let calls: ToolCall[] = [];
 		const tools = w.tools.map((t) =>
@@ -208,9 +212,25 @@ export async function runCase(c: Case, candidate: Candidate, om: OmlxModel, o: R
 		await harness?.close(context).catch(() => {});
 		await world?.stop().catch(() => {});
 	}
+	score(run);
+	run.ms = Date.now() - started;
+	return run;
+}
+
+export function score(run: CaseRun) {
 	const all = run.turns.flatMap((t) => t.checks);
 	run.score = all.length ? all.filter((x) => x.pass).length / all.length : 0;
 	run.pass = !run.error && all.length > 0 && all.every((x) => x.pass);
-	run.ms = Date.now() - started;
-	return run;
+}
+
+/** Applies the case's current checks to a stored run: for checks changed after it ran. */
+export function regrade(run: CaseRun, c: Case, seeded: Seeded) {
+	c.turns.forEach((turn, i) => {
+		const t = run.turns[i];
+		if (!t) return;
+		const checks = typeof turn.checks === "function" ? turn.checks(run.seeded ?? seeded) : turn.checks;
+		t.checks = checks.map((ch) => runCheck(ch, t.answer, t.calls));
+		if (t.status !== "done") t.checks.push({ label: "answered", kind: "pattern", pass: false, detail: t.reason });
+	});
+	score(run);
 }
