@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.5.0 — 2026-11-26
 - The release publisher uses the tag ref it just created instead of reading it back at once. GitHub sometimes can't find a new ref for a moment, which stopped publication with "Release tag must be annotated" until a retry.
 
 ## 0.4.0 — 2026-11-25
