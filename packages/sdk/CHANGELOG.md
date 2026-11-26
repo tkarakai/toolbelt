@@ -3,6 +3,8 @@
 ## Unreleased
 
 ## 0.5.0 — 2026-11-26
+- Add floating plugins (`ui.floating`, ToolBelt 0.7.0): a manifest's `floating` (with an optional ⌘ `shortcut` letter) gives the plugin a window over the main screen, and its `floating` surface renders a `floating` node: `mode: "bar"` (an ask bar whose `composer` child is the input, with `suggestions`) or `mode: "panel"` (a title bar with `subtitle` and `actions`), and `busy` for the sidebar item. A floating plugin may have no screens. Export `Suggestion`.
+- Add `agentCommand()`: the command (`TOOLBELT_AGENT_COMMAND`) that reaches this ToolBelt's agent interface, for plugins that start an AI agent and give it ToolBelt's MCP server (append `mcp` and `--client <name>`).
 - The release publisher uses the tag ref it just created instead of reading it back at once. GitHub sometimes can't find a new ref for a moment, which stopped publication with "Release tag must be annotated" until a retry.
 
 ## 0.4.0 — 2026-11-25
