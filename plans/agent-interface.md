@@ -816,14 +816,18 @@ log. No protocol change: the plugin requires ToolBelt 0.7.0 and the capability.
 **Agent plugin (roadmap 9).** An ACP client in its Bun process. It starts the agent's ACP adapter
 and gives it ToolBelt's MCP server through `session/new`. Decided:
 
-- **Agents.** Claude Code's adapter (`@agentclientprotocol/claude-agent-acp`) is bundled in the
-  plugin archive. Codex (`codex-acp`) and Gemini CLI (`gemini --acp`) are detected when installed,
-  with install instructions when not. A custom command runs any ACP agent, such as one backed by
-  a local model; the plugin documents how. The plugin never downloads code at runtime, and logins
-  stay with each tool (ToolBelt never sees keys).
+- **Agents.** Every agent is the person's own installation and login, found in their login-shell
+  PATH: Claude Code's ACP adapter (`claude-agent-acp`), Codex's (`codex-acp`) and Gemini CLI
+  (`gemini --acp`), with install instructions when one is missing, or a custom ACP command (with
+  environment lines) for anything else, such as an agent backed by a local model. Bundling Claude
+  Code's adapter was the first plan, dropped because it depends on the Claude Agent SDK, whose
+  license doesn't allow redistributing it, and on Claude Code's ~360 MB native binary, over the
+  archive limits. The plugin never downloads code, and ToolBelt never sees keys.
 - **The agent's own tools.** The client offers no ACP file-system or terminal capabilities, runs
   the agent in an empty folder in the plugin's data, and refuses permission requests for anything
-  but ToolBelt's MCP tools. ToolBelt's own grants and access levels still apply to those.
+  but ToolBelt's MCP tools. Claude Code sessions also start without its built-in tools, the
+  person's Claude settings and their other MCP servers. ToolBelt's own grants and access levels
+  still apply to ToolBelt's tools.
 - **Settings** live in the floating window: a gear in its title bar swaps the window to the
   plugin's settings (agent, command, test connection, what agents may see with a link to
   Settings → Agents); first run opens there.
