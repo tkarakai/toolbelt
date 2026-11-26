@@ -20,6 +20,7 @@ import {
   PackageManager,
 } from "../bun/packages";
 import { validatePackage } from "../sdk/package";
+import { requireProtocol } from "../shared/protocol";
 import { pluginAsset } from "../bun/plugin-assets";
 import { PluginHost, PluginProcess } from "../bun/host";
 
@@ -367,5 +368,7 @@ export function verifyFrozen(directory: string, config: ReleaseConfig) {
   return record;
 }
 export function pluginManifest(): PackageManifest {
-  return parsePackageManifest(json("toolbelt.json"));
+  const manifest = parsePackageManifest(json("toolbelt.json"));
+  requireProtocol(manifest);
+  return manifest;
 }

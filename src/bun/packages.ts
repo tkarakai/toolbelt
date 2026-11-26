@@ -17,6 +17,7 @@ import {
 } from "node:fs";
 import { join, dirname, resolve, basename } from "node:path";
 import { gunzipSync } from "node:zlib";
+import { requireProtocol } from "../shared/protocol";
 import { randomUUID } from "node:crypto";
 import {
   CAPABILITIES,
@@ -68,6 +69,12 @@ export type Installed = {
 export type Registry = {
   formatVersion: 1;
   plugins: Record<string, Installed>;
+  /**
+   * Installation records this ToolBelt can't use (damaged, or written by another version), kept
+   * as they were so nothing is lost: they don't run, Settings → Plugins says why, and a valid
+   * record for the same plugin (reinstalling it) replaces them.
+   */
+  invalid?: Record<string, { record: unknown; error: string }>;
   seeded?: boolean;
   updateSchedule?: { lastChecked?: number; nextCheck?: number; error?: string };
 };
@@ -134,17 +141,43 @@ export function readRegistry(root: string): Registry {
   if (!existsSync(file)) return { formatVersion: 1, plugins: {} };
   return validateRegistry(JSON.parse(readFileSync(file, "utf8")), root);
 }
-function validateRegistry(value: any, root: string): Registry {
+/**
+ * Checks the registry's shape, and each installation record on its own: a record that fails
+ * moves to `invalid` instead of failing the registry, so one plugin can't stop ToolBelt.
+ * `strict` (recovery journals) throws instead.
+ */
+function validateRegistry(value: any, root: string, strict = false): Registry {
   if (
+    !value ||
     value.formatVersion !== 1 ||
     !value.plugins ||
-    typeof value.plugins !== "object"
+    typeof value.plugins !== "object" ||
+    Array.isArray(value.plugins) ||
+    (value.invalid !== undefined && (!value.invalid || typeof value.invalid !== "object" || Array.isArray(value.invalid)))
   )
     throw new Error("Invalid plugin registry");
-  for (const [id, p] of Object.entries(value.plugins) as [
-    string,
-    Installed,
-  ][]) {
+  const records: [string, unknown][] = [
+    ...Object.entries(value.invalid ?? {}).map(([id, entry]) => [id, (entry as { record?: unknown } | null)?.record] as [string, unknown]),
+    ...Object.entries(value.plugins),
+  ];
+  const plugins: Record<string, Installed> = {};
+  const invalid: Record<string, { record: unknown; error: string }> = {};
+  for (const [id, record] of records) {
+    try {
+      validateInstalled(id, record as Installed, root);
+      plugins[id] = record as Installed;
+      delete invalid[id];
+    } catch (error) {
+      if (strict) throw error;
+      if (!plugins[id]) invalid[id] = { record, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  const { invalid: _, ...rest } = value;
+  return { ...rest, plugins, ...(Object.keys(invalid).length ? { invalid } : {}) };
+}
+function validateInstalled(id: string, p: Installed, root: string) {
+  if (!p || typeof p !== "object") throw new Error("Invalid installation record");
+  {
     const manifest = parsePackageManifest(p.manifest);
     if (
       id !== manifest.id ||
@@ -211,9 +244,9 @@ function validateRegistry(value: any, root: string): Registry {
         throw new Error("Invalid recovery selection/path");
     }
   }
-  return value;
 }
 export function checkCompatibility(m: PackageManifest, hostVersion = "0.1.0") {
+  requireProtocol(m);
   if (!Bun.semver.satisfies(hostVersion, m.requires.host))
     throw new Error("Plugin requires another ToolBelt host version");
   if (!Bun.semver.satisfies(Bun.version, m.requires.bun))
@@ -400,10 +433,25 @@ export class PackageManager {
     if (local && this.development) return;
     throw new Error("Installed version asset bytes changed");
   }
-  registry() {
-    return readRegistry(this.root);
+  /** Why the plugin list can't be read at all, while it can't; plugins stay off meanwhile. */
+  unreadable: string | undefined;
+  /**
+   * The plugin list. A damaged one reads as empty, so ToolBelt still starts; it stays on disk
+   * untouched (save refuses to replace it) and `unreadable` says why.
+   */
+  registry(): Registry {
+    try {
+      const registry = readRegistry(this.root);
+      this.unreadable = undefined;
+      return registry;
+    } catch (error) {
+      this.unreadable = `ToolBelt couldn't read its plugin list (${join(this.root, "plugins/registry.json")}): ${error instanceof Error ? error.message : String(error)}. Plugins stay off until the file is fixed or removed.`;
+      return { formatVersion: 1, plugins: {} };
+    }
   }
-  private save(registry: Registry) {
+  /** Writes the plugin list; never over one that can't be read. */
+  save(registry: Registry) {
+    readRegistry(this.root);
     atomicJSON(join(this.root, "plugins/registry.json"), registry);
     syncParents(join(this.root, "plugins"), this.root);
   }
@@ -987,11 +1035,13 @@ export class PackageManager {
         validateRegistry(
           { formatVersion: 1, plugins: { [j.id]: j.next } },
           this.root,
+          true,
         );
         if (j.old)
           validateRegistry(
             { formatVersion: 1, plugins: { [j.id]: j.old } },
             this.root,
+            true,
           );
       } catch (error) {
         const quarantine = join(this.root, "plugins/quarantine-transactions");

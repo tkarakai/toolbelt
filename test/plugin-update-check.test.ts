@@ -19,7 +19,7 @@ function fixture() {
   atomicJSON(join(root,"plugins/registry.json"),registry);
   let executions = 0;
   const released: string[] = [], requested: string[] = [];
-  const packages = {root,collectCandidates:()=>{},recoveryWarnings:[],listeners:new Set(), registry:() => readRegistry(root), releaseCandidate:(candidate:Candidate) => released.push(candidate.manifest.id), install:async () => {executions++;}} as unknown as PackageManager;
+  const packages = {root,collectCandidates:()=>{},recoveryWarnings:[],listeners:new Set(), registry:() => readRegistry(root), save:(registry: unknown) => atomicJSON(join(root,"plugins/registry.json"),registry), releaseCandidate:(candidate:Candidate) => released.push(candidate.manifest.id), install:async () => {executions++;}} as unknown as PackageManager;
   const host = {subscribe:() => {},list:() => [],prepare:async () => {executions++;},stop:async () => {executions++;}} as unknown as PluginHost;
   const resolve = async (_manager:PackageManager,repo:string): Promise<Candidate> => {
     requested.push(repo);

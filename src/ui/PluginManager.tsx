@@ -234,7 +234,7 @@ export function PluginManager({
           )}
           {state.plugins
             .filter((p) => !p.removed)
-            .map((p) => (
+            .map((p) => { const outdated = p.enabled && p.inspection?.protocol.ok === false; return (
               <article
                 key={p.id}
                 aria-label={p.manifest.name}
@@ -247,10 +247,10 @@ export function PluginManager({
                     <RepositoryLink repo={p.repo}/>
                   </div>
                   <div className="ml-auto flex flex-wrap items-center gap-1.5">
-                    <span role="status" className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs capitalize", pillClass(!p.enabled ? "muted" : p.phase === "ready" ? "success" : p.phase === "failed" || p.phase === "quarantined" ? "danger" : "warning"))}>
-                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true"/>{!p.enabled ? "Disabled" : p.phase === "ready" ? "Running" : p.phase ?? "Installed"}
+                    <span role="status" className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs capitalize", pillClass(!p.enabled ? "muted" : outdated ? "warning" : p.phase === "ready" ? "success" : p.phase === "failed" || p.phase === "quarantined" ? "danger" : "warning"))}>
+                      <span className="size-1.5 rounded-full bg-current" aria-hidden="true"/>{!p.enabled ? "Disabled" : outdated ? "Needs update" : p.phase === "ready" ? "Running" : p.phase ?? "Installed"}
                     </span>
-                    <Button variant="ghost" size="sm" aria-label={`Reload ${p.manifest.name}`} title="Reload plugin" disabled={busy || !p.enabled || !adapter.restart || isActivePhase(p.phase)} onClick={() => void run(async () => {
+                    <Button variant="ghost" size="sm" aria-label={`Reload ${p.manifest.name}`} title="Reload plugin" disabled={busy || !p.enabled || outdated || !adapter.restart || isActivePhase(p.phase)} onClick={() => void run(async () => {
                       setRestartingId(p.id);
                       try { await adapter.restart!(p.id); } finally { if (mounted.current) setRestartingId(undefined); }
                     })}>{restartingId === p.id && <Loader2 className="animate-spin"/>}Reload</Button>
@@ -356,7 +356,7 @@ export function PluginManager({
                   </details>
                 )}
               </article>
-            ))}
+            ); })}
 
         </SettingsGroup>
         <SettingsGroup title="Install New Plugin"><form

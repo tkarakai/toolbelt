@@ -38,7 +38,7 @@ The package carries a bundled entrypoint and any fully local helpers or dependen
 No publisher install/build scripts execute during download or extraction.
 
 Format version, protocol major, plugin version, SDK diagnostic version, host version and
-managed-data schema are separate contracts. Package format and protocol are currently 1.
+managed-data schema are separate contracts. Package format is currently 1 and protocol 2.
 Unknown required capabilities reject activation; optional capabilities require plugin-authored
 fallbacks using the host's negotiated capability set. Compatibility is checked before the
 installed plugin is disrupted. The host provides Bun; it does not install per-plugin runtimes.
@@ -77,7 +77,14 @@ layout below and shares only `settings.json`; see [plugin-development.md](plugin
 | `cache/packages/<sha256>` | Verified archive bytes |
 | `cache/icons/` | Finder icon cache |
 
-Production discovery uses the registry, not loose plugin-folder scanning. Source files,
+Production discovery uses the registry, not loose plugin-folder scanning. No plugin stops the
+host from starting: each installation record is validated on its own, and one that fails moves
+to the registry's `invalid` map unchanged (it doesn't run, Settings → Plugins reports it, and a
+valid record for the same id replaces it). A registry that can't be read at all reads as empty,
+starts no plugins, is reported, and is never overwritten. A record for another plugin protocol
+stays valid and installed so it can be updated; `requireProtocol` refuses it when installing,
+packing or starting, and the plugin's screen and card say it needs an update. Recovery failures
+and later stray errors are logged and reported rather than ending the host. Source files,
 sibling repositories and shared `node_modules` are not runtime dependencies. The SDK exposes
 `dataDir()`, `packageRoot()`, `payload(relative)` and `asset(name)` for the package/data split.
 

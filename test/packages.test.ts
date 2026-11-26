@@ -755,7 +755,7 @@ test("installing a stable release preserves a prerelease update preference and r
   }
 });
 
-test("malformed persisted release identity is rejected before package use",async () => {
+test("malformed persisted release identity is set aside before package use",async () => {
   const a=await archive(),{root,manager}=setup();
   try {
     await manager.install({...await manager.stage(a.bytes,a.hash,"test/fixture"),channel:"stable"},true);
@@ -764,9 +764,75 @@ test("malformed persisted release identity is rejected before package use",async
       const corrupt=structuredClone(valid);
       (corrupt.plugins.fixture as unknown as Record<string,unknown>)[field]="unrecognized";
       writeFileSync(join(root,"plugins/registry.json"),JSON.stringify(corrupt));
-      expect(() => manager.registry()).toThrow();
+      expect(manager.registry().plugins.fixture).toBeUndefined();
+      expect(manager.registry().invalid?.fixture?.error).toBeTruthy();
     }
     writeFileSync(join(root,"plugins/registry.json"),JSON.stringify(valid));
     expect(manager.registry().plugins.fixture!.installedChannel).toBe("stable");
   } finally {rmSync(root,{recursive:true,force:true});rmSync(a.source,{recursive:true,force:true});}
+});
+
+test("one unusable installation record never stops the others, and is kept as it was", async () => {
+  const a = await archive(),
+    b = await archive(manifest("1.0.0", "other")),
+    { root, manager } = setup();
+  try {
+    await manager.install(await manager.stage(a.bytes, a.hash, "test/fixture"), true);
+    await manager.install(await manager.stage(b.bytes, b.hash, "test/fixture"), true);
+    const file = join(root, "plugins/registry.json");
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    saved.plugins.other.hash = "not a hash";
+    writeFileSync(file, JSON.stringify(saved));
+    const registry = manager.registry();
+    expect(Object.keys(registry.plugins)).toEqual(["fixture"]);
+    expect(registry.invalid?.other?.error).toContain("identity/path");
+    // Saving keeps the unusable record, under `invalid`, untouched.
+    await manager.enabled("fixture", false);
+    const after = JSON.parse(readFileSync(file, "utf8"));
+    expect(after.invalid.other.record).toEqual(saved.plugins.other);
+    expect(after.plugins.other).toBeUndefined();
+    // A valid record for the same plugin replaces it.
+    await manager.install(await manager.stage(b.bytes, b.hash, "test/fixture"), true);
+    expect(manager.registry().plugins.other?.version).toBe("1.0.0");
+    expect(manager.registry().invalid).toBeUndefined();
+  } finally {
+    for (const dir of [root, a.source, b.source]) rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a plugin list ToolBelt can't read reads as empty and is never overwritten", async () => {
+  const a = await archive(),
+    { root, manager } = setup();
+  try {
+    mkdirSync(join(root, "plugins"), { recursive: true });
+    writeFileSync(join(root, "plugins/registry.json"), "{ damaged");
+    expect(manager.registry().plugins).toEqual({});
+    expect(manager.unreadable).toContain("couldn't read its plugin list");
+    await expect(manager.install(await manager.stage(a.bytes, a.hash, "test/fixture"), true)).rejects.toThrow();
+    expect(readFileSync(join(root, "plugins/registry.json"), "utf8")).toBe("{ damaged");
+    rmSync(join(root, "plugins/registry.json"));
+    expect(manager.registry().plugins).toEqual({});
+    expect(manager.unreadable).toBeUndefined();
+  } finally {
+    for (const dir of [root, a.source]) rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a plugin built for another protocol stays installed and is refused only when installing or starting", async () => {
+  const a = await archive(),
+    old = await archive({ ...manifest("0.9.0"), protocol: 1, agent: undefined } as unknown as ReturnType<typeof manifest>),
+    { root, manager } = setup();
+  try {
+    await expect(manager.stage(old.bytes, old.hash, "test/fixture")).rejects.toThrow("Plugin needs an update: it was built for plugin protocol 1");
+    // An installation from the previous ToolBelt: its record names protocol 1.
+    await manager.install(await manager.stage(a.bytes, a.hash, "test/fixture"), true);
+    const file = join(root, "plugins/registry.json");
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    saved.plugins.fixture.manifest = { ...saved.plugins.fixture.manifest, protocol: 1, agent: undefined };
+    writeFileSync(file, JSON.stringify(saved));
+    expect(manager.registry().plugins.fixture?.manifest.protocol).toBe(1);
+    expect(manager.registry().invalid).toBeUndefined();
+  } finally {
+    for (const dir of [root, a.source, old.source]) rmSync(dir, { recursive: true, force: true });
+  }
 });

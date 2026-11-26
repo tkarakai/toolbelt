@@ -71,7 +71,7 @@ function fixture(extra: Partial<Installed> = {}) {
   };
   const registry: Registry = { formatVersion: 1, plugins: { demo: installed } };
   atomicJSON(join(root, "plugins/registry.json"), registry);
-  const packages = { root, hostVersion: "0.5.1", collectCandidates: () => {}, recoveryWarnings: [], listeners: new Set(), registry: () => readRegistry(root), releaseCandidate: () => {} } as unknown as PackageManager;
+  const packages = { root, hostVersion: "0.5.1", collectCandidates: () => {}, recoveryWarnings: [], listeners: new Set(), registry: () => readRegistry(root), save: (r: Registry) => atomicJSON(join(root, "plugins/registry.json"), r), releaseCandidate: () => {} } as unknown as PackageManager;
   const host = { subscribe: () => {}, list: () => [{ manifest: installed.manifest, state: "running", badge: null, sdk: "0.3.18" }] } as unknown as PluginHost;
   return { root, packages, host };
 }
@@ -96,10 +96,12 @@ test("Settings → Plugins state carries each plugin's inspection and release da
   }
 });
 
-test("the registry refuses malformed release times", () => {
+test("the registry sets aside a record with malformed release times", () => {
   const f = fixture({ publishedAt: -1 });
   try {
-    expect(() => readRegistry(f.root)).toThrow("Invalid plugin release time");
+    const registry = readRegistry(f.root);
+    expect(Object.keys(registry.plugins)).toEqual([]);
+    expect(Object.values(registry.invalid ?? {})[0]?.error).toBe("Invalid plugin release time");
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultScreen, parseManifest, splitLines } from "../src/shared/protocol";
+import { defaultScreen, parseManifest, requireProtocol, splitLines } from "../src/shared/protocol";
 
 const base = { id: "demo", name: "Demo", protocol: 2, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "a", title: "A" }] };
 
@@ -12,11 +12,19 @@ describe("parseManifest", () => {
 
 	test("rejects what Toolbelt can't use", () => {
 		expect(() => parseManifest({ ...base, id: "Has Spaces" })).toThrow("`id`");
-		expect(() => parseManifest({ ...base, protocol: 99 })).toThrow("`protocol` must be 2");
+		expect(() => parseManifest({ ...base, protocol: "2" })).toThrow("`protocol` must be a whole number");
 		expect(() => parseManifest({ ...base, screens: [] })).toThrow("at least one screen");
 		expect(() => parseManifest({ ...base, entry: "" })).toThrow("`entry`");
 		expect(() => parseManifest({ ...base, agent: undefined })).toThrow("`agent.access` is required");
 		expect(() => parseManifest(null)).toThrow("not an object");
+	});
+
+	test("a manifest for another protocol parses, so its installation survives a ToolBelt update, and is refused by requireProtocol", () => {
+		const old = parseManifest({ ...base, protocol: 1, agent: undefined });
+		expect(old.protocol).toBe(1);
+		expect(() => requireProtocol(old)).toThrow("Plugin needs an update: it was built for plugin protocol 1, and this ToolBelt speaks protocol 2");
+		expect(() => requireProtocol(parseManifest(base))).not.toThrow();
+		expect(() => parseManifest({ ...base, protocol: 1, agent: { access: "all" } })).toThrow("`agent.access`");
 	});
 
 	test("default screen: the one marked default, else the first", () => {

@@ -4,7 +4,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   PackageManager,
-  atomicJSON,
   recoveryChoiceId,
   type Candidate,
 } from "./packages";
@@ -132,6 +131,13 @@ export class PluginManagerService {
         }),
       operations: [
         ...this.operations.values(),
+        ...(this.packages.unreadable ? [{ id: "registry-unreadable", phase: "failed", detail: this.packages.unreadable, cancellable: false }] : []),
+        ...Object.entries(registry.invalid ?? {}).map(([id, { error }]) => ({
+          id: `invalid-${id}`,
+          phase: "failed",
+          detail: `${id} isn't loaded: its installation can't be used (${error}). Install it again to replace it.`,
+          cancellable: false,
+        })),
         ...this.packages.recoveryWarnings
           .slice(-10)
           .map((detail, index) => ({
@@ -312,7 +318,7 @@ export class PluginManagerService {
         nextCheck: Date.now() + 6 * 3600000,
         error,
       };
-      atomicJSON(join(this.packages.root, "plugins/registry.json"), registry);
+      this.packages.save(registry);
       this.emit();
     } finally {
       this.checking = false;
@@ -379,10 +385,7 @@ export class PluginManagerService {
           delete p.updateFailure;
           delete p.updateCheckedAt;
           this.available.delete(p.id);
-          atomicJSON(
-            join(this.packages.root, "plugins/registry.json"),
-            registry,
-          );
+          this.packages.save(registry);
           break;
         }
         case "cleanup": {

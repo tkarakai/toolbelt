@@ -64,6 +64,10 @@ import { cleanView } from "../shared/views";
 import { PERSON } from "../shared/protocol";
 import pkg from "../../package.json" with { type: "json" };
 
+// Nothing a plugin does, and no error after startup, ends ToolBelt: a stray one is logged instead.
+process.on("uncaughtException", (error) => console.error("uncaught:", error));
+process.on("unhandledRejection", (error) => console.error("unhandled rejection:", error));
+
 /** Last requested list geometry, reused when the native popover is shown again. */
 let listHeight = 520;
 let popoverDetails = false;
@@ -151,7 +155,11 @@ const packages = new PackageManager(
   undefined,
   !!developmentProfile,
 );
-await packages.recover();
+// Recovery problems are reported in Settings → Plugins; they never stop ToolBelt from starting.
+await packages.recover().catch((error) => {
+  console.error("plugin recovery:", error);
+  packages.recoveryWarnings.push(`Plugin recovery stopped: ${error instanceof Error ? error.message : String(error)}`);
+});
 const manager = new PluginManagerService(packages, host);
 // ── agent interface (docs/agent-interface.md) ─────────────────────────────────────
 const agents = createAgentInterface({

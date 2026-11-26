@@ -5,11 +5,13 @@ import {
   safeRelative,
   type PackageManifest,
 } from "../shared/package";
+import { requireProtocol } from "../shared/protocol";
 /** Validate an author's built output before archiving; never resolves dependencies or runs scripts. */
 export function validatePackage(root: string): PackageManifest {
   const manifest = parsePackageManifest(
     JSON.parse(readFileSync(join(root, "toolbelt.json"), "utf8")),
   );
+  requireProtocol(manifest);
   const files = [
     manifest.entry,
     ...Object.values(manifest.assets ?? {}),
