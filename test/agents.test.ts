@@ -567,7 +567,8 @@ describe("agent core", () => {
 		const r = await core.call(session, "read_screen", { plugin: "tasks" });
 		expect(r).toEqual({ text: "Tasks is crashed: boom. The person can restart it in ToolBelt.", isError: true, kind: "unavailable" });
 		const status = await core.call(session, "toolbelt_status", { format: "json" });
-		expect(status.text).not.toContain("34");
+		// The stale badge (34) appears nowhere in the plugin's entry (the whole text also holds the pid).
+		expect(JSON.stringify((status.data as { plugins: unknown[] }).plugins)).not.toContain("34");
 		expect((status.data as { plugins: { badge: unknown; state: string }[] }).plugins[0]).toMatchObject({ state: "crashed", badge: null });
 		expect((await core.call(session, "toolbelt_status")).text).toContain("Tasks (tasks) 1.0.0: crashed (can't be read until the person restarts it)");
 		expect((await core.call(session, "list_screens")).text).toContain('screen "main" (default) (unavailable: Tasks is crashed)');
