@@ -203,11 +203,15 @@ export async function publish(
       type: "commit",
       tagger: undefined,
     });
-    await gh.request("git/refs", "POST", {
+    // The created ref is the answer; reading it back right away can briefly find nothing.
+    ref = await gh.request("git/refs", "POST", {
       ref: `refs/tags/${tag}`,
       sha: object.sha,
     });
-    ref = await gh.request(`git/ref/tags/${tag}`);
+    for (let attempt = 0; !ref?.object && attempt < 5; attempt++) {
+      await Bun.sleep(1000 * (attempt + 1));
+      ref = await gh.request(`git/ref/tags/${tag}`);
+    }
   }
   if (ref?.object.type !== "tag") throw Error("Release tag must be annotated");
   const tagged = await gh.request(`git/tags/${ref.object.sha}`);
