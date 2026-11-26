@@ -112,6 +112,8 @@ function fixture(releaseRequest: Request = request) {
     ref: any = null;
   let writes = 0;
   let failAfter: string | undefined;
+  /** Reads of the tag ref that still find nothing after it was created (GitHub's lag). */
+  let refLag = 0;
   const bytes = new Map<string, Uint8Array>();
   const server = Bun.serve({
     port: 0,
@@ -149,8 +151,13 @@ function fixture(releaseRequest: Request = request) {
             "base64",
           ),
         });
-      if (p === "git/ref/tags/" + tag)
+      if (p === "git/ref/tags/" + tag) {
+        if (ref && refLag > 0) {
+          refLag--;
+          return new Response("", { status: 404 });
+        }
         return ref ? response(ref) : new Response("", { status: 404 });
+      }
       if (p === "git/tags" && req.method === "POST") {
         writes++;
         return fail("tag-object") || response({ sha: "tag-object" });
@@ -232,6 +239,9 @@ function fixture(releaseRequest: Request = request) {
     setFailure: (s: string) => {
       failAfter = s;
     },
+    setRefLag: (n: number) => {
+      refLag = n;
+    },
   };
 }
 for (const stage of ["tag-object", "ref", "draft", "upload", "publish"])
@@ -250,6 +260,16 @@ for (const stage of ["tag-object", "ref", "draft", "upload", "publish"])
       f.server.stop(true);
     }
   });
+test("a tag GitHub can't read back yet is still published", async () => {
+  const f = fixture();
+  try {
+    f.setRefLag(1);
+    await publish(f.gh, f.candidate, config);
+    expect(f.release.draft).toBe(false);
+  } finally {
+    f.server.stop(true);
+  }
+});
 test("conflicting remote bytes are never clobbered", async () => {
   const f = fixture();
   try {

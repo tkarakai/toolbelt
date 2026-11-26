@@ -1,6 +1,7 @@
 # SDK changelog
 
 ## Unreleased
+- The release publisher uses the tag ref it just created instead of reading it back at once. GitHub sometimes can't find a new ref for a moment, which stopped publication with "Release tag must be annotated" until a retry.
 
 ## 0.4.0 — 2026-11-25
 - **Protocol 2 (breaking).** Hosts and plugins speak only protocol 2: `open`, `close`, `event` and `render` carry an `instance`, the host can set an instance's view with `view`, and plugins report view changes with `view` and send their view declarations in `hello`. Manifests must declare `protocol: 2` and `agent.access`.
