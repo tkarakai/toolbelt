@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Agent screen reads are much shorter: rows come one line each unless an agent asks for `details: true` (or `toolbelt read --details`), and the result says how. On a 12-task OnTrack board this cut a read from about 12,000 to 3,000 characters, and the JSON form from about 88,000 to 9,000.
+- With details, a row's drawer no longer repeats its title, subtitle or section, or lists empty fields, empty timelines and duplicate counts; JSON gives a drawer field's chosen labels instead of every row repeating all the choices, and leaves out more display-only fields (colors, shades, keyboard shortcuts, column hiding).
 
 ## 0.6.1 — 2026-11-26
 - **ToolBelt 0.6.0 didn't start when plugins built for the previous version were installed**: it quit while reading them. ToolBelt now always starts. Such a plugin shows "needs an update" on its screen and in Settings → Plugins, where you update it; its data is kept.

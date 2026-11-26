@@ -29,7 +29,8 @@
 			"args": {
 				"plugin": "desk",
 				"screen": "tasks",
-				"max_rows": 20
+				"max_rows": 20,
+				"details": true
 			},
 			"expect": {
 				"contains": [

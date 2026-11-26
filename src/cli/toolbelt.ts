@@ -17,7 +17,7 @@ Usage:
       --max-rows N   rows per table (default 50)
       --table ID --offset N   page through one table (offsets count top-level rows)
       --parent ROW   with --table: page that row's child rows instead
-      --no-details   leave out row details
+      --details      include each row's inspector details (left out by default)
       --json         the plugin's UI tree as JSON
       View: your own copy of the screen, searched, filtered and sorted (never the person's):
       --search TEXT          the screen's search
@@ -51,7 +51,7 @@ const VIEW_FLAGS = ["search", "filter", "sort", "control"];
 const COMMAND_FLAGS: Record<string, string[]> = {
 	status: [],
 	screens: ["plugin"],
-	read: ["max-rows", "table", "offset", "parent", "no-details", "person", ...VIEW_FLAGS],
+	read: ["max-rows", "table", "offset", "parent", "details", "no-details", "person", ...VIEW_FLAGS],
 	show: ["open-window", ...VIEW_FLAGS],
 	search: ["plugin"],
 	plugins: [],
@@ -330,7 +330,7 @@ async function main() {
 				...(typeof flags.get("table") === "string" ? { table: flags.get("table") } : {}),
 				...(typeof flags.get("parent") === "string" ? { parent: flags.get("parent") } : {}),
 				...(int("offset") !== undefined ? { offset: int("offset") } : {}),
-				...(flags.has("no-details") ? { details: false } : {}),
+				...(flags.has("details") ? { details: true } : flags.has("no-details") ? { details: false } : {}),
 			};
 			{
 				const view = viewOf(flags, repeated);

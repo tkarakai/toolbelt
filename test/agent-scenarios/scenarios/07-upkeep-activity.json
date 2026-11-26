@@ -24,7 +24,8 @@
 			"args": {
 				"plugin": "kit",
 				"screen": "activity",
-				"max_rows": 20
+				"max_rows": 20,
+				"details": true
 			},
 			"expect": {
 				"contains": [

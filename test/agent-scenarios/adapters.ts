@@ -223,7 +223,7 @@ export class CliAdapter implements ChannelAdapter {
 					...(args.table !== undefined ? ["--table", String(args.table)] : []),
 					...(args.offset !== undefined ? ["--offset", String(args.offset)] : []),
 					...(args.parent !== undefined ? ["--parent", String(args.parent)] : []),
-					...(args.details === false ? ["--no-details"] : []),
+					...(args.details === true ? ["--details"] : args.details === false ? ["--no-details"] : []),
 					...(args.format === "json" || structured ? ["--json"] : []),
 				];
 		}
