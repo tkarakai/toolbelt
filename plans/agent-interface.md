@@ -606,7 +606,7 @@ upgrade.
 | 5 | Protocol v2 specification for waves A and B | — | R2–R8, R14 | 4 |
 | 6 | Wave A in host, SDK and SDK Explorer | Phase A | R4 (view control), R6, R8, R9, R10, R12, R14 | 5 |
 | 7 | Wave A plugin upgrades (OnTrack, Upkeep, Processes) | Phase A | R11 | 6 |
-| 8 | Floating plugins in host and SDK (a window over the main screen; phone sheet; popover quick view), `TOOLBELT_AGENT_COMMAND` and `toolbelt mcp --client` | Step 4, host side | — | 7 |
+| 8 | Floating plugins in host and SDK (a window over the main screen; phone sheet), `TOOLBELT_AGENT_COMMAND` and `toolbelt mcp --client` | Step 4, host side | — | 7 |
 | 9 | Agent plugin 0.1: in-app chat as an ACP client, read-and-show only (reads screens, `show_screen` under a view grant) | Step 4 | — | 8, its SDK release |
 | 10 | Wave B1 in host, SDK and SDK Explorer, then plugin upgrades. The core of the original step 5 lands here. The Agent plugin gains actions and approval cards | Phase B1 (step 1, action side) | R1–R5, R7, R9–R12 | 9 |
 | 11 | Autonomous sessions under standing grants | Phase B2 | R13 | 10 |
@@ -808,7 +808,7 @@ with a title bar (`mode: "panel"`). ToolBelt draws and owns the window: moving, 
 minimizing into its sidebar item at the bottom of the sidebar (above Settings), stacking, focus,
 an optional ⌘ shortcut, and frames remembered per profile. Windows stay inside ToolBelt's window
 and aren't modal; only host approvals (view grants) block. On a phone one floating plugin at a
-time shows as a bottom sheet; in the popover, a floating plugin's content is its quick view.
+time shows as a bottom sheet. The menu-bar popover doesn't list floating plugins.
 Plugins get `TOOLBELT_AGENT_COMMAND` to start ToolBelt's MCP server for an agent, and
 `toolbelt mcp --client NAME` names that session ("Agent · Claude Code") in grants and the audit
 log. No protocol change: the plugin requires ToolBelt 0.7.0 and the capability.

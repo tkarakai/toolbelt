@@ -8,8 +8,7 @@ import { FocusRescue, TabbableControls, overlayOpen } from "./lib/keyboard";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, FlaskConical, Maximize2, Power, Settings } from "lucide-react";
 import { pillClass } from "@/renderer/colors";
-import { defaultScreen } from "../shared/protocol";
-import { FloatingQuickContent } from "./Floating";
+import { defaultScreen, floatingOnly } from "../shared/protocol";
 import { popoverLayout, type PopoverLayout } from "../shared/popover";
 import { assignLetters } from "../shared/letters";
 import type { PluginInfo } from "../shared/rpc";
@@ -32,7 +31,9 @@ const native = (window as { __electrobunWebviewId?: number }).__electrobunWebvie
 const panelStyle = "flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-xl border bg-popover/95 text-popover-foreground shadow-xl backdrop-blur-xl";
 
 export default function Popover() {
-    const plugins = usePlugins();
+    const all = usePlugins();
+    // Floating plugins without screens belong with the screens they float over, not here.
+    const plugins = useMemo(() => all.filter(p => !floatingOnly(p.manifest)), [all]);
     const drag = usePluginDrag(plugins.map(p => p.manifest.id));
     const development = useUpdateState()?.channel === "dev";
     const pluginDevelopment = useDevelopment();
@@ -109,8 +110,7 @@ export default function Popover() {
         return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); clearTimeout(timer); animation.cancel(); };
     }, [shown.n, shown.closing]);
     const letters = useMemo(() => assignLetters(plugins.map(p => ({ id: p.manifest.id, name: p.manifest.name }))), [plugins]);
-    // Floating plugins show their window's content here, as their quick view.
-    const hasDetails = !!current?.manifest.quickView || !!current?.manifest.floating;
+    const hasDetails = !!current?.manifest.quickView;
     const showDetails = hasDetails && revealReady && !shown.closing && !quitRequested;
     // Reserve the submenu geometry before first paint; the delayed reveal only
     // adds the panel, without resizing or moving the already-visible menu.
@@ -366,7 +366,7 @@ export default function Popover() {
 										{letters.get(p.manifest.id)}
 									</Kbd>
 								)}
-								{(p.manifest.quickView || p.manifest.floating) && <SideChevron className={cn("size-4 text-muted-foreground/50", i === active && "text-selected-foreground")} />}
+								{p.manifest.quickView && <SideChevron className={cn("size-4 text-muted-foreground/50", i === active && "text-selected-foreground")} />}
 							</button>
 						))}
 					</div>
@@ -423,7 +423,7 @@ function PluginDetails({ info, onOpen }: { info: PluginInfo; onOpen: () => void 
                 <Maximize2 /> Open
             </Button>
         </div>
-        {!m.quickView && m.floating ? <div data-quick-content className="flex min-h-0 flex-1 flex-col"><FloatingQuickContent key={m.id} info={info} /></div> : <QuickContent key={m.id} info={info} />}
+        <QuickContent key={m.id} info={info} />
     </>;
 }
 

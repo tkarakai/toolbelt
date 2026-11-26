@@ -4,7 +4,8 @@
 // below, so they're regions, never `role=dialog` (which tells the rest of the window to stand
 // back). The plugin renders a `floating` node: an ask bar (`mode: "bar"`) or a panel with a
 // title bar. Frames (position, size, open), stacking and focus are renderer state; frames are
-// remembered per profile. On a phone, one floating plugin at a time shows as a bottom sheet.
+// remembered per profile. On a phone, one floating plugin at a time shows as a bottom sheet. The
+// menu-bar popover doesn't list floating plugins: they belong with the screens they float over.
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronsUpDown, GripVertical, Loader2, Minus, Sparkles, X } from "lucide-react";
 import type { Node, Suggestion } from "../shared/protocol";
@@ -190,7 +191,7 @@ export function FloatingProvider({ plugins, children }: { plugins: PluginInfo[];
 		return () => window.removeEventListener("pointerdown", onDown, true);
 	}, []);
 
-	// "Open" in the menu-bar popover (or a plugin's navigation) to a floating plugin opens its window.
+	// Navigation to a floating plugin without screens (such as a notification's) opens its window.
 	useNavigate(useCallback((plugin: string) => {
 		const p = floating.find((x) => x.manifest.id === plugin);
 		if (p && !p.manifest.screens.length) open(plugin);
@@ -289,7 +290,7 @@ export function FloatingLayer() {
 }
 
 function useFloatingTree(info: PluginInfo) {
-	const f = useFloating(); // none in the popover
+	const f = useFloating();
 	const id = info.manifest.id;
 	const tree = useSurface(id, SURFACE);
 	const node: FloatingNode | null = tree?.type === "floating" ? tree : tree ? { type: "floating", mode: "panel", children: [tree] } : null;
@@ -666,25 +667,6 @@ function SheetContent({ info, onSwitch }: { info: PluginInfo; onSwitch?: () => v
 				) : node.mode === "bar" ? (
 					<div className="flex min-h-0 flex-1 flex-col justify-end">
 						<AskBar info={info} node={node} emit={emit} focused onMinimize={close} mobile />
-					</div>
-				) : (
-					<PanelBody node={node} emit={emit} />
-				)}
-			</div>
-		</FloatingContextValue>
-	);
-}
-
-/** The popover's view of a floating plugin: its content as a panel, without the window around it. */
-export function FloatingQuickContent({ info }: { info: PluginInfo }) {
-	const { node, emit } = useFloatingTree(info);
-	if (!node) return null;
-	return (
-		<FloatingContextValue info={info}>
-			<div className="flex min-h-0 flex-1 flex-col">
-				{node.mode === "bar" ? (
-					<div className="flex min-h-0 flex-1 flex-col justify-end">
-						<AskBar info={info} node={node} emit={emit} focused onMinimize={() => {}} mobile />
 					</div>
 				) : (
 					<PanelBody node={node} emit={emit} />

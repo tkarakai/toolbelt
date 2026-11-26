@@ -198,9 +198,9 @@ plugin keeps rendering while its window is minimized (the surface stays open whi
 window is), so work continues and the sidebar item stays current.
 
 On a phone (paired remote access), floating plugins show one at a time: a button above the tab
-bar opens the last one used in a bottom sheet, whose header switches between them. In the menu-bar
-popover, a floating plugin is listed with the others and shows its window's content as its quick
-view; its Open button opens the window.
+bar opens the last one used in a bottom sheet, whose header switches between them. The menu-bar
+popover doesn't list floating plugins (unless they also declare `quickView`): they belong with the
+screens they float over.
 
 A plugin that starts an AI agent can give it ToolBelt's MCP server: `agentCommand()` (from
 `TOOLBELT_AGENT_COMMAND`) is `[bun, cli, "--socket", path]` for this ToolBelt; append `"mcp"`
