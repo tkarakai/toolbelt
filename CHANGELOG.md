@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.7.1 — 2026-11-27
 - Floating windows grow out of their sidebar icon when they open and shrink back into it when you minimize them. Before, they faded somewhere near the item.
 - Expanding a floating window from its ask bar back into a panel animates, like folding it back did.
 - A floating window's title bar buttons are the same size as elsewhere in ToolBelt.
