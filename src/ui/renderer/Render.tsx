@@ -2769,7 +2769,8 @@ function InspectorBody({ item, selected, actions, paneButtons, enter, run, emit,
 /**
  * A narrow screen's details: a sheet from the bottom with a grab handle, which a downward swipe
  * (on the handle or header, or on content scrolled to its top), a tap outside or Esc closes. Editable panes get a fixed tall sheet, so it doesn't jump as they
- * change; details fit their content.
+ * change; details fit their content. The pane height is `!important`: SheetContent's
+ * `data-[side=bottom]:h-auto` outranks a plain class, and the sheet would grow past the screen.
  */
 function DetailSheet({ open, onOpenChange, pane, children }: { open: boolean; onOpenChange: (open: boolean) => void; pane: boolean; children: ReactNode }) {
 	const swipe = useSheetDrag({ side: "bottom", onDismiss: () => onOpenChange(false) });
@@ -2778,7 +2779,7 @@ function DetailSheet({ open, onOpenChange, pane, children }: { open: boolean; on
 	if (open) last.current = children;
 	return (
 		<Sheet open={open} onOpenChange={onOpenChange}>
-<SheetContent ref={swipe} side="bottom" showCloseButton={false} aria-describedby={undefined} onOpenAutoFocus={(e) => (e.preventDefault(), (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true }))} className={cn("gap-0 overflow-hidden rounded-t-2xl bg-background p-0 pb-[env(safe-area-inset-bottom)] duration-200 ease-out data-open:slide-in-from-bottom-full! data-closed:slide-out-to-bottom-full!", pane ? "h-[88svh]" : "max-h-[85svh]")}>
+<SheetContent ref={swipe} side="bottom" showCloseButton={false} aria-describedby={undefined} onOpenAutoFocus={(e) => (e.preventDefault(), (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true }))} className={cn("gap-0 overflow-hidden rounded-t-2xl bg-background p-0 pb-[env(safe-area-inset-bottom)] duration-200 ease-out data-open:slide-in-from-bottom-full! data-closed:slide-out-to-bottom-full!", pane ? "h-[88svh]!" : "max-h-[85svh]")}>
 				<SheetTitle className="sr-only">Details</SheetTitle>
 				<div aria-hidden data-sheet-handle className="flex h-5 shrink-0 items-center justify-center"><div className="h-1.5 w-10 rounded-full bg-muted-foreground/30" /></div>
 				<div data-detail-sheet className="flex min-h-0 flex-1 flex-col">{open ? children : last.current}</div>
