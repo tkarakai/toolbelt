@@ -1,6 +1,7 @@
 // Plugin trees as agents read them (docs/agent-interface.md): compact text, or the tree as JSON, both
 // with sensitive values masked and long tables paged. Pure: no host state.
 import type { Action, Cell, Dot, Field, GroupLabel, Node, Row, Section, Tag } from "../../shared/protocol";
+import { labelled } from "./names";
 
 export const MASK = "••••••";
 
@@ -19,7 +20,12 @@ export type ReadOptions = {
 	parent?: string;
 	/** Hints name a resource URI to read next instead of read_screen options (a resource read). */
 	resource?: string;
+	/** Filter ids the reader chose: not pointed out as hiding rows. */
+	chosen?: string[];
 };
+
+/** A filter's options a read leaves out (its unchecked options with rows), for `search_screens`. */
+export type Hidden = { id: string; label: string; options: { value: string; label: string; count?: number }[] };
 
 export const DEFAULT_ROWS = 50;
 /** Size limits for agent results, in characters (MCP clients keep tool results small). */
@@ -180,6 +186,8 @@ const actionLabels = (actions?: Action[]) => [
 type Out = {
 	lines: string[];
 	notes: string[];
+	/** Filters hiding rows, on the page. */
+	hidden?: Hidden[];
 	/** Characters in `lines` up to `counted`. */
 	size?: number;
 	counted?: number;
@@ -194,7 +202,8 @@ function sizeOf(out: Out) {
 	return out.size;
 }
 
-type WalkOptions = Required<Omit<ReadOptions, "table" | "parent" | "resource">> & {
+type WalkOptions = Required<Omit<ReadOptions, "table" | "parent" | "resource" | "chosen">> & {
+	chosen?: string[];
 	table?: string;
 	parent?: string;
 	resource?: string;
@@ -351,8 +360,17 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 				const picked = f.options.filter((o) => f.selected.includes(o.value)).map((o) => o.label);
 				// A filter at its declared default ("Ongoing") isn't something the person set.
 				const atDefault = !!f.default && f.default.values.length === f.selected.length && f.default.values.every((v) => f.selected.includes(v));
-				out.lines.push(`Filter ${f.label}: ${atDefault ? `${f.default!.label} (default: ${picked.join(", ")})` : picked.length ? picked.join(", ") : "all"}${f.options.length ? ` (options: ${f.options.map((o) => `${o.label}${o.count !== undefined ? ` ${o.count}` : ""}`).join(", ")})` : ""}`);
+				// Ids and values appear where they differ from the label; agents can pass either.
+				const options = f.options.map((o) => `${labelled(o.label, o.value)}${o.count !== undefined ? ` ${o.count}` : ""}`);
+				out.lines.push(`Filter ${labelled(f.label, f.id)}: ${atDefault ? `${f.default!.label} (default: ${picked.join(", ")})` : picked.length ? picked.join(", ") : "all"}${options.length ? ` (options: ${options.join(", ")})` : ""}`);
 				if (picked.length && !atDefault) out.notes.push(`filter "${f.label}" = ${picked.join(", ")}`);
+				// Rows a filter the reader didn't choose leaves out, and how to include them.
+				const left = f.selected.length && !opts.chosen?.includes(f.id) ? f.options.filter((o) => !f.selected.includes(o.value) && o.count !== 0) : [];
+				if (left.length) {
+					(out.hidden ??= []).push({ id: f.id, label: f.label, options: left.map((o) => ({ value: o.value, label: o.label, ...(o.count !== undefined && { count: o.count }) })) });
+					const names = left.slice(0, 8).map((o) => `${o.label}${o.count !== undefined ? ` ${o.count}` : ""}`);
+					out.lines.push(`Hidden by this filter: ${names.join(", ")}${left.length > 8 ? ` and ${left.length - 8} more` : ""}. To include them, read with view {"filters": {${JSON.stringify(f.id)}: []}} (all) or add their values.`);
+				}
 			}
 			for (const c of node.controls ?? []) walk(c, opts, out);
 			if (node.highlight?.length) {
@@ -550,6 +568,7 @@ export function treeText(tree: Node, options: ReadOptions = {}) {
 		details: options.details ?? false,
 		now: options.now ?? Date.now(),
 		table: options.table,
+		chosen: options.chosen,
 	}, out);
 	const lines = out.lines.flatMap((l) => l.split("\n"));
 	while (lines[0] === "") lines.shift();
@@ -561,7 +580,7 @@ export function treeText(tree: Node, options: ReadOptions = {}) {
 		const shorter = options.details ? (options.resource ? ", or add details=false" : ", or pass details: false") : "";
 		text = `${kept.join("\n")}\n(truncated after line ${kept.length} of ${lines.length} at the result's size limit; read one table at a time with ${options.resource ? "?table=…&offset=…" : "table and offset"}${shorter})`;
 	}
-	return { text, viewState: out.notes };
+	return { text, viewState: out.notes, hidden: out.hidden ?? [] };
 }
 
 /** Protocol fields that hold epoch-millisecond times: JSON gets an ISO 8601 copy beside each (`atIso`). */
@@ -670,7 +689,7 @@ export function treeJson(tree: Node, options: ReadOptions = {}): Node {
 }
 
 /** Lines that describe a screen's controls, not its content: search skips them. */
-const CONTROL_LINE = /^(#|Columns:|Row actions:|Bulk actions:|Toolbar actions:|Actions:|Filter |Control |Empty sections:|\(showing|\(offset |\(\d+ (rows?|items) not listed|\(truncated)/;
+const CONTROL_LINE = /^(#|Columns:|Row actions:|Bulk actions:|Toolbar actions:|Actions:|Filter |Hidden by this filter:|Control |Empty sections:|\(showing|\(offset |\(\d+ (rows?|items) not listed|\(truncated)/;
 const ROW_LINE = /^- .*\{id: [^}]*\}/;
 export const SEARCH_CLIP = 300;
 
@@ -697,11 +716,15 @@ export type SearchHit = {
 	matched: string[];
 };
 
+/** A word without its ending, for closest matches: "renewal" → "renew", "laptops" → "lapto". */
+export const stem = (word: string) => (word.length > 5 ? word.slice(0, Math.max(5, word.length - 3)) : word);
+
 /**
- * Content lines of a screen's text that contain every word, grouped by row: a row that matches on
- * its line and its details is one hit. Lines are shortened to SEARCH_CLIP characters.
+ * Content lines of a screen's text that contain every word (or at least `need` of them), grouped
+ * by row: a row that matches on its line and its details is one hit. Lines are shortened to
+ * SEARCH_CLIP characters.
  */
-export function searchText(text: string, words: string[]): SearchHit[] {
+export function searchText(text: string, words: string[], need = words.length): SearchHit[] {
 	const hits: SearchHit[] = [];
 	let section = "";
 	let row: { indent: number; line: string; hit?: SearchHit } | null = null;
@@ -718,17 +741,18 @@ export function searchText(text: string, words: string[]): SearchHit[] {
 		else if (row && indent <= row.indent) row = null;
 		if (!line || CONTROL_LINE.test(line)) continue;
 		const lower = line.toLowerCase();
-		if (!words.every((w) => lower.includes(w))) continue;
+		const found = words.filter((w) => lower.includes(w));
+		if (!found.length || found.length < need) continue;
 		const shortened = clipLine(line);
-		const missing = shortened !== line && !words.every((w) => shortened.toLowerCase().includes(w));
+		const lost = shortened !== line ? found.find((w) => !shortened.toLowerCase().includes(w)) : undefined;
 		if (row) {
 			if (!row.hit) {
 				row.hit = { section, line: clipLine(row.line.replace(/^- /, "")), matched: [] };
 				hits.push(row.hit);
 			}
 			if (!isRow) row.hit.matched.push(shortened);
-			if (missing) row.hit.matched.push(around(line, words.find((w) => !shortened.toLowerCase().includes(w))!));
-		} else hits.push({ section, line: shortened, matched: missing ? [around(line, words.find((w) => !shortened.toLowerCase().includes(w))!)] : [] });
+			if (lost) row.hit.matched.push(around(line, lost));
+		} else hits.push({ section, line: shortened, matched: lost ? [around(line, lost)] : [] });
 	}
 	return hits;
 }

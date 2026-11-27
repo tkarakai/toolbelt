@@ -28,7 +28,8 @@ import {
 	type ViewGrant,
 } from "../../shared/agents";
 import { AuditLog } from "./audit";
-import { findRow, searchText, treeJson, treeText, TEXT_BUDGET, when, type SearchHit } from "./serialize";
+import { labelled, NameRefusal, resolveNames, type NamedView, type ViewNames } from "./names";
+import { findRow, searchText, stem, treeJson, treeText, TEXT_BUDGET, when, type Hidden, type SearchHit } from "./serialize";
 
 /** The parts of PluginHost the agent interface uses. Instances default to the person's. */
 export type AgentHost = {
@@ -156,8 +157,12 @@ export function suggest(wanted: string, candidates: { id: string; title?: string
 		})
 		.map((c) => c.id);
 }
-const UNAVAILABLE = (id: string, close: string[] = []) =>
-	new AgentRefusal(`No plugin "${id}" is available to agents.${close.length ? ` Did you mean ${close.map((c) => `"${c}"`).join(" or ")}?` : ""} Call list_screens to see what is.`);
+const UNAVAILABLE = (id: string, close: string[] = [], available: { id: string; name: string }[] = []) =>
+	new AgentRefusal(
+		`No plugin "${id}" is available to agents.${close.length ? ` Did you mean ${close.map((c) => `"${c}"`).join(" or ")}?` : ""} ${
+			available.length && available.length <= 10 ? `Plugins agents can read: ${available.map((p) => `${p.id} (${p.name})`).join(", ")}.` : available.length ? "Call list_screens to see what is." : "No plugin is available to agents."
+		}`,
+	);
 /** An epoch-milliseconds time as ISO 8601, or null. */
 const iso = (at: number | null | undefined) => (at ? new Date(at).toISOString() : null);
 /** A plugin's badge, only while it runs: a stopped plugin's last badge is stale. */
@@ -221,7 +226,7 @@ function tableNode(tree: unknown, id: string): Extract<Node, { type: "table" }> 
 /** The `view` parameter of read_screen and show_screen. */
 const VIEW_PARAM = {
 	description:
-		'Search, filter and sort the screen in this read, as the person would in ToolBelt (list_screens shows each screen\'s view controls): {"search": "text", "filters": {"<filter id>": ["<option value>", …]}, "sort": {"<table id>": "<column key>" or "-<column key>"}, "controls": {"<control id>": "<value>"}}. Unset parts keep the screen\'s defaults; an empty filter list means all. Or "person" for exactly what the person\'s screens show now.',
+		'Search, filter and sort the screen in this read, as the person would in ToolBelt (list_screens shows each screen\'s view controls): {"search": "text", "filters": {"<filter id or label>": ["<option value or label>", …]}, "sort": {"<table id>": "<column key or title>" or "-<column key>"}, "controls": {"<control id or label>": "<value or label>"}}. Names match ignoring case; read_screen shows ids and values in brackets where they differ from labels, and the result says how names were read. Unset parts keep the screen\'s defaults; an empty filter list means all. Or "person" for exactly what the person\'s screens show now.',
 	anyOf: [
 		{ type: "string", enum: ["person"] },
 		{
@@ -316,7 +321,7 @@ export class AgentCore {
 		const visible = this.visible();
 		const wanted = typeof id === "string" ? id.trim().toLowerCase() : "";
 		const p = visible.find((x) => x.id === id) ?? visible.find((x) => x.id.toLowerCase() === wanted || x.name.toLowerCase() === wanted);
-		if (!p) throw UNAVAILABLE(String(id), suggest(wanted, visible.map((x) => ({ id: x.id, title: x.name }))));
+		if (!p) throw UNAVAILABLE(String(id), suggest(wanted, visible.map((x) => ({ id: x.id, title: x.name }))), visible);
 		return p;
 	}
 
@@ -426,7 +431,7 @@ export class AgentCore {
 	viewSchema(plugin: string, surface: string): ViewSchema | null {
 		const declared = this.o.host.declaredView(plugin, surface);
 		if (!declared) return null;
-		const tree = this.o.host.snapshot(plugin, surface, PERSON)?.tree ?? this.o.host.snapshot(plugin, surface, "agent:default")?.tree ?? null;
+		const tree = this.schemaTree(plugin, surface);
 		const page = tree?.type === "page" ? tree : null;
 		return {
 			search: !!declared.search,
@@ -445,21 +450,71 @@ export class AgentCore {
 		};
 	}
 
+	/** The tree view controls are read from: the person's latest, else the default agent instance's. */
+	private schemaTree(plugin: string, surface: string) {
+		return this.o.host.snapshot(plugin, surface, PERSON)?.tree ?? this.o.host.snapshot(plugin, surface, "agent:default")?.tree ?? null;
+	}
+
+	/** What the screen's declared view controls are called, for names in an agent's view. */
+	private viewNames(plugin: string, surface: string): ViewNames {
+		const declared = this.o.host.declaredView(plugin, surface) ?? {};
+		const tree = this.schemaTree(plugin, surface);
+		const page = tree?.type === "page" ? tree : null;
+		return {
+			filters: Object.keys(declared.filters ?? {}).map((id) => {
+				const f = page?.filters?.find((x) => x.id === id);
+				return { id, label: f?.label ?? id, options: f ? f.options.map((o) => ({ value: o.value, label: o.label })) : null };
+			}),
+			controls: Object.keys(declared.controls ?? {}).map((id) => {
+				const c = page?.controls?.find((x) => x.id === id);
+				return { id, label: c?.label ?? id, options: c ? c.options.map((o) => ({ value: o.value, label: o.label })) : null };
+			}),
+			tables: Object.keys(declared.sort ?? {}).map((id) => {
+				const t = tableNode(tree, id);
+				return { id, columns: t ? t.columns.filter((c) => c.sortable).map((c) => ({ key: c.key, title: c.title || c.key })) : null };
+			}),
+		};
+	}
+
+	/** Renders the screen's default agent instance first when a view may name controls by label and no tree has their labels yet. */
+	private async namesReady(plugin: string, surface: string, input: ViewInput | undefined) {
+		if (!input || input === "person" || typeof input !== "object" || this.schemaTree(plugin, surface)) return;
+		if (![input.filters, input.sort, input.controls].some((part) => part && typeof part === "object" && Object.keys(part).length)) return;
+		await this.fresh(plugin, surface, "agent:default", {});
+	}
+
 	/**
 	 * The instance and view state for what the agent asked: the person's instance for "person",
 	 * else an agent instance for the declared defaults overlaid with the agent's choices. Refuses
 	 * view controls the screen doesn't declare, listing the ones it does.
 	 */
-	private viewFor(plugin: string, surface: string, input: ViewInput | undefined): { instance: string; state: ViewState } {
-		if (input === "person") return { instance: PERSON, state: {} };
-		const state = this.viewState(plugin, surface, input);
-		return { instance: instanceOf(state), state };
+	private viewFor(plugin: string, surface: string, input: ViewInput | undefined): { instance: string; state: ViewState; notes: string[] } {
+		if (input === "person") return { instance: PERSON, state: {}, notes: [] };
+		const { state, notes } = this.checkedView(plugin, surface, input);
+		return { instance: instanceOf(state), state, notes };
 	}
 
 	/** An agent's view input as a view state, checked against the screen's declaration. */
 	viewState(plugin: string, surface: string, input: ViewInput | undefined): ViewState {
-		if (input === undefined || input === "person") return {};
-		if (!input || typeof input !== "object" || Array.isArray(input)) throw new ViewRefusal('view must be "person" or an object with search, filters, sort and controls.');
+		return this.checkedView(plugin, surface, input).state;
+	}
+
+	/**
+	 * An agent's view input as a view state: names resolved to ids and values (`names.ts`), then
+	 * checked against the declaration. `notes` say how names were read, for the result.
+	 */
+	private checkedView(plugin: string, surface: string, raw: ViewInput | undefined): { state: ViewState; notes: string[] } {
+		if (raw === undefined || raw === "person") return { state: {}, notes: [] };
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ViewRefusal('view must be "person" or an object with search, filters, sort and controls.');
+		const names = this.viewNames(plugin, surface);
+		let resolved: { view: NamedView; notes: string[] };
+		try {
+			resolved = resolveNames(raw as NamedView, names);
+		} catch (error) {
+			if (error instanceof NameRefusal) throw new ViewRefusal(error.message);
+			throw error;
+		}
+		const input = resolved.view as Exclude<ViewInput, "person">;
 		const declared = this.o.host.declaredView(plugin, surface) ?? {};
 		const schema = this.viewSchema(plugin, surface);
 		const has = (o: object | undefined, id: string) => !!o && Object.hasOwn(o, id);
@@ -468,7 +523,7 @@ export class AgentCore {
 		if (unknown.length) throw new ViewRefusal(`Unknown view field ${unknown.join(", ")}: use search, filters, sort and controls.`);
 		if (input.search !== undefined && (typeof input.search !== "string" || !declared.search)) throw new ViewRefusal(declared.search ? "view.search must be text." : "This screen has no search.");
 		for (const [id, values] of Object.entries(input.filters ?? {})) {
-			if (!has(declared.filters, id)) throw new ViewRefusal(`This screen has no filter "${id}". Its filters: ${list(Object.keys(declared.filters ?? {}))}.`);
+			if (!has(declared.filters, id)) throw new ViewRefusal(`This screen has no filter "${id}". Its filters: ${list(names.filters.map((f) => labelled(f.label, f.id)))}.`);
 			if (!Array.isArray(values) || !values.every((v) => typeof v === "string")) throw new ViewRefusal(`view.filters.${id} must be a list of option values${schema ? ` (${schema.filters.find((f) => f.id === id)?.options?.map((o) => o.value).join(", ") ?? "read the screen for them"})` : ""}; [] means all.`);
 		}
 		const sort: Record<string, { key: string; desc: boolean }> = {};
@@ -478,10 +533,10 @@ export class AgentCore {
 			sort[table] = { key: value.replace(/^-/, ""), desc: value.startsWith("-") };
 		}
 		for (const [id, value] of Object.entries(input.controls ?? {})) {
-			if (!has(declared.controls, id)) throw new ViewRefusal(`This screen has no control "${id}". Its controls: ${list(Object.keys(declared.controls ?? {}))}.`);
+			if (!has(declared.controls, id)) throw new ViewRefusal(`This screen has no control "${id}". Its controls: ${list(names.controls.map((c) => labelled(c.label, c.id)))}.`);
 			if (typeof value !== "string") throw new ViewRefusal(`view.controls.${id} must be one of its option values.`);
 		}
-		return cleanView(declared, { search: input.search, filters: input.filters, sort, controls: input.controls });
+		return { state: cleanView(declared, { search: input.search, filters: input.filters, sort, controls: input.controls }), notes: resolved.notes };
 	}
 
 	/** Refuses option values the rendered instance doesn't offer, with the ones it does. */
@@ -523,13 +578,14 @@ export class AgentCore {
 		if (p.info.state !== "running")
 			throw new AgentUnavailable(`${p.name} is ${p.info.state}${p.info.error ? `: ${p.info.error.split("\n")[0]}` : ""}. The person can restart it in ToolBelt.`);
 		const surface = `screen:${screen.id}`;
-		const { instance, state } = this.viewFor(p.id, surface, options.view);
+		await this.namesReady(p.id, surface, options.view);
+		const { instance, state, notes: names } = this.viewFor(p.id, surface, options.view);
 		const snap = await this.fresh(p.id, surface, instance, state);
 		const person = this.o.host.snapshot(p.id, surface, PERSON);
 		// Someone besides the agent has the person's view open.
 		const personViewing = (person?.viewers ?? 0) - (this.holds.has(this.key(p.id, surface, PERSON)) ? 1 : 0) > 0;
 		const ref = { plugin: p.id, screen: screen.id, pluginName: p.name, title: screen.title };
-		const viewOf = { view: instance === PERSON ? ("person" as const) : ("agent" as const), viewSummary: instance === PERSON ? "" : this.describeView(p.id, surface, state) };
+		const viewOf = { view: instance === PERSON ? ("person" as const) : ("agent" as const), viewSummary: instance === PERSON ? "" : this.describeView(p.id, surface, state), names, hidden: [] as Hidden[] };
 		if (snap?.error) throw new AgentUnavailable(`${p.name} › ${screen.title} couldn't be shown: ${snap.error}`);
 		if (!snap?.tree) return { ref, ...viewOf, tree: null, rendered: false, text: `${p.name} › ${screen.title} hasn't rendered yet. Try again in a moment.`, viewState: [] as string[], at: 0, watched: personViewing };
 		if (instance !== PERSON) this.checkValues(snap.tree, state);
@@ -544,12 +600,13 @@ export class AgentCore {
 		}
 		if (options.parent !== undefined && !findRow(tableOf(snap.tree, table!)?.rows ?? [], options.parent))
 			throw new AgentRefusal(`Table "${table}" has no row "${options.parent}". Row ids are shown as {id: …}.`);
-		const read = { ...options, table, now: this.now() };
+		// Filters the agent chose itself aren't pointed out as hiding rows: it asked for them.
+		const read = { ...options, table, now: this.now(), chosen: Object.keys(state.filters ?? {}) };
 		// Only the person's view has state someone set; an agent's own view is what it asked for.
 		const notes = (tree: Node) => (instance === PERSON ? treeText(tree, { maxRows: 0, details: false }).viewState : []);
 		if (options.format === "json") return { ref, ...viewOf, tree: treeJson(snap.tree, read), rendered: true, text: "", viewState: notes(snap.tree), at: snap.at, watched: personViewing };
-		const { text, viewState } = treeText(snap.tree, read);
-		return { ref, ...viewOf, tree: null, rendered: true, text, viewState: instance === PERSON ? viewState : [], at: snap.at, watched: personViewing };
+		const { text, viewState, hidden } = treeText(snap.tree, read);
+		return { ref, ...viewOf, hidden, tree: null, rendered: true, text, viewState: instance === PERSON ? viewState : [], at: snap.at, watched: personViewing };
 	}
 
 	// ── the person's view: grants, approvals, show and restore ─────────────
@@ -604,7 +661,9 @@ export class AgentCore {
 		const surface = `screen:${screen.id}`;
 		const input = params.view as ViewInput | undefined;
 		if (input === "person") throw new ViewRefusal('view: "person" is the person\'s current view already; pass the view to show, or omit it to show the screen as it is.');
-		const state = input === undefined ? null : this.viewState(p.id, surface, input);
+		await this.namesReady(p.id, surface, input);
+		const checked = input === undefined ? null : this.checkedView(p.id, surface, input);
+		const state = checked?.state ?? null;
 		// The view must render with options the plugin offers before it reaches the person.
 		if (state) {
 			const snap = await this.fresh(p.id, surface, instanceOf(state), state);
@@ -627,7 +686,7 @@ export class AgentCore {
 			}
 			if (!answer.allow) {
 				this.record(session, { operation: "view_grant", plugin: p.id, screen: screen.id, outcome: "denied", detail: "the person said no" });
-				throw new AgentRefusal("The person didn't allow changing their view. Nothing changed.");
+				throw new AgentRefusal("The person didn't allow changing their view. Nothing changed. Don't ask again unless they ask you to.");
 			}
 			const duration = GRANT_DURATIONS.some((d) => d.id === answer.duration) ? answer.duration! : DEFAULT_GRANT;
 			this.grant(session, duration);
@@ -647,6 +706,7 @@ export class AgentCore {
 		const missing = now.filter((d) => !d.showing);
 		const lines = [
 			`Showing ${what} on ${showing.length ? showing.map((d) => d.name).join(", ") : "no screen right now"}.`,
+			...(checked?.notes ?? []),
 			...(state ? ["The person's view stays this way until they change it; their screen offers Restore to put back what they had."] : []),
 			...(missing.length
 				? [`Not showing on ${missing.map((d) => `${d.name} (${d.kind === "mac" ? "window closed" : "ToolBelt not open"})`).join(", ")}. Tell the person and ask what to do${missing.some((d) => d.kind === "mac") ? "; open_window: true opens the window on the Mac" : ""}. A device shows it when it opens ToolBelt.`]
@@ -750,7 +810,7 @@ export class AgentCore {
 				name: "toolbelt_status",
 				title: "ToolBelt status",
 				description:
-					"What ToolBelt is running now: the app version and any app update, and each plugin agents can read with its state, badge, screens and any update. Start here. list_plugins is the installation view (disabled plugins, repositories, release channels).",
+					"What ToolBelt is running now: the app version and any app update, and each plugin agents can read with its state, badge, screens and any update. A badge is the plugin's own attention signal (such as unread or overdue items), not a count of everything on its screens: read the screen for totals and filter counts. Start here. list_plugins is the installation view (disabled plugins, repositories, release channels).",
 				risk: "read",
 				params: { type: "object", properties: { format }, additionalProperties: false },
 				run: async () => {
@@ -834,7 +894,7 @@ export class AgentCore {
 					const age = r.at ? `rendered ${when(r.at, this.now()).replace(/^.*\((.*)\)$/, "$1")}` : "";
 					const viewLine = r.view === "person"
 						? `The person's view${r.viewState.length ? `, currently showing ${r.viewState.join("; ")}. Rows outside it are not listed.` : " (nothing set beyond the defaults)."}`
-						: `Your view: ${r.viewSummary || "as the screen starts (default search, filters and sort)"}.`;
+						: [`Your view: ${r.viewSummary || "as the screen starts (default search, filters and sort)"}.`, ...r.names].join("\n");
 					const header = [`# ${r.ref.pluginName} › ${r.ref.title} (plugin "${r.ref.plugin}", screen "${r.ref.screen}")`, [age, r.watched ? "a person has it open" : ""].filter(Boolean).join("; "), viewLine].filter(Boolean).join("\n");
 					const meta = { ...r.ref, rendered: r.rendered, renderedAt: r.at || null, renderedAtIso: iso(r.at), personViewing: r.watched, view: r.view, viewSummary: r.viewSummary, viewState: r.viewState };
 					// JSON: the tree with the same metadata. Text: the screen as text (also as `text` in the data).
@@ -845,7 +905,7 @@ export class AgentCore {
 				name: "search_screens",
 				title: "Search all screens",
 				description:
-					"Find lines mentioning every word of a query across all screens agents can read (tasks, updates, notes, settings). Returns matching lines with their plugin, screen and section; read_screen gives the full context.",
+					"Find lines mentioning every word of a query across all screens agents can read (tasks, updates, notes, settings). Returns matching lines with their plugin, screen and section; read_screen gives the full context. When no line has every word, it returns the closest lines, ignoring word endings. Screens are searched as they start, so rows their default filters hide (such as archived tasks) aren't searched; the result names them and how to read them.",
 				risk: "read",
 				params: {
 					type: "object",
@@ -875,7 +935,17 @@ export class AgentCore {
 					);
 					const searched = reads.filter((r) => r !== null).length;
 					const hits: (SearchHit & { plugin: string; screen: string })[] = [];
-					for (const r of reads) if (r) for (const hit of searchText(r.text, words)) hits.push({ plugin: r.ref.plugin, screen: r.ref.screen, ...hit, matched: hit.matched.slice(0, 5) });
+					const find = (forms: string[], need: number) => {
+						for (const r of reads) if (r) for (const hit of searchText(r.text, forms, need)) hits.push({ plugin: r.ref.plugin, screen: r.ref.screen, ...hit, matched: hit.matched.slice(0, 5) });
+					};
+					find(words, words.length);
+					// Nothing has every word: the lines with the most of them, word endings ignored.
+					let closest: number | null = null;
+					for (let need = words.length; !hits.length && need >= 1; need--) {
+						find(words.map(stem), need);
+						if (hits.length) closest = need;
+					}
+					if (closest !== null) hits.splice(15);
 					// Shown until the text's size limit, at most 40 hits of 3 matched lines each.
 					const shown: typeof hits = [];
 					let size = 0;
@@ -888,6 +958,9 @@ export class AgentCore {
 					const plural = (n: number) => `${n} screen${n === 1 ? "" : "s"}`;
 					const lines = shown.length
 						? [
+								...(closest !== null
+									? [`No line mentions every word of "${words.join(" ")}". Closest lines (${closest === words.length ? "every word, ignoring word endings" : `${closest} of the ${words.length} words, ignoring word endings`}):`]
+									: []),
 								...shown.flatMap((h) => [
 									`- ${names.get(`${h.plugin}/${h.screen}`)}${h.section ? ` › ${h.section}` : ""}: ${h.line}`,
 									...h.matched.slice(0, 3).map((m) => `    ↳ ${m}`),
@@ -896,11 +969,19 @@ export class AgentCore {
 								...(hits.length > shown.length ? [`(${hits.length - shown.length} more matches; narrow the query or pass plugin)`] : []),
 							]
 						: [searched ? `Nothing on ${plural(searched)} mentions "${words.join(" ")}".` : "No screen could be searched."];
+					// Rows the screens' default filters hide weren't searched: say which, and how to read them.
+					const hidden = reads.flatMap((r) => (r && r.hidden.length ? [{ plugin: r.ref.plugin, screen: r.ref.screen, filters: r.hidden }] : []));
+					if (hidden.length)
+						lines.push(
+							`Not searched, hidden by default filters: ${hidden
+								.map((h) => `${names.get(`${h.plugin}/${h.screen}`)} (${h.filters.map((f) => `${f.label}: ${f.options.slice(0, 6).map((o) => `${o.label}${o.count !== undefined ? ` ${o.count}` : ""}`).join(", ")}${f.options.length > 6 ? ", …" : ""}`).join("; ")})`)
+								.join("; ")}. read_screen with view {"filters": {"<filter>": []}} includes them.`,
+						);
 					if (failed.length)
 						lines.push(`${plural(failed.length)} couldn't be searched, so matches there are unknown:`, ...failed.map((f) => `- ${names.get(`${f.plugin}/${f.screen}`)}: ${f.reason}`));
 					return {
 						text: lines.join("\n"),
-						data: { matches: hits.slice(0, 100), matchCount: hits.length, screensSearched: searched, failed },
+						data: { matches: hits.slice(0, 100), matchCount: hits.length, closest: closest === null ? null : { words: closest, of: words.length }, screensSearched: searched, hidden, failed },
 					};
 				},
 			},

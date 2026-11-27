@@ -72,7 +72,7 @@
 			"expect": {
 				"refused": true,
 				"contains": [
-					"Filter \"status\" has no option \"archived\". Its options: open (Open), waiting (Waiting), done (Done)."
+					"Filter Status has no option \"archived\". Its options: Open, Waiting, Done."
 				]
 			}
 		},
@@ -91,7 +91,7 @@
 			"expect": {
 				"refused": true,
 				"contains": [
-					"This screen has no filter \"label\". Its filters: status."
+					"This screen has no filter \"label\". Its filters: Status."
 				]
 			}
 		},

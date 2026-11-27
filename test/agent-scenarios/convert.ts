@@ -311,8 +311,8 @@ const EXTRA: Scenario[] = [
 				args: { plugin: "desk", view: { search: "passport", filters: { status: [] } } },
 				expect: { contains: ['Your view: search "passport"; Status: all.', "Renew passport"], absent: ["Q4 budget review", "currently showing"] },
 			},
-			{ call: "read_screen", args: { plugin: "desk", view: { filters: { status: ["archived"] } } }, expect: { refused: true, contains: ['Filter "status" has no option "archived". Its options: open (Open), waiting (Waiting), done (Done).'] } },
-			{ call: "read_screen", args: { plugin: "desk", view: { filters: { label: ["home"] } } }, expect: { refused: true, contains: ['This screen has no filter "label". Its filters: status.'] } },
+			{ call: "read_screen", args: { plugin: "desk", view: { filters: { status: ["archived"] } } }, expect: { refused: true, contains: ['Filter Status has no option "archived". Its options: Open, Waiting, Done.'] } },
+			{ call: "read_screen", args: { plugin: "desk", view: { filters: { label: ["home"] } } }, expect: { refused: true, contains: ['This screen has no filter "label". Its filters: Status.'] } },
 			{ call: "read_screen", args: { plugin: "desk", view: { sort: { tasks: "-title" } } }, expect: { contains: ["Your view: tasks sorted by -title."] } },
 			// The person's view still has their own search, untouched by the agent's reads.
 			{
@@ -349,7 +349,7 @@ const EXTRA: Scenario[] = [
 			{ person: { restore: "desk/tasks" }, expect: { personView: { screen: "desk/tasks", view: {} } } },
 			{ person: { revoke: "*" } },
 			{ call: "show_screen", args: { plugin: "desk" }, answer: { allow: false }, expect: { refused: true, contains: ["The person didn't allow changing their view. Nothing changed."], navigated: [] } },
-			{ call: "show_screen", args: { plugin: "desk", view: { filters: { status: ["nope"] } } }, expect: { refused: true, contains: ['Filter "status" has no option "nope"'] } },
+			{ call: "show_screen", args: { plugin: "desk", view: { filters: { status: ["nope"] } } }, expect: { refused: true, contains: ['Filter Status has no option "nope"'] } },
 		],
 		expect: {
 			audit: [
