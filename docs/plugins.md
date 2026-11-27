@@ -286,8 +286,9 @@ and helpers under `payload/` with all required local files.
 Declare display assets with a manifest mapping such as
 `"assets": {"logo":"assets/logo.svg"}` and reference `asset("logo")`. The host namespaces
 references by plugin/version, validates file paths/content and rejects unsafe SVGs. Supported
-image formats include PNG, JPEG, GIF, WebP and SVG. Lucide icon names and `app:`/`file:` Finder
-icons are available without extra bundled images. No executable browser assets are supported.
+image formats include PNG, JPEG, GIF, WebP and SVG. Lucide icon names (kebab-case, current names
+or aliases such as `history`; unknown names show a box) and `app:`/`file:` Finder icons are
+available without extra bundled images. No executable browser assets are supported.
 
 Optional CLI metadata declares `command`, payload `path` and `cleanupScreen`. ToolBelt preserves
 payloads but does not automatically run installers or change the user's shell. Plugin screens
