@@ -592,15 +592,24 @@ const node: Schema = (v, p) => {
       icon: optional(text),
     }),
     text: object({ ...base, text, tone: optional(tone), mono: optional(bool) }),
-    card: object({
-      ...base,
-      id: optional(text),
-      title: optional(text),
-      description: optional(text),
-      tone: optional(tone),
-      actions,
-      children,
-    }),
+    card: (v, p) => {
+      object({
+        ...base,
+        id: optional(text),
+        title: optional(text),
+        description: optional(text),
+        tone: optional(tone),
+        actions,
+        children,
+        collapsible: optional(bool),
+        open: optional(bool),
+      })(v, p);
+      // A collapsible card's open state is kept by its id, and its title is what opens it.
+      if ((v as any).collapsible) {
+        if (!(v as any).id) fail(`${p}.id`);
+        if (!(v as any).title) fail(`${p}.title`);
+      }
+    },
     details: object({
       ...base,
       items: array(

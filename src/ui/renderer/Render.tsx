@@ -31,7 +31,7 @@ import { Icon, isFileIcon } from "@/lib/icon";
 import { openUrl, useCommand } from "@/lib/store";
 import { SurfaceContext, uiState, usePersisted, useUIState } from "@/lib/uistate";
 import { ariaShortcut, stepIndex } from "@/lib/keys";
-import { allowsSequence, arrangesFilters, atFilterDefault, COMPACT_TOOLBAR, STACK_TOOLBAR, edgeScrollSpeed, FILTER_DIVIDER, filterOptionGroups, filterSequence, keyboardMove, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup } from "./pure";
+import { cardOpen, type CardOpen, allowsSequence, arrangesFilters, atFilterDefault, COMPACT_TOOLBAR, STACK_TOOLBAR, edgeScrollSpeed, FILTER_DIVIDER, filterOptionGroups, filterSequence, keyboardMove, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup } from "./pure";
 import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_SLOT, ROW_STEP, menuActionForEvent, applyMove, formatKey, isNoopMove, resolveDrop, rowSection, type DropSlot, type RowMove, detailSections, dragBoundary, groupActions, withAlternatives, groupSummaryLayout, growOf, hasBoundary, isReorderable, layoutColumns, moveColumn, orderColumns, readSavedLayout, type SavedLayout } from "./pure";
 import { createPortal } from "react-dom";
 import { ConversationView } from "./Conversation";
@@ -3614,16 +3614,69 @@ const cardTone: Record<Tone, string> = {
 	info: "border-sky-500/40 bg-sky-500/5",
 };
 
+/**
+ * A collapsible card's open state (`ui.collapsible-cards`): the person's, kept per surface and
+ * card (and drawer row), following the plugin's `open` only when it changes (`cardOpen`).
+ */
+function useCardOpen(name: string, planned: boolean | undefined, active: boolean): [boolean, () => void] {
+	const [kept, setKept] = useUIState<CardOpen | null>(name, null);
+	const state = cardOpen(kept, planned);
+	useEffect(() => {
+		if (active && state !== kept) setKept(state);
+	}, [active, state, kept, setKept]);
+	const toggle = useCallback(
+		() =>
+			setKept((prev) => {
+				const s = cardOpen(prev, planned);
+				return { ...s, open: !s.open };
+			}),
+		[setKept, planned],
+	);
+	return [state.open, toggle];
+}
+
+/** A collapsible card's children: their height animates open (200 ms) and closed (150 ms). */
+function CardCollapse({ id, open, className, children }: { id: string; open: boolean; className: string; children: ReactNode }) {
+	return (
+		<div id={id} inert={!open} className={cn("grid transition-[grid-template-rows,opacity,margin] ease-out motion-reduce:transition-none", open ? "-mb-1 grid-rows-[1fr] duration-200" : "grid-rows-[0fr] opacity-0 duration-150")}>
+			{/* Bottom padding inside the clip, taken back outside while open, keeps the last child's focus ring. */}
+			<div className="min-h-0 overflow-hidden">
+				<div className={cn("pb-1", className)}>{children}</div>
+			</div>
+		</div>
+	);
+}
+
 function CardNode({ node, emit }: { node: Extract<Node, { type: "card" }>; emit: Emit }) {
 	const { run, dialog } = useConfirm(emit);
+	const paneRow = useContext(PaneRow);
+	const collapsible = !!(node.collapsible && node.id && node.title);
+	const [open, toggle] = useCardOpen(`card:${paneRow ?? ""}:${node.id ?? ""}`, node.open, collapsible);
+	const contentId = useId();
+	// Drawer sections key children by id, boxes by position (as before collapsing existed).
+	const children = node.children.map((c, i) => <Render key={paneRow !== undefined ? ((c as { id?: string }).id ?? `${c.type}${i}`) : i} node={c} emit={emit} />);
 	// In a drawer, a card is a titled section, not a box.
-	if (useContext(PaneRow) !== undefined)
+	if (paneRow !== undefined) {
+		const titleClass = "text-[11px] font-medium tracking-wide text-muted-foreground uppercase";
 		return (
-			<section className="space-y-2" data-pane-id={node.id}>
+			<section className={cn(!collapsible && "space-y-2")} data-pane-id={node.id}>
 				{(node.title || node.actions?.length) && (
 					<div className="flex min-h-6 items-center gap-2">
-						{node.title && <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{node.title}</h3>}
-						{node.description && <span className="truncate text-xs text-muted-foreground">{node.description}</span>}
+						{collapsible ? (
+							// The heading holds the button (a button holds phrasing content only).
+							<h3 className="flex min-w-0">
+								<button type="button" aria-expanded={open} aria-controls={contentId} onClick={toggle} className="group/toggle -mx-1 flex min-w-0 items-center gap-1 rounded-sm px-1 text-left outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50">
+									<ChevronRight aria-hidden className={cn("size-3 shrink-0 text-muted-foreground transition-transform duration-200 ease-out motion-reduce:transition-none group-hover/toggle:text-foreground", open && "rotate-90")} />
+									<span className={titleClass}>{node.title}</span>
+									{node.description && <span className="truncate text-xs font-normal text-muted-foreground">{node.description}</span>}
+								</button>
+							</h3>
+						) : (
+							<>
+								{node.title && <h3 className={titleClass}>{node.title}</h3>}
+								{node.description && <span className="truncate text-xs text-muted-foreground">{node.description}</span>}
+							</>
+						)}
 						<div className="ml-auto flex items-center gap-0.5">
 							{node.actions?.map((a) => (
 								<Tooltip key={a.id}>
@@ -3638,22 +3691,47 @@ function CardNode({ node, emit }: { node: Extract<Node, { type: "card" }>; emit:
 						</div>
 					</div>
 				)}
-				{node.children.map((c, i) => (
-					<Render key={(c as { id?: string }).id ?? `${c.type}${i}`} node={c} emit={emit} />
-				))}
+				{collapsible ? (
+					<CardCollapse id={contentId} open={open} className="space-y-2 pt-2">
+						{children}
+					</CardCollapse>
+				) : (
+					children
+				)}
 				{dialog}
 			</section>
 		);
+	}
 	const hasHeader = node.title || node.description || node.actions?.length;
+	const heading = (
+		<>
+			{node.title && <CardTitle className="text-sm">{node.title}</CardTitle>}
+			{node.description && <CardDescription className="text-xs">{node.description}</CardDescription>}
+		</>
+	);
 	return (
-		<Card className={cn("gap-3 py-4", cardTone[node.tone ?? "default"])}>
+		<Card className={cn("py-4", collapsible ? "gap-0" : "gap-3", cardTone[node.tone ?? "default"])}>
 			{hasHeader && (
 				<CardHeader className="flex flex-wrap items-start gap-3 px-4">
 					{/* The title keeps a readable width; actions that don't fit beside it wrap below. */}
-					<div className="min-w-[min(13rem,100%)] flex-1 basis-0 space-y-1">
-						{node.title && <CardTitle className="text-sm">{node.title}</CardTitle>}
-						{node.description && <CardDescription className="text-xs">{node.description}</CardDescription>}
-					</div>
+					{collapsible ? (
+						<button
+							type="button"
+							aria-expanded={open}
+							aria-controls={contentId}
+							onClick={toggle}
+							className="group/toggle -m-1 flex min-w-[min(13rem,100%)] flex-1 basis-0 items-start gap-1.5 rounded-md p-1 text-left outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"
+						>
+							<ChevronRight aria-hidden className={cn("mt-px size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out motion-reduce:transition-none group-hover/toggle:text-foreground", open && "rotate-90")} />
+							{/* Spans: a button holds phrasing content only. */}
+							<span className="block min-w-0 space-y-1">
+								<span className="block font-heading text-sm leading-snug font-medium">{node.title}</span>
+								{node.description && <span className="block text-xs text-muted-foreground">{node.description}</span>}
+							</span>
+						</button>
+					) : (
+						<div className="min-w-[min(13rem,100%)] flex-1 basis-0 space-y-1">{heading}</div>
+					)}
 					{node.actions && node.actions.length > 0 && (
 						<div className="flex max-w-full flex-wrap items-center gap-2">
 							<ActionButtons actions={node.actions} onRun={(a) => run(a, node.id)} />
@@ -3661,12 +3739,12 @@ function CardNode({ node, emit }: { node: Extract<Node, { type: "card" }>; emit:
 					)}
 				</CardHeader>
 			)}
-			{node.children.length > 0 && (
-				<CardContent className="flex flex-col gap-3 px-4">
-					{node.children.map((c, i) => (
-						<Render key={i} node={c} emit={emit} />
-					))}
-				</CardContent>
+			{collapsible ? (
+				<CardCollapse id={contentId} open={open} className="flex flex-col gap-3 px-4 pt-3">
+					{children}
+				</CardCollapse>
+			) : (
+				node.children.length > 0 && <CardContent className="flex flex-col gap-3 px-4">{children}</CardContent>
 			)}
 			{dialog}
 		</Card>

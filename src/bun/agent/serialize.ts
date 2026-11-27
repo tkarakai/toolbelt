@@ -597,15 +597,17 @@ const VISUAL_KEYS = new Set([
 	"inset", "mono", "muted", "strong", "style", "titleStyle", "appearance", "autofocus", "placeholder",
 	"pill", "overflow", "layoutVersion", "selectEvents", "reorderOnto", "reorderable", "sortable", "focus",
 	"priority", "optional", "sortDesc", "collapsed", "contextSelect", "paneButtons", "enter", "inline", "primary",
-	"shade", "shades", "colors", "heading",
+	"shade", "shades", "colors", "heading", "collapsible",
 ]);
 /**
  * Keys whose name other protocol objects use for data, left out only where they are visual:
  * `color` except on a status dot (where it is the state), an action's keyboard `key` and menu
  * `group` (an object with an `id` and a `label`; a row's `group` is data), a section's drag `order`
- * and a textarea's height in `rows`.
+ * a textarea's height in `rows` and a card's `open` (whether a collapsible card starts open; an
+ * agent reads its children either way).
  */
 function visualHere(key: string, value: unknown, o: Record<string, unknown>, parentKey: string): boolean {
+	if (key === "open") return o.type === "card";
 	if (key === "color") return parentKey !== "dot";
 	if (key === "key" || key === "group") return typeof value === "string" && typeof o.id === "string" && typeof o.label === "string";
 	if (key === "order") return !Array.isArray(value);

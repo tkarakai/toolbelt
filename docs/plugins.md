@@ -256,7 +256,8 @@ explicit targets such as `darwin-arm64` or `darwin-x64`; ship every required bin
 
 Capabilities are `ui.core`, `ui.action-key`, `ui.terminal`, `ui.conversation`, `assets`,
 `lifecycle`, `native.handoff`, `ui.split-action`, `navigate`, `ui.rich-fields`, `ui.row-select`,
-`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane`, `ui.composer`, `ui.sub-sections`, `ui.toast-key`, `ui.options-field` and `ui.floating` ([floating plugins](#floating-plugins)). Require what cannot be omitted. For optional features, test
+`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane`, `ui.composer`, `ui.sub-sections`, `ui.toast-key`, `ui.options-field`, `ui.floating` ([floating plugins](#floating-plugins)) and
+`ui.collapsible-cards` ([collapsible cards](#collapsible-cards)). Require what cannot be omitted. For optional features, test
 `context.capabilities.has(name)` and render a working fallback. Unknown required features
 prevent activation; declaring a feature optional does not implement its fallback.
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing
@@ -752,6 +753,30 @@ selection color, showing they're the same thing.
 
 In dialogs, form labels take one column width (7rem) across every form of the dialog, so
 stacked forms line up; longer labels wrap.
+
+### Collapsible cards
+
+With `ui.collapsible-cards`, a `card` with `collapsible: true` folds its children away under its
+header: a guide, a checklist or advanced settings the person opens when needed. It needs an `id`
+and a `title` (validation refuses it otherwise). The header (a chevron, the title and the
+description) is one button that opens and closes it, with `aria-expanded`; the card's
+`actions` stay buttons of their own beside it and don't toggle it. In a row's drawer pane the
+card is a titled section, collapsible the same way.
+
+Whether it's open belongs to the person: ToolBelt keeps it per surface and card `id` (and
+drawer row) across renders, screen switches and restarts. `open` sets how it starts (closed by
+default). After that, ToolBelt follows `open` only when it changes between two renders to a
+boolean (`undefined` before counts as a change), so a plugin can open the card when something
+points to it, and otherwise leaves the person's choice alone. To open it from an action, such
+as a Test button whose check failed, leave `open` out until then and send `open: true` in the
+render that reports the failure; to be able to open it again after the person closes it, drop
+`open` again (such as when the next check starts): dropping it changes nothing on screen.
+Children stay mounted while closed (their state is kept) but can't be focused. Opening animates
+the height over 200 ms and closing over 150 ms, except with reduced motion and on first paint.
+
+Agents read a collapsible card's children whether it's open or not, as for any card; JSON leaves
+out `collapsible` and `open`. Older hosts ignore both and show the card open, so a plugin can
+declare the capability optional.
 
 ### Choice controls
 

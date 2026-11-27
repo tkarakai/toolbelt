@@ -69,6 +69,9 @@ dot. `ui.section-pill` adds `Section.pill`, a section label drawn as a colored p
 `ui.list-open` makes list items links (`open`) with `prefix` and `tags` pills; `ui.tag-open`
 makes a `tags` field's pill values links (`open`); the key still opens the picker.
 `ui.list-inset` indents a list's icon-less items by an icon's width (`inset`).
+`ui.collapsible-cards` lets a `card` with an `id` and a `title` fold its children under its
+header (`collapsible`); `open` sets how it starts and, when it changes between renders, opens
+or closes it (such as `open: true` after a failed check); otherwise the person's choice stands.
 `ui.duration-field` adds the `duration` form field: whole minutes edited as days, hours and
 minutes, with presets and an optional none value (`null`). `ui.filter-sections` groups a
 filter's menu by each option's `section`.

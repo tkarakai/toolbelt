@@ -224,7 +224,8 @@ screens share one, `PERSON`; the core opens agent instances of its own through
   with " ⏎ " (not "/", which commands and paths are full of), so each value stays on its line
   and indentation.
 - Lists, forms, stats, cards, details, logs and terminals (last 40 lines), conversations (last
-  20 messages), timelines, progress and Markdown. Composers are left out.
+  20 messages), timelines, progress and Markdown. Composers are left out. A collapsible card's
+  children are read whether the person has it open or not (that state stays in the renderer).
 - Tables are paged per table, 50 rows by default, counting child rows. Top-level rows come whole;
   only a first row too big for the page is cut, its remaining children counted
   (`omittedChildren` in JSON) with the `parent` read that pages them. Offsets and "of N" count
