@@ -745,7 +745,29 @@ export type Node =
 	| { type: "empty"; title: string; description?: string; icon?: string }
 	| { type: "text"; text: string; tone?: Tone; mono?: boolean }
 	/** A titled box. Its actions arrive with `{ rowId: id }`. */
-	| { type: "card"; id?: string; title?: string; description?: string; tone?: Tone; actions?: Action[]; children: Node[] }
+	| {
+			type: "card";
+			id?: string;
+			title?: string;
+			description?: string;
+			tone?: Tone;
+			actions?: Action[];
+			children: Node[];
+			/**
+			 * Capability `ui.collapsible-cards`: the header (title, description and a chevron)
+			 * opens and closes the card's children; its actions stay buttons of their own. Needs
+			 * `id` and `title`. Whether it's open is the person's, kept by ToolBelt per card `id`
+			 * across renders. Older hosts ignore it and show the card open.
+			 */
+			collapsible?: boolean;
+			/**
+			 * With `collapsible`: whether the card starts open (default closed). Afterwards, a render
+			 * whose `open` is a boolean different from the previous render's (`undefined` counts as
+			 * different) opens or closes the card, such as `true` after a failed check pointing to
+			 * the card; otherwise the person's choice stands. Dropping `open` changes nothing.
+			 */
+			open?: boolean;
+	  }
 	/** Label / value pairs. */
 	| { type: "details"; items: { label: string; value: string; mono?: boolean; tone?: Tone }[] }
 	/** Output of a command: monospace, scrolls; `follow` keeps the newest line in view. */

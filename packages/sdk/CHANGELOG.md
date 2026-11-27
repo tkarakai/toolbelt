@@ -1,6 +1,7 @@
 # SDK changelog
 
 ## Unreleased
+- Add `ui.collapsible-cards`: a `card` with `collapsible: true` (and an `id` and a `title`) folds its children under its header, which opens and closes it. ToolBelt keeps whether it's open per card `id`; `open` sets how it starts (closed by default) and, when it changes between renders to a boolean, opens or closes it. Older hosts ignore both and show the card open.
 
 ## 0.5.1 — 2026-11-27
 - `Suggestion` takes `group` (consecutive suggestions with the same group show under it as a heading), `meta` and `metaAt` (a moment shown relative to now), drawn by ToolBelt 0.7.1 and ignored by older hosts.

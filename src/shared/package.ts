@@ -40,6 +40,7 @@ export const CAPABILITIES = [
   "ui.duration-field",
   "ui.filter-sections",
   "ui.floating",
+  "ui.collapsible-cards",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,

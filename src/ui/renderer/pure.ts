@@ -663,3 +663,25 @@ export function durationWords(total: number): string {
 		.map(([n, w]) => `${n} ${w}${n === 1 ? "" : "s"}`);
 	return words.join(" ") || "0 minutes";
 }
+
+/**
+ * A collapsible card's open state as the renderer keeps it: whether it's open, and the plugin's
+ * `open` it last saw (`null`: none).
+ */
+export type CardOpen = { open: boolean; seen: boolean | null };
+
+/**
+ * The card's state after a render whose `open` is `planned`. A card seen for the first time
+ * starts as the plugin says (closed by default). Afterwards the person's choice stands, unless
+ * the plugin's `open` became a boolean it wasn't in the previous render: then the card follows
+ * it. The plugin dropping `open` changes nothing (but a later boolean is a change again).
+ * Returns `kept` itself when nothing changed. `kept` comes from storage, so anything else counts
+ * as unseen.
+ */
+export function cardOpen(kept: unknown, planned: boolean | undefined): CardOpen {
+	const seen = planned ?? null;
+	const k = kept as CardOpen | undefined;
+	if (!k || typeof k !== "object" || typeof k.open !== "boolean" || (k.seen !== null && typeof k.seen !== "boolean")) return { open: planned ?? false, seen };
+	if (seen === k.seen) return k;
+	return { open: seen ?? k.open, seen };
+}

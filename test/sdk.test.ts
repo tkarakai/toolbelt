@@ -300,3 +300,35 @@ test("agentCommand reads the command ToolBelt passes to plugins, if any", async 
     else process.env.TOOLBELT_AGENT_COMMAND = before;
   }
 });
+test("SDK carries a collapsible card, opened from an action, through the fake host", async () => {
+	const h = harness();
+	let failed = false;
+	const guide = (): Node => ({
+		type: "card",
+		id: "guide",
+		title: "Before you start",
+		collapsible: true,
+		// No opinion until a check fails, then `true`: the renderer opens the card on that change.
+		...(failed ? { open: true } : {}),
+		actions: [{ id: "test", label: "Test" }],
+		children: [{ type: "markdown", text: "- [ ] Start the model server" }],
+	});
+	definePlugin(
+		{
+			render: { "screen:a": () => ({ type: "page", children: [guide()] }) },
+			onEvent: (_s, name, _payload, ctx) => {
+				if (name === "test") (failed = true), ctx.invalidate();
+			},
+		},
+		{ write: h.write, input: h.input },
+	);
+	await tick();
+	h.send({ type: "hello", protocol: 2, capabilities: ["ui.core", "ui.collapsible-cards"], plugin: { id: "t" }, host: { name: "test", version: "0.7.2" } });
+	h.send({ type: "open", surface: "screen:a", instance: "person" });
+	await tick();
+	h.send({ type: "event", surface: "screen:a", instance: "person", name: "test", payload: { rowId: "guide" } });
+	await tick();
+	const renders = h.out.filter((m: any) => m.type === "render") as Extract<PluginMessage, { type: "render" }>[];
+	expect(renders.map((r: any) => r.tree.children[0].open)).toEqual([undefined, true]);
+	for (const r of renders) expect(validateTree(r.tree)).toBeUndefined();
+});

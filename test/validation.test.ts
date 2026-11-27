@@ -301,6 +301,17 @@ test("cells and list titles take a text style: a tone or hue, bold and italic", 
     expect(() => validateTree(list(style))).toThrow();
   }
 });
+test("a collapsible card needs an id and a title, and open is a boolean", () => {
+  const card = (extra: Record<string, unknown>) => ({ type: "card", children: [{ type: "text", text: "Hi" }], ...extra });
+  expect(() => validateTree(card({ id: "guide", title: "Before you start", collapsible: true }))).not.toThrow();
+  expect(() => validateTree(card({ id: "guide", title: "Before you start", collapsible: true, open: true }))).not.toThrow();
+  expect(() => validateTree(card({ collapsible: false }))).not.toThrow();
+  expect(() => validateTree(card({ title: "Before you start", collapsible: true }))).toThrow(/tree\.id/);
+  expect(() => validateTree(card({ id: "guide", collapsible: true }))).toThrow(/tree\.title/);
+  expect(() => validateTree(card({ id: "guide", title: "", collapsible: true }))).toThrow();
+  expect(() => validateTree(card({ id: "guide", title: "T", collapsible: "yes" }))).toThrow();
+  expect(() => validateTree(card({ id: "guide", title: "T", collapsible: true, open: 1 }))).toThrow();
+});
 test("rows can carry a pane of inline forms, composers and editable timelines", () => {
   const pane = [
     {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { HUES, type Action, type Column } from "../src/shared/protocol";
-import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_STEP, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth, leastUsedHue, moveItem, newOptionTexts, allowsSequence, arrangesFilters, atFilterDefault, FILTER_DIVIDER, filterSequence, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup, filterOptionGroups, splitMinutes, joinMinutes, stepMinutes, durationWords } from "../src/ui/renderer/pure";
+import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_STEP, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth, leastUsedHue, moveItem, newOptionTexts, allowsSequence, arrangesFilters, atFilterDefault, FILTER_DIVIDER, filterSequence, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup, filterOptionGroups, splitMinutes, joinMinutes, stepMinutes, durationWords, cardOpen } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -550,5 +550,35 @@ describe("durations", () => {
 	});
 	test("read aloud", () => {
 		expect([durationWords(0), durationWords(1), durationWords(45), durationWords(90), durationWords(2 * 1440 + 240)]).toEqual(["0 minutes", "1 minute", "45 minutes", "1 hour 30 minutes", "2 days 4 hours"]);
+	});
+});
+
+describe("cardOpen: a collapsible card's open state", () => {
+	test("a card seen for the first time starts as the plugin says, closed by default", () => {
+		expect(cardOpen(undefined, undefined)).toEqual({ open: false, seen: null });
+		expect(cardOpen(null, true)).toEqual({ open: true, seen: true });
+		expect(cardOpen(undefined, false)).toEqual({ open: false, seen: false });
+	});
+	test("the person's choice stands while the plugin's open stays the same", () => {
+		const kept = { open: false, seen: true };
+		expect(cardOpen(kept, true)).toBe(kept);
+		const none = { open: true, seen: null };
+		expect(cardOpen(none, undefined)).toBe(none);
+	});
+	test("a change of the plugin's open is followed", () => {
+		expect(cardOpen({ open: false, seen: false }, true)).toEqual({ open: true, seen: true });
+		expect(cardOpen({ open: true, seen: true }, false)).toEqual({ open: false, seen: false });
+		// From no opinion to one: a check that failed points to the card.
+		expect(cardOpen({ open: false, seen: null }, true)).toEqual({ open: true, seen: true });
+	});
+	test("dropping open changes nothing, so the next boolean opens it again", () => {
+		const dropped = cardOpen({ open: false, seen: true }, undefined);
+		expect(dropped).toEqual({ open: false, seen: null });
+		expect(cardOpen(dropped, true)).toEqual({ open: true, seen: true });
+	});
+	test("a malformed saved state counts as unseen", () => {
+		expect(cardOpen({ open: "yes", seen: true }, true)).toEqual({ open: true, seen: true });
+		expect(cardOpen({ open: true, seen: 1 }, undefined)).toEqual({ open: false, seen: null });
+		expect(cardOpen("open", undefined)).toEqual({ open: false, seen: null });
 	});
 });

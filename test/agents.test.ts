@@ -547,6 +547,24 @@ describe("serializer", () => {
 		expect(row.actions).toEqual(["work"]);
 		expect(JSON.stringify(json)).not.toContain("paneButtons");
 	});
+	test("a collapsed card's children are read like an open one's, and JSON drops its open state", () => {
+		const card: Node = {
+			type: "card",
+			id: "guide",
+			title: "Before you start",
+			collapsible: true,
+			open: false,
+			children: [{ type: "markdown", text: "- Install the model server" }],
+		};
+		expect(treeText(card).text).toContain("## Before you start\n- Install the model server");
+		const json = JSON.stringify(treeJson(card));
+		expect(json).toContain("Install the model server");
+		expect(json).not.toContain('"collapsible"');
+		expect(json).not.toContain('"open"');
+		// A list's `open` is an action (a link), not a visual flag: it stays.
+		const list = JSON.stringify(treeJson({ type: "list", id: "l", items: [], open: { id: "go", label: "Open" } }));
+		expect(list).toContain('"open"');
+	});
 });
 
 /** A host with plugins whose surfaces render a tree a moment after they open (once per instance). */
