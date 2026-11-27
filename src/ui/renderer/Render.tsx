@@ -5,6 +5,7 @@ import { PaneActionsContext } from "@/lib/pane-actions";
 import { ownsCollectionKeyboard, focusPopoverCollection, canHoverNavigate, pointerTracker } from "@/lib/pane-navigation";
 import { firstFocusable, focusIsIdle, focusRegion, itemDomId, overlayOpen, ownsKey, useDefaultAction, useWindowKeys } from "@/lib/keyboard";
 import { EnvironmentEditor } from "./EnvironmentEditor";
+import { SecretField } from "./SecretField";
 import { ColorField, ComboboxField, TagsField, TextAreaField, WIDE_FIELDS } from "./fields";
 import { OptionsField } from "./OptionsField";
 import { DateTimeField } from "./DateTimeField";
@@ -3350,7 +3351,7 @@ function Form({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emi
  * or focused (see `[data-inline-form]` in index.css), each field committing on its own.
  */
 function InlineForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emit }) {
-	const change = (field: Field, value: FieldValue) => emit("field", { form: node.id, field: field.id, value });
+	const change = (field: Field, value: FieldValue) => emit("field", fieldEvent(node.id, field, value));
 	return (
 		<div data-inline-form className="grid grid-cols-[minmax(4.5rem,max-content)_minmax(0,1fr)] items-start gap-x-3 gap-y-px">
 			{node.fields.map((f) => {
@@ -3432,7 +3433,7 @@ function HeadingField({ id, field, onChange }: { id: string; field: Extract<Fiel
 }
 
 function BoxedForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emit: Emit }) {
-	const change = (field: Field, value: FieldValue) => emit("field", { form: node.id, field: field.id, value });
+	const change = (field: Field, value: FieldValue) => emit("field", fieldEvent(node.id, field, value));
 	const label = (f: Field, className?: string) =>
 		GROUP_LABEL.has(f.type) ? <div className={cn("text-sm font-medium", className)}>{f.label}</div> : <Label htmlFor={`${node.id}-${f.id}`} className={className}>{f.label}</Label>;
 	const floating = useContext(FloatingSurface);
@@ -3553,6 +3554,16 @@ function AutoFocus({ on, className, children }: { on: boolean; className?: strin
 }
 
 type FieldValue = string | boolean | number | null | EnvironmentEntry[] | TagValue[] | OptionItem[];
+/**
+ * A `field` event. A Keychain-backed field's names its secret (or prefix), so ToolBelt stores what
+ * was typed and drops the event rather than hand the value to the plugin if the field changed.
+ */
+const fieldEvent = (form: string, f: Field, value: FieldValue) => ({
+	form,
+	field: f.id,
+	value,
+	...(f.type === "text" && f.secret !== undefined ? { secret: f.secret } : f.type === "environment" && f.secretPrefix !== undefined ? { secret: f.secretPrefix } : {}),
+});
 /** `fill`: as wide as the space it's given (dialog forms), instead of the control's usual width. */
 /** A `tags` field's `open`: a pill's text sends it with the pill's key and value. */
 const openTag = (form: string, f: Field, emit: Emit) => (f.type === "tags" && f.open && !f.open.disabled ? (t: TagValue) => emit(f.open!.id, { form, field: f.id, key: t.key, value: t.value }) : undefined);
@@ -3560,7 +3571,7 @@ const openTag = (form: string, f: Field, emit: Emit) => (f.type === "tags" && f.
 function FieldControl({ id, field, onChange, onOpen, fill }: { id: string; field: Field; onChange: (v: FieldValue) => void; onOpen?: (tag: TagValue) => void; fill?: boolean }) {
 	switch (field.type) {
 		case "environment":
-            return <EnvironmentEditor value={field.value} onChange={onChange} />;
+            return <EnvironmentEditor value={field.value} onChange={onChange} keychain={field.secretPrefix !== undefined} />;
         case "select":
 			return (
 				<Select value={field.value} onValueChange={onChange}>
@@ -3597,7 +3608,12 @@ function FieldControl({ id, field, onChange, onOpen, fill }: { id: string; field
 	}
 }
 
-function TextField({ id, field, onChange, className }: { id: string; field: Extract<Field, { type: "text" }>; onChange: (v: string) => void; className?: string }) {
+function TextField({ id, field, onChange, className }: { id: string; field: Extract<Field, { type: "text" }>; onChange: (v: string | null) => void; className?: string }) {
+	if (field.secret !== undefined) return <SecretField id={id} field={field} onChange={onChange} className={className} />;
+	return <PlainTextField id={id} field={field} onChange={onChange} className={className} />;
+}
+
+function PlainTextField({ id, field, onChange, className }: { id: string; field: Extract<Field, { type: "text" }>; onChange: (v: string) => void; className?: string }) {
 	const [v, setV] = useState(field.value);
 	useEffect(() => setV(field.value), [field.value]);
 	const commit = () => v !== field.value && onChange(v);

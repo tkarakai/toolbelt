@@ -115,6 +115,11 @@ export type RuntimeHooks = {
   probe(candidate: Candidate, dataDir: string): Promise<void>;
   activate(installed: Installed): Promise<void>;
   remove(id: string): void;
+  /**
+   * Deletes the plugin's secrets with its data (capability `secrets`). Logs its own failures:
+   * removal goes on without them.
+   */
+  deleteSecrets?(installed: Installed): Promise<void>;
 };
 const hash = (bytes: Uint8Array) =>
   new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
@@ -890,12 +895,21 @@ export class PackageManager {
         });
         const parent = join(this.root, "data");
         if (existsSync(parent)) syncParents(parent, this.root);
+        await this.deleteSecrets(p);
         const completed = this.registry();
         completed.plugins[id]!.deleteDataPending = false;
         this.save(completed);
       }
       this.collectPackages(id);
     });
+  }
+  /** A plugin's secrets go with its data; failing to delete them never stops the removal. */
+  private async deleteSecrets(p: Installed) {
+    try {
+      await this.hooks.deleteSecrets?.(p);
+    } catch (error) {
+      console.error(`[${p.id}] secrets: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   /** Live helper leases pin immutable versions. Stale leases and unreferenced code are collected. */
   private liveLeaseRoots(id: string) {
@@ -997,6 +1011,7 @@ export class PackageManager {
         const data = join(this.root, "data", p.id);
         rmSync(data, { recursive: true, force: true });
         if (existsSync(dirname(data))) syncParents(dirname(data), this.root);
+        await this.deleteSecrets(p);
         p.dataInitialized = false;
         p.deleteDataPending = false;
         changed = true;

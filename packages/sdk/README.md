@@ -86,6 +86,15 @@ Tables with `appearance: "document"` drop row lines and tinted section headers; 
 (0–1) and `TagKey.shades` draw tags as steps of their color's intensity. Older hosts ignore
 both. Page toolbar actions can have a `key` too.
 
+`secrets` keeps values such as API keys in the macOS Keychain, owned by ToolBelt per plugin and
+publisher: `Context.secrets` has `get(name)` (string or null), `has`, `set(name, value)` and
+`delete`; read a value when you use it and don't store it. A form `text` field with
+`secret: "<name>"`, and an `environment` field with `secretPrefix: "<prefix>"` (its secret entries
+stored as `<prefix>/<KEY>`), let the person type secrets that ToolBelt writes to the Keychain
+itself: render them with `value: ""`, ToolBelt sets `stored`, and the `field` event says only
+whether the secret is saved. Names match `SECRET_NAME`; values are at most `LIMITS.secretBytes`.
+See docs/plugins.md, "Secrets".
+
 `start(context)` must respect `context.mode`: `probe` may load staged data and become ready
 but must not schedule external work or cause external side effects; `active` is final runtime
 activation. `prepare(reason, context)` returns `{ready, reason?}` and can defer an unsafe stop.

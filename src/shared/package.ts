@@ -41,6 +41,7 @@ export const CAPABILITIES = [
   "ui.filter-sections",
   "ui.floating",
   "ui.collapsible-cards",
+  "secrets",
 ] as const;
 export const LIMITS = {
   archiveBytes: 64 * 1024 * 1024,
@@ -56,7 +57,18 @@ export const LIMITS = {
   handshakeMs: 10000,
   prepareMs: 10000,
   migrationMs: 60000,
+  /** The longest secret value, in UTF-8 bytes (`secrets`). */
+  secretBytes: 16 * 1024,
+  /** The most secrets one plugin keeps (`secrets`). */
+  secrets: 256,
+  /** Secret requests a plugin may have waiting at once (`secrets`). */
+  secretRequests: 16,
 };
+/**
+ * A secret's name (`secrets`): what the plugin calls it, such as `openai/api-key`. Environment
+ * fields store secret entries as `<secretPrefix>/<KEY>`, which must fit this too.
+ */
+export const SECRET_NAME = /^[A-Za-z0-9._/-]{1,128}$/;
 export type PackageManifest = Manifest & {
   formatVersion: 1;
   repo: string;

@@ -1,4 +1,4 @@
-import { LIMITS } from "./package";
+import { LIMITS, SECRET_NAME } from "./package";
 import { MAX_SECTION_DEPTH, type Node, type PluginMessage } from "./protocol";
 
 type Schema = (value: unknown, path: string) => void;
@@ -295,7 +295,13 @@ const environment = object({
   value: text,
   selected: bool,
   secret: bool,
+  stored: optional(bool),
 });
+/** A secret's name (`SECRET_NAME`). */
+const secretName: Schema = (v, p) => {
+  text(v, p);
+  if (!SECRET_NAME.test(v as string)) fail(p);
+};
 const count: Schema = (v, p) => {
   number(v, p);
   if (!Number.isInteger(v) || (v as number) < 0) fail(p);
@@ -330,7 +336,13 @@ const field: Schema = (v, p) => {
         ...base,
         type: literal("environment"),
         value: array(environment),
+        secretPrefix: optional(secretName),
       })(v, p);
+      // Keychain-backed entries never carry their value in a tree.
+      if ((v as any).secretPrefix !== undefined)
+        (v as any).value.forEach((e: { secret: boolean; value: string }, i: number) => {
+          if (e.secret && e.value !== "") fail(`${p}.value[${i}].value`);
+        });
       break;
     case "select":
       object({
@@ -352,7 +364,10 @@ const field: Schema = (v, p) => {
         sensitive: optional(bool),
         heading: optional(bool),
         note: optional(text),
+        secret: optional(secretName),
+        stored: optional(bool),
       })(v, p);
+      if ((v as any).secret !== undefined && ((v as any).value !== "" || (v as any).heading)) fail(`${p}.value`);
       break;
     case "textarea":
       object({
@@ -796,6 +811,19 @@ export function validateMessage(
       screen: text,
       select: optional(text),
     }),
+    secret: (v, p) => {
+      object({
+        type: literal("secret"),
+        requestId: text,
+        op: enumeration("get", "has", "set", "delete"),
+        name: secretName,
+        value: optional(text),
+      })(v, p);
+      const m = v as { op: string; value?: string; requestId: string };
+      if (!m.requestId || m.requestId.length > 128) fail(`${p}.requestId`);
+      if ((m.op === "set") !== (m.value !== undefined)) fail(`${p}.value`);
+      if (m.value !== undefined && (m.value === "" || Buffer.byteLength(m.value) > LIMITS.secretBytes)) fail(`${p}.value`);
+    },
   };
   const schema = Object.hasOwn(schemas, v?.type) ? schemas[v?.type] : undefined;
   if (!schema) fail("message.type");

@@ -80,10 +80,14 @@ export function redact<T>(value: T): T {
 	const out: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(o)) out[k] = redact(v);
 	if (o.type === "text" && o.sensitive === true && typeof o.value === "string" && o.value) out.value = MASK;
-	if (o.type === "environment" && Array.isArray(o.value))
-		out.value = (o.value as { secret?: boolean; value?: string }[]).map((e) =>
-			e && e.secret ? { ...e, value: MASK } : e,
+	// A Keychain secret's field: whether it's saved, never a value.
+	if (o.type === "text" && typeof o.secret === "string") out.value = o.stored === true ? MASK : "";
+	if (o.type === "environment" && Array.isArray(o.value)) {
+		const keychain = typeof o.secretPrefix === "string";
+		out.value = (o.value as { secret?: boolean; value?: string; stored?: boolean }[]).map((e) =>
+			e && e.secret ? { ...e, value: keychain && e.stored !== true ? "" : MASK } : e,
 		);
+	}
 	return out as T;
 }
 
@@ -137,6 +141,7 @@ function tagLabels(f: Extract<Field, { type: "tags" }>) {
 function fieldText(f: Field, now: number): string {
 	switch (f.type) {
 		case "text":
+			if (f.secret !== undefined) return f.stored ? `${MASK} (saved in Keychain)` : "not set";
 			return f.sensitive && f.value ? MASK : f.value;
 		case "textarea":
 			return clip(f.value, 2000);
@@ -156,7 +161,11 @@ function fieldText(f: Field, now: number): string {
 		case "duration":
 			return f.value === null ? (f.none ?? "none") : `${f.value} min`;
 		case "environment":
-			return f.value.map((e) => `${e.key}=${e.secret ? MASK : e.value}${e.selected ? "" : " (off)"}`).join(", ") || "none";
+			return (
+				f.value
+					.map((e) => `${e.key}=${!e.secret ? e.value : f.secretPrefix !== undefined && !e.stored ? "(not set)" : MASK}${e.selected ? "" : " (off)"}`)
+					.join(", ") || "none"
+			);
 	}
 	void now;
 	return "";
@@ -173,6 +182,8 @@ function emptyField(f: Field): boolean {
 			return f.value === null;
 		case "switch":
 			return false;
+		case "text":
+			return f.secret !== undefined ? !f.stored : !f.value.trim();
 		default:
 			return !String(f.value ?? "").trim();
 	}

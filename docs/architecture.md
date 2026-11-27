@@ -15,6 +15,7 @@ JSON-lines and do not inject browser JavaScript, HTML or React components.
 | GitHub release selection, downloads and source identity | `src/bun/plugin-github.ts` |
 | Manager operations, update schedule and observable state | `src/bun/plugin-manager-service.ts` |
 | Seed installation and declared image assets | `src/bun/seed.ts`, `plugin-assets.ts` |
+| Plugin secrets in the login Keychain (capability `secrets`) | `src/bun/secrets.ts`, `keychain-worker.ts`, `src/ui/renderer/SecretField.tsx`, `EnvironmentEditor.tsx` |
 | Protocol, manifest/capabilities and runtime validation | `src/shared/protocol.ts`, `package.ts`, `validation.ts`, `rpc.ts` |
 | Public author SDK and fake-host tools | `src/sdk/`, packaged by `scripts/build-sdk.ts` |
 | Main window, popover, manager and renderer | `src/ui/App.tsx`, `Popover.tsx`, `PluginManager.tsx`, `renderer/` |
@@ -76,6 +77,12 @@ layout below and shares only `settings.json`; see [plugin-development.md](plugin
 | `backups/<id>/<transaction>/` | Managed-data recovery snapshots |
 | `cache/packages/<sha256>` | Verified archive bytes |
 | `cache/icons/` | Finder icon cache |
+
+Plugin secrets are not in the profile folder: they are generic passwords in the login Keychain,
+one service per plugin, publisher and profile (`ToolBelt:<repo>:<id>`, plus `:<hash of the profile
+folder>` outside the official profile), so ToolBelt Dev, `TOOLBELT_CONFIG_DIR` profiles and
+development profiles never share items. The browser preview keeps them in memory unless
+`PREVIEW_KEYCHAIN=1`. See "Secrets" below and [plugins.md](plugins.md#secrets).
 
 Production discovery uses the registry, not loose plugin-folder scanning. No plugin stops the
 host from starting: each installation record is validated on its own, and one that fails moves
@@ -226,6 +233,28 @@ rejects unsafe SVG content. Lucide names (current names and Lucide's aliases, wh
 `src/ui/lib/lucide.ts` resolves) and Finder `app:`/`file:` icons are also supported.
 Assets cannot supply executable webview code.
 
+## Secrets
+
+`SecretStore` (`src/bun/secrets.ts`) gives each plugin that declares `secrets` a `PluginSecrets`:
+its Keychain service and a cache of the names stored there (never values), loaded when the
+plugin starts. The backend is an interface: `KeychainBackend` calls Security.framework
+(`SecItemAdd`/`CopyMatching`/`Update`/`Delete`) through bun:ffi on a worker thread
+(`keychain-worker.ts`, started from its own source as a blob worker), so a macOS access prompt
+never blocks the host; values travel as CFData, never on a command line. Tests and the preview
+use `MemorySecretBackend`.
+
+A plugin's `secret` requests (`get`, `has`, `set`, `delete`) are answered by `PluginProcess` even
+while it starts, at most `LIMITS.secretRequests` at a time; writes are refused in probe mode. The
+SDK reads answers outside its ordered message queue, so a handler waiting for a secret doesn't
+block its own answer. Trees are annotated with `stored` (`annotateSecrets`) before they are kept
+or sent, and again when the cache changes. A person's `field` event for a secret `text` field or
+a `secretPrefix` environment field (found in the person's tree by form, field and pane row) is
+held: the host writes the Keychain, then sends the plugin only the outcome; later events from the
+person wait behind it so they stay in order. An event the renderer marked `secret` for a field
+that no longer is one is dropped. Diagnostic logs replace secret values with `[secret]`. Removing
+a plugin with its data deletes its service's items (`RuntimeHooks.deleteSecrets`, also on startup
+recovery of an interrupted deletion); failures are logged and don't stop the removal.
+
 ## Remote access
 
 Remote access ([remote-access.md](remote-access.md)) serves the same renderer to the owner's
@@ -249,7 +278,8 @@ press, edge swipe, swipe to dismiss), all in the host renderer: see
 The agent interface ([agent-interface.md](agent-interface.md)) lets local AI agents read plugin screens. Its core
 opens agent instances of plugin surfaces through `PluginHost`, one per distinct view an agent
 asks for, and releases them when idle; it reads the person's instance only when asked. Text and
-JSON come from `src/bun/agent/serialize.ts` with sensitive values masked. Transports are
+JSON come from `src/bun/agent/serialize.ts` with sensitive values masked (Keychain secrets only say
+whether they're saved). Transports are
 adapters over one operation registry: MCP over a `0600` Unix socket, and the `toolbelt` CLI with
 its stdio shim. Access is the lower of the manifest's required `agent.access` and the person's
 choice; agents can't send events. `show_screen` changes the person's view and navigates their
@@ -339,8 +369,8 @@ The durability helpers sync files/directories as well as atomic JSON; process-cr
 exercise interruption boundaries. This is managed-directory recovery, not reversal of app
 updates, external databases, dotfiles or network side effects performed by a plugin.
 
-Disable retains code and data. Remove retains data by default, with deletion as a separate
-explicit choice. Deleted data is initialized on a later install. The host retains three
+Disable retains code, data and secrets. Remove retains data and secrets by default, with deletion
+of both as a separate explicit choice. Deleted data is initialized on a later install. The host retains three
 historical selections/snapshots for recovery. Compatible old code can use the current schema;
 incompatible recovery requires its matching snapshot and a warning about newer managed-data
 loss. Recovery choices are revalidated on submission. Running helper leases pin package

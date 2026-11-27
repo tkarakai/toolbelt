@@ -83,6 +83,29 @@ test("verified archive installs then disables and retains data on removal", asyn
     rmSync(a.source, { recursive: true, force: true });
   }
 });
+test("secrets are deleted with the plugin's data only, and a failure doesn't stop removal", async () => {
+  const a = await archive(),
+    deleted: string[] = [];
+  const { root, manager } = setup({
+    deleteSecrets: async (p) => {
+      deleted.push(`${p.id}@${p.repo}`);
+      throw new Error("Keychain locked");
+    },
+  });
+  try {
+    await manager.install(await manager.stage(a.bytes, a.hash, "test/fixture"), true);
+    await manager.remove("fixture");
+    expect(deleted).toEqual([]); // removal alone (like disabling) keeps secrets
+    await manager.install(await manager.stage(a.bytes, a.hash, "test/fixture"), true);
+    await manager.remove("fixture", true);
+    expect(deleted).toEqual(["fixture@test/fixture"]);
+    expect(existsSync(join(root, "data/fixture"))).toBe(false);
+    expect(manager.registry().plugins.fixture?.deleteDataPending).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(a.source, { recursive: true, force: true });
+  }
+});
 test("failed candidate probe preserves old package and exact data", async () => {
   let fail = false;
   const { root, manager } = setup({

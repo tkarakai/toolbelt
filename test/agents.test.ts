@@ -104,6 +104,36 @@ describe("serializer", () => {
 		expect(text).toContain(`API_KEY=${MASK}`);
 		expect(text).toContain("MODE=dev");
 	});
+	test("Keychain secrets say whether they're saved, never a value", () => {
+		const keychain = (stored: boolean): Node => ({
+			type: "form",
+			id: "keys",
+			fields: [
+				{ type: "text", id: "key", label: "API key", value: "", secret: "openai/key", stored },
+				{
+					type: "environment",
+					id: "env",
+					label: "Env",
+					secretPrefix: "env",
+					value: [
+						{ key: "TOKEN", value: "", selected: true, secret: true, stored },
+						{ key: "REGION", value: "eu", selected: true, secret: false },
+					],
+				},
+			],
+		});
+		expect(treeText(keychain(true)).text).toContain(`API key: ${MASK} (saved in Keychain)`);
+		expect(treeText(keychain(true)).text).toContain(`TOKEN=${MASK}, REGION=eu`);
+		expect(treeText(keychain(false)).text).toContain("API key: not set");
+		expect(treeText(keychain(false)).text).toContain("TOKEN=(not set), REGION=eu");
+		// JSON: a stored secret reads masked, a missing one empty; even a value a plugin slipped in is masked.
+		const json = JSON.stringify(redact(keychain(true)));
+		expect(json).toContain(`"secret":"openai/key","stored":true`);
+		expect(json).toContain(`"value":"${MASK}"`);
+		const slipped = JSON.stringify(redact({ type: "form", id: "f", fields: [{ type: "text", id: "k", label: "K", value: "sk-slipped", secret: "k" }] }));
+		expect(slipped).not.toContain("sk-slipped");
+		expect(JSON.stringify(redact(keychain(false)))).toContain('"key":"TOKEN","value":"","selected":true,"secret":true,"stored":false');
+	});
 	test("masks likely secrets in any plugin text, keeping what isn't one", () => {
 		// Fake secrets are assembled at run time, so the repository's secret scan (gitleaks) doesn't flag this file.
 		const fake = (...parts: string[]) => parts.join("");

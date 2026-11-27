@@ -9,6 +9,7 @@
 - Plugin cards can be collapsible: their header opens and closes them, ToolBelt remembers whether each is open, and a plugin can open one to point you to it (such as a setup guide after a failed test). Plugins set `collapsible` and `open` on a `card` and declare capability `ui.collapsible-cards`.
 
 - Plugins can name a Lucide icon by any of its aliases or former names (`history`, `trash-2`), not only its current one; unknown names still show a box.
+- **Plugin secrets in the Keychain.** Plugins can keep API keys and tokens in your login Keychain instead of their settings: you type them into the plugin's form, ToolBelt saves them itself, and the field then reads "Saved in Keychain" with Replace and Remove. Environment variables a plugin keeps in the Keychain work the same way, with a lock to choose Keychain or plain settings. Secret values never appear on screen again, in plugin settings, logs, agent reads or on paired devices. Each plugin's items are its own (bound to its publisher), listed as "ToolBelt · <plugin> · <name>" in Keychain Access; removing a plugin with its data deletes them. Plugins declare the new `secrets` capability.
 
 ## 0.7.1 — 2026-11-27
 - Floating windows grow out of their sidebar icon when they open and shrink back into it when you minimize them. Before, they faded somewhere near the item.

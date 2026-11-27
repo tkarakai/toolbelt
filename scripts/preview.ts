@@ -24,6 +24,7 @@ import { githubMetadata } from "../src/bun/github-metadata";
 import { mkdirSync } from "node:fs";
 import { createAgentInterface, declaredAccess } from "../src/bun/agent";
 import { ViewStore } from "../src/bun/views";
+import { KeychainBackend, MemorySecretBackend, SecretStore, profileKey } from "../src/bun/secrets";
 import { cleanView } from "../src/shared/views";
 import { PERSON } from "../src/shared/protocol";
 import {
@@ -62,8 +63,15 @@ const developmentLog = new DiagnosticLog();
 const personViews = new ViewStore(join(root, "views.json"));
 // Set once the agent interface exists (below); plugins started before that don't get it.
 let agentCommand: string[] | null = null;
+// Plugin secrets stay in memory unless PREVIEW_KEYCHAIN=1, which uses the login Keychain under
+// this preview profile's own services (never the app's).
+const secrets = new SecretStore(
+  process.env.PREVIEW_KEYCHAIN === "1" ? new KeychainBackend() : new MemorySecretBackend(),
+  profileKey(root, configDir(homedir(), {})),
+);
 const host = new PluginHost({
   agentCommand: () => agentCommand,
+  secrets,
   dirs: [],
   registryRoot: root,
   bun: process.execPath,
@@ -80,6 +88,7 @@ const packages = new PackageManager(
     probe: (candidate, data) => host.probe(candidate, data),
     activate: (p) => host.activate(p),
     remove: (id) => host.remove(id),
+    deleteSecrets: (p) => host.deleteSecrets({ id: p.id, name: p.manifest.name, repo: p.repo }),
   },
   pkg.version,
   undefined,
