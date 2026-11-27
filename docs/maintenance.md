@@ -78,6 +78,7 @@ or restarts an app. The browser preview also has its existing simulated update f
 | Manager | Real service/RPC/UI review/install, channel/check/cancel/cleanup/remove/recovery and reactive state; backend validation remains authoritative |
 | Development mode | Development tests; preview with `TOOLBELT_DEVELOPMENT_PROFILE`; isolated native enter/exit relaunch, refusal, local load/watch/reset |
 | Remote access | Tailscale, remote-server, remote-access and remote-client tests; preview Tailscale scenarios and phone emulation; isolated native server and owner-check probe |
+| Plugin secrets | `test/secrets.test.ts` (memory backend, host write path, SDK); `TOOLBELT_TEST_KEYCHAIN=1 bun test test/secrets.test.ts` also round-trips the real login Keychain under a throwaway service it deletes. Preview keeps secrets in memory (`PREVIEW_KEYCHAIN=1` uses the preview profile's own Keychain services) |
 | Agent interface | Agents unit tests, agent scenarios over MCP and the CLI, MCP conformance; optional MCP Inspector smoke check (`TOOLBELT_MCP_INSPECTOR=1`). Serializer or tool changes: add or update a scenario ([docs/agent-interface.md](agent-interface.md#testing)) |
 | App updater/packaging | Updater unit tests, clean app builds, mounted DMG identity/version/signature and disposable updater rehearsal |
 

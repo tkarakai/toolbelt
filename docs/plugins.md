@@ -256,8 +256,8 @@ explicit targets such as `darwin-arm64` or `darwin-x64`; ship every required bin
 
 Capabilities are `ui.core`, `ui.action-key`, `ui.terminal`, `ui.conversation`, `assets`,
 `lifecycle`, `native.handoff`, `ui.split-action`, `navigate`, `ui.rich-fields`, `ui.row-select`,
-`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane`, `ui.composer`, `ui.sub-sections`, `ui.toast-key`, `ui.options-field`, `ui.floating` ([floating plugins](#floating-plugins)) and
-`ui.collapsible-cards` ([collapsible cards](#collapsible-cards)). Require what cannot be omitted. For optional features, test
+`ui.row-reorder`, `ui.modifier-keys`, `ui.timeline`, `ui.row-pane`, `ui.composer`, `ui.sub-sections`, `ui.toast-key`, `ui.options-field`, `ui.floating` ([floating plugins](#floating-plugins)),
+`ui.collapsible-cards` ([collapsible cards](#collapsible-cards)) and `secrets` ([secrets](#secrets)). Require what cannot be omitted. For optional features, test
 `context.capabilities.has(name)` and render a working fallback. Unknown required features
 prevent activation; declaring a feature optional does not implement its fallback.
 `handoffActions` lists plugin action IDs needing host foreground ordering before focusing
@@ -268,9 +268,9 @@ the plugin through ToolBelt's agent interface ([agent-interface.md](agent-interf
 hides it from agents, `read` lets them read its screens (each with a view of its own) and show
 the person a screen when asked, and `act` is reserved for actions. Declare `none` when screens
 show data agents shouldn't see (command lines, environment values, credentials). The person can
-lower the level, never raise it. Agents read the same trees people see, so mark secrets in forms
-with `sensitive` or `secret` environment entries; other text reaches agents unchanged, apart from
-values that look like tokens or passwords.
+lower the level, never raise it. Agents read the same trees people see, so keep secrets in the
+Keychain ([secrets](#secrets)) or mark them in forms with `sensitive` or `secret` environment
+entries; other text reaches agents unchanged, apart from values that look like tokens or passwords.
 
 `src/shared/package.ts` and `protocol.ts`, exported in the SDK, are authoritative for the
 complete metadata/node types and validation limits. Do not infer an API from source comments
@@ -501,6 +501,64 @@ Keys the system or host own with ⌘ (A, C, F, H, M, Q, V, W, X) are refused. Ol
 `key` and show the plain button, so it needs no fallback; mention the key in the toast's text
 only when the capability is present.
 Without the `navigate` capability, the SDK method returns false and sends nothing.
+
+### Secrets
+
+With the `secrets` capability (declare it in `toolbelt.json`, required or optional), ToolBelt keeps
+values such as API keys in the macOS login Keychain for the plugin, so they never sit in plugin
+settings, render trees, events, logs, agent reads or data backups.
+
+```ts
+const key = await ctx.secrets.get("openai/api-key"); // string | null
+await ctx.secrets.has("openai/api-key");             // boolean
+await ctx.secrets.set("openai/api-key", value);      // save or replace
+await ctx.secrets.delete("openai/api-key");          // fine if it doesn't exist
+```
+
+Read a value when you use it (for example to put it into a child process's environment) and
+don't copy it anywhere. Names are 1–128 letters, digits and `. _ / -` (`SECRET_NAME`); values are
+non-empty text up to 16 KiB (`LIMITS.secretBytes`); a plugin keeps at most 256 secrets
+(`LIMITS.secrets`) and has at most 16 requests waiting (`LIMITS.secretRequests`). Calls reject
+with a reason when the host lacks the capability, the manifest doesn't declare it, the Keychain
+refuses, or, for `set` and `delete`, the plugin runs in probe mode. They may be made from
+`start()`, before the plugin is ready. A call can wait for the person to answer a macOS Keychain
+prompt; the SDK gives up after 150 s.
+
+The person types secrets into the plugin's own forms, and ToolBelt stores them itself:
+
+- A `text` field with `secret: "<name>"` edits that secret. Its `value` must be `""` (validation
+  rejects anything else) and it can't be a `heading`. ToolBelt sets `stored` (whether the secret
+  exists) on the field before the tree reaches any screen; the field shows a masked box when
+  there's nothing stored and "Saved in Keychain" with Replace and Remove when there is. What the
+  person types goes to ToolBelt, which writes the Keychain and then sends the plugin a `field`
+  event with `{ form, field, secret: "<name>", value: true }` (saved) or `value: false` (removed),
+  never the value. A failed write reaches no plugin: ToolBelt shows the person the error.
+- An `environment` field with `secretPrefix: "<prefix>"` keeps its `secret` entries' values in the
+  Keychain as `<prefix>/<KEY>`. Render those entries with `value: ""` (validation rejects anything
+  else); ToolBelt sets each one's `stored`. A secret entry's value is typed into a masked box that
+  saves on ↵ or when it loses focus; a saved entry reads "Saved in Keychain" with Replace and its
+  name can't be edited (remove the entry and add it again). The lock button keeps a variable in the
+  Keychain or in plain settings; names that look secret (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`,
+  `AUTH`) start out locked. The plugin's `field` event carries the entries with secret values `""`
+  and `stored` set. When the person removes a secret entry, ToolBelt deletes `<prefix>/<KEY>`; it
+  never deletes names the field didn't show. A variable kept in the Keychain needs a name without
+  `/` that makes a valid secret name with the prefix. Fields without
+  `secretPrefix` behave as before (the plugin holds the values).
+
+Pick names that stay stable and unique per thing, such as `agents/<id>/api-key` for a field in a
+row's pane: ToolBelt finds the field an event is for by form id, field id and the pane's row.
+Trees with secret fields from a plugin that doesn't declare `secrets` are refused like any invalid
+tree. A paired phone or tablet can type a new value or remove one (it goes through the Mac's host
+the same way) but never receives a value; agents see `•••••• (saved in Keychain)` or `not set`.
+
+The Keychain service is `ToolBelt:<repo>:<plugin id>` (plus `:<profile hash>` outside the official
+profile, so ToolBelt Dev, test profiles and plugin development mode have their own), so another
+publisher's package with the same id can't read them. Items are labeled
+`ToolBelt · <plugin name> · <secret name>` in Keychain Access. Disabling, updating or removing a
+plugin keeps its secrets; removing it **with its data** deletes them. This protects secrets from
+ending up in plain files, settings exports, logs, screenshots of settings, agent reads and remote
+devices. It is not a sandbox: plugins run with your privileges, a plugin can read its own secrets
+(and send them anywhere), and software running as you can ask the Keychain too.
 
 ### Rich form fields
 

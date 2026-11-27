@@ -252,7 +252,9 @@ screens share one, `PERSON`; the core opens agent instances of its own through
   (`options`, `keys`), which every row repeats, and carry `valueLabel` (`tags`: `valueLabels`,
   as in text, `Project: Houses`) beside the raw `value`. Forms outside rows keep their choices.
 - `text` fields with `sensitive` and `secret` environment entries are masked as `••••••` in both
-  text and JSON. In all other plugin text, `maskSecrets` masks values that look like secrets:
+  text and JSON. Keychain secrets (`secret` text fields, entries of a `secretPrefix` environment
+  field) never carry a value: text says `•••••• (saved in Keychain)` or `not set` (`(not set)` for
+  an entry), JSON gives `••••••` or `""` beside `stored`. In all other plugin text, `maskSecrets` masks values that look like secrets:
   secret-named flags and variables (`--token=…`, `--api-key …`, `GITHUB_TOKEN=…`, `"api_key": "…"`,
   `password: …`), secret query parameters, `Authorization` and `Bearer` values, passwords in
   URLs, and well-known token formats (GitHub, OpenAI and Anthropic, Slack, AWS access keys,

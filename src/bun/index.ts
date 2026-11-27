@@ -60,6 +60,7 @@ import { buildIdOf, remoteSender } from "./remote-server";
 import { REMOTE_DEFAULT_PORT } from "../shared/remote";
 import { createAgentInterface, declaredAccess } from "./agent";
 import { ViewStore } from "./views";
+import { KeychainBackend, SecretStore, profileKey } from "./secrets";
 import { cleanView } from "../shared/views";
 import { PERSON } from "../shared/protocol";
 import pkg from "../../package.json" with { type: "json" };
@@ -129,8 +130,12 @@ const developmentLog = new DiagnosticLog();
 const personViews = new ViewStore(join(profileRoot, "views.json"));
 // Set once the agent interface exists (below); plugins started before that don't get it.
 let agentCommand: string[] | null = null;
+// Plugin secrets live in the login Keychain; other profiles (ToolBelt Dev, TOOLBELT_CONFIG_DIR,
+// development mode) get Keychain services of their own.
+const secrets = new SecretStore(new KeychainBackend(), profileKey(profileRoot, configDir(homedir(), {})));
 const host = new PluginHost({
   agentCommand: () => agentCommand,
+  secrets,
   dirs: [],
   registryRoot: profileRoot,
   bun: process.execPath,
@@ -152,6 +157,7 @@ const packages = new PackageManager(
     probe: (candidate, data) => host.probe(candidate, data),
     activate: (p) => host.activate(p),
     remove: (id) => host.remove(id),
+    deleteSecrets: (p) => host.deleteSecrets({ id: p.id, name: p.manifest.name, repo: p.repo }),
   },
   pkg.version,
   undefined,

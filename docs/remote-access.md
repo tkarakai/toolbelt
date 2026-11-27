@@ -381,6 +381,13 @@ unchanged.
 Not adopted: swiping between tabs or across rows (tables scroll sideways and rows already have
 long press), and pull to refresh (plugins push updates themselves).
 
+## Secrets stay on the Mac
+
+Plugin secrets ([plugins.md](plugins.md#secrets)) live in the Mac's Keychain, and trees carry only
+whether each one is stored, so no value ever travels to a remote client. Typing a new value or
+removing one works from a paired device: the value goes over the connection to the Mac's host,
+which writes the Keychain exactly as for the window, and the plugin hears only the outcome.
+
 ## Who is responsible: the host
 
 Plugins send declarative trees and never ship browser code, so layout is the host's: every

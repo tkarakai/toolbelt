@@ -25,7 +25,9 @@ import { applyView, cleanView, resolveView, viewChange, type View } from "../sha
 import { resolve, sep } from "node:path";
 import {
   CAPABILITIES,
+  LIMITS,
   SDK_VERSION,
+  SECRET_NAME,
   type MigrationRequest,
 } from "../shared/package";
 export * from "../shared/package";
@@ -137,6 +139,23 @@ export function defineMigration(
   })();
 }
 
+/**
+ * The plugin's secrets in the macOS Keychain, kept by ToolBelt (capability `secrets`, declared in
+ * toolbelt.json). Read a value when you use it, such as when starting a process that needs an API
+ * key; don't copy it into settings, trees, logs or files. Names are 1–128 letters, digits and
+ * `. _ / -`; values are non-empty text up to `LIMITS.secretBytes`. Calls reject when the host
+ * lacks the capability, the manifest doesn't declare it, or the Keychain refuses.
+ */
+export type Secrets = {
+  /** The value, or null when there's no such secret. */
+  get(name: string): Promise<string | null>;
+  has(name: string): Promise<boolean>;
+  /** Saves (or replaces) a secret. Refused in probe mode. */
+  set(name: string, value: string): Promise<void>;
+  /** Deletes a secret; deleting one that doesn't exist is fine. Refused in probe mode. */
+  delete(name: string): Promise<void>;
+};
+
 export type Context = {
   /** Probe startup must avoid external side effects; final activation uses active mode. */
   readonly mode: "probe" | "active";
@@ -166,6 +185,8 @@ export type Context = {
   navigate(screen: string, options?: { select?: string }): boolean;
   /** Surfaces with at least one open instance: poll and watch only for these. */
   readonly open: ReadonlySet<string>;
+  /** The plugin's secrets in the Keychain (capability `secrets`). */
+  readonly secrets: Secrets;
   /**
    * Re-read `views` (when it's a function) and send the declarations to the host. Call it when
    * the data they come from changed, such as filters built from labels the person edits.
@@ -233,6 +254,34 @@ export function definePlugin(
   let views: Record<string, ViewDeclaration> = {};
   const readViews = () => (views = (typeof def.views === "function" ? def.views(ctx) : def.views) ?? {});
 
+  /** Secret requests waiting for the host's answer. */
+  const secretRequests = new Map<string, { resolve: (m: Extract<HostMessage, { type: "secret" }>) => void; timer: ReturnType<typeof setTimeout> }>();
+  let secretId = 0;
+  const secretRequest = (op: "get" | "has" | "set" | "delete", name: string, value?: string) =>
+    new Promise<Extract<HostMessage, { type: "secret" }>>((resolve, reject) => {
+      if (!capabilities.has("secrets")) return reject(new Error("This ToolBelt doesn't keep plugin secrets (no secrets capability)"));
+      if (typeof name !== "string" || !SECRET_NAME.test(name)) return reject(new Error("A secret's name is 1–128 letters, digits and . _ / -"));
+      if (op === "set" && (typeof value !== "string" || value === "" || Buffer.byteLength(value) > LIMITS.secretBytes))
+        return reject(new Error(`A secret's value is non-empty text of at most ${LIMITS.secretBytes} bytes`));
+      const requestId = `s${++secretId}`;
+      // The Keychain may wait for the person to answer a macOS prompt; give up eventually.
+      const timer = setTimeout(() => {
+        secretRequests.delete(requestId);
+        reject(new Error("ToolBelt didn't answer the secret request"));
+      }, 150_000);
+      secretRequests.set(requestId, {
+        timer,
+        resolve: (m) => (m.ok ? resolve(m) : reject(new Error(m.error ?? "The secret request failed"))),
+      });
+      send({ type: "secret", requestId, op, name, ...(op === "set" ? { value } : {}) });
+    });
+  const secrets: Secrets = {
+    get: async (name) => (await secretRequest("get", name)).value ?? null,
+    has: async (name) => (await secretRequest("has", name)).exists === true,
+    set: async (name, value) => void (await secretRequest("set", name, value)),
+    delete: async (name) => void (await secretRequest("delete", name)),
+  };
+
   const renderInstance = async (surface: string, instance: string, state: ViewState) => {
     const fn = def.render[surface];
     if (!fn) return;
@@ -293,6 +342,7 @@ export function definePlugin(
       return true;
     },
     open,
+    secrets,
     declareViews() {
       send({ type: "views", views: readViews() });
       // Declared ids may have gone: each instance keeps only what is still declared.
@@ -369,6 +419,14 @@ export function definePlugin(
         setView(msg.surface, msg.instance, cleanView(views[msg.surface], msg.view), true);
         break;
       }
+      case "secret": {
+        const waiting = secretRequests.get(msg.requestId);
+        if (!waiting) break;
+        clearTimeout(waiting.timer);
+        secretRequests.delete(msg.requestId);
+        waiting.resolve(msg);
+        break;
+      }
       case "event": {
         const instance = typeof msg.instance === "string" ? msg.instance : PERSON;
         const state = instances.get(msg.surface)?.get(instance);
@@ -382,6 +440,9 @@ export function definePlugin(
 
   const input = io.input ?? Bun.stdin.stream();
   (async () => {
+    // Messages are handled one at a time, in order, except secret answers: an event handler (or
+    // start) waiting for a secret must get its answer while it's still running.
+    let queue = Promise.resolve();
     const decoder = new TextDecoder();
     let buf = "";
     for await (const chunk of input) {
@@ -397,9 +458,12 @@ export function definePlugin(
           console.error("toolbelt sdk: bad JSON from host");
           continue;
         }
-        await handle(msg).catch((e) => console.error("toolbelt sdk:", e));
+        const message = msg;
+        if (message?.type === "secret") void handle(message);
+        else queue = queue.then(() => handle(message)).catch((e) => console.error("toolbelt sdk:", e));
       }
     }
+    await queue;
     // The host closed our stdin: Toolbelt quit or stopped us.
     if (!io.input) process.exit(0);
   })();

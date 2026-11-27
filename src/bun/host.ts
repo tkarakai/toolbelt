@@ -33,6 +33,25 @@ import {
   checkCompatibility,
 } from "./packages";
 import type { PluginInfo, PluginState } from "../shared/plugin-state";
+import {
+  annotateSecrets,
+  entrySecret,
+  findSecretField,
+  planEnvironment,
+  type PluginSecrets,
+  type SecretStore,
+} from "./secrets";
+
+/** Whether a manifest declares a capability, required or optional. */
+const declares = (manifest: Manifest, capability: string) => {
+  const c = (manifest as PackageManifest).capabilities;
+  return !!c && [...(c.required ?? []), ...(c.optional ?? [])].includes(capability);
+};
+
+/** A message for the diagnostic log, without secret values. */
+function redacted(msg: { type?: unknown; value?: unknown }) {
+  return msg.type === "secret" && msg.value !== undefined && msg.value !== null ? { ...msg, value: "[secret]" } : msg;
+}
 
 export type Discovered = { manifest: Manifest; dir: string };
 
@@ -197,10 +216,20 @@ export class PluginProcess {
       views?: PersonViews;
       /** How to start `toolbelt` against this ToolBelt (null while there's no CLI script). */
       agentCommand?: () => string[] | null;
+      /** The plugin's secrets, when its manifest declares the `secrets` capability. */
+      secrets?: PluginSecrets;
     },
     private readonly changed: () => void,
     private readonly listener: Listener,
-  ) {}
+  ) {
+    // Fields show whether their secret is saved; redraw them when that changes.
+    this.unsubscribe = opts.secrets?.subscribe(() => this.secretsChanged());
+  }
+  private unsubscribe?: () => void;
+  /** This process is replaced or gone: it stops following its plugin's secrets. */
+  dispose() {
+    this.unsubscribe?.();
+  }
 
   info(): PluginInfo {
     return {
@@ -239,6 +268,7 @@ export class PluginProcess {
     this.trees.clear();
     this.treeAt.clear();
     this.renderErrors.clear();
+    void this.opts.secrets?.load();
     const entry = resolve(this.dir, this.manifest.entry);
     const data =
       (this as any).dataOverride ?? join(this.opts.data, this.manifest.id);
@@ -321,7 +351,7 @@ export class PluginProcess {
     const stdin = this.proc?.stdin as import("bun").FileSink | undefined;
     if (!stdin || this.state === "crashed") return;
     try {
-      this.opts.diagnostic?.(this.manifest.id, "host-message", msg);
+      this.opts.diagnostic?.(this.manifest.id, "host-message", redacted(msg));
       stdin.write(JSON.stringify(msg) + "\n");
       stdin.flush();
     } catch {}
@@ -428,7 +458,7 @@ export class PluginProcess {
         this.opts.diagnostic?.(
           this.manifest.id,
           "plugin-message",
-          line.slice(0, 16000),
+          msg.type === "secret" ? JSON.stringify(redacted(msg)) : line.slice(0, 16000),
         );
         this.handle(msg);
       }
@@ -553,6 +583,15 @@ export class PluginProcess {
       }
       return;
     }
+    // Secrets can be read while starting (a plugin's start() may need one).
+    if (msg.type === "secret") {
+      if (!this.greeted) {
+        this.fail("Message before hello");
+        return;
+      }
+      this.secretRequest(msg);
+      return;
+    }
     if (this.state !== "running") {
       if (
         this.greeted &&
@@ -577,9 +616,12 @@ export class PluginProcess {
         }
         // A render for an instance that has closed (or never opened) is late, not wrong.
         if (msg.instance !== PERSON && !this.viewers.get(instanceKey(msg.surface, msg.instance))) return;
+        let secretFields = false;
         try {
           const check = (value: unknown): void => {
             if (!value || typeof value !== "object") return;
+            const field = value as { type?: unknown; secret?: unknown; secretPrefix?: unknown };
+            if ((field.type === "text" && field.secret !== undefined) || (field.type === "environment" && field.secretPrefix !== undefined)) secretFields = true;
             for (const [key, child] of Object.entries(value)) {
               if (
                 key === "icon" &&
@@ -601,17 +643,21 @@ export class PluginProcess {
             }
           };
           check(msg.tree);
+          if (secretFields && !this.opts.secrets)
+            throw new Error("Secret fields need the secrets capability in toolbelt.json");
         } catch (error) {
           this.rejectRender(msg.surface, protocolReason(error), msg.instance);
           return;
         }
         {
+          const secrets = this.opts.secrets;
+          const tree = secrets && secretFields ? annotateSecrets(msg.tree, (name) => secrets.stored(name)) : msg.tree;
           const key = instanceKey(msg.surface, msg.instance);
           this.renderErrors.delete(key);
-          this.trees.set(key, msg.tree);
+          this.trees.set(key, tree);
           this.treeAt.set(key, Date.now());
+          this.listener.tree(this.manifest.id, msg.surface, tree, msg.instance);
         }
-        this.listener.tree(this.manifest.id, msg.surface, msg.tree, msg.instance);
         break;
       case "view":
         if (!this.declared(msg.surface)) {
@@ -648,6 +694,146 @@ export class PluginProcess {
         }
         break;
     }
+  }
+
+  /** Answers a plugin's `secret` request; values never reach the logs. */
+  private pendingSecrets = 0;
+  private secretRequest(msg: Extract<PluginMessage, { type: "secret" }>) {
+    const reply = (answer: Omit<Extract<HostMessage, { type: "secret" }>, "type" | "requestId">) =>
+      this.send({ type: "secret", requestId: msg.requestId, ...answer });
+    const secrets = this.opts.secrets;
+    if (!secrets) return reply({ ok: false, error: "Declare the secrets capability in toolbelt.json to keep secrets" });
+    if ((msg.op === "set" || msg.op === "delete") && (this.opts.mode ?? "active") === "probe")
+      return reply({ ok: false, error: "Secrets can't change while ToolBelt checks an update (probe mode)" });
+    if (this.pendingSecrets >= LIMITS.secretRequests) return reply({ ok: false, error: "Too many secret requests at once" });
+    const proc = this.proc;
+    this.pendingSecrets++;
+    void (async () => {
+      try {
+        if (msg.op === "get") return { ok: true, value: await secrets.get(msg.name) };
+        if (msg.op === "has") return { ok: true, exists: await secrets.has(msg.name) };
+        if (msg.op === "set") await secrets.set(msg.name, msg.value!);
+        else await secrets.delete(msg.name);
+        return { ok: true };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.log(`secrets: ${msg.op} ${msg.name} failed: ${reason}`);
+        return { ok: false, error: reason };
+      }
+    })().then((answer) => {
+      this.pendingSecrets--;
+      // A restarted process has its own requests.
+      if (this.proc === proc) reply(answer);
+    });
+  }
+
+  /** Redraws trees whose secret fields' saved state changed. */
+  private secretsChanged() {
+    const secrets = this.opts.secrets;
+    if (!secrets) return;
+    for (const [key, tree] of this.trees) {
+      if (this.renderErrors.has(key)) continue;
+      const next = annotateSecrets(tree, (name) => secrets.stored(name));
+      if (next === tree) continue;
+      this.trees.set(key, next);
+      const { surface, instance } = splitKey(key);
+      this.listener.tree(this.manifest.id, surface, next, instance);
+    }
+  }
+
+  /** Person's events waiting behind a Keychain write, so they reach the plugin in order. */
+  private eventChain: Promise<void> | null = null;
+  /** A person's event. A secret field's value goes to the Keychain; the plugin hears only the outcome. */
+  personEvent(surface: string, name: string, payload: unknown) {
+    this.userEventAt = Date.now();
+    const secret = name === "field" ? this.secretField(surface, payload) : null;
+    const deliver = (out: unknown) => this.send({ type: "event", surface, instance: PERSON, name, payload: out });
+    if (!secret && !this.eventChain) return deliver(payload);
+    const chain: Promise<void> = (this.eventChain ?? Promise.resolve())
+      .then(async () => {
+        const out = secret ? await secret() : payload;
+        if (out === undefined) return;
+        this.userEventAt = Date.now();
+        deliver(out);
+      })
+      .catch((error) => this.log(`event failed: ${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => {
+        if (this.eventChain === chain) this.eventChain = null;
+      });
+    this.eventChain = chain;
+  }
+
+  private secretProblem(text: string) {
+    this.log(`secrets: ${text}`);
+    this.listener.toast(this.manifest.id, text, "error");
+  }
+
+  /**
+   * For a `field` event on a secret field (as the person's tree has it): the work that stores or
+   * removes the secret and returns the payload the plugin gets (undefined: none). Null for other
+   * fields. An event the renderer marked secret for a field that is no longer one is dropped.
+   */
+  private secretField(surface: string, payload: unknown): (() => Promise<unknown>) | null {
+    const p = payload as { form?: unknown; field?: unknown; value?: unknown; rowId?: unknown; secret?: unknown } | null;
+    if (!p || typeof p !== "object" || typeof p.form !== "string" || typeof p.field !== "string") return null;
+    const rowId = typeof p.rowId === "string" ? p.rowId : undefined;
+    const base = { form: p.form, field: p.field, ...(rowId !== undefined ? { rowId } : {}) };
+    const field = findSecretField(this.trees.get(instanceKey(surface)), p.form, p.field, rowId);
+    const secrets = this.opts.secrets;
+    if (!field || !secrets) {
+      if (p.secret === undefined) return null;
+      return async () => {
+        this.secretProblem("That field changed before ToolBelt could save it. Type it again.");
+        return undefined;
+      };
+    }
+    if (field.type === "text") {
+      const name = field.secret!;
+      return async () => {
+        try {
+          if (p.value === null || p.value === false) {
+            await secrets.delete(name);
+            return { ...base, value: false, secret: name };
+          }
+          if (typeof p.value !== "string" || p.value === "") return undefined;
+          await secrets.set(name, p.value);
+          return { ...base, value: true, secret: name };
+        } catch (error) {
+          this.secretProblem(`${field.label || name}: ${error instanceof Error ? error.message : String(error)}`);
+          return undefined;
+        }
+      };
+    }
+    const prefix = field.secretPrefix!;
+    const entries = Array.isArray(p.value) ? p.value : null;
+    if (
+      !entries ||
+      !entries.every(
+        (e) => e && typeof e === "object" && typeof e.key === "string" && typeof e.value === "string" && typeof e.selected === "boolean" && typeof e.secret === "boolean",
+      )
+    )
+      return async () => undefined;
+    const plan = planEnvironment(prefix, entries, field.value);
+    return async () => {
+      const failures: string[] = [];
+      for (const { name, value } of plan.writes)
+        await secrets.set(name, value).catch((error) => failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`));
+      for (const name of plan.deletes)
+        await secrets.delete(name).catch((error) => failures.push(`${name}: ${error instanceof Error ? error.message : String(error)}`));
+      if (plan.invalid.length)
+        this.secretProblem(
+          `ToolBelt didn't save the value of ${plan.invalid.map((k) => k || "an unnamed variable").join(", ")}: a variable kept in the Keychain needs a name of letters, digits and . _ - (with the prefix, at most 128 characters).`,
+        );
+      if (failures.length) this.secretProblem(`${field.label || "Environment"}: ${failures.join("; ")}`);
+      return {
+        ...base,
+        value: plan.entries.map((e) => {
+          if (!e.secret) return e;
+          const name = entrySecret(prefix, e.key);
+          return { ...e, stored: name ? secrets.stored(name) : false };
+        }),
+      };
+    };
   }
 
   private async exited(proc: ReturnType<typeof Bun.spawn>, code: number | null) {
@@ -715,8 +901,15 @@ export class PluginHost {
       views?: PersonViews;
       /** How to start `toolbelt` against this ToolBelt, passed to plugins as `TOOLBELT_AGENT_COMMAND`. */
       agentCommand?: () => string[] | null;
+      /** Where plugins that declare `secrets` keep them; without it they're refused. */
+      secrets?: SecretStore;
     },
   ) {}
+
+  /** Deletes a plugin's secrets (removing it with its data). Failures are logged, not thrown. */
+  async deleteSecrets(plugin: { id: string; name: string; repo?: string }) {
+    await this.opts.secrets?.deleteAll(plugin);
+  }
 
   start() {
     let entries: { manifest: Manifest; dir: string }[] = [];
@@ -826,9 +1019,7 @@ export class PluginHost {
     )
       throw new Error("Invalid event metadata");
     validateEventPayload(payload);
-    const p = this.get(plugin);
-    p.userEventAt = Date.now();
-    p.send({ type: "event", surface, instance: PERSON, name, payload });
+    this.get(plugin).personEvent(surface, name, payload);
   }
 
   async restart(plugin: string) {
@@ -855,6 +1046,7 @@ export class PluginHost {
   }
   remove(id: string) {
     this.plugins.get(id)?.stop();
+    this.plugins.get(id)?.dispose();
     this.plugins.delete(id);
     this.emitPlugins();
   }
@@ -889,6 +1081,7 @@ export class PluginHost {
     try {
       await p.waitReady();
     } finally {
+      p.dispose();
       await p.stopAndWait();
     }
   }
@@ -905,6 +1098,10 @@ export class PluginHost {
         diagnostic: this.opts.diagnostic,
         views: this.opts.views,
         agentCommand: this.opts.agentCommand,
+        secrets:
+          this.opts.secrets && declares(manifest, "secrets")
+            ? this.opts.secrets.forPlugin({ id: manifest.id, name: manifest.name, repo: (manifest as PackageManifest).repo })
+            : undefined,
         verify: this.opts.registryRoot
           ? () => {
               const m = parsePackageManifest(manifest),

@@ -472,10 +472,21 @@ export type Filter = {
 	default?: { values: string[]; label: string };
 };
 
-export type EnvironmentEntry = { key: string; value: string; selected: boolean; secret: boolean };
+/**
+ * One variable of an `environment` field. In a field with `secretPrefix` (capability `secrets`),
+ * a `secret` entry's value lives in the Keychain as `<secretPrefix>/<key>`: the plugin sends it
+ * with `value: ""`, ToolBelt sets `stored` (whether the Keychain has it), and the plugin reads the
+ * value with `ctx.secrets.get` when it needs it.
+ */
+export type EnvironmentEntry = { key: string; value: string; selected: boolean; secret: boolean; stored?: boolean };
 
 export type Field = (
-	| { type: "environment"; id: string; label: string; value: EnvironmentEntry[]; description?: string }
+	/**
+	 * `secretPrefix` (capability `secrets`): secret entries' values are kept in the Keychain by
+	 * ToolBelt under `<secretPrefix>/<key>`, never in the tree or the plugin's events. The prefix
+	 * belongs to this field: removing an entry deletes its secret.
+	 */
+	| { type: "environment"; id: string; label: string; value: EnvironmentEntry[]; description?: string; secretPrefix?: string }
 	| { type: "select"; id: string; label: string; value: string; options: { value: string; label: string }[]; description?: string }
 	| { type: "switch"; id: string; label: string; value: boolean; description?: string }
 	/**
@@ -483,7 +494,13 @@ export type Field = (
 	 * `ui.heading-note`): a small neutral pill above the heading, such as an id (drawn like a
 	 * cell's `prefix`).
 	 */
-	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean; heading?: boolean; note?: string }
+	/**
+	 * `secret` (capability `secrets`): the name of a secret this field edits. What the person types
+	 * goes to the Keychain, not to the plugin: `value` must be "", the `field` event says only
+	 * whether the secret is now stored (`value: true | false`, with `secret`), and ToolBelt sets
+	 * `stored` itself. Implies masked input.
+	 */
+	| { type: "text"; id: string; label: string; value: string; placeholder?: string; description?: string; sensitive?: boolean; heading?: boolean; note?: string; secret?: string; stored?: boolean }
 	// The fields below need the `ui.rich-fields` capability.
 	/** Several lines; with `markdown`, an editor that styles Markdown as it's typed. Sent on blur and ⌘↵. */
 	| { type: "textarea"; id: string; label: string; value: string; placeholder?: string; description?: string; markdown?: boolean; rows?: number }
@@ -833,7 +850,12 @@ export type HostMessage =
 	| { type: "close"; surface: string; instance: string }
 	/** The host sets an instance's view (an agent showing the person something, Restore). */
 	| { type: "view"; surface: string; instance: string; view: ViewState }
-	| { type: "event"; surface: string; instance: string; name: string; payload?: unknown };
+	| { type: "event"; surface: string; instance: string; name: string; payload?: unknown }
+	/**
+	 * The answer to the plugin's `secret` request (capability `secrets`): `value` for `get` (null
+	 * when there's no such secret), `exists` for `has`, or why it failed.
+	 */
+	| { type: "secret"; requestId: string; ok: boolean; value?: string | null; exists?: boolean; error?: string };
 
 export type PluginMessage =
 	/** `views`: each surface's view declaration (`ViewDeclaration`). */
@@ -854,7 +876,12 @@ export type PluginMessage =
 	 * stable row/list item id). Honored only shortly after the person acted on the plugin, so
 	 * it never steals focus. Needs the `navigate` capability.
 	 */
-	| { type: "navigate"; screen: string; select?: string };
+	| { type: "navigate"; screen: string; select?: string }
+	/**
+	 * Read, write or delete one of the plugin's secrets in the Keychain (capability `secrets`,
+	 * declared in the manifest). `value` only for `set`. Answered by a host `secret` message.
+	 */
+	| { type: "secret"; requestId: string; op: "get" | "has" | "set" | "delete"; name: string; value?: string };
 
 /** Events Toolbelt sends, by `name`. */
 export type EventPayloads = {
@@ -879,8 +906,11 @@ export type EventPayloads = {
 	/** A sortable column header was clicked: sort `table` by `key`. */
 	sort: { table: string; key: string; desc: boolean };
 	/** A form field changed. */
-	/** `rowId`: the row whose `pane` holds the form. */
-	field: { form: string; field: string; value: string | boolean | number | null | EnvironmentEntry[] | TagValue[] | OptionItem[]; rowId?: string };
+	/**
+	 * `rowId`: the row whose `pane` holds the form. `secret`: a secret `text` field's name; its
+	 * `value` is then whether the secret is stored now (true: saved, false: removed).
+	 */
+	field: { form: string; field: string; value: string | boolean | number | null | EnvironmentEntry[] | TagValue[] | OptionItem[]; rowId?: string; secret?: string };
 	/** A filter's checked options changed. */
 	filter: { filter: string; values: string[] };
 	/** The selection rested on a row (`selectEvents` tables); null when cleared. */
