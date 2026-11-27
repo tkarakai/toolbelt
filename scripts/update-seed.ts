@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { github } from "../src/release/github";
 import { hash, run, save } from "../src/release/core";
 import { extractArchive } from "../src/bun/packages";
 import { validatePackage } from "../src/sdk/package";
+import { seedNotes, seedVersion } from "../src/release/seed-notes";
 const args = process.argv.slice(2);
 if (
   args.length !== 2 ||
@@ -71,6 +72,10 @@ if (existing?.length) {
   console.log(existing[0].html_url);
   process.exit(0);
 }
+let previous: string | null = null;
+try {
+  previous = seedVersion(JSON.parse(readFileSync("seed.config.json", "utf8")).url);
+} catch {}
 await run(["git", "switch", "-c", branch]);
 save("seed.config.json", {
   repo,
@@ -87,7 +92,17 @@ await run([
 await run(["git", "push", "-u", "origin", branch]);
 const note = join(mkdtempSync(join(tmpdir(), "toolbelt-seed-pr-")), "notes.md");
 try {
-  save(note, { repo, tag, version: descriptor.version, sha256: pkg.sha256 });
+  writeFileSync(
+    note,
+    seedNotes({
+      repo,
+      tag,
+      version: descriptor.version,
+      previous,
+      asset: asset.name,
+      sha256: pkg.sha256,
+    }),
+  );
   console.log(
     await run([
       "gh",
