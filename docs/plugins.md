@@ -182,9 +182,12 @@ render: {
   children show above the input.
 - **`mode: "panel"`** draws a title bar (the plugin's icon and name, `subtitle`, `actions` as
   icon buttons that send their action ids, and minimize) with the children below it. A
-  `conversation`, `log` or `terminal` child takes the space that's left.
+  `conversation`, `log` or `terminal` child takes the space that's left; otherwise the children
+  scroll like a page (settings, lists, cards). A last `composer` child stays at the bottom either
+  way. Forms in a floating window put each label above its control, without a card around them.
 - Switching modes animates. The window keeps the place it first opened in: a bar grows upward
-  from its bottom edge into a panel.
+  from its bottom edge into a panel. Opening grows the window out of its sidebar item's icon, and
+  minimizing shrinks it back into it.
 - **`busy`** spins the plugin's sidebar item while its window is minimized; when it ends while
   minimized, the item shows a dot until the window opens. The plugin's badge shows on the item too.
 
@@ -198,7 +201,8 @@ plugin keeps rendering while its window is minimized (the surface stays open whi
 window is), so work continues and the sidebar item stays current.
 
 On a phone (paired remote access), floating plugins show one at a time: a button above the tab
-bar opens the last one used in a bottom sheet, whose header switches between them. The menu-bar
+bar opens the last one used in a bottom sheet, whose title (the plugin's name) switches between
+them. An ask bar's sheet is as tall as its content; a panel's takes most of the screen. The menu-bar
 popover doesn't list floating plugins (unless they also declare `quickView`): they belong with the
 screens they float over.
 
