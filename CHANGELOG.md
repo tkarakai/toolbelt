@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.8.0 — 2026-11-27
 - The bundled SDK Explorer is 0.4.0: ⌘J opens its floating window, a demo of floating plugins (ask bar, panel, busy sidebar item). New profiles get it; existing ones update it from its releases.
 - AI agents can name a filter, its options, a column or a page control the way the screen shows it ("Workflow", "Archived") as well as by id. When a name could mean two filters, the one offering the asked-for options is used, and the result says how names were read.
 - When an agent reads a screen, each filter shows its id and option values where they differ from the labels, and a filter that hides rows says which ones and how to include them.
