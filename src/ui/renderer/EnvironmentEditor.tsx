@@ -25,11 +25,14 @@ export function EnvironmentEditor({ value, onChange, keychain = false }: { value
     }, [value]);
     const commit = (next: EnvironmentEntry[]) => { sent.current = JSON.stringify(next); setRows(next); onChange(next); };
     const patch = (i: number, next: Partial<EnvironmentEntry>) => commit(rows.map((r, n) => n === i ? { ...r, ...next } : r));
-    const columns = "grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_64px]";
-    return <div className="min-w-0 space-y-3">
+    // Narrow (a floating panel): a variable's value goes under its name, across the row.
+    const columns = "grid-cols-[24px_minmax(0,1fr)_64px] @md:grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_64px]";
+    const valueCell = "col-span-2 col-start-2 row-start-2 @md:col-span-1 @md:col-start-3 @md:row-start-1";
+    const actionsCell = "col-start-3 row-start-1 @md:col-start-4";
+    return <div className="@container min-w-0 space-y-3">
         <div className="overflow-hidden rounded-lg border">
             <div className={cn("grid items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground", columns)}>
-                <span /><span>Variable</span><span>Value</span><span className="sr-only">Actions</span>
+                <span /><span>Variable<span className="@md:hidden"> and value</span></span><span className="hidden @md:block">Value</span><span className={cn("sr-only", actionsCell)}>Actions</span>
             </div>
             {rows.length === 0 && <p className="px-3 py-5 text-sm text-muted-foreground">No environment overrides. Add a variable to save it with this command.</p>}
             {rows.map((row, i) => {
@@ -39,13 +42,18 @@ export function EnvironmentEditor({ value, onChange, keychain = false }: { value
                     <Checkbox aria-label={`Include variable ${i + 1}`} checked={row.selected} onCheckedChange={v => patch(i, { selected: v === true })} />
                     <Input aria-label={`Variable ${i + 1} name`} className="min-w-0 font-mono text-xs" placeholder="NAME" value={row.key} readOnly={stored} title={stored ? "Saved in Keychain: remove it to rename it" : undefined}
                         onChange={e => patch(i, { key: e.target.value, ...(stored ? {} : { secret: SECRET_KEY.test(e.target.value) || (keychain && row.secret) }) })} />
-                    {kept
-                        ? <KeychainValue index={i} name={row.key} stored={stored} onSave={(v) => patch(i, { value: v })} />
-                        : <Input aria-label={`Variable ${i + 1} value`} className="min-w-0 font-mono text-xs" type={row.secret && !visible.has(i) ? "password" : "text"} placeholder="value" value={row.value} onChange={e => patch(i, { value: e.target.value })} />}
-                    <div className="flex">
+                    <div className={cn("min-w-0", valueCell)}>
+                        {kept
+                            ? <KeychainValue index={i} name={row.key} stored={stored} onSave={(v) => patch(i, { value: v })} />
+                            : <Input aria-label={`Variable ${i + 1} value`} className="w-full min-w-0 font-mono text-xs" type={row.secret && !visible.has(i) ? "password" : "text"} placeholder="value" value={row.value} onChange={e => patch(i, { value: e.target.value })} />}
+                    </div>
+                    <div className={cn("flex", actionsCell)}>
                         {keychain
-                            ? <Button variant="ghost" size="icon-sm" aria-label={row.secret ? "Keep in plain settings instead of the Keychain" : "Keep the value in the Keychain"} title={stored ? "Saved in Keychain" : row.secret ? "Kept in the Keychain" : "Kept in plain settings"} aria-pressed={row.secret} disabled={stored} className={row.secret ? undefined : "text-muted-foreground"}
-                                onClick={() => patch(i, { secret: !row.secret })}>{row.secret ? <LockKeyhole /> : <LockKeyholeOpen />}</Button>
+                            ? stored
+                                // Saved: no longer a switch (remove the variable to change it), and unmistakably locked.
+                                ? <span role="img" aria-label="Saved in Keychain" title="Saved in Keychain: remove it to change it" className="inline-flex size-7 items-center justify-center text-primary"><LockKeyhole className="size-4" /></span>
+                                : <Button variant="ghost" size="icon-sm" aria-label={row.secret ? "Keep in plain settings instead of the Keychain" : "Keep the value in the Keychain"} title={row.secret ? "Will be kept in the Keychain" : "Kept in plain settings"} aria-pressed={row.secret} className={row.secret ? undefined : "text-muted-foreground"}
+                                    onClick={() => patch(i, { secret: !row.secret })}>{row.secret ? <LockKeyhole /> : <LockKeyholeOpen />}</Button>
                             : <Button variant="ghost" size="icon-sm" aria-label={visible.has(i) ? "Hide value" : "Show value"} disabled={!row.secret} onClick={() => setVisible(v => { const next = new Set(v); next.has(i) ? next.delete(i) : next.add(i); return next; })}>{visible.has(i) ? <EyeOff /> : <Eye />}</Button>}
                         <Button variant="ghost" size="icon-sm" aria-label={`Remove variable ${i + 1}`} onClick={() => { setVisible(new Set()); commit(rows.filter((_, n) => n !== i)); }}><Trash2 /></Button>
                     </div>
@@ -77,7 +85,7 @@ function KeychainValue({ index, name, stored, onSave }: { index: number; name: s
             <Button variant="ghost" size="sm" className="h-7 shrink-0 px-2 text-xs" aria-label={`Replace the value of ${name || `variable ${index + 1}`}`}
                 onClick={() => { setReplacing(true); requestAnimationFrame(() => input.current?.focus()); }}>Replace</Button>
         </div>;
-    return <Input ref={input} aria-label={`Variable ${index + 1} value`} className="min-w-0 font-mono text-xs" type="password" autoComplete="off" spellCheck={false}
+    return <Input ref={input} aria-label={`Variable ${index + 1} value`} className="w-full min-w-0 font-mono text-xs" type="password" autoComplete="off" spellCheck={false}
         disabled={!name} placeholder={!name ? "Name it first" : replacing ? "New value" : "Value for the Keychain"} value={draft}
         onChange={e => setDraft(e.target.value)} onBlur={() => { save(); if (!draft) setReplacing(false); }}
         onKeyDown={e => {
