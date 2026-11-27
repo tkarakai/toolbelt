@@ -15,13 +15,14 @@ import { cn } from "@/lib/utils";
 import { sendEvent, useNavigate, useSurface } from "@/lib/store";
 import { SurfaceContext, usePersisted, useUIState } from "@/lib/uistate";
 import { overlayOpen } from "@/lib/keyboard";
+import { useSheetDrag } from "@/lib/touch";
 import { SafeRender as Render } from "@/renderer/SafeRender";
 import { When } from "@/renderer/Render";
 import { FloatingSurface } from "@/renderer/floating-context";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { ShortcutTooltip } from "@/components/shortcut-tooltip";
-import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
+import { keyboardInset } from "@/hooks/use-keyboard-inset";
 import { SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 
 type FloatingNode = Extract<Node, { type: "floating" }>;
@@ -487,7 +488,7 @@ function TitleName({ info, dim }: { info: PluginInfo; dim: boolean }) {
 /** The panel's title bar: drags the window; the plugin's actions and the minimize button. */
 function TitleBar({ info, node, emit, focused, onDrag, onMinimize, onSwitch, mobile }: { info: PluginInfo; node: FloatingNode; emit: (name: string, payload?: unknown) => void; focused: boolean; onDrag?: (e: React.PointerEvent) => void; onMinimize: () => void; onSwitch?: () => void; mobile?: boolean }) {
 	return (
-		<div onPointerDown={onDrag} className={cn("flex shrink-0 items-center gap-2 border-b pr-1.5 pl-3 select-none", mobile ? "h-13" : "h-11 cursor-grab active:cursor-grabbing")}>
+		<div onPointerDown={onDrag} data-sheet-handle={mobile || undefined} className={cn("flex shrink-0 items-center gap-2 border-b pr-1.5 pl-3 select-none", mobile ? "h-13" : "h-11 cursor-grab active:cursor-grabbing")}>
 			{onSwitch ? (
 				// On a phone with several floating plugins, the name switches between them.
 				<button type="button" onClick={onSwitch} aria-label={`${info.manifest.name}: switch tool`} aria-haspopup="menu" className="-ml-1 flex min-w-0 items-center gap-2 rounded-lg py-1 pr-1.5 pl-1 active:bg-accent">
@@ -679,7 +680,52 @@ function AskBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { inf
 }
 
 // ── phone ────────────────────────────────────────────────────────────────
-/** On a phone: a button that opens one floating plugin at a time in a bottom sheet. */
+/** The phone sheet's two heights (iOS's medium and large detents): CSS lengths, given the height
+ *  the keyboard leaves visible (px, or none while it's closed). */
+const sheetHeights = (visible: number | null) => {
+	const full = `calc(${visible !== null ? `${visible}px` : "100dvh"} - max(env(safe-area-inset-top), 0.75rem) - 0.5rem)`;
+	return [`min(58dvh, ${full})`, full];
+};
+
+/** A CSS length in px, as the page lays it out now. */
+function cssPx(length: string) {
+	const probe = document.createElement("div");
+	probe.style.cssText = `position:fixed;visibility:hidden;pointer-events:none;width:0;height:${length}`;
+	document.body.appendChild(probe);
+	const px = probe.getBoundingClientRect().height;
+	probe.remove();
+	return px;
+}
+
+/** While the on-screen keyboard is open: how much of the layout viewport it covers at the bottom,
+ *  and the height left visible above it (px). iOS and Android overlay the keyboard instead of
+ *  resizing the page, so a sheet along the bottom moves up by `inset` to stay above it. */
+function useKeyboardArea() {
+	const [kb, setKb] = useState<{ inset: number; visible: number } | null>(null);
+	useEffect(() => {
+		const vv = window.visualViewport;
+		if (!vv) return;
+		const update = () => {
+			const inset = keyboardInset(window.innerHeight, vv);
+			const next = inset ? { inset, visible: Math.round(vv.height) } : null;
+			setKb((k) => (k?.inset === next?.inset && k?.visible === next?.visible ? k : next));
+		};
+		update();
+		vv.addEventListener("resize", update);
+		vv.addEventListener("scroll", update);
+		return () => {
+			vv.removeEventListener("resize", update);
+			vv.removeEventListener("scroll", update);
+		};
+	}, []);
+	return kb;
+}
+
+/**
+ * On a phone: a button that opens one floating plugin at a time in a bottom sheet. A panel has two
+ * heights, 58% of the screen and full height: the grabber (tap, Enter or a drag) and
+ * the header change them; dragging down from the smaller one, Esc and the close button minimize it.
+ */
 function FloatingSheet() {
 	const f = useFloating()!;
 	const id = f.sheet.id;
@@ -689,10 +735,13 @@ function FloatingSheet() {
 	const tree = useSurface(info?.manifest.id ?? "", SURFACE);
 	// An ask bar is as tall as it needs; a panel takes most of the screen.
 	const bar = tree?.type === "floating" && tree.mode === "bar";
-	// With the keyboard open the sheet sits on it (and the home indicator is under the keyboard).
-	const keyboard = useKeyboardInset(f.sheet.open);
+	const kb = useKeyboardArea();
+	const heights = sheetHeights(kb?.visible ?? null);
+	const minimize = () => info && f.minimize(info.manifest.id);
+	const drag = useSheetDrag({ side: "bottom", onDismiss: minimize, detent: bar ? 0 : full ? 1 : 0, onDetent: (i) => setFull(i === 1), heights: bar ? undefined : () => heights.map(cssPx) });
 	useEffect(() => {
-		if (!f.sheet.open) setMenu(false);
+		// Each opening starts at the smaller height, like iOS sheets.
+		if (!f.sheet.open) (setMenu(false), setFull(false));
 	}, [f.sheet.open]);
 	if (!info) return null;
 	return (
@@ -713,15 +762,31 @@ function FloatingSheet() {
 			{f.sheet.open && full && !bar && <div className="fixed inset-0 z-40 bg-black/25 animate-in fade-in-0 duration-200" onClick={() => setFull(false)} />}
 			{f.sheet.open && (
 				<section
+					ref={drag}
 					data-floating-sheet={info.manifest.id}
 					aria-label={info.manifest.name}
-					style={{ "--floating-safe-bottom": keyboard ? "0px" : "env(safe-area-inset-bottom)", ...(keyboard && { bottom: keyboard, maxHeight: `calc(100dvh - ${keyboard}px - 0.75rem)` }) } as React.CSSProperties}
-					className={cn("fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] border-t bg-popover text-popover-foreground shadow-[0_-10px_40px_-10px_rgb(0_0_0/0.35)] transition-[height] duration-300 ease-out animate-in slide-in-from-bottom-8 fade-in-0", bar ? "max-h-[88dvh]" : full ? "h-[88dvh]" : "h-[58dvh]")}
+					onKeyDownCapture={(e) => {
+						// As on the Mac: Esc minimizes, after a field with text has cleared it (the composer does that).
+						if (e.key !== "Escape" || e.defaultPrevented || e.nativeEvent.isComposing) return;
+						const t = e.target as HTMLElement;
+						if ((t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) && t.value) return;
+						if (t.closest("[role=menu], [role=listbox]")) return;
+						e.preventDefault();
+						e.stopPropagation();
+						if (menu) return setMenu(false);
+						minimize();
+					}}
+					style={{ bottom: kb?.inset ?? 0, "--sheet-h": heights[full ? 1 : 0], "--sheet-max": heights[1], "--floating-safe-bottom": kb ? "0px" : "env(safe-area-inset-bottom)" } as React.CSSProperties}
+					className={cn("fixed inset-x-0 z-50 flex flex-col rounded-t-[22px] border-t bg-popover text-popover-foreground shadow-[0_-10px_40px_-10px_rgb(0_0_0/0.35)] transition-[height,bottom] duration-200 ease-out animate-in slide-in-from-bottom-8 fade-in-0", bar ? "max-h-(--sheet-max)" : "h-(--sheet-h)")}
 				>
-					<button type="button" aria-label={full ? "Make smaller" : "Make larger"} disabled={bar} onClick={() => setFull(!full)} className="mx-auto mt-2 mb-0.5 h-1.5 w-10 shrink-0 rounded-full bg-border" />
+					<div data-sheet-handle className="flex shrink-0 justify-center pt-1">
+						<button type="button" aria-label={full ? "Make smaller" : "Make larger"} aria-expanded={bar ? undefined : full} disabled={bar} onClick={() => setFull(!full)} className="flex h-5 w-16 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
+							<span className="h-1.5 w-10 rounded-full bg-border" />
+						</button>
+					</div>
 					<SheetContent info={info} onSwitch={f.plugins.length > 1 ? () => setMenu(!menu) : undefined} />
 					{menu && (
-						<div role="menu" className="absolute top-14 left-3 z-10 w-60 rounded-xl border bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95 duration-150">
+						<div role="menu" data-sheet-no-drag className="absolute top-14 left-3 z-10 w-60 rounded-xl border bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95 duration-150">
 							{f.plugins.map((p) => (
 								<button key={p.manifest.id} role="menuitem" type="button" onClick={() => (setMenu(false), f.open(p.manifest.id))} className={cn("flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-[15px]", p.manifest.id === info.manifest.id && "bg-accent")}>
 									<Icon name={p.manifest.icon} className="size-4.5" />

@@ -342,7 +342,8 @@ Plugins don't learn that a client is remote or touch-based, and the protocol doe
      sideways on a row of their own.
    - The details drawer can't fit, so a tapped row opens its details or row pane in a sheet from
      the bottom (on phone-width windows and touch screens; a medium-width Mac window keeps clicks
-     selecting), sliding its full height in 200 ms (grab handle; a downward swipe, a tap outside or Esc closes it). A tapped row
+     selecting), sliding its full height in 200 ms (grab handle; a downward swipe, a tap outside or Esc closes it;
+     content scrolled down scrolls back first, see "Touch"). A tapped row
      without details opens or closes its children, and a tapped group heading collapses or
      expands; double clicks then do nothing more.
    - Dialogs, including resizable ones, are sheets along the bottom, up to 92% of the height,
@@ -368,9 +369,27 @@ unchanged.
   the edge for its back gesture when there is a page to go back to; ToolBelt adds no history of
   its own on touch screens (see "Narrow screens"), so this only happens in a browser tab that
   came from another page.
-- **Swipe to dismiss**: the tools sheet (swiped left) and the details sheet (swiped down)
-  follow the finger and close when pulled past 30% or flung; otherwise they spring back. A
-  pull starts only where the content can't scroll that way itself.
+- **Sheet drag** (`useSheetDrag`, one implementation for every sheet): the tools sheet (swiped
+  left), the details sheet and the floating plugin's sheet (swiped down) follow the finger and
+  close when pulled past 30% of their (smaller) height, or flung (0.5 px/ms, measured over the
+  last 100 ms, and at least 32 px); otherwise they spring back. `sheetIntent` decides, once the
+  finger has moved 6 px, whether a touch moves the sheet or scrolls its content:
+  - Down moves the sheet when it starts on the grabber or header (`data-sheet-handle`), or on
+    content that is at its top (every scrollable box under the finger, including a terminal's
+    viewport, at `scrollTop` 0) and hasn't scrolled in the last 400 ms. So a swipe meant to
+    scroll a long details sheet back up scrolls it, and neither the momentum that reaches the top
+    nor the next swipe right after closes the sheet; a deliberate pull does.
+  - Sideways is always a scroll, and once a touch is a scroll it stays one until the finger lifts.
+  - Text fields, editors and open menus never start a drag.
+- **Two heights** (iOS's medium and large detents) for the floating plugin's panel sheet: 58% of
+  the screen and full height below the status bar. Up moves it only from the grabber or title
+  bar, so a conversation keeps scrolling. Released, it settles on the nearest height (`settle`);
+  a fling moves one step, so a hard swipe down from full height stops at the smaller height and
+  only a swipe from there minimizes it. The grabber is a button (tap, Enter or Space toggles
+  the height, `aria-expanded`), Esc minimizes, and each opening starts at the smaller height.
+  While the on-screen keyboard is open the sheet sits on top of it and full height is the
+  visible part (`visualViewport`), so the title bar and composer stay on screen. Movement is
+  200 ms ease-out, none with reduced motion. Row details stay one height.
 - **Targets and text**: row ⋯ and expand buttons get a larger hit area (`data-touch-target`),
   and text fields use 16 px so iOS doesn't zoom on focus. There's no tap highlight, no
   double-tap zoom delay on controls, no rubber-banding of the app, and rows don't select text
