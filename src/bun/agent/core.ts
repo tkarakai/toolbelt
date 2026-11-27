@@ -896,7 +896,7 @@ export class AgentCore {
 						? `The person's view${r.viewState.length ? `, currently showing ${r.viewState.join("; ")}. Rows outside it are not listed.` : " (nothing set beyond the defaults)."}`
 						: [`Your view: ${r.viewSummary || "as the screen starts (default search, filters and sort)"}.`, ...r.names].join("\n");
 					const header = [`# ${r.ref.pluginName} › ${r.ref.title} (plugin "${r.ref.plugin}", screen "${r.ref.screen}")`, [age, r.watched ? "a person has it open" : ""].filter(Boolean).join("; "), viewLine].filter(Boolean).join("\n");
-					const meta = { ...r.ref, rendered: r.rendered, renderedAt: r.at || null, renderedAtIso: iso(r.at), personViewing: r.watched, view: r.view, viewSummary: r.viewSummary, viewState: r.viewState };
+					const meta = { ...r.ref, rendered: r.rendered, renderedAt: r.at || null, renderedAtIso: iso(r.at), personViewing: r.watched, view: r.view, viewSummary: r.viewSummary, viewState: r.viewState, namesRead: r.names };
 					// JSON: the tree with the same metadata. Text: the screen as text (also as `text` in the data).
 					return { text: `${header}\n\n${r.text}`, data: { ...meta, tree: r.tree } };
 				},
