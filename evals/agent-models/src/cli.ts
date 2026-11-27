@@ -6,6 +6,8 @@
 //          [--lenient]             resolve filter, option, plugin and screen names as a proposed ToolBelt change would (lenient.ts)
 //          [--agent claude-acp]    run through Claude Code's ACP adapter as the ToolBelt Agent plugin does (acp.ts),
 //                                  instead of the pi-durable harness; candidates are then "<model>@claude"
+//          [--agent model-api --model-api <model-api.js>]   run through the ToolBelt Agent plugin's own
+//                                  Model API agent, from a plugin build or release archive; "<model>@model-api"
 //   report <results dir>           rebuilds report.html and summary.json from runs.jsonl
 //   regrade <results dir>          applies the current checks to stored runs (after changing cases.ts)
 // Models are oMLX ids; append ":think" to run with thinking on. Without --models, `run` uses
@@ -39,6 +41,7 @@ const { positionals, values } = parseArgs({
 		prompt: { type: "string" },
 		lenient: { type: "boolean" },
 		agent: { type: "string" },
+		"model-api": { type: "string" },
 		"max-turns": { type: "string", default: "12" },
 		"timeout": { type: "string", default: "600" },
 		"max-output": { type: "string", default: "8192" },
@@ -64,9 +67,11 @@ if (command === "models") {
 } else if (command === "run") {
 	await setup();
 	const status = await omlxStatus();
-	if (values.agent && values.agent !== "claude-acp") throw new Error(`unknown --agent ${values.agent} (claude-acp)`);
-	const acpCommand = values.agent ? [Bun.which("claude-agent-acp") ?? "claude-agent-acp"] : null;
-	const candidates = (values.models?.split(",") ?? config.default).map(parseCandidate).map((c) => (acpCommand ? { ...c, id: `${c.id}@claude` } : c));
+	if (values.agent && values.agent !== "claude-acp" && values.agent !== "model-api") throw new Error(`unknown --agent ${values.agent} (claude-acp, model-api)`);
+	const acpAgent = values.agent === "claude-acp" ? ("claude" as const) : values.agent === "model-api" ? ("model-api" as const) : null;
+	if (acpAgent === "model-api" && !(values["model-api"] && existsSync(values["model-api"]))) throw new Error("--agent model-api needs --model-api <path to the plugin's model-api.js>");
+	const acpCommand = acpAgent === "claude" ? [Bun.which("claude-agent-acp") ?? "claude-agent-acp"] : acpAgent === "model-api" ? [process.execPath, values["model-api"]!] : null;
+	const candidates = (values.models?.split(",") ?? config.default).map(parseCandidate).map((c) => (acpAgent ? { ...c, id: `${c.id}@${acpAgent}` } : c));
 	for (const cand of candidates) if (!status.models.some((m) => m.id === cand.model)) throw new Error(`oMLX has no model ${cand.model} (see: bun src/cli.ts models)`);
 	const ids = values.cases?.split(",");
 	const cases = CASES.filter((c) => (ids ? ids.includes(c.id) : values.all || !c.slow));
@@ -82,7 +87,7 @@ if (command === "models") {
 	const instructions = values.prompt ? readFileSync(values.prompt, "utf8").trim() : undefined;
 	if (instructions) writeFileSync(join(out, "prompt.txt"), instructions);
 	// Through Claude Code, thinking off means an explicit `thinking: disabled` (see startRecorder).
-	const recorder = startRecorder({ noThinking: !!acpCommand && candidates.every((c) => c.thinking === "off") });
+	const recorder = startRecorder({ noThinking: acpAgent === "claude" && candidates.every((c) => c.thinking === "off") });
 	const runsFile = join(out, "runs.jsonl");
 	console.log(`results: ${out}`);
 	for (const cand of candidates) {
@@ -96,7 +101,7 @@ if (command === "models") {
 				const run: CaseRun & { repeat: number } = {
 					...(await (async () => {
 						const opts = { maxTurns: Number(values["max-turns"]), turnTimeoutMs: Number(values.timeout) * 1000, maxOutput: Number(values["max-output"]), recorder, instructions, lenient: values.lenient };
-						return acpCommand ? runCaseAcp(c, cand, om, { ...opts, command: acpCommand }) : runCase(c, cand, om, opts);
+						return acpCommand ? runCaseAcp(c, cand, om, { ...opts, command: acpCommand, agent: acpAgent! }) : runCase(c, cand, om, opts);
 					})()),
 					repeat: r,
 				};

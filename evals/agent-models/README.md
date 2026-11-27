@@ -114,6 +114,16 @@ model's settings enable it. With thinking off, the proxy adds `thinking: {type: 
 an oMLX profile with thinking off does. Side requests (Claude Code naming the session) are recorded
 with `kind` set to the start of their system prompt.
 
+### Through the plugin's Model API agent
+
+`--agent model-api --model-api <path>/model-api.js` runs each case through the ToolBelt Agent
+plugin's own Model API agent: the `model-api.js` of a plugin build (`dist/package/`) or of a
+release archive. It's started as the plugin starts it, speaking ACP with the plugin's preamble in
+the first message, with the oMLX preset pointed at the recording proxy, the candidate's thinking
+setting, the model's context and `--max-turns` as its tool steps. Candidates are named
+`<model>@model-api`. The agent switches thinking itself (`chat_template_kwargs`), so the proxy
+doesn't add anything.
+
 `EVAL_AGENT_ENV_<NAME>=value` adds `NAME=value` to the agent's environment, after the lines above
 (so it can replace them): for example `CLAUDE_CONFIG_DIR`, or `HTTPS_PROXY` pointing at a logging
 proxy to check that nothing leaves the Mac.
