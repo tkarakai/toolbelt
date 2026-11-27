@@ -6,6 +6,8 @@
 - Tooltips follow the pointer across a row of icon buttons: moving from "Minimize to the sidebar" straight to the next button shows that button's label instead of keeping the first one.
 - A floating chat's input floats over the bottom of the conversation as a raised, rounded tray with a send button, and the chat scrolls underneath it without hiding the last message. On a phone, the bottom sheet stays above the keyboard, keeps clear of the home indicator and doesn't zoom in when you start typing; the ask bar gets the same send button.
 - Chat messages show when they were sent in a way that still makes sense days later: the time today, the weekday and time within a week ("Mon 14:03"), the date and time before that ("Nov 20, 14:03"). Hovering or focusing a time shows the full date. Floating chats now show times too, once per run of messages.
+- On a phone, a swipe down on a tall sheet that's scrolled down (such as a long task's details) scrolls it back up instead of closing it. A sheet closes when pulled down by its handle or header, or from content already at its top, and only with a deliberate pull or fling: the momentum of a scroll reaching the top, or a quick flick, no longer closes it.
+- On a phone, a floating plugin's sheet (such as an agent chat) can be swiped down to minimize it like other sheets, and dragged up by its handle or title bar to full height; a swipe down from full height returns it to its usual height. Tapping the handle toggles the height, Esc minimizes it, and with the keyboard open the sheet stays above it.
 
 ## 0.8.0 — 2026-11-27
 - The bundled SDK Explorer is 0.4.0: ⌘J opens its floating window, a demo of floating plugins (ask bar, panel, busy sidebar item). New profiles get it; existing ones update it from its releases.

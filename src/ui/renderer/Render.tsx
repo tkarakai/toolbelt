@@ -45,7 +45,7 @@ import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { useSwipeDismiss, watchHold } from "@/lib/touch";
+import { useSheetDrag, watchHold } from "@/lib/touch";
 import { usePhone } from "@/hooks/use-mobile";
 import { touchPrimary } from "@/lib/device";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -2767,12 +2767,12 @@ function InspectorBody({ item, selected, actions, paneButtons, enter, run, emit,
 }
 
 /**
- * A narrow screen's details: a sheet from the bottom with a grab handle, which a downward swipe,
- * a tap outside or Esc closes. Editable panes get a fixed tall sheet, so it doesn't jump as they
+ * A narrow screen's details: a sheet from the bottom with a grab handle, which a downward swipe
+ * (on the handle or header, or on content scrolled to its top), a tap outside or Esc closes. Editable panes get a fixed tall sheet, so it doesn't jump as they
  * change; details fit their content.
  */
 function DetailSheet({ open, onOpenChange, pane, children }: { open: boolean; onOpenChange: (open: boolean) => void; pane: boolean; children: ReactNode }) {
-	const swipe = useSwipeDismiss("bottom", () => onOpenChange(false));
+	const swipe = useSheetDrag({ side: "bottom", onDismiss: () => onOpenChange(false) });
 	// Keep the last content while the sheet slides away.
 	const last = useRef(children);
 	if (open) last.current = children;
@@ -2780,7 +2780,7 @@ function DetailSheet({ open, onOpenChange, pane, children }: { open: boolean; on
 		<Sheet open={open} onOpenChange={onOpenChange}>
 <SheetContent ref={swipe} side="bottom" showCloseButton={false} aria-describedby={undefined} onOpenAutoFocus={(e) => (e.preventDefault(), (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true }))} className={cn("gap-0 overflow-hidden rounded-t-2xl bg-background p-0 pb-[env(safe-area-inset-bottom)] duration-200 ease-out data-open:slide-in-from-bottom-full! data-closed:slide-out-to-bottom-full!", pane ? "h-[88svh]" : "max-h-[85svh]")}>
 				<SheetTitle className="sr-only">Details</SheetTitle>
-				<div aria-hidden className="mx-auto mt-2 h-1.5 w-10 shrink-0 rounded-full bg-muted-foreground/30" />
+				<div aria-hidden data-sheet-handle className="flex h-5 shrink-0 items-center justify-center"><div className="h-1.5 w-10 rounded-full bg-muted-foreground/30" /></div>
 				<div data-detail-sheet className="flex min-h-0 flex-1 flex-col">{open ? children : last.current}</div>
 			</SheetContent>
 		</Sheet>

@@ -609,7 +609,8 @@ function ToolbeltPage({ onClose, section }: { plugins: PluginInfo[]; onClose: ()
 function TouchGestures() {
     const gestures: [string, string, string][] = [
         ["Swipe in from the left edge", "Show your tools", "panel-left-open"],
-        ["Swipe a sheet down, or the tools back left", "Close it", "move-down"],
+        ["Swipe a sheet down, or the tools back left", "Close it, or make a full-height sheet smaller. Scrolled content scrolls back to its top first", "move-down"],
+        ["Drag a floating tool's sheet up by its handle", "Make it full height", "move-up"],
         ["Tap a row", "See its details, or open its group", "hand"],
         ["Touch and hold a row", "Its actions; rows that can move lift, then drag them", "hand-grab"],
         ["Touch and hold a tool or a filter", "Lift it, then drag it to a new place", "grip-vertical"],

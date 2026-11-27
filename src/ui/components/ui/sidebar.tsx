@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { Slot } from "radix-ui"
 
 import { useIsMobile } from "@/hooks/use-mobile"
-import { useSwipeDismiss } from "@/lib/touch"
+import { useSheetDrag } from "@/lib/touch"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
@@ -164,7 +164,7 @@ function Sidebar({
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
   // Toolbelt: the narrow screen's sheet follows a finger swiping it away.
-  const swipe = useSwipeDismiss(side === "left" ? "left" : "bottom", () => setOpenMobile(false))
+  const swipe = useSheetDrag({ side: side === "left" ? "left" : "bottom", onDismiss: () => setOpenMobile(false) })
 
   if (collapsible === "none") {
     return (

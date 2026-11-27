@@ -207,8 +207,10 @@ window is), so work continues and the sidebar item stays current.
 
 On a phone (paired remote access), floating plugins show one at a time: a button above the tab
 bar opens the last one used in a bottom sheet, whose title (the plugin's name) switches between
-them. An ask bar's sheet is as tall as its content; a panel's takes most of the screen. While the
-on-screen keyboard is open the sheet sits on top of it (`src/ui/hooks/use-keyboard-inset.ts`). The menu-bar
+them. An ask bar's sheet is as tall as its content; a panel's opens over the lower part of the screen
+and grows to full height when its grabber is tapped or dragged up. Swiping it down (or Esc, or its
+close button) minimizes it, as Esc does on the Mac. While the on-screen keyboard is open the sheet
+sits on top of it. The menu-bar
 popover doesn't list floating plugins (unless they also declare `quickView`): they belong with the
 screens they float over.
 
