@@ -108,11 +108,12 @@ function outputOf(u: Update): string {
 	return u.rawOutput ? JSON.stringify(u.rawOutput) : "";
 }
 
-export type AcpOptions = RunOptions & { command: string[] };
+/** `claude`: Claude Code's ACP adapter as the plugin starts it. `model-api`: the plugin's own Model API agent (model-api.js). */
+export type AcpOptions = RunOptions & { command: string[]; agent: "claude" | "model-api" };
 
 export async function runCaseAcp(c: Case, candidate: Candidate, om: OmlxModel, o: AcpOptions): Promise<CaseRun> {
 	const started = Date.now();
-	const run: CaseRun = { case: c.id, candidate: candidate.id, model: candidate.model, thinking: candidate.thinking, startedAt: new Date(started).toISOString(), turns: [], score: 0, pass: false, ms: 0, systemPrompt: `(Claude Code's own, isolated)\n\nFirst message:\n${PLUGIN_PREAMBLE}`, tools: [], audit: [] };
+	const run: CaseRun = { case: c.id, candidate: candidate.id, model: candidate.model, thinking: candidate.thinking, startedAt: new Date(started).toISOString(), turns: [], score: 0, pass: false, ms: 0, systemPrompt: `(${o.agent === "claude" ? "Claude Code's own, isolated" : "the Model API agent's: ToolBelt's instructions and the date"})\n\nFirst message:\n${PLUGIN_PREAMBLE}`, tools: [], audit: [] };
 	let world: EvalWorld | undefined;
 	let agent: Acp | undefined;
 	const workdir = mkdtempSync(join(tmpdir(), "tb-acp-"));
@@ -154,13 +155,26 @@ export async function runCaseAcp(c: Case, candidate: Candidate, om: OmlxModel, o
 			USER: process.env.USER ?? "",
 			PATH: process.env.PATH ?? "",
 			TERM: "dumb",
-			// The plugin's Claude Code Environment lines, as docs/other-agents.md suggests for oMLX.
-			ANTHROPIC_BASE_URL: base,
-			ANTHROPIC_AUTH_TOKEN: "eval",
-			ANTHROPIC_MODEL: om.id,
-			ANTHROPIC_DEFAULT_HAIKU_MODEL: om.id,
-			MAX_THINKING_TOKENS: candidate.thinking === "on" ? "8000" : "0",
-			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+			...(o.agent === "claude"
+				? {
+						// The plugin's Claude Code Environment lines, as docs/other-agents.md suggests for oMLX.
+						ANTHROPIC_BASE_URL: base,
+						ANTHROPIC_AUTH_TOKEN: "eval",
+						ANTHROPIC_MODEL: om.id,
+						ANTHROPIC_DEFAULT_HAIKU_MODEL: om.id,
+						MAX_THINKING_TOKENS: candidate.thinking === "on" ? "8000" : "0",
+						CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+					}
+				: {
+						// The Model API agent's settings, as the plugin passes them: the oMLX preset, through the proxy.
+						TOOLBELT_MODEL_API_PRESET: "omlx",
+						TOOLBELT_MODEL_API_URL: `${base}/v1`,
+						TOOLBELT_MODEL_API_MODEL: om.id,
+						TOOLBELT_MODEL_API_KEY: "eval",
+						TOOLBELT_MODEL_API_THINKING: candidate.thinking === "on" ? "medium" : "off",
+						TOOLBELT_MODEL_API_CONTEXT: String(om.max_context_window ?? om.model_context_length ?? 32_768),
+						TOOLBELT_MODEL_API_MAX_STEPS: String(o.maxTurns),
+					}),
 			// More lines for the agent, such as a proxy or CLAUDE_CONFIG_DIR: EVAL_AGENT_ENV_<NAME>=value.
 			...Object.fromEntries(
 				Object.entries(process.env)
@@ -172,7 +186,7 @@ export async function runCaseAcp(c: Case, candidate: Candidate, om: OmlxModel, o
 		const a = agent;
 		await a.request("initialize", { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: "toolbelt-agent", title: "ToolBelt Agent", version: "0.1.0" } });
 		const toolbelt = { name: "toolbelt", command: process.execPath, args: [CLI, "--socket", w.world.socket, "mcp"], env: [] };
-		const { sessionId, modes } = await a.request<{ sessionId: string; modes?: { currentModeId: string } }>("session/new", { cwd: workdir, mcpServers: [toolbelt], _meta: CLAUDE_ISOLATION });
+		const { sessionId, modes } = await a.request<{ sessionId: string; modes?: { currentModeId: string } }>("session/new", { cwd: workdir, mcpServers: [toolbelt], ...(o.agent === "claude" ? { _meta: CLAUDE_ISOLATION } : {}) });
 		// The adapter takes the person's permissions.defaultMode (often "auto", whose safety check runs on
 		// Anthropic's servers and refuses everything through another endpoint): ask for the default mode,
 		// where ToolBelt's tools are allowed through permission requests, as the plugin does.

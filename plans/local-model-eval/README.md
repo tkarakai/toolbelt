@@ -273,3 +273,25 @@ What it took, and what's left:
   it has no switch, but goes to `ANTHROPIC_DEFAULT_HAIKU_MODEL`, which could be a small model).
 
 Run folders: `results/v2-claude-thinking` (stopped after 31 of 72 runs), `results/v2-claude`.
+
+## Fourth evaluation: the plugin's own Model API agent
+
+The ToolBelt Agent plugin now bundles its own lightweight agent (`model-api.js`, about 300 KB of
+the archive), built on the same pi-durable loop as the harness above but speaking ACP like the
+plugin's other agents. `--agent model-api` runs it from a plugin build, as the plugin starts it.
+
+Qwen3.8-27B-4bit on oMLX, thinking off, the 23 quick cases once. The host had #153 (names in
+views, hidden rows, closest search matches), which the earlier runs didn't, so pass rates aren't
+strictly comparable. Timings are.
+
+| Setup | Passed | Median / p90 per answer | Output tokens per answer | First prompt |
+|---|---|---|---|---|
+| Model API agent | 22/23 (96%) | 10.2 s / 25.2 s | ~240 | 2.5k |
+| pi-durable harness (second evaluation) | 65/69 (94%) | 11–13 s / 32 s | ~270 | 2.4k |
+| Claude Code, thinking off (third evaluation) | 21/23 (91%) | 19.4 s / 42.6 s | ~280 | 4.2k |
+
+- **Speed.** The Model API agent answers as fast as the harness, about twice as fast as Claude Code
+  on the same model. It doesn't send Claude Code's own prompt or a chat-title request.
+- **The one miss** was the archived task again: the model read the archived tasks and still
+  described one as in the inbox.
+- **Run folder:** `results/v3-model-api`. Summary: `summaries/v4-model-api.json`.
