@@ -96,7 +96,7 @@
 			"expect": {
 				"refused": true,
 				"contains": [
-					"Desk › Tasks has no row \"99\".",
+					"Desk › Tasks has no row \"99\"",
 					"read_screen shows each row's id as {id: …}"
 				],
 				"navigated": []
