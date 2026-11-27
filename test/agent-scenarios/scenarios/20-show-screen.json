@@ -136,7 +136,7 @@
 			"expect": {
 				"refused": true,
 				"contains": [
-					"Filter \"status\" has no option \"nope\""
+					"Filter Status has no option \"nope\""
 				]
 			}
 		}

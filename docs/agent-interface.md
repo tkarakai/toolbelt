@@ -105,11 +105,11 @@ The server negotiates protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26`
 
 | Tool | What it returns |
 | --- | --- |
-| `toolbelt_status` | The runtime view, where agents start: app name, version, channel and development profile, the app bundle answering and its process id (two builds of one version on one profile are otherwise indistinguishable; the second can't serve the socket and says so in Settings → Agents), app update availability, visible plugins with state, badge (only while running), screens and available update, and the count of hidden plugins |
+| `toolbelt_status` | The runtime view, where agents start: app name, version, channel and development profile, the app bundle answering and its process id (two builds of one version on one profile are otherwise indistinguishable; the second can't serve the socket and says so in Settings → Agents), app update availability, visible plugins with state, badge (only while running; the description says a badge is the plugin's own attention signal, not a total), screens and available update, and the count of hidden plugins |
 | `list_screens` | Readable screens as plugin and screen ids, optionally for one plugin, each with its view schema: search, filters with option values (once the screen has rendered) and defaults, sortable tables with their column keys, page controls |
 | `read_screen` | One screen as text (default) or redacted JSON, with `max_rows`, `table` and `offset` paging and `details` (rows' inspector content, off by default), read through the agent's own instance with an optional `view`, or `view: "person"` for the person's |
 | `show_screen` | Shows the person a screen, optionally with a view, on every person's screen that is open, after the person allows it; reports devices that don't show it (see Showing the person a screen) |
-| `search_screens` | Content lines containing every query word, across readable screens or one plugin, grouped by row (a row's line with its matching details, each shortened to 300 characters), and the screens that couldn't be read |
+| `search_screens` | Content lines containing every query word, across readable screens or one plugin, grouped by row (a row's line with its matching details, each shortened to 300 characters); when no line has every word, the closest lines; rows the screens' default filters hide; and the screens that couldn't be read |
 | `list_plugins` | The installation view: every installed plugin agents may see, enabled or not, with version, state (the runtime state while enabled, else `disabled`), access, available update, repository and channel |
 
 Every tool is declared `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`,
@@ -126,7 +126,8 @@ JSON-RPC errors.
 
 `read_screen`'s `parent` (a row id in `table`) pages that row's child rows with `offset`, as if
 they were the table's rows; an unknown row is refused. Plugin and screen ids match in any case, and by plugin name or screen title. An unknown id gets
-the readable ids and close matches among them; hidden plugins are never suggested. A `table`
+close matches among the readable ids and the readable plugins themselves (up to 10, else a
+pointer to `list_screens`); hidden plugins are never suggested or listed. A `table`
 that isn't on the screen is refused with the screen's table ids, and `offset` without `table`
 pages the screen's only table (refused when there are several).
 
@@ -157,9 +158,20 @@ screens share one, `PERSON`; the core opens agent instances of its own through
   it reads the declared defaults overlaid with those. Each distinct view (canonical JSON) is one
   instance, `agent:<hash>`, shared by every session that asks for it; reads never send events,
   so sharing is safe. The person's screens never change.
+- **Names.** A filter, control or sortable column can be named by its id or its label (a column
+  by its title), and an option by its value or its label, ignoring case and surrounding spaces
+  (`names.ts`). Labels come from the person's or the default agent instance's latest tree; a view
+  naming controls on a screen with no tree yet renders the default instance first. A filter and
+  its values are read together: of the filters the key could name (an exact id, else any id or
+  label equal ignoring case), those offering every value fit. One fit is used; when several fit
+  the exact id wins and the result names the other filters; otherwise the call is refused with
+  the candidates, as is an option label two options share or a filter named twice. Exact ids and
+  values always keep their meaning. When names were read, the header adds `Names read as: …`
+  with the ids and values used (JSON `namesRead`; show_screen's result too).
 - **Checked against the screen.** View fields the screen doesn't declare are refused with the
-  ones it does (`ViewRefusal`, kind `invalid`, audited as `denied`); after the instance renders,
-  option values, control values and sort keys it doesn't offer are refused with the valid ones.
+  ones it does, by label with the id in brackets where they differ (`ViewRefusal`, kind
+  `invalid`, audited as `denied`); after the instance renders, option values, control values and
+  sort keys it doesn't offer are refused with the valid ones.
   The result's header says `Your view: …` (the view in words, or "as the screen starts").
 - **The person's view.** `view: "person"` reads the person's instance, counting as one more
   viewer of it. Its header lists the view state the person set (a search, a non-default filter,
@@ -185,7 +197,12 @@ screens share one, `PERSON`; the core opens agent instances of its own through
 `serialize.ts` turns a tree into text an agent can use:
 
 - Pages: summary, filters (marked as default when they match the filter's `default`), choice
-  controls, search highlight, enabled toolbar actions and an open dialog.
+  controls, search highlight, enabled toolbar actions and an open dialog. A filter's id and an
+  option's value follow its label in brackets where they differ beyond case
+  (`Filter Workflow [workflow-state]`, `No project [__none] 6`). Under a filter that hides rows
+  and that the reader didn't choose itself (a default, or the person's), `Hidden by this filter:`
+  lists its unchecked options with rows (up to 8, with counts when the plugin gives them; options
+  counted 0 are left out) and the view that includes them.
 - Tables: sections and groups as headings (a sub-section as `Upcoming › This week`, a
   sub-section named like its parent only once), one line per row with its cells, id and flags,
   children indented, and, with `details: true`, row details, stats and pane content underneath. A stat or detail that
@@ -242,8 +259,13 @@ screens share one, `PERSON`; the core opens agent instances of its own through
   not a guarantee: plugins should mark sensitive values themselves.
 
 `search_screens` reads each screen's default agent instance, so the person's search or filters
-don't hide matches; screens are searched as they start (a plugin's default filter may still
-leave out, say, finished tasks: read with a view to include them).
+don't hide matches; screens are searched as they start, so a plugin's default filter may still
+leave out, say, archived tasks. The result always ends by naming such rows per screen
+(`Not searched, hidden by default filters: …`, JSON `hidden`) and the view that reads them.
+When no line contains every word, it retries ignoring word endings (`stem`: words over five
+letters lose up to three, keeping five) with every word, then one word fewer at a time, and
+shows up to 15 of the lines with the most words under `No line mentions every word of "…".
+Closest lines (…)` (JSON `closest`: how many of how many words).
 
 ## Showing the person a screen
 
@@ -261,7 +283,8 @@ agent uses when the person asks "show me my overdue tasks". It needs the plugin 
   on every open person's screen: the dialog (`ViewApprovalDialog`) names the agent and what it
   wants to show, offers how long to allow it (this session, 1 hour, today, 7 days, 30 days;
   default today; never forever) and counts down. The call waits up to 60 s (`approvalMs`). No
-  answer or a refusal returns a refusal and changes nothing. Saved grants
+  answer or a refusal returns a refusal and changes nothing; the two say so differently (no answer:
+  ask whether to try again; refused: don't ask again unless the person asks). Saved grants
   (`settings.json` → `agents.grants`) end at their time; a this-session grant lives in memory and
   ends when the session does (for the CLI, the grouped session of one shell or script). Grants
   are consent, not authentication: the socket is user-only and any of the user's processes can

@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- AI agents can name a filter, its options, a column or a page control the way the screen shows it ("Workflow", "Archived") as well as by id. When a name could mean two filters, the one offering the asked-for options is used, and the result says how names were read.
+- When an agent reads a screen, each filter shows its id and option values where they differ from the labels, and a filter that hides rows says which ones and how to include them.
+- Agent searches say which rows the screens' default filters hid (such as archived tasks), and when no line has every word, they show the closest lines instead of nothing.
+- Agents are told what a plugin's badge means, not to ask again after the person declines showing a screen, and which plugins exist when they name one that doesn't.
 
 - Plugins can name a Lucide icon by any of its aliases or former names (`history`, `trash-2`), not only its current one; unknown names still show a box.
 
