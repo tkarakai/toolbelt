@@ -16,6 +16,7 @@ import { sendEvent, useNavigate, useSurface } from "@/lib/store";
 import { SurfaceContext, usePersisted, useUIState } from "@/lib/uistate";
 import { overlayOpen } from "@/lib/keyboard";
 import { SafeRender as Render } from "@/renderer/SafeRender";
+import { When } from "@/renderer/Render";
 import { FloatingSurface } from "@/renderer/floating-context";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -560,24 +561,35 @@ function AskBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { inf
 	return (
 		<>
 			{showSuggestions && (
-				<div className="border-b p-2 pb-1 animate-in fade-in-0 duration-150" role="listbox" aria-label="Suggestions">
-					{suggestions.map((s, i) => (
-						<button
-							key={s.id}
-							type="button"
-							role="option"
-							aria-selected={i === pick}
-							tabIndex={-1}
-							onMouseEnter={() => setPick(i)}
-							onMouseDown={(e) => e.preventDefault()}
-							onClick={() => emit(s.id, {})}
-							className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 text-left text-sm", mobile ? "py-2.5 active:bg-accent" : "py-1.5", i === pick && !mobile && "bg-accent")}
-						>
-							<Icon name={s.icon ?? "sparkles"} className="size-4 text-muted-foreground" />
-							<span className="truncate">{s.label}</span>
-							{i === pick && !mobile && <Kbd className="ml-auto">↵</Kbd>}
-						</button>
-					))}
+				<div className="max-h-[50vh] overflow-y-auto overscroll-contain border-b p-2 pb-1 animate-in fade-in-0 duration-150" role="listbox" aria-label="Suggestions">
+					{suggestions.map((s, i) => {
+						const heading = s.group && s.group !== suggestions[i - 1]?.group ? s.group : null;
+						return (
+							<div key={s.id} role="presentation">
+								{heading && <div className={cn("px-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase", i > 0 ? "pt-2.5" : "pt-1")}>{heading}</div>}
+								<button
+									type="button"
+									role="option"
+									aria-selected={i === pick}
+									tabIndex={-1}
+									onMouseEnter={() => setPick(i)}
+									onMouseDown={(e) => e.preventDefault()}
+									onClick={() => emit(s.id, {})}
+									className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 text-left text-sm", mobile ? "py-2.5 active:bg-accent" : "py-1.5", i === pick && !mobile && "bg-accent")}
+								>
+									<Icon name={s.icon ?? "sparkles"} className="size-4 shrink-0 text-muted-foreground" />
+									<span className="min-w-0 flex-1 truncate">{s.label}</span>
+									{i === pick && !mobile ? (
+										<Kbd className="shrink-0">↵</Kbd>
+									) : s.metaAt !== undefined ? (
+										<When at={s.metaAt} className="shrink-0 text-xs text-muted-foreground tabular-nums" />
+									) : s.meta ? (
+										<span className="shrink-0 text-xs text-muted-foreground">{s.meta}</span>
+									) : null}
+								</button>
+							</div>
+						);
+					})}
 				</div>
 			)}
 			{others.length > 0 && (

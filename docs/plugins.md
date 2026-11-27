@@ -179,7 +179,9 @@ render: {
 - **`mode: "bar"`** draws an ask bar: the first `composer` child becomes the bar's input (↵
   sends it as usual, with `{ composer, text }`), `suggestions` show above it while it's focused
   and empty (↑/↓ choose, ↵ or a click sends the suggestion's `id` as an action), and other
-  children show above the input.
+  children show above the input. Consecutive suggestions with the same `group` show under it as a
+  heading (say "Continue" for recent chats, then "Try asking"); `meta` shows at a suggestion's
+  right, or `metaAt` a moment relative to now (ToolBelt 0.7.1; older hosts ignore all three).
 - **`mode: "panel"`** draws a title bar (the plugin's icon and name, `subtitle`, `actions` as
   icon buttons that send their action ids, and minimize) with the children below it. A
   `conversation`, `log` or `terminal` child takes the space that's left; otherwise the children

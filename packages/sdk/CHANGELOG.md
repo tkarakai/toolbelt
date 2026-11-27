@@ -1,6 +1,7 @@
 # SDK changelog
 
 ## Unreleased
+- `Suggestion` takes `group` (consecutive suggestions with the same group show under it as a heading), `meta` and `metaAt` (a moment shown relative to now), drawn by ToolBelt 0.7.1 and ignored by older hosts.
 
 ## 0.5.0 — 2026-11-26
 - Add floating plugins (`ui.floating`, ToolBelt 0.7.0): a manifest's `floating` (with an optional ⌘ `shortcut` letter) gives the plugin a window over the main screen, and its `floating` surface renders a `floating` node: `mode: "bar"` (an ask bar whose `composer` child is the input, with `suggestions`) or `mode: "panel"` (a title bar with `subtitle` and `actions`), and `busy` for the sidebar item. A floating plugin may have no screens. Export `Suggestion`.

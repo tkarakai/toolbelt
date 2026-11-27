@@ -358,6 +358,9 @@ test("a floating root checks its mode, header actions and suggestions", () => {
   expect(() => validateTree({ ...floating, mode: "window" })).toThrow();
   expect(() => validateTree({ ...floating, mode: undefined })).toThrow();
   expect(() => validateTree({ ...floating, suggestions: [{ id: "s1" }] })).toThrow();
+  expect(() => validateTree({ ...floating, suggestions: [{ id: "t1", label: "Weekly cleanup", icon: "message-square", group: "Continue", metaAt: 1_700_000_000_000 }, { id: "s1", label: "What's overdue?", group: "Try asking", meta: "⌘1" }] })).not.toThrow();
+  expect(() => validateTree({ ...floating, suggestions: [{ id: "t1", label: "x", metaAt: "yesterday" }] })).toThrow();
+  expect(() => validateTree({ ...floating, suggestions: [{ id: "t1", label: "x", group: 3 }] })).toThrow();
   expect(() => validateTree({ ...floating, busy: "yes" })).toThrow();
   expect(() => validateTree({ ...floating, children: undefined })).toThrow();
 });

@@ -508,7 +508,7 @@ const node: Schema = (v, p) => {
       subtitle: optional(text),
       actions,
       busy: optional(bool),
-      suggestions: optional(array(object({ id: text, label: text, icon: optional(text) }))),
+      suggestions: optional(array(object({ id: text, label: text, icon: optional(text), group: optional(text), meta: optional(text), metaAt: optional(number) }))),
       children,
     }),
     page: object({

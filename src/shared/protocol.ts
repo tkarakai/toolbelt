@@ -580,8 +580,13 @@ export type Message = {
 	tool?: { name: string; detail?: string };
 };
 
-/** A suggestion an ask bar offers while it's empty: clicking it sends the action `id`. */
-export type Suggestion = { id: string; label: string; icon?: string };
+/**
+ * A suggestion an ask bar offers while it's empty: clicking it sends the action `id`. Consecutive
+ * suggestions with the same `group` show under it as a heading ("Continue", "Try asking"). `meta`
+ * shows at the right, or `metaAt` a moment (epoch ms) relative to now. Older hosts ignore
+ * `group`, `meta` and `metaAt` (ToolBelt 0.7.1 or newer shows them).
+ */
+export type Suggestion = { id: string; label: string; icon?: string; group?: string; meta?: string; metaAt?: number };
 
 export type Node =
 	| { type: "stack"; direction?: "row" | "column"; gap?: number; children: Node[] }

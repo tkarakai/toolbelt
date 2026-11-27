@@ -5,6 +5,7 @@
 - Expanding a floating window from its ask bar back into a panel animates, like folding it back did.
 - A floating window's title bar buttons are the same size as elsewhere in ToolBelt.
 - Floating panels without a chat (such as a plugin's settings) scroll, so their lower parts can be reached, and their forms put each label above its control.
+- Ask bar suggestions can be grouped under headings and show a time, so a floating plugin can offer "Continue" with your recent chats above its starter questions. Plugins set `group`, `meta` or `metaAt` on suggestions.
 - On a phone, the bottom sheet's title switches between floating tools, an ask bar's sheet is only as tall as it needs, and its suggestions are sized for touch.
 
 ## 0.7.0 — 2026-11-26
