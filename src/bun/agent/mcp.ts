@@ -8,7 +8,6 @@ export const MCP_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-
 const INSTRUCTIONS =
 	"ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. " +
 	"Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. " +
-	"read_screen lists one line per row; pass details: true for rows' notes and history, narrowed with a view or table and offset on long screens. " +
 	"read_screen reads your own copy of a screen; its view parameter searches, filters and sorts it in the same call without changing what the person sees. " +
 	"When the person asks you to show them something, show_screen changes what their screens show, after they allow it. " +
 	"Otherwise access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. " +

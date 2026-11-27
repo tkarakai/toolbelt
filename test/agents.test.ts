@@ -135,7 +135,10 @@ describe("serializer", () => {
 		expect(text).toContain("Filter Kind: Apples");
 		expect(text).toContain("Toolbar actions: Refresh");
 		expect(text).toContain("Row actions: Done");
-		expect(text).not.toContain("Hidden");
+		// The disabled action "Hidden" is left out; the filter says what it hides.
+		expect(text).not.toMatch(/Done, Hidden|actions: Hidden/);
+		expect(text).toContain("Filter Kind: Apples (options: Apples [a], Bananas [b])");
+		expect(text).toContain('Hidden by this filter: Bananas. To include them, read with view {"filters": {"kind": []}} (all) or add their values.');
 		expect(text).toContain("### Today");
 		expect(text).toContain("- Thing 1 · ");
 		expect(text).toContain("{id: t1}");
@@ -762,6 +765,27 @@ describe("agent core", () => {
 		expect(data).toMatchObject({ screensSearched: 4, failed: [] });
 	});
 
+	test("search names rows default filters hide, and falls back to the closest lines", async () => {
+		const host = fakeHost([manifest("tasks")], () => page(3));
+		const { core } = makeCore(host);
+		const s = core.openSession("t", "interactive");
+		const exact = await core.call(s, "search_screens", { query: "note 1" });
+		expect(exact.text).toContain("Thing 1");
+		expect(exact.text).not.toContain("Closest lines");
+		expect(exact.text).toContain('Not searched, hidden by default filters: Tasks › Main (Kind: Bananas); Tasks › Settings (Kind: Bananas). read_screen with view {"filters": {"<filter>": []}} includes them.');
+		// No line has both words: the lines with one of them, word endings ignored ("things" → "thing").
+		const closest = await core.call(s, "search_screens", { query: "things zebra", format: "json" });
+		expect(closest.data).toMatchObject({ closest: { words: 1, of: 2 } });
+		expect((closest.data as { hidden: unknown[] }).hidden[0]).toEqual({ plugin: "tasks", screen: "main", filters: [{ id: "kind", label: "Kind", options: [{ value: "b", label: "Bananas" }] }] });
+		expect((await core.call(s, "search_screens", { query: "things zebra" })).text).toStartWith('No line mentions every word of "things zebra". Closest lines (1 of the 2 words, ignoring word endings):\n- Tasks › Main: Summary: 3 things\n- Tasks › Main › Today: Thing 0');
+		expect((await core.call(s, "search_screens", { query: "zebra" })).text).toStartWith('Nothing on 2 screens mentions "zebra".');
+	});
+
+	test("an unknown plugin's refusal lists the ones agents can read", async () => {
+		const { core } = makeCore(fakeHost([manifest("tasks"), manifest("notes")]));
+		expect((await core.call(core.openSession("t", "interactive"), "read_screen", { plugin: "nope" })).text).toBe('No plugin "nope" is available to agents. Plugins agents can read: tasks (Tasks), notes (Notes).');
+	});
+
 	test("search groups a row's matches into one hit and shortens long lines", async () => {
 		const command = `/usr/local/bin/node ${"--max-old-space-size=4096 ".repeat(12)}server.js --port 3000`;
 		const procs: Node = {
@@ -931,7 +955,12 @@ describe("agent views and the person's view", () => {
 		const opened = host.events.filter((e) => e.startsWith("open"));
 		expect(opened).toHaveLength(2);
 		expect(opened[1]).toBe("open tasks screen:main agent:default");
-		expect((await core.call(s, "read_screen", { plugin: "tasks", view: { filters: { kind: ["pears"] } } })).text).toBe('Filter "kind" has no option "pears". Its options: a (Apples), b (Bananas).');
+		expect((await core.call(s, "read_screen", { plugin: "tasks", view: { filters: { kind: ["pears"] } } })).text).toBe('Filter Kind has no option "pears". Its options: Apples [a], Bananas [b].');
+		// Labels work too, and the header says how they were read; a filter the agent chose isn't said to hide rows.
+		const named = await core.call(s, "read_screen", { plugin: "tasks", view: { filters: { KIND: ["bananas"] } } });
+		expect(named.text).toContain('Your view: Kind: Bananas.\nNames read as: filters {"kind": ["b"]}.');
+		expect(named.text).not.toContain("Hidden by this filter");
+		expect((await core.call(s, "read_screen", { plugin: "tasks" })).text).toContain("Hidden by this filter: Bananas.");
 		const bad = await core.call(s, "read_screen", { plugin: "tasks", view: { controls: { mode: "x" } } });
 		expect(bad).toMatchObject({ isError: true, kind: "invalid", text: "This screen has no control \"mode\". Its controls: none." });
 		expect((await core.call(s, "read_screen", { plugin: "tasks", view: { sort: { things: "-colour" } } })).text).toContain('Table "things" can\'t be sorted by "colour"');
