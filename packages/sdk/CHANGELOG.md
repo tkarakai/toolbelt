@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.5.1 — 2026-11-27
 - `Suggestion` takes `group` (consecutive suggestions with the same group show under it as a heading), `meta` and `metaAt` (a moment shown relative to now), drawn by ToolBelt 0.7.1 and ignored by older hosts.
 
 ## 0.5.0 — 2026-11-26
