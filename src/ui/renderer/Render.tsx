@@ -2356,6 +2356,27 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		return () => ro.disconnect();
 	}, [node.rows.length > 0]);
 
+	// A handoff asking for details (an agent showing the person a row) opens the row's drawer, or
+	// its sheet on a phone or touch screen where the drawer doesn't fit. Measured now: the size
+	// check above may not have run yet on the table's first render.
+	const detailsHandoff = useRef<number | null>(null);
+	useLayoutEffect(() => {
+		if (!handoff?.details || handoff.collection !== `table:${node.id}` || detailsHandoff.current === handoff.token) return;
+		detailsHandoff.current = handoff.token;
+		const find = (rows: Row[]): Row | undefined => {
+			for (const r of rows) {
+				const hit = r.id === handoff.item ? r : r.children && find(r.children);
+				if (hit) return hit;
+			}
+		};
+		const row = find(node.rows);
+		if (!row || !(row.details?.length || row.pane)) return;
+		const rem = parseFloat(getComputedStyle(document.documentElement).fontSize || "16");
+		const fits = outer.current ? outer.current.clientWidth >= 48 * rem : drawerFits;
+		if (fits) setDrawerOpen(true);
+		else if (tapScreen) setSheetOpen(true);
+	}, [handoff, node.id, node.rows, drawerFits, setDrawerOpen, tapScreen]);
+
 	// The table takes the keyboard when it appears, unless something else already has it.
 	useEffect(() => {
 		if (focusIsIdle(wrap.current)) wrap.current?.focus({ preventScroll: true });

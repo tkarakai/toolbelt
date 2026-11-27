@@ -209,9 +209,9 @@ const agents = createAgentInterface({
       ...remoteAccess.devices().map((d) => ({ name: d.name, kind: "device" as const, showing: d.connected })),
     ],
     openWindow: () => showWindow(),
-    navigate: (plugin, screen) => {
-      if (win) winRPC?.send.navigate({ plugin, screen });
-      for (const view of views) if (remoteViews.has(view)) view.send.navigate({ plugin, screen });
+    navigate: (plugin, screen, selection) => {
+      if (win) winRPC?.send.navigate({ plugin, screen, selection });
+      for (const view of views) if (remoteViews.has(view)) view.send.navigate({ plugin, screen, selection });
     },
     view: (plugin, surface) => host.personView(plugin, surface),
     setView: (plugin, surface, view) => {

@@ -21,6 +21,7 @@ toolbelt read <plugin> <screen> --filter status=done --sort tasks=-due --search 
                                      # your own view: searched, filtered, sorted in one call
 toolbelt read <plugin> <screen> --person   # exactly what the person's screens show now
 toolbelt show <plugin> [screen] --filter status=done   # show the person (asks them first)
+toolbelt show <plugin> <screen> --row <row id>   # show one row selected, its details open
 toolbelt read <plugin> <screen> --details   # with each row's details: notes, history, drawer
 toolbelt read <plugin> <screen> --table <id> --offset 100    # next page of a long table
 toolbelt read <plugin> <screen> --table <id> --parent <row id>   # a row's child rows

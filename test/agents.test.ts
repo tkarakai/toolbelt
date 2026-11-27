@@ -9,7 +9,8 @@ import { parseManifest, type Manifest, type Node, type ViewDeclaration, type Vie
 import type { AgentSettings } from "../src/shared/agents";
 import type { PluginInfo } from "../src/shared/plugin-state";
 import { MASK, maskSecrets, redact, treeJson, treeText } from "../src/bun/agent/serialize";
-import { AgentCore, type AgentHost } from "../src/bun/agent/core";
+import { AgentCore, type AgentHost, type PersonDevice } from "../src/bun/agent/core";
+import type { NavigationSelection } from "../src/shared/navigation";
 import { AgentServer } from "../src/bun/agent/server";
 import { AuditLog } from "../src/bun/agent/audit";
 import { commandWarning, createAgentInterface } from "../src/bun/agent";
@@ -953,11 +954,11 @@ describe("agent core", () => {
 describe("agent views and the person's view", () => {
 	const declared = { "tasks/screen:main": { search: true, filters: { kind: ["a"] }, sort: { things: null } } };
 	/** A core whose show_screen talks to fake person screens. */
-	function viewCore(o: { window?: boolean; approvalMs?: number } = {}) {
-		const host = fakeHost([manifest("tasks")], (_p, _s, view) => page(3, view?.search ? { summary: `searched ${view.search}` } : {}), declared);
+	function viewCore(o: { window?: boolean; approvalMs?: number; render?: (view?: ViewState) => Node; devices?: PersonDevice[] } = {}) {
+		const host = fakeHost([manifest("tasks")], (_p, _s, view) => (o.render ? o.render(view) : page(3, view?.search ? { summary: `searched ${view.search}` } : {})), declared);
 		const dir = tmp();
 		let settings: AgentSettings = { enabled: true, access: {}, grants: [] };
-		const person = { views: new Map<string, ViewState>(), navigated: [] as string[], window: o.window ?? true, opened: 0 };
+		const person = { views: new Map<string, ViewState>(), navigated: [] as string[], selections: [] as (NavigationSelection | undefined)[], window: o.window ?? true, opened: 0 };
 		let viewListener: ((plugin: string, surface: string, view: ViewState) => void) | undefined;
 		const subscribe = host.subscribe;
 		host.subscribe = (l) => ((viewListener = l.view), subscribe(l));
@@ -974,9 +975,9 @@ describe("agent views and the person's view", () => {
 			renderWaitMs: 500,
 			approvalMs: o.approvalMs ?? 2000,
 			person: {
-				devices: () => [{ name: "the Mac", kind: "mac", showing: person.window }],
+				devices: () => [{ name: "the Mac", kind: "mac", showing: person.window }, ...(o.devices ?? [])],
 				openWindow: () => void ((person.window = true), person.opened++),
-				navigate: (plugin, screen) => void person.navigated.push(`${plugin}/${screen}`),
+				navigate: (plugin, screen, selection) => void (person.navigated.push(`${plugin}/${screen}`), person.selections.push(selection)),
 				view: (plugin, surface) => person.views.get(`${plugin}/${surface}`) ?? {},
 				setView: (plugin, surface, view) => {
 					person.views.set(`${plugin}/${surface}`, view);
@@ -1082,6 +1083,89 @@ describe("agent views and the person's view", () => {
 		await answer(true, "hour");
 		expect((await shown).text).toContain("Showing Tasks › Main on the Mac.");
 		expect(person.opened).toBe(1);
+	});
+
+	/** Apples t0–t2 and a Banana b0, filtered by Kind (default Apples) and searched by name, like a plugin would. */
+	const fruit = (view?: ViewState): Node => {
+		const kinds = view?.filters?.kind ?? ["a"];
+		const base = page(3) as Extract<Node, { type: "page" }>;
+		const table = base.children[0] as Extract<Node, { type: "table" }>;
+		const rows = [...table.rows.map((r) => ({ ...r, kind: "a" })), { id: "b0", group: "later", cells: { name: "Banana bread" }, pane: [{ type: "text", text: "Recipe" }] as Node[], kind: "b" }]
+			.filter((r) => !kinds.length || kinds.includes(r.kind))
+			.filter((r) => !view?.search || String(r.cells.name).toLowerCase().includes(view.search.toLowerCase()))
+			.map(({ kind: _k, ...r }) => r);
+		const columns = table.columns.map((c) => ({ ...c, sortable: true }));
+		return { ...base, filters: [{ ...base.filters![0], selected: kinds }], children: [{ ...table, columns, rows }, ...base.children.slice(1)] };
+	};
+
+	test("show_screen selects a row with its details open, after the person allows it", async () => {
+		const { core, person, answer } = viewCore({ render: fruit });
+		const s = core.openSession("claude-code", "interactive");
+		const shown = core.call(s, "show_screen", { plugin: "tasks", row: "t1" });
+		expect((await answer(true, "hour")).what).toBe('Tasks › Main, with "Thing 1" selected');
+		const r = await shown;
+		expect(r.isError).toBeUndefined();
+		expect(r.text).toContain('"Thing 1" is selected and scrolled into view with its details open');
+		expect(person.navigated).toEqual(["tasks/main"]);
+		expect(person.selections).toEqual([{ item: "t1", collection: "table:things", details: true }]);
+		// With a view: the row is looked for in that view, and the view is set too.
+		const both = await core.call(s, "show_screen", { plugin: "tasks", view: { filters: { kind: [] } }, row: "b0", format: "json" });
+		expect(both.data).toMatchObject({ shown: 'Tasks › Main, Kind: all, with "Banana bread" selected', row: { id: "b0", table: "things", label: "Banana bread", details: true } });
+		expect(person.views.get("tasks/screen:main")).toEqual({ filters: { kind: [] } });
+		expect(person.selections.at(-1)).toEqual({ item: "b0", collection: "table:things", details: true });
+	});
+
+	test("show_screen refuses a row that isn't there, before asking anyone", async () => {
+		const { core, person, dir } = viewCore({ render: fruit });
+		const s = core.openSession("claude-code", "interactive");
+		const unknown = await core.call(s, "show_screen", { plugin: "tasks", row: "t12" });
+		expect(unknown).toMatchObject({ isError: true, kind: "refused" });
+		expect(unknown.text).toContain('Tasks › Main has no row "t12", even with its search and filters cleared. Did you mean "t1"?');
+		expect(unknown.text).toContain("Nothing changed.");
+		expect((await core.call(s, "show_screen", { plugin: "tasks", row: "" })).text).toBe("row must be a row id, as read_screen shows it in {id: …}.");
+		expect(core.state().approvals).toEqual([]);
+		expect(person.navigated).toEqual([]);
+		const audit = readFileSync(join(dir, "agent-audit.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+		expect(audit.filter((e) => e.operation === "show_screen").map((e) => e.outcome)).toEqual(["denied", "denied"]);
+	});
+
+	test("a row the view hides: the refusal names what hides it and the view that shows it", async () => {
+		const { core, person, answer } = viewCore({ render: fruit });
+		const s = core.openSession("claude-code", "interactive");
+		// The person's view (Kind's default, Apples) hides the Banana.
+		const hidden = await core.call(s, "show_screen", { plugin: "tasks", row: "b0" });
+		expect(hidden).toMatchObject({ isError: true, kind: "refused" });
+		expect(hidden.text).toBe('Row "b0" isn\'t on Tasks › Main as the person sees it: filter "Kind" (Apples) hides it. Nothing changed. To show it, call show_screen again with row "b0" and view {"filters":{"kind":[]}}.');
+		// An agent's search hides it too: clearing one part isn't enough, so both are named.
+		const searched = await core.call(s, "show_screen", { plugin: "tasks", view: { search: "thing" }, row: "b0" });
+		expect(searched.text).toContain('isn\'t on Tasks › Main with that view: the search "thing" and filter "Kind" (Apples) hide it.');
+		expect(searched.text).toContain('view {"filters":{"kind":[]}}');
+		// Only the search hides an Apple: clearing it alone is suggested, keeping the rest of the view.
+		const apple = await core.call(s, "show_screen", { plugin: "tasks", view: { search: "zzz", sort: { things: "-name" } }, row: "t2" });
+		expect(apple.text).toContain('the search "zzz" hides it.');
+		expect(apple.text).toContain('view {"sort":{"things":"-name"}}');
+		expect(person.navigated).toEqual([]);
+		// The suggested view shows it.
+		const shown = core.call(s, "show_screen", { plugin: "tasks", row: "b0", view: { filters: { kind: [] } } });
+		await answer(true, "hour");
+		expect((await shown).text).toContain('"Banana bread" is selected');
+		expect(person.selections).toEqual([{ item: "b0", collection: "table:things", details: true }]);
+	});
+
+	test("a shown row reaches open devices; ones without ToolBelt open are named", async () => {
+		const noDetails = (view?: ViewState) => {
+			const tree = fruit(view) as Extract<Node, { type: "page" }>;
+			const table = tree.children[0] as Extract<Node, { type: "table" }>;
+			return { ...tree, children: [{ ...table, rows: table.rows.map(({ details: _d, pane: _p, ...r }) => r) }] };
+		};
+		const { core, person, answer } = viewCore({ render: noDetails, devices: [{ name: "Phone", kind: "device", showing: false }] });
+		const s = core.openSession("claude-code", "interactive");
+		const shown = core.call(s, "show_screen", { plugin: "tasks", row: "t0" });
+		await answer(true, "hour");
+		const r = await shown;
+		expect(r.text).toContain('"Thing 0" is selected and scrolled into view; it has no details to open.');
+		expect(r.text).toContain("Not showing on Phone (ToolBelt not open).");
+		expect(person.selections).toEqual([{ item: "t0", collection: "table:things" }]);
 	});
 
 	test("without the person's screens, show_screen is unavailable", async () => {

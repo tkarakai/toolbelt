@@ -283,7 +283,8 @@ whether they're saved). Transports are
 adapters over one operation registry: MCP over a `0600` Unix socket, and the `toolbelt` CLI with
 its stdio shim. Access is the lower of the manifest's required `agent.access` and the person's
 choice; agents can't send events. `show_screen` changes the person's view and navigates their
-open screens, after the person grants it on those screens for a time they choose.
+open screens, optionally selecting a row with its details open (the same renderer selection a
+plugin's `navigate` carries), after the person grants it on those screens for a time they choose.
 
 ## Keyboard
 

@@ -108,7 +108,7 @@ The server negotiates protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26`
 | `toolbelt_status` | The runtime view, where agents start: app name, version, channel and development profile, the app bundle answering and its process id (two builds of one version on one profile are otherwise indistinguishable; the second can't serve the socket and says so in Settings → Agents), app update availability, visible plugins with state, badge (only while running; the description says a badge is the plugin's own attention signal, not a total), screens and available update, and the count of hidden plugins |
 | `list_screens` | Readable screens as plugin and screen ids, optionally for one plugin, each with its view schema: search, filters with option values (once the screen has rendered) and defaults, sortable tables with their column keys, page controls |
 | `read_screen` | One screen as text (default) or redacted JSON, with `max_rows`, `table` and `offset` paging and `details` (rows' inspector content, off by default), read through the agent's own instance with an optional `view`, or `view: "person"` for the person's |
-| `show_screen` | Shows the person a screen, optionally with a view, on every person's screen that is open, after the person allows it; reports devices that don't show it (see Showing the person a screen) |
+| `show_screen` | Shows the person a screen, optionally with a view and a row selected with its details open, on every person's screen that is open, after the person allows it; reports devices that don't show it (see Showing the person a screen) |
 | `search_screens` | Content lines containing every query word, across readable screens or one plugin, grouped by row (a row's line with its matching details, each shortened to 300 characters); when no line has every word, the closest lines; rows the screens' default filters hide; and the screens that couldn't be read |
 | `list_plugins` | The installation view: every installed plugin agents may see, enabled or not, with version, state (the runtime state while enabled, else `disabled`), access, available update, repository and channel |
 
@@ -272,8 +272,9 @@ Closest lines (…)` (JSON `closest`: how many of how many words).
 
 ## Showing the person a screen
 
-`show_screen({ plugin, screen?, view?, open_window? })` changes the person's view: it is what an
-agent uses when the person asks "show me my overdue tasks". It needs the plugin at `read` access.
+`show_screen({ plugin, screen?, view?, row?, open_window? })` changes the person's view: it is
+what an agent uses when the person asks "show me my overdue tasks" or "open the passport task".
+It needs the plugin at `read` access.
 
 - **The person's screens.** The app gives the core `PersonScreens`: the devices (the Mac, showing
   while its window is open, and each paired device, showing while it has ToolBelt open), opening
@@ -282,6 +283,19 @@ agent uses when the person asks "show me my overdue tasks". It needs the plugin 
   instance is open (`PluginHost.setView`; the plugin echoes the cleaned view and the host saves
   it), else saves it in `views.json` for next time. `view` replaces the person's view: the
   screen's defaults overlaid with it. Without `view` only the screen changes.
+- **A row with its details.** `row` is a row (or list item) id as `read_screen` prints it
+  (`{id: …}`). Before anyone is asked, the core finds it in the screen as the person will see it:
+  an agent instance with the view being set, else the person's instance (`locateRow`). Found,
+  the navigation carries a renderer selection (`NavigationSelection` with `collection`
+  `table:<id>` and `details: true` when the row has `details` or a `pane`): every open person's
+  screen selects the row, expands its ancestors and sections, scrolls it into view and opens the
+  details drawer, or on a phone or touch screen where the drawer doesn't fit, the row's sheet.
+  The approval names the row (`…, with "<label>" selected`); the result says it is selected and
+  whether its details opened (JSON `row`: `id`, `table`, `label`, `details`). Not found, the call
+  is refused and nothing changes: when the row is there with the search and every filter of that
+  view cleared, the refusal names the search or filter that hides it (one alone when clearing
+  one is enough) and the full `view` to call again with; otherwise it says the screen has no such
+  row, with close ids.
 - **A view-control grant.** The first call from an agent (by client name) without a grant asks
   on every open person's screen: the dialog (`ViewApprovalDialog`) names the agent and what it
   wants to show, offers how long to allow it (this session, 1 hour, today, 7 days, 30 days;
@@ -305,7 +319,7 @@ agent uses when the person asks "show me my overdue tasks". It needs the plugin 
   view. A later change of the person's own (a view that differs from what the agent set) removes
   the notice. The value checks of `read_screen` apply before anything reaches the person.
 - **Audit.** Each question is a `view_grant` entry (`ok` with the duration, `denied` for a
-  refusal or no answer), and each call a `show_screen` entry.
+  refusal or no answer), and each call a `show_screen` entry (a missing row is `denied`).
 
 ## Sessions and audit
 
@@ -409,9 +423,9 @@ absolute times are local to the machine running the tests.
 evaluation in `plans/agent-interface-eval/` (its `cases.json`, `steps.json` files and CLI
 transcripts). It maps that run's plugins and screens onto the fixtures and adds each case's
 facts and rubric from its overlay table. Change the overlay, not the generated files, for those
-cases. Its extras add scenarios 18–21: the person's dialog and filter, the agent's own views
-(19), showing the person a screen with grants, Restore and refusals (20), and nobody to ask
-(21). New scenarios can be added to the converter's extras or written directly as JSON.
+cases. Its extras add scenarios 18–22: the person's dialog and filter, the agent's own views
+(19), showing the person a screen with grants, Restore and refusals (20), nobody to ask
+(21), and showing one row with its details, a row the view hides and an unknown row (22). New scenarios can be added to the converter's extras or written directly as JSON.
 
 `bun run test:agents` runs the three layers. `AGENT_SCENARIOS_OUT=<dir>` also writes each
 scenario run as Markdown (`<id>.<channel>.md`: the prompt, every step with what the agent got

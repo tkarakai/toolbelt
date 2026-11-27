@@ -210,8 +210,8 @@ export class CliAdapter implements ChannelAdapter {
 				known(["query", "plugin"]);
 				return ["search", ...String(args.query).split(/\s+/), ...(args.plugin ? ["--plugin", String(args.plugin)] : []), ...json];
 			case "show_screen":
-				known(["plugin", "screen", "view", "open_window"]);
-				return ["show", String(args.plugin), ...(args.screen ? [String(args.screen)] : []), ...CliAdapter.viewFlags(args.view), ...(args.open_window ? ["--open-window"] : []), ...json];
+				known(["plugin", "screen", "view", "row", "open_window"]);
+				return ["show", String(args.plugin), ...(args.screen ? [String(args.screen)] : []), ...CliAdapter.viewFlags(args.view), ...(args.row ? ["--row", String(args.row)] : []), ...(args.open_window ? ["--open-window"] : []), ...json];
 			case "read_screen":
 				known(["plugin", "screen", "format", "max_rows", "table", "offset", "parent", "details", "view"]);
 				return [

@@ -3,9 +3,10 @@
 // socket, the CLI) are adapters over `call`. Agents read through private instances of each
 // surface with a view of their own; the one thing they change is the person's view
 // (`show_screen`), under a grant the person gives on their own screens.
-import { PERSON, type Manifest, type Node, type Row, type ViewDeclaration, type ViewState } from "../../shared/protocol";
+import { PERSON, type Cell, type Manifest, type Node, type Row, type ViewDeclaration, type ViewState } from "../../shared/protocol";
 import type { PluginInfo } from "../../shared/plugin-state";
 import { cleanView } from "../../shared/views";
+import type { NavigationSelection } from "../../shared/navigation";
 import {
 	atLeast,
 	DEFAULT_GRANT,
@@ -29,7 +30,7 @@ import {
 } from "../../shared/agents";
 import { AuditLog } from "./audit";
 import { labelled, NameRefusal, resolveNames, type NamedView, type ViewNames } from "./names";
-import { findRow, searchText, stem, treeJson, treeText, TEXT_BUDGET, when, type Hidden, type SearchHit } from "./serialize";
+import { cellText, findRow, searchText, stem, treeJson, treeText, TEXT_BUDGET, when, type Hidden, type SearchHit } from "./serialize";
 
 /** The parts of PluginHost the agent interface uses. Instances default to the person's. */
 export type AgentHost = {
@@ -57,8 +58,8 @@ export type PersonScreens = {
 	devices(): PersonDevice[];
 	/** Opens the main window on the Mac. */
 	openWindow(): void;
-	/** Shows a plugin screen on every person's screen that is open. */
-	navigate(plugin: string, screen: string): void;
+	/** Shows a plugin screen on every person's screen that is open, optionally with a row selected (and its details open). */
+	navigate(plugin: string, screen: string, selection?: NavigationSelection): void;
 	/** The person's current view of a surface. */
 	view(plugin: string, surface: string): ViewState;
 	/** Sets the person's view of a surface: applied at once where it's open, else saved for next time. */
@@ -221,6 +222,61 @@ export type ViewSchema = {
 /** A table node by id, anywhere in a tree. */
 function tableNode(tree: unknown, id: string): Extract<Node, { type: "table" }> | undefined {
 	return tableOf(tree, id) as Extract<Node, { type: "table" }> | undefined;
+}
+
+/** Where a row or list item is in a tree: its collection as the renderer names it (`table:<id>`), a label, and whether it has details to open. */
+export function locateRow(tree: unknown, id: string, now = Date.now()): { collection: string; table: string; label: string; details: boolean } | null {
+	if (Array.isArray(tree)) {
+		for (const v of tree) {
+			const found = locateRow(v, id, now);
+			if (found) return found;
+		}
+	} else if (tree && typeof tree === "object") {
+		const o = tree as Record<string, unknown>;
+		if (o.type === "table" && typeof o.id === "string" && Array.isArray(o.rows)) {
+			const t = o as Extract<Node, { type: "table" }>;
+			const row = findRow(t.rows, id);
+			if (row) {
+				const first = t.columns[0]?.key;
+				// The cell's own text, without its prefix or tags: how the person would name the row.
+				const plain = (c: Cell | undefined) => (c && typeof c === "object" ? (c.at !== undefined ? cellText(c, now, false) : c.text) : c === null || c === undefined ? "" : String(c)).replace(/\s+/g, " ").trim();
+				const label = (first ? plain(row.cells[first]) : "") || Object.values(row.cells).map(plain).find(Boolean) || id;
+				return { collection: `table:${t.id}`, table: t.id, label, details: !!(row.details?.length || row.pane) };
+			}
+		}
+		if (o.type === "list" && typeof o.id === "string" && Array.isArray(o.items)) {
+			const item = (o as Extract<Node, { type: "list" }>).items.find((i) => i.id === id);
+			if (item) return { collection: `list:${o.id}`, table: o.id, label: item.title.replace(/\s+/g, " ").trim() || id, details: false };
+		}
+		for (const v of Object.values(o)) if (v && typeof v === "object") {
+			const found = locateRow(v, id, now);
+			if (found) return found;
+		}
+	}
+	return null;
+}
+
+/** Every row and list item id in a tree, for close matches to a mistyped one. */
+function rowIds(tree: unknown, ids: string[] = []): string[] {
+	if (Array.isArray(tree)) for (const v of tree) rowIds(v, ids);
+	else if (tree && typeof tree === "object") {
+		const o = tree as Record<string, unknown>;
+		const rows = (list: Row[]) => list.forEach((r) => (ids.push(r.id), r.children && rows(r.children)));
+		if (o.type === "table" && Array.isArray(o.rows)) rows(o.rows as Row[]);
+		else if (o.type === "list" && Array.isArray(o.items)) for (const i of o.items as { id: string }[]) ids.push(i.id);
+		else for (const v of Object.values(o)) if (v && typeof v === "object") rowIds(v, ids);
+	}
+	return ids;
+}
+
+/** A view state as show_screen's `view` parameter: `"-due"` sorts, ids and values. */
+function viewInput(state: ViewState): Exclude<ViewInput, "person"> {
+	return {
+		...(state.search ? { search: state.search } : {}),
+		...(state.filters && Object.keys(state.filters).length ? { filters: state.filters } : {}),
+		...(state.sort && Object.keys(state.sort).length ? { sort: Object.fromEntries(Object.entries(state.sort).map(([t, s]) => [t, sortText(s)!])) } : {}),
+		...(state.controls && Object.keys(state.controls).length ? { controls: state.controls } : {}),
+	};
 }
 
 /** The `view` parameter of read_screen and show_screen. */
@@ -661,6 +717,8 @@ export class AgentCore {
 		const surface = `screen:${screen.id}`;
 		const input = params.view as ViewInput | undefined;
 		if (input === "person") throw new ViewRefusal('view: "person" is the person\'s current view already; pass the view to show, or omit it to show the screen as it is.');
+		const rowId = params.row;
+		if (rowId !== undefined && (typeof rowId !== "string" || !rowId)) throw new AgentRefusal("row must be a row id, as read_screen shows it in {id: …}.");
 		await this.namesReady(p.id, surface, input);
 		const checked = input === undefined ? null : this.checkedView(p.id, surface, input);
 		const state = checked?.state ?? null;
@@ -669,7 +727,9 @@ export class AgentCore {
 			const snap = await this.fresh(p.id, surface, instanceOf(state), state);
 			if (snap?.tree) this.checkValues(snap.tree, state);
 		}
-		const what = `${p.name} › ${screen.title}${state ? (this.describeView(p.id, surface, state) ? `, ${this.describeView(p.id, surface, state)}` : ", as it starts") : ""}`;
+		// The row must be on the screen as the person will see it, before anyone is asked.
+		const row = typeof rowId === "string" ? await this.rowOnView(p, screen, surface, state, rowId) : null;
+		const what = `${p.name} › ${screen.title}${state ? (this.describeView(p.id, surface, state) ? `, ${this.describeView(p.id, surface, state)}` : ", as it starts") : ""}${row ? `, with "${row.label}" selected` : ""}`;
 		const openWindow = params.open_window === true;
 		const devices = () => person.devices();
 		const canAsk = () => devices().some((d) => d.showing);
@@ -699,7 +759,7 @@ export class AgentCore {
 			person.setView(p.id, surface, state);
 		}
 		if (openWindow && !devices().some((d) => d.kind === "mac" && d.showing)) person.openWindow();
-		person.navigate(p.id, screen.id);
+		person.navigate(p.id, screen.id, row ? { item: row.id, collection: row.collection, ...(row.details && { details: true }) } : undefined);
 		this.emit();
 		const now = devices();
 		const showing = now.filter((d) => d.showing);
@@ -707,12 +767,75 @@ export class AgentCore {
 		const lines = [
 			`Showing ${what} on ${showing.length ? showing.map((d) => d.name).join(", ") : "no screen right now"}.`,
 			...(checked?.notes ?? []),
+			...(row
+				? [
+						row.details
+							? `"${row.label}" is selected and scrolled into view with its details open (in the drawer beside the table, or a sheet on a phone).`
+							: `"${row.label}" is selected and scrolled into view; it has no details to open.`,
+					]
+				: []),
 			...(state ? ["The person's view stays this way until they change it; their screen offers Restore to put back what they had."] : []),
 			...(missing.length
 				? [`Not showing on ${missing.map((d) => `${d.name} (${d.kind === "mac" ? "window closed" : "ToolBelt not open"})`).join(", ")}. Tell the person and ask what to do${missing.some((d) => d.kind === "mac") ? "; open_window: true opens the window on the Mac" : ""}. A device shows it when it opens ToolBelt.`]
 				: []),
 		];
-		return { text: lines.join("\n"), data: { plugin: p.id, screen: screen.id, view: state, shown: what, showing: showing.map((d) => d.name), notShowing: missing.map((d) => ({ name: d.name, kind: d.kind })) } };
+		return { text: lines.join("\n"), data: { plugin: p.id, screen: screen.id, view: state, row: row ? { id: row.id, table: row.table, label: row.label, details: row.details } : null, shown: what, showing: showing.map((d) => d.name), notShowing: missing.map((d) => ({ name: d.name, kind: d.kind })) } };
+	}
+
+	/**
+	 * Finds a row on the screen as the person will see it: with the view being set, else their
+	 * current one. Refuses when it isn't there, saying which part of the view hides it and the view
+	 * that includes it, or that the screen has no such row.
+	 */
+	private async rowOnView(p: AgentPlugin & { info: PluginInfo }, screen: { id: string; title: string }, surface: string, state: ViewState | null, id: string) {
+		const declared = this.o.host.declaredView(p.id, surface) ?? undefined;
+		const treeOf = async (view: ViewState | null) => {
+			const snap = view ? await this.fresh(p.id, surface, instanceOf(view), view) : await this.fresh(p.id, surface, PERSON);
+			if (snap?.error) throw new AgentUnavailable(`${p.name} › ${screen.title} couldn't be shown: ${snap.error}`);
+			if (!snap?.tree) throw new AgentUnavailable(`${p.name} › ${screen.title} hasn't rendered yet, so row "${id}" can't be found. Try again in a moment.`);
+			return snap.tree;
+		};
+		const tree = await treeOf(state);
+		const found = locateRow(tree, id, this.now());
+		if (found) return { id, ...found };
+		// What hides rows in that view: its search and the filters that leave options out.
+		const base = state ?? cleanView(declared, this.o.person!.view(p.id, surface));
+		const page = tree.type === "page" ? tree : null;
+		const search = page?.search?.query || base.search || "";
+		const filters = (page?.filters ?? []).filter((f) => f.selected.length && Object.hasOwn(declared?.filters ?? {}, f.id));
+		const where = `${p.name} › ${screen.title}${state ? " with that view" : " as the person sees it"}`;
+		const none = (extra = "") => {
+			const close = suggest(id, rowIds(tree).map((r) => ({ id: r })));
+			return new AgentRefusal(
+				`${p.name} › ${screen.title} has no row "${id}"${extra}.${close.length ? ` Did you mean ${close.slice(0, 3).map((c) => `"${c}"`).join(" or ")}?` : ""} read_screen shows each row's id as {id: …}; search_screens finds rows on other screens. Nothing changed.`,
+			);
+		};
+		if (!search && !filters.length) throw none();
+		const clear = (view: ViewState, parts: { search?: boolean; filters?: string[] }): ViewState => ({
+			...view,
+			...(parts.search && { search: undefined }),
+			filters: { ...view.filters, ...Object.fromEntries((parts.filters ?? []).map((f) => [f, []])) },
+		});
+		const everything = clear(base, { search: !!search, filters: filters.map((f) => f.id) });
+		if (!locateRow(await treeOf(everything), id, this.now())) throw none(", even with its search and filters cleared");
+		// The smallest change that includes it: one filter or the search, else all of them.
+		const candidates = [...filters.map((f) => ({ filters: [f.id] })), ...(search ? [{ search: true }] : [])];
+		let change: { search?: boolean; filters?: string[] } = { search: !!search, filters: filters.map((f) => f.id) };
+		if (candidates.length > 1)
+			for (const c of candidates.slice(0, 6))
+				if (locateRow(await treeOf(clear(base, c)), id, this.now())) {
+					change = c;
+					break;
+				}
+		const hiders = [
+			...(change.search ? [`the search "${search}"`] : []),
+			...filters.filter((f) => change.filters?.includes(f.id)).map((f) => `filter "${f.label}" (${f.options.filter((o) => f.selected.includes(o.value)).map((o) => o.label).join(", ") || f.selected.join(", ")})`),
+		];
+		// A filter cleared to "all" stays written out as []: omitting it would mean the screen's default.
+		const suggested = viewInput(cleanView(declared, clear(base, change)));
+		throw new AgentRefusal(
+			`Row "${id}" isn't on ${where}: ${hiders.join(" and ")} hide${hiders.length === 1 ? "s" : ""} it. Nothing changed. To show it, call show_screen again with row "${id}" and view ${JSON.stringify(suggested)}${Object.keys(suggested).length ? "" : " (the screen's defaults)"}.`,
+		);
 	}
 
 	private deviceText(devices: PersonDevice[]) {
@@ -989,7 +1112,7 @@ export class AgentCore {
 				name: "show_screen",
 				title: "Show the person a screen",
 				description:
-					"Show the person a plugin screen on every ToolBelt screen they have open (the Mac's window and paired devices), optionally with a view: search, filters, sort and controls, as if they had set them. Use it when the person asks you to show them something. The first time, their screens ask them to allow it and for how long; the call waits up to a minute for the answer. The result says which devices show it and which don't: tell the person about the ones that don't and ask what to do. The person can Restore their previous view.",
+					"Show the person a plugin screen on every ToolBelt screen they have open (the Mac's window and paired devices), optionally with a view: search, filters, sort and controls, as if they had set them, and optionally with one row selected and its details open. Use it when the person asks you to show them something; to show them a task's (or any row's) details, pass its row id as row. If the row isn't on the screen with that view, nothing changes and the result says which search or filter hides it and the view to pass instead. The first time, their screens ask them to allow it and for how long; the call waits up to a minute for the answer. The result says which devices show it and which don't: tell the person about the ones that don't and ask what to do. The person can Restore their previous view.",
 				risk: "view",
 				params: {
 					type: "object",
@@ -997,6 +1120,7 @@ export class AgentCore {
 						plugin: str("Plugin id."),
 						screen: str("Screen id; omit for the plugin's default screen."),
 						view: { ...VIEW_PARAM, description: "The view to show: the screen's defaults overlaid with these. Omit to show the screen as the person last left it." },
+						row: str("A row to select and scroll to, with its details open (the drawer beside the table, or a sheet on a phone): the row's id as read_screen and search_screens show it in {id: …}. It must be on the screen with the view shown."),
 						open_window: { type: "boolean", description: "Open ToolBelt's window on the Mac if it's closed (only when the person asked for it, or agreed)." },
 						format,
 					},

@@ -9,7 +9,7 @@ const INSTRUCTIONS =
 	"ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. " +
 	"Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. " +
 	"read_screen reads your own copy of a screen; its view parameter searches, filters and sorts it in the same call without changing what the person sees. " +
-	"When the person asks you to show them something, show_screen changes what their screens show, after they allow it. " +
+	"When the person asks you to show them something, show_screen changes what their screens show, after they allow it; to show them one task or row with its details open, pass its {id: …} from read_screen as show_screen's row. " +
 	"Otherwise access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. " +
 	"Plugins kept from agents by their author or the person are not listed.";
 

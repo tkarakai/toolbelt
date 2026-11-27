@@ -2,6 +2,7 @@
 
 ## Unreleased
 - On a phone, the header and tab bar coming back at the bottom of a list no longer cover its last rows: the end of the list stays in view above the tab bar.
+- AI agents can show you a specific task or row with its details open: on your Mac window and paired devices, the row is selected, scrolled into view, and its details drawer (or sheet on a phone) opens, after you allow it like any shown screen. If the row is hidden by the view (a filter or search), nothing changes and the agent is told which filter hides it and how to show it. The `toolbelt show` command takes `--row`.
 
 ## 0.8.0 — 2026-11-27
 - The bundled SDK Explorer is 0.4.0: ⌘J opens its floating window, a demo of floating plugins (ask bar, panel, busy sidebar item). New profiles get it; existing ones update it from its releases.
