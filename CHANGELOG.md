@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Plugins can name a Lucide icon by any of its aliases or former names (`history`, `trash-2`), not only its current one; unknown names still show a box.
+
 ## 0.7.1 — 2026-11-27
 - Floating windows grow out of their sidebar icon when they open and shrink back into it when you minimize them. Before, they faded somewhere near the item.
 - Expanding a floating window from its ask bar back into a panel animates, like folding it back did.

@@ -1,13 +1,11 @@
-// Plugins name lucide icons in kebab-case ("square-terminal"); look them up by name. Or
+// Plugins name lucide icons in kebab-case ("square-terminal"), by current name or alias. Or
 // `app:<path>` / `file:<path>`: the icon macOS shows for that app or file, fetched once from the
 // main process and cached for the session.
 import { useEffect, useState } from "react";
 import { icons, type LucideProps } from "lucide-react";
+import { lucideIcon } from "@/lib/lucide";
 import { cn } from "@/lib/utils";
 import { rpc, usePlugins } from "@/lib/store";
-
-const pascal = (name: string) =>
-  name.replace(/(^|-)([a-z0-9])/g, (_, __, c: string) => c.toUpperCase());
 
 export const isFileIcon = (name?: string) =>
   !!name && /^(app|file):/.test(name);
@@ -22,8 +20,7 @@ export function Icon({ name, ...props }: { name?: string } & LucideProps) {
         className={props.className}
       />
     );
-  const key=name?pascal(name):"";
-  const C = (Object.hasOwn(icons,key)&&icons[key as keyof typeof icons]) || icons.Box;
+  const C = lucideIcon(name) ?? icons.Box;
   return <C {...props} />;
 }
 

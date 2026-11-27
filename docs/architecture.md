@@ -222,7 +222,8 @@ and popover saves cannot overwrite each other's unrelated selections.
 
 Plugin images use namespaced `asset:<id>@<version>/<name>` references resolved only through
 the manifest's asset map. The host bounds image bytes, checks supported image content and
-rejects unsafe SVG content. Lucide names and Finder `app:`/`file:` icons are also supported.
+rejects unsafe SVG content. Lucide names (current names and Lucide's aliases, which
+`src/ui/lib/lucide.ts` resolves) and Finder `app:`/`file:` icons are also supported.
 Assets cannot supply executable webview code.
 
 ## Remote access
