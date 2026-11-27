@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { HUES, type Action, type Column } from "../src/shared/protocol";
-import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_STEP, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth, leastUsedHue, moveItem, newOptionTexts, allowsSequence, arrangesFilters, atFilterDefault, FILTER_DIVIDER, filterSequence, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup, filterOptionGroups, splitMinutes, joinMinutes, stepMinutes, durationWords, cardOpen } from "../src/ui/renderer/pure";
+import { HUES, type Action, type Column, type Message } from "../src/shared/protocol";
+import { actionForEvent, CHECK_WIDTH, INDENT, rowOffset, ROW_STEP, ROW_SLOT, actionForKey, menuActionForEvent, applyMove, formatKey, isToastKey, isNoopMove, keyNames, resolveDrop, rowSection, type DropSlot, withAlternatives, groupSummaryLayout, continuation, detailSections, dragBoundary, groupActions, hasBoundary, layoutColumns, looksLikeScreen, moveColumn, nextZoom, orderColumns, readSavedLayout, visibleWidth, leastUsedHue, moveItem, newOptionTexts, allowsSequence, arrangesFilters, atFilterDefault, FILTER_DIVIDER, filterSequence, placeFilter, sequenceArrangement, stepFilter, toggleFilterGroup, filterOptionGroups, splitMinutes, joinMinutes, stepMinutes, durationWords, cardOpen, showsStamp } from "../src/ui/renderer/pure";
 
 const cols: Column[] = [
 	{ key: "name", title: "Process", grow: true, minWidth: 260 },
@@ -580,5 +580,24 @@ describe("cardOpen: a collapsible card's open state", () => {
 		expect(cardOpen({ open: "yes", seen: true }, true)).toEqual({ open: true, seen: true });
 		expect(cardOpen({ open: true, seen: 1 }, undefined)).toEqual({ open: false, seen: null });
 		expect(cardOpen("open", undefined)).toEqual({ open: false, seen: null });
+	});
+});
+
+describe("conversation stamps", () => {
+	const t0 = Date.UTC(2026, 10, 27, 12, 0);
+	const min = 60_000;
+	const msgs: Message[] = [
+		{ role: "user", text: "a", at: t0 },
+		{ role: "user", text: "b", at: t0 + min },
+		{ role: "assistant", text: "c", at: t0 + 2 * min },
+		{ role: "tool", text: "ls", at: t0 + 3 * min },
+		{ role: "assistant", text: "d", at: t0 + 4 * min },
+		{ role: "assistant", text: "e", at: t0 + 20 * min },
+		{ role: "system", text: "f", at: t0 + 21 * min },
+		{ role: "user", text: "g" },
+		{ role: "user", text: "h", at: t0 + 30 * min },
+	];
+	test("the first of a run from one side, or after a long pause; tool calls don't break a run", () => {
+		expect(msgs.map((_, i) => showsStamp(msgs, i))).toEqual([true, false, true, false, false, true, false, false, true]);
 	});
 });

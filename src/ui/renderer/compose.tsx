@@ -11,6 +11,8 @@ import { overlayOpen } from "@/lib/keyboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { KeyHint } from "@/components/key-hint";
+import { ArrowUp } from "lucide-react";
+import { FloatingSurface } from "./floating-context";
 import { Markdown, type Emit } from "./Render";
 
 /** The row whose drawer pane holds what's rendered (its events carry it as `rowId`). */
@@ -97,6 +99,49 @@ export function Composer({ node, emit }: { node: Extract<Node, { type: "composer
 		return () => window.removeEventListener("keydown", onKey);
 	}, [node.key, node.single]);
 	const hint = node.key ? <KeyHint keys={node.key.toUpperCase()} /> : null;
+	// In a floating window the composer is a raised tray over the bottom of the conversation, with
+	// a send button (a phone has no ⌘↵).
+	const floating = useContext(FloatingSurface);
+	const sendButton = (text: () => string) => (
+		<Button
+			size="icon-sm"
+			aria-label={node.action.label}
+			disabled={!draft.trim() || node.action.disabled}
+			onMouseDown={(e) => e.preventDefault()}
+			onClick={() => send(text())}
+			className="shrink-0 rounded-full transition-opacity duration-200"
+		>
+			<ArrowUp />
+		</Button>
+	);
+	const tray = "rounded-2xl border bg-muted shadow-[0_6px_20px_-8px_rgb(0_0_0/0.3)] transition-[border-color,box-shadow] duration-200 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/40";
+	if (node.single && floating)
+		return (
+			<div ref={root} data-pane-id={node.id} data-floating-composer className={cn("flex items-center gap-2 py-1.5 pr-1.5 pl-3", tray)}>
+				<Icon name={node.action.icon ?? "sparkles"} aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+				<input
+					ref={input}
+					value={draft}
+					disabled={node.action.disabled}
+					aria-label={node.action.label}
+					placeholder={node.placeholder ?? node.action.label}
+					autoComplete="off"
+					enterKeyHint="send"
+					onChange={(e) => setDraft(e.target.value)}
+					onFocus={() => setFocused(true)}
+					onBlur={() => setFocused(false)}
+					onKeyDown={(e) => {
+						if (e.nativeEvent.isComposing) return;
+						if (e.key === "Enter") (e.preventDefault(), send(draft));
+						else if (e.key === "Escape" && draft) (e.preventDefault(), e.stopPropagation(), setDraft(""));
+					}}
+					// 16 px on a phone, so iOS doesn't zoom in on focus.
+					className="h-8 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground disabled:opacity-60 sm:text-sm"
+				/>
+				{!focused && !draft && hint}
+				{sendButton(() => draft)}
+			</div>
+		);
 	if (node.single)
 		return (
 			<div ref={root} data-pane-id={node.id} className="relative">
@@ -125,6 +170,28 @@ export function Composer({ node, emit }: { node: Extract<Node, { type: "composer
 			</div>
 		);
 	const open = focused || !!draft;
+	if (floating)
+		return (
+			<div ref={root} data-pane-id={node.id} data-floating-composer className={cn("flex flex-col p-1", tray)}>
+				<MarkdownBox
+					ref={box}
+					value={draft}
+					label={node.action.label}
+					placeholder={node.placeholder ?? node.action.label}
+					rows={open ? 2 : 1}
+					onChange={setDraft}
+					onSubmit={send}
+					onCancel={() => leaveToCollection(root.current)}
+					onFocus={() => setFocused(true)}
+					onBlur={() => setFocused(false)}
+					className="max-h-[40dvh] overflow-y-auto border-0 bg-transparent text-base focus-within:ring-0 sm:text-sm dark:bg-transparent"
+				/>
+				<div className="flex items-center justify-end gap-2 pr-0.5 pl-2.5">
+					<span className={cn("mr-auto truncate max-sm:hidden text-xs text-muted-foreground transition-opacity duration-200", open ? "opacity-100" : "opacity-0")}>Markdown · ⌘↵ to send</span>
+					{sendButton(() => box.current?.text() ?? draft)}
+				</div>
+			</div>
+		);
 	return (
 		<div ref={root} data-pane-id={node.id} className="space-y-1.5">
 			<MarkdownBox

@@ -1,6 +1,6 @@
 // The renderer's pure parts — layout decisions and text helpers — kept free of React and the
 // web view, so the tests can import them.
-import type { Action, Column, DetailItem, Filter, Row, Section } from "../../shared/protocol";
+import type { Action, Column, DetailItem, Filter, Message, Row, Section } from "../../shared/protocol";
 import { flatSections, groupKey, sectionAncestors, sectionDepth, sectionGroup } from "../../shared/sections";
 
 /**
@@ -684,4 +684,22 @@ export function cardOpen(kept: unknown, planned: boolean | undefined): CardOpen 
 	if (!k || typeof k !== "object" || typeof k.open !== "boolean" || (k.seen !== null && typeof k.seen !== "boolean")) return { open: planned ?? false, seen };
 	if (seen === k.seen) return k;
 	return { open: seen ?? k.open, seen };
+}
+
+/** A run of messages from one side sent within this long of each other shares one time stamp. */
+export const STAMP_GAP = 5 * 60_000;
+
+/**
+ * Whether message `i` of a compact conversation shows its time: the first of a run from the same
+ * side (tool calls don't break a run), or one sent long after the message before it.
+ */
+export function showsStamp(messages: Message[], i: number): boolean {
+	const m = messages[i];
+	if (m?.at === undefined || m.role === "tool" || m.role === "system") return false;
+	for (let j = i - 1; j >= 0; j--) {
+		const p = messages[j];
+		if (p.role === "tool") continue;
+		return p.role !== m.role || p.at === undefined || m.at - p.at > STAMP_GAP;
+	}
+	return true;
 }

@@ -185,8 +185,11 @@ render: {
 - **`mode: "panel"`** draws a title bar (the plugin's icon and name, `subtitle`, `actions` as
   icon buttons that send their action ids, and minimize) with the children below it. A
   `conversation`, `log` or `terminal` child takes the space that's left; otherwise the children
-  scroll like a page (settings, lists, cards). A last `composer` child stays at the bottom either
-  way. Forms in a floating window put each label above its control, without a card around them.
+  scroll like a page (settings, lists, cards). A last `composer` child floats over the bottom
+  either way, as a raised tray with a send button, and the content scrolls under it. A
+  conversation's messages show their `at` as a compact time ("14:03", "Mon 14:03", "Nov 20,
+  14:03"; the full date on hover), on the first message of each run from one side. Forms in a
+  floating window put each label above its control, without a card around them.
 - Switching modes animates. The window keeps the place it first opened in: a bar grows upward
   from its bottom edge into a panel. Opening grows the window out of its sidebar item's icon, and
   minimizing shrinks it back into it.
@@ -204,7 +207,8 @@ window is), so work continues and the sidebar item stays current.
 
 On a phone (paired remote access), floating plugins show one at a time: a button above the tab
 bar opens the last one used in a bottom sheet, whose title (the plugin's name) switches between
-them. An ask bar's sheet is as tall as its content; a panel's takes most of the screen. The menu-bar
+them. An ask bar's sheet is as tall as its content; a panel's takes most of the screen. While the
+on-screen keyboard is open the sheet sits on top of it (`src/ui/hooks/use-keyboard-inset.ts`). The menu-bar
 popover doesn't list floating plugins (unless they also declare `quickView`): they belong with the
 screens they float over.
 
