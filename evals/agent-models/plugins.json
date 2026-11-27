@@ -1,0 +1,9 @@
+{
+	"ontrack": {
+		"repo": "tkarakai/toolbelt-ontrack",
+		"tag": "v0.15.0",
+		"commit": "557c3156245f778a437f181936a2c6bf0698104a",
+		"asset": "https://github.com/tkarakai/toolbelt-ontrack/releases/download/v0.15.0/toolbelt-ontrack-0.15.0-portable.tar.gz",
+		"sha256": "a50dad42209627e584cbaa75fb25c69dc0579251b90ecfb1ce2b53ed3120802f"
+	}
+}

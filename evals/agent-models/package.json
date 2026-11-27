@@ -1,0 +1,21 @@
+{
+	"name": "toolbelt-agent-model-eval",
+	"private": true,
+	"type": "module",
+	"description": "Evaluates local models (oMLX) as ToolBelt agents through pi-durable and the ToolBelt MCP server",
+	"scripts": {
+		"setup": "bun src/setup.ts",
+		"models": "bun src/cli.ts models",
+		"bench": "bun src/cli.ts bench",
+		"eval": "bun src/cli.ts run",
+		"report": "bun src/cli.ts report",
+		"typecheck": "../../node_modules/.bin/tsc --noEmit -p .",
+		"test": "bun test ./test"
+	},
+	"dependencies": {
+		"@earendil-works/chord": "1.6.1",
+		"@earendil-works/pi-ai": "1.6.1",
+		"@earendil-works/pi-durable": "1.6.1",
+		"@earendil-works/pi-schema": "1.6.1"
+	}
+}

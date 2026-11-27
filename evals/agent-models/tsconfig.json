@@ -1,0 +1,10 @@
+{
+	"extends": "../../tsconfig.json",
+	"compilerOptions": {
+		"baseUrl": ".",
+		"resolveJsonModule": true,
+		"types": ["bun"]
+	},
+	"include": ["src", "test", "*.json"],
+	"exclude": ["node_modules", ".cache", "results"]
+}
