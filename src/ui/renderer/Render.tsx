@@ -1,3 +1,4 @@
+import { FloatingSurface } from "./floating-context";
 import { useCollectionSelection, LocalSelectionProvider } from "@/lib/shared-selection";
 import { SelectionHandoffContext, SelectionRequestContext } from "@/lib/selection-handoff";
 import { PaneActionsContext } from "@/lib/pane-actions";
@@ -3434,7 +3435,43 @@ function BoxedForm({ node, emit }: { node: Extract<Node, { type: "form" }>; emit
 	const change = (field: Field, value: FieldValue) => emit("field", { form: node.id, field: field.id, value });
 	const label = (f: Field, className?: string) =>
 		GROUP_LABEL.has(f.type) ? <div className={cn("text-sm font-medium", className)}>{f.label}</div> : <Label htmlFor={`${node.id}-${f.id}`} className={className}>{f.label}</Label>;
-	if (useContext(InDialog))
+	const floating = useContext(FloatingSurface);
+	const inDialog = useContext(InDialog);
+	if (floating && !inDialog)
+		// A floating window is narrow and already a frame: no card, each label above its control
+		// at full width, the description under it. Switches stay beside their label.
+		return (
+			<div className="space-y-4">
+				{(node.title || node.description) && (
+					<div className="space-y-1">
+						{node.title && <div className="text-sm font-medium">{node.title}</div>}
+						{node.description && <p className="text-xs text-muted-foreground">{node.description}</p>}
+					</div>
+				)}
+				<div data-form-fields className="flex flex-col gap-4">
+					{node.fields.map((f) =>
+						f.type === "switch" ? (
+							<div key={f.id} className="flex items-center justify-between gap-4">
+								<div className="min-w-0 space-y-0.5">
+									{label(f)}
+									{f.description && <p className="text-xs text-muted-foreground">{f.description}</p>}
+								</div>
+								<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} onOpen={openTag(node.id, f, emit)} />
+							</div>
+						) : (
+							<div key={f.id} className="min-w-0 space-y-1.5">
+								{label(f)}
+								<div className="flex min-h-8 items-center *:w-full *:max-w-full">
+									<FieldControl id={`${node.id}-${f.id}`} field={f} onChange={(v) => change(f, v)} onOpen={openTag(node.id, f, emit)} fill />
+								</div>
+								{f.description && <p className="text-xs leading-relaxed text-muted-foreground">{f.description}</p>}
+							</div>
+						),
+					)}
+				</div>
+			</div>
+		);
+	if (inDialog)
 		// Labels in a column of their own, controls lined up beside them and as wide as the
 		// dialog allows; descriptions under their control.
 		return (

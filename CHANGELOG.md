@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Floating windows grow out of their sidebar icon when they open and shrink back into it when you minimize them. Before, they faded somewhere near the item.
+- Expanding a floating window from its ask bar back into a panel animates, like folding it back did.
+- A floating window's title bar buttons are the same size as elsewhere in ToolBelt.
+- Floating panels without a chat (such as a plugin's settings) scroll, so their lower parts can be reached, and their forms put each label above its control.
+- Ask bar suggestions can be grouped under headings and show a time, so a floating plugin can offer "Continue" with your recent chats above its starter questions. Plugins set `group`, `meta` or `metaAt` on suggestions.
+- On a phone, the bottom sheet's title switches between floating tools, an ask bar's sheet is only as tall as it needs, and its suggestions are sized for touch.
 
 ## 0.7.0 — 2026-11-26
 - Agent screen reads are much shorter: rows come one line each unless an agent asks for `details: true` (or `toolbelt read --details`), and the result says how. On a 12-task OnTrack board this cut a read from about 12,000 to 3,000 characters, and the JSON form from about 88,000 to 9,000.

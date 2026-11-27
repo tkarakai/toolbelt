@@ -16,6 +16,7 @@ import { sendEvent, useNavigate, useSurface } from "@/lib/store";
 import { SurfaceContext, usePersisted, useUIState } from "@/lib/uistate";
 import { overlayOpen } from "@/lib/keyboard";
 import { SafeRender as Render } from "@/renderer/SafeRender";
+import { When } from "@/renderer/Render";
 import { FloatingSurface } from "@/renderer/floating-context";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -135,10 +136,10 @@ export function FloatingProvider({ plugins, children }: { plugins: PluginInfo[];
 		const el = document.querySelector<HTMLElement>(`[data-floating-window="${CSS.escape(id)}"]`);
 		const item = document.querySelector<HTMLElement>(`[data-floating-item="${CSS.escape(id)}"]`);
 		// The window shrinks into its sidebar item.
-		if (el && item && !reducedMotion()) {
-			const to = genie(el, item);
+		const shrink = el && item && !reducedMotion() ? genieAnimation(el, item, "out") : null;
+		if (shrink && el && item) {
 			el.style.pointerEvents = "none";
-			el.animate([{ transform: "none", opacity: 1 }, { transform: to, opacity: 0 }], { duration: 160, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" }).onfinish = () => {
+			shrink.onfinish = () => {
 				done();
 				item.animate([{ backgroundColor: "var(--accent)" }, { backgroundColor: "transparent" }], { duration: 400, easing: "ease-out" });
 			};
@@ -207,10 +208,26 @@ export function FloatingProvider({ plugins, children }: { plugins: PluginInfo[];
 /** Windows that should animate out of their sidebar item when they next mount. */
 const restoring = new Set<string>();
 
-/** The transform that puts an element over another one (its sidebar item). */
+/** The transform that shrinks a window onto its sidebar item's icon (around the window's center,
+ *  its default transform origin), or null when the item isn't on screen. */
 function genie(el: HTMLElement, item: HTMLElement) {
-	const a = el.getBoundingClientRect(), b = item.getBoundingClientRect();
-	return `translate(${b.left - a.left}px, ${b.top - a.top}px) scale(${Math.max(0.05, b.width / a.width)}, ${Math.max(0.05, b.height / a.height)})`;
+	const icon = item.querySelector("svg") ?? item;
+	const a = el.getBoundingClientRect(), b = icon.getBoundingClientRect();
+	if (!b.width || !b.height || !a.width || !a.height) return null;
+	const dx = b.left + b.width / 2 - (a.left + a.width / 2), dy = b.top + b.height / 2 - (a.top + a.height / 2);
+	return `translate(${dx}px, ${dy}px) scale(${b.width / a.width}, ${b.height / a.height})`;
+}
+
+/** A window growing out of its sidebar icon, or shrinking back into it. It stays opaque for most
+ *  of the way so it reads as the same object. */
+function genieAnimation(el: HTMLElement, item: HTMLElement, direction: "in" | "out") {
+	const to = genie(el, item);
+	if (!to) return null;
+	const small = { transform: to, opacity: 0, borderRadius: "40px" };
+	const full = { transform: "none", opacity: 1 };
+	return direction === "out"
+		? el.animate([full, { opacity: 1, offset: 0.55 }, small], { duration: 200, easing: "cubic-bezier(0.4, 0, 0.8, 0.6)", fill: "forwards" })
+		: el.animate([small, { opacity: 1, offset: 0.4 }, full], { duration: 240, easing: "cubic-bezier(0.2, 0, 0, 1)" });
 }
 
 /** Puts the keyboard in a window's input once it's on screen. */
@@ -316,22 +333,27 @@ function FloatingWindow({ info }: { info: PluginInfo }) {
 	}, []);
 	const lastHeight = useRef(0);
 	const lastMode = useRef(mode);
+	const heightAnimation = useRef<Animation | null>(null);
 	const frame = clamp(live ?? stored, mode === "bar" ? lastHeight.current || 56 : (live ?? stored).h);
 
 	// Opening animates out of the sidebar item; switching between bar and panel animates the height.
 	useLayoutEffect(() => {
 		const el = root.current;
 		if (!el) return;
+		// A running height animation changes what offsetHeight reports: while one runs, its target
+		// is the height (a mode switch in the middle of one starts from where it is).
+		if (lastMode.current !== mode) heightAnimation.current?.cancel();
+		const height = heightAnimation.current?.playState === "running" ? lastHeight.current : el.offsetHeight;
 		if (restoring.delete(id) && !reducedMotion()) {
 			const item = document.querySelector<HTMLElement>(`[data-floating-item="${CSS.escape(id)}"]`);
-			if (item) el.animate([{ transform: genie(el, item), opacity: 0.2 }, { transform: "none", opacity: 1 }], { duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" });
+			if (item) genieAnimation(el, item, "in");
 		} else if (lastMode.current !== mode && lastHeight.current) {
-			if (!reducedMotion()) el.animate([{ height: `${lastHeight.current}px` }, { height: `${el.offsetHeight}px` }], { duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" });
+			if (!reducedMotion()) heightAnimation.current = el.animate([{ height: `${lastHeight.current}px` }, { height: `${height}px` }], { duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" });
 			// The input was replaced: the keyboard stays in the window if it was there.
 			if (f.focus === id && (!document.activeElement || document.activeElement === document.body || el.contains(document.activeElement))) focusWindow(id);
 		}
 		lastMode.current = mode;
-		lastHeight.current = el.offsetHeight;
+		lastHeight.current = height;
 		if (node) f.place(id, frame);
 	});
 
@@ -450,25 +472,41 @@ function FloatingContextValue({ info, children }: { info: PluginInfo; children: 
 	);
 }
 
-/** The panel's title bar: drags the window; the plugin's actions and the minimize button. */
-function TitleBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { info: PluginInfo; node: FloatingNode; emit: (name: string, payload?: unknown) => void; focused: boolean; onDrag?: (e: React.PointerEvent) => void; onMinimize: () => void; mobile?: boolean }) {
+function TitleName({ info, dim }: { info: PluginInfo; dim: boolean }) {
 	return (
-		<div onPointerDown={onDrag} className={cn("flex shrink-0 items-center gap-2 border-b pr-1.5 pl-2.5 select-none", mobile ? "h-12" : "h-10 cursor-grab active:cursor-grabbing")}>
-			<span className={cn("flex size-5 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity", !focused && !mobile && "opacity-60")}>
-				<Icon name={info.manifest.icon} className="size-3" />
+		<>
+			<span className={cn("flex size-6 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity", dim && "opacity-60")}>
+				<Icon name={info.manifest.icon} className="size-3.5" />
 			</span>
-			<span className={cn("truncate text-[13px] font-semibold transition-opacity", !focused && !mobile && "opacity-60")}>{info.manifest.name}</span>
+			<span className={cn("truncate text-sm font-semibold transition-opacity", dim && "opacity-60")}>{info.manifest.name}</span>
+		</>
+	);
+}
+
+/** The panel's title bar: drags the window; the plugin's actions and the minimize button. */
+function TitleBar({ info, node, emit, focused, onDrag, onMinimize, onSwitch, mobile }: { info: PluginInfo; node: FloatingNode; emit: (name: string, payload?: unknown) => void; focused: boolean; onDrag?: (e: React.PointerEvent) => void; onMinimize: () => void; onSwitch?: () => void; mobile?: boolean }) {
+	return (
+		<div onPointerDown={onDrag} className={cn("flex shrink-0 items-center gap-2 border-b pr-1.5 pl-3 select-none", mobile ? "h-13" : "h-11 cursor-grab active:cursor-grabbing")}>
+			{onSwitch ? (
+				// On a phone with several floating plugins, the name switches between them.
+				<button type="button" onClick={onSwitch} aria-label={`${info.manifest.name}: switch tool`} aria-haspopup="menu" className="-ml-1 flex min-w-0 items-center gap-2 rounded-lg py-1 pr-1.5 pl-1 active:bg-accent">
+					<TitleName info={info} dim={false} />
+					<ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+				</button>
+			) : (
+				<TitleName info={info} dim={!focused && !mobile} />
+			)}
 			{node.subtitle && <span className="truncate text-xs text-muted-foreground">{node.subtitle}</span>}
-			<div className="ml-auto flex shrink-0 items-center gap-0.5">
+			<div className="ml-auto flex shrink-0 items-center gap-1">
 				{node.actions?.map((a) => (
 					<ShortcutTooltip key={a.id} label={a.label}>
-						<Button variant="ghost" size="icon-xs" aria-label={a.label} aria-pressed={a.checked} disabled={a.disabled} onClick={() => emit(a.id, {})} className={cn("text-muted-foreground", a.checked && "bg-accent text-foreground")}>
+						<Button variant="ghost" size="icon-sm" aria-label={a.label} aria-pressed={a.checked} disabled={a.disabled} onClick={() => emit(a.id, {})} className={cn("text-muted-foreground", a.checked && "bg-accent text-foreground")}>
 							<Icon name={a.icon ?? "circle"} />
 						</Button>
 					</ShortcutTooltip>
 				))}
 				<ShortcutTooltip label={mobile ? "Close" : "Minimize to the sidebar"} keys="esc">
-					<Button variant="ghost" size="icon-xs" aria-label={mobile ? "Close" : "Minimize"} onClick={onMinimize} className="text-muted-foreground">
+					<Button variant="ghost" size="icon-sm" aria-label={mobile ? "Close" : "Minimize"} onClick={onMinimize} className="text-muted-foreground">
 						{mobile ? <X /> : <Minus />}
 					</Button>
 				</ShortcutTooltip>
@@ -477,15 +515,29 @@ function TitleBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { i
 	);
 }
 
-/** The panel's content: the plugin's children, the last one (typically a composer) at the bottom. */
+const fills = (c: Node) => c.type === "conversation" || c.type === "log" || c.type === "terminal";
+
+/** The panel's content. A conversation, log or terminal fills the space; otherwise the content
+ *  scrolls, like a page. A trailing composer stays at the bottom either way. */
 function PanelBody({ node, emit }: { node: FloatingNode; emit: (name: string, payload?: unknown) => void }) {
+	const last = node.children[node.children.length - 1];
+	const composer = last?.type === "composer" ? last : null;
+	const body = composer ? node.children.slice(0, -1) : node.children;
+	const filled = body.some(fills);
 	return (
-		<div className="flex min-h-0 flex-1 flex-col gap-2 p-2.5">
-			{node.children.map((c, i) => (
-				<div key={i} className={cn("min-w-0", c.type === "conversation" || c.type === "log" || c.type === "terminal" ? "flex min-h-0 flex-1 flex-col" : "shrink-0")}>
-					<Render node={c} emit={emit} />
+		<div className="flex min-h-0 flex-1 flex-col">
+			<div data-floating-body className={cn("flex min-h-0 flex-1 flex-col", filled ? "gap-2 px-2.5 pt-2.5" : "gap-5 overflow-y-auto overscroll-contain px-4 pt-4 pb-5", filled && !composer && "pb-2.5")}>
+				{body.map((c, i) => (
+					<div key={i} className={cn("min-w-0", fills(c) ? "flex min-h-0 flex-1 flex-col" : "shrink-0")}>
+						<Render node={c} emit={emit} />
+					</div>
+				))}
+			</div>
+			{composer && (
+				<div className={cn("shrink-0 p-2.5", filled ? "pt-2" : "border-t")}>
+					<Render node={composer} emit={emit} />
 				</div>
-			))}
+			)}
 		</div>
 	);
 }
@@ -509,24 +561,35 @@ function AskBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { inf
 	return (
 		<>
 			{showSuggestions && (
-				<div className="border-b p-2 pb-1 animate-in fade-in-0 duration-150" role="listbox" aria-label="Suggestions">
-					{suggestions.map((s, i) => (
-						<button
-							key={s.id}
-							type="button"
-							role="option"
-							aria-selected={i === pick}
-							tabIndex={-1}
-							onMouseEnter={() => setPick(i)}
-							onMouseDown={(e) => e.preventDefault()}
-							onClick={() => emit(s.id, {})}
-							className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm", i === pick && "bg-accent")}
-						>
-							<Icon name={s.icon ?? "sparkles"} className="size-4 text-muted-foreground" />
-							<span className="truncate">{s.label}</span>
-							{i === pick && <Kbd className="ml-auto">↵</Kbd>}
-						</button>
-					))}
+				<div className="max-h-[50vh] overflow-y-auto overscroll-contain border-b p-2 pb-1 animate-in fade-in-0 duration-150" role="listbox" aria-label="Suggestions">
+					{suggestions.map((s, i) => {
+						const heading = s.group && s.group !== suggestions[i - 1]?.group ? s.group : null;
+						return (
+							<div key={s.id} role="presentation">
+								{heading && <div className={cn("px-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase", i > 0 ? "pt-2.5" : "pt-1")}>{heading}</div>}
+								<button
+									type="button"
+									role="option"
+									aria-selected={i === pick}
+									tabIndex={-1}
+									onMouseEnter={() => setPick(i)}
+									onMouseDown={(e) => e.preventDefault()}
+									onClick={() => emit(s.id, {})}
+									className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 text-left text-sm", mobile ? "py-2.5 active:bg-accent" : "py-1.5", i === pick && !mobile && "bg-accent")}
+								>
+									<Icon name={s.icon ?? "sparkles"} className="size-4 shrink-0 text-muted-foreground" />
+									<span className="min-w-0 flex-1 truncate">{s.label}</span>
+									{i === pick && !mobile ? (
+										<Kbd className="shrink-0">↵</Kbd>
+									) : s.metaAt !== undefined ? (
+										<When at={s.metaAt} className="shrink-0 text-xs text-muted-foreground tabular-nums" />
+									) : s.meta ? (
+										<span className="shrink-0 text-xs text-muted-foreground">{s.meta}</span>
+									) : null}
+								</button>
+							</div>
+						);
+					})}
 				</div>
 			)}
 			{others.length > 0 && (
@@ -536,7 +599,7 @@ function AskBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { inf
 					))}
 				</div>
 			)}
-			<div onPointerDown={onDrag} className={cn("flex shrink-0 items-center gap-2 pr-2 pl-1.5", mobile ? "h-14" : "h-13 cursor-grab active:cursor-grabbing")}>
+			<div onPointerDown={onDrag} className={cn("flex shrink-0 items-center gap-2", mobile ? "h-14 pr-2.5 pl-4" : "h-13 cursor-grab pr-2 pl-1.5 active:cursor-grabbing")}>
 				{!mobile && <GripVertical className="size-3.5 text-muted-foreground/50" aria-hidden="true" />}
 				<Icon name={composer?.action.icon ?? info.manifest.icon} className="size-4 shrink-0 text-violet-600 dark:text-violet-300" />
 				{composer ? (
@@ -571,14 +634,14 @@ function AskBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { inf
 				{!mobile && <Kbd className="shrink-0">{focused ? "esc" : (keys ?? "esc")}</Kbd>}
 				{node.actions?.map((a) => (
 					<ShortcutTooltip key={a.id} label={a.label}>
-						<Button variant="ghost" size="icon-xs" aria-label={a.label} disabled={a.disabled} onClick={() => emit(a.id, {})} className="text-muted-foreground">
+						<Button variant="ghost" size="icon-sm" aria-label={a.label} disabled={a.disabled} onClick={() => emit(a.id, {})} className="text-muted-foreground">
 							<Icon name={a.icon ?? "circle"} />
 						</Button>
 					</ShortcutTooltip>
 				))}
 				{!mobile && (
 					<ShortcutTooltip label="Minimize to the sidebar" keys="esc">
-						<Button variant="ghost" size="icon-xs" aria-label="Minimize" onClick={onMinimize} className="text-muted-foreground">
+						<Button variant="ghost" size="icon-sm" aria-label="Minimize" onClick={onMinimize} className="text-muted-foreground">
 							<Minus />
 						</Button>
 					</ShortcutTooltip>
@@ -596,6 +659,9 @@ function FloatingSheet() {
 	const info = f.plugins.find((p) => p.manifest.id === id) ?? f.plugins[0];
 	const [full, setFull] = useState(false);
 	const [menu, setMenu] = useState(false);
+	const tree = useSurface(info?.manifest.id ?? "", SURFACE);
+	// An ask bar is as tall as it needs; a panel takes most of the screen.
+	const bar = tree?.type === "floating" && tree.mode === "bar";
 	useEffect(() => {
 		if (!f.sheet.open) setMenu(false);
 	}, [f.sheet.open]);
@@ -615,14 +681,14 @@ function FloatingSheet() {
 					{f.unread[info.manifest.id] && <span className="absolute top-1 right-1 size-2.5 rounded-full bg-violet-500 ring-2 ring-background" />}
 				</button>
 			)}
-			{f.sheet.open && full && <div className="fixed inset-0 z-40 bg-black/25 animate-in fade-in-0 duration-200" onClick={() => setFull(false)} />}
+			{f.sheet.open && full && !bar && <div className="fixed inset-0 z-40 bg-black/25 animate-in fade-in-0 duration-200" onClick={() => setFull(false)} />}
 			{f.sheet.open && (
 				<section
 					data-floating-sheet={info.manifest.id}
 					aria-label={info.manifest.name}
-					className={cn("fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] border-t bg-popover text-popover-foreground shadow-[0_-10px_40px_-10px_rgb(0_0_0/0.35)] transition-[height] duration-300 ease-out animate-in slide-in-from-bottom-8 fade-in-0", full ? "h-[88dvh]" : "h-[58dvh]")}
+					className={cn("fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] border-t bg-popover text-popover-foreground shadow-[0_-10px_40px_-10px_rgb(0_0_0/0.35)] transition-[height] duration-300 ease-out animate-in slide-in-from-bottom-8 fade-in-0", bar ? "max-h-[88dvh]" : full ? "h-[88dvh]" : "h-[58dvh]")}
 				>
-					<button type="button" aria-label={full ? "Make smaller" : "Make larger"} onClick={() => setFull(!full)} className="mx-auto mt-2 mb-0.5 h-1.5 w-10 shrink-0 rounded-full bg-border" />
+					<button type="button" aria-label={full ? "Make smaller" : "Make larger"} disabled={bar} onClick={() => setFull(!full)} className="mx-auto mt-2 mb-0.5 h-1.5 w-10 shrink-0 rounded-full bg-border" />
 					<SheetContent info={info} onSwitch={f.plugins.length > 1 ? () => setMenu(!menu) : undefined} />
 					{menu && (
 						<div role="menu" className="absolute top-14 left-3 z-10 w-60 rounded-xl border bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95 duration-150">
@@ -652,16 +718,7 @@ function SheetContent({ info, onSwitch }: { info: PluginInfo; onSwitch?: () => v
 	return (
 		<FloatingContextValue info={info}>
 			<div className="flex min-h-0 flex-1 flex-col pb-[env(safe-area-inset-bottom)]">
-				<div className="flex items-center">
-					{onSwitch ? (
-						<button type="button" onClick={onSwitch} aria-label="Switch tool" className="ml-1.5 flex items-center gap-1 rounded-md px-1.5 py-1 text-muted-foreground">
-							<ChevronsUpDown className="size-4" />
-						</button>
-					) : null}
-					<div className="min-w-0 flex-1">
-						{node && <TitleBar info={info} node={{ ...node, actions: node.mode === "bar" ? [] : node.actions }} emit={emit} focused onMinimize={close} mobile />}
-					</div>
-				</div>
+				{node && <TitleBar info={info} node={{ ...node, actions: node.mode === "bar" ? [] : node.actions }} emit={emit} focused onMinimize={close} onSwitch={onSwitch} mobile />}
 				{!node ? (
 					<div className="flex flex-1 items-center justify-center text-muted-foreground"><Sparkles className="size-5 animate-pulse" /></div>
 				) : node.mode === "bar" ? (
