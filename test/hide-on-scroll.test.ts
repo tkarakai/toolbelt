@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { HIDE_AFTER, nextChrome, REVEAL_TOP, SHOW_AFTER, type Chrome } from "../src/ui/lib/hide-on-scroll";
+import { HIDE_AFTER, keepsEnd, nextChrome, REVEAL_TOP, SHOW_AFTER, type Chrome } from "../src/ui/lib/hide-on-scroll";
 
 const shown: Chrome = { hidden: false, travel: 0 };
 const hidden: Chrome = { hidden: true, travel: 0 };
@@ -33,5 +33,20 @@ describe("bars that slide away while scrolling", () => {
 	test("a scroll that doesn't move vertically changes nothing", () => {
 		const s = { hidden: false, travel: 10 };
 		expect(nextChrome(s, 100, 0, ROOM, BARS)).toBe(s);
+	});
+});
+
+describe("bars coming back near the end of the content", () => {
+	test("keep the end in view when it is within the bars' height", () => {
+		expect(keepsEnd(0, BARS)).toBe(true);
+		expect(keepsEnd(SHOW_AFTER, BARS)).toBe(true);
+		expect(keepsEnd(BARS - 1, BARS)).toBe(true);
+	});
+	test("further up, the content keeps its top", () => {
+		expect(keepsEnd(BARS, BARS)).toBe(false);
+		expect(keepsEnd(1000, BARS)).toBe(false);
+	});
+	test("unmeasured bars still keep content at its very end", () => {
+		expect(keepsEnd(0, 0)).toBe(true);
 	});
 });
