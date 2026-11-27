@@ -129,13 +129,25 @@ export type RequestRecord = {
 	error?: string;
 	/** Messages and tools sent, for sizing (characters of the JSON body). */
 	bodyChars: number;
+	/** Claude Code: "agent" for its answers, or what a side request is for (first words of its system prompt). */
+	kind?: string;
 };
+
+function kindOf(body: string): string {
+	try {
+		const j = JSON.parse(body);
+		const system = (Array.isArray(j.system) ? j.system.map((x: { text?: string }) => x.text ?? "").join(" ") : String(j.system ?? "")).replace(/x-anthropic-billing-header:[^;]*;[^;]*;/, "");
+		return j.tools?.length ? "agent" : system.trim().slice(0, 80);
+	} catch {
+		return "";
+	}
+}
 
 /**
  * A local HTTP proxy to oMLX that records each chat completion's usage and timings. pi-ai talks to
  * it as its base URL; the eval reads `take()` after each turn.
  */
-export function startRecorder() {
+export function startRecorder(o: { noThinking?: boolean } = {}) {
 	let records: RequestRecord[] = [];
 	const server = Bun.serve({
 		port: 0,
@@ -143,18 +155,30 @@ export function startRecorder() {
 		idleTimeout: 0,
 		async fetch(req) {
 			const url = new URL(req.url);
-			const body = req.method === "POST" ? await req.text() : undefined;
+			let body = req.method === "POST" ? await req.text() : undefined;
+			// Claude Code leaves `thinking` out when it's off, and oMLX then thinks if the model's settings
+			// say so: `noThinking` sends what an oMLX profile with thinking off would do.
+			if (o.noThinking && body && url.pathname.endsWith("/messages")) {
+				try {
+					const j = JSON.parse(body);
+					if (j.thinking === undefined) body = JSON.stringify({ ...j, thinking: { type: "disabled" } });
+				} catch {}
+			}
 			const started = Date.now();
 			const fwdHeaders = new Headers(req.headers);
 			fwdHeaders.delete("host");
-			if (OMLX_KEY) fwdHeaders.set("authorization", `Bearer ${OMLX_KEY}`);
+			if (OMLX_KEY) {
+				fwdHeaders.set("authorization", `Bearer ${OMLX_KEY}`);
+				if (fwdHeaders.has("x-api-key")) fwdHeaders.set("x-api-key", OMLX_KEY);
+			}
 			const upstream = await fetch(`${OMLX_URL}${url.pathname}${url.search}`, { method: req.method, headers: fwdHeaders, body, signal: req.signal });
-			if (!url.pathname.endsWith("/chat/completions") || !body) return upstream;
+			const anthropic = url.pathname.endsWith("/messages");
+			if (!(url.pathname.endsWith("/chat/completions") || anthropic) || !body) return upstream;
 			let model = "";
 			try {
 				model = JSON.parse(body).model;
 			} catch {}
-			const record: RequestRecord = { at: started, model, status: upstream.status, wallMs: 0, bodyChars: body.length };
+			const record: RequestRecord = { at: started, model, status: upstream.status, wallMs: 0, bodyChars: body.length, ...(anthropic ? { kind: kindOf(body) } : {}) };
 			if (!upstream.body) {
 				record.wallMs = Date.now() - started;
 				records.push(record);
@@ -177,6 +201,18 @@ export function startRecorder() {
 							if (!line.startsWith("data:") || line === "data: [DONE]") continue;
 							try {
 								const m = JSON.parse(line.slice(5));
+								// oMLX reports a failure inside a 200 stream as an error event.
+								if (m.error) record.error = String(m.error.message ?? JSON.stringify(m.error)).slice(0, 500);
+								// Anthropic's Messages stream (Claude Code): usage at message_start and message_delta.
+								if (anthropic) {
+									const u = m.message?.usage ?? m.usage;
+									if (u?.input_tokens !== undefined) record.promptTokens = u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+									if (u?.cache_read_input_tokens !== undefined) record.cachedTokens = u.cache_read_input_tokens;
+									if (u?.output_tokens !== undefined && m.type === "message_delta") record.completionTokens = u.output_tokens;
+									if (m.delta?.stop_reason) record.finishReason = m.delta.stop_reason;
+									if (m.type === "error") record.error = String(m.error?.message ?? JSON.stringify(m)).slice(0, 500);
+									continue;
+								}
 								const fin = m.choices?.[0]?.finish_reason;
 								if (fin) record.finishReason = fin;
 								const u = m.usage;

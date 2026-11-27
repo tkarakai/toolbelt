@@ -42,7 +42,9 @@ cases.ts ──► agent.ts (pi-durable conversation) ──► recorder proxy �
 - **The recorder** is a local proxy between pi-ai and oMLX that keeps oMLX's per-request timings
   (time to first token, prefill and decode tokens per second), which pi-ai doesn't expose.
 - **Grading** is deterministic first (`checks.ts`): facts the answer must contain, things it must
-  not say, tools it must call, secrets that must never appear in tool output. An optional judge
+  not say, tools it must call (with the view filters it should pass), secrets that must never appear
+  in tool output, and what show_screen put on the person's screens. Soft checks record how the agent
+  got there (did it filter, did it say "archived") without grading it. An optional judge
   model (`judge.ts`) scores each conversation against the case's rubric with ToolBelt's tool
   results as ground truth.
 
@@ -61,7 +63,10 @@ bun run eval -- --models Qwen3.8-27B-4bit --all --repeat 3            # everythi
 bun run eval -- --models Qwen3.8-27B-4bit --cases budget-status,hiring
 bun run report -- results/<run> --judge omlx/Qwen3.8-27B-8bit         # add judge scores later
 bun src/cli.ts regrade results/<run>      # apply changed checks to stored transcripts
-bun run eval -- --models Qwen3.8-27B-4bit --prompt prompts/search-guidance.md   # a prompt variant
+bun run eval -- --models Qwen3.8-27B-4bit --prompt prompts/view-guidance.md     # a prompt variant
+bun run eval -- --models Qwen3.8-27B-4bit --lenient       # an interface variant (lenient.ts)
+bun src/calls.ts results/<run> --errors      # tool calls per conversation, refused ones only
+bun src/probe.ts                             # what the model sees: instructions, tools, reads, sizes
 ```
 
 `:think` runs a model with thinking on (oMLX's `enable_thinking` chat template switch); without
@@ -84,7 +89,38 @@ then run `bench` and `eval` with it next to the current best, ideally `--repeat 
 
 `--prompt <file>` appends text to the system prompt, for measuring guidance before it moves into
 ToolBelt's tool descriptions. `prompts/search-guidance.md` explains search's exact-word matching,
-the badge and text reads.
+the badge and text reads (written for the first, five-tool interface); `prompts/view-guidance.md` is
+for the interface with views: filter ids from list_screens, details narrowed by a view, hidden rows.
+
+### Interface variants
+
+`--lenient` simulates a proposed ToolBelt change before it is built: `lenient.ts` resolves filter
+and option labels, plugin names and screen titles to ids, case-insensitively, and lists the
+plugins in an unknown-plugin refusal. Compare it with a plain run of the same models to see
+what the change would buy. Add other proposals the same way: wrap the tool calls, flag it.
+
+### Through Claude Code (the ToolBelt Agent plugin's setup)
+
+`--agent claude-acp` runs each case through Claude Code's ACP adapter (`claude-agent-acp`, which
+must be installed) as the [ToolBelt Agent](https://github.com/tkarakai/toolbelt-agent) plugin
+starts it: its isolation (no built-in tools, none of the person's settings or MCP servers), its
+preamble in the first message, Claude Code's default permission mode with only ToolBelt's tools
+allowed, and the model given as environment lines pointing at the recording proxy (which adds
+oMLX's key). Candidates are named `<model>@claude`; checks, regrade and the report are unchanged.
+`acp.ts` copies the plugin's preamble and isolation: update them together.
+
+Claude Code leaves `thinking` out of its requests when thinking is off, and oMLX then thinks if the
+model's settings enable it. With thinking off, the proxy adds `thinking: {type: "disabled"}`: what
+an oMLX profile with thinking off does. Side requests (Claude Code naming the session) are recorded
+with `kind` set to the start of their system prompt.
+
+`EVAL_AGENT_ENV_<NAME>=value` adds `NAME=value` to the agent's environment, after the lines above
+(so it can replace them): for example `CLAUDE_CONFIG_DIR`, or `HTTPS_PROXY` pointing at a logging
+proxy to check that nothing leaves the Mac.
+
+```sh
+bun src/cli.ts run --agent claude-acp --models Qwen3.8-27B-4bit --all --out results/claude
+```
 
 ### Adding a case
 
@@ -92,7 +128,9 @@ Add it to `cases.ts`. A case is one conversation: turns the person types (and ac
 takes in ToolBelt before a turn), checks per turn, and a rubric. Check for facts, not wording
 (a distinctive fragment of a task name, a number from an update), and give alternatives with `|`.
 Facts a case relies on belong in `seed.ts` next to the data that makes them true. Mark slow
-multi-turn cases `slow` so the quick set stays quick. A case that needs a newer MCP tool lists
+multi-turn cases `slow` so the quick set stays quick. A case's `setup.answer` is how the person
+answers show_screen's question (allow, for how long, or decline); without it nobody answers.
+OnTrack's filter ids for the seeded labels are in `F` in cases.ts. A case that needs a newer MCP tool lists
 it in `requires` and is skipped on servers without it.
 
 ### Reading results
@@ -108,6 +146,9 @@ it in `requires` and is skipped on servers without it.
 | TTFT, prefill, decode | oMLX's timings, medians over requests; decode counts only responses of 100+ tokens (oMLX overstates it for short tool calls) |
 | Thinking tok/turn | Reasoning tokens spent per answer |
 | Max context | Largest prompt the model held during a conversation |
+| Tool chars/turn | Characters of tool output the model read per answer: what costs prefill time |
+| Reads with view / details | Share of read_screen calls that passed a view, or asked for details |
+| Soft checks | Share of soft checks passed (used the expected filter, named the state) |
 | Memory | What oMLX reports for the model when it's loaded: the weights. oMLX's figure grows once its cache fills (a 20 GB model reads ~29 GB after a run), so treat it as a lower bound |
 
 Checks evolve: when a transcript shows a check was wrong, fix it in `cases.ts` and `regrade` the

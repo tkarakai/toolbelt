@@ -134,8 +134,8 @@ export async function seedOnTrack(dataRoot: string, now = Date.now()): Promise<S
 	add(T.carInsurance, { due: localDue(now, -12), personal: true, priority: "High" });
 	add(T.q3report, { project: "Product", priority: "Medium" });
 	add(T.release, { project: "ToolBelt", priority: "High" });
-	add(T.laptop, { project: "Office", priority: "Low" });
-	add(T.gym, { personal: true, priority: "Low" });
+	add(T.laptop, { project: "Office", priority: "Low", created: now - 50 * DAY });
+	add(T.gym, { personal: true, priority: "Low", created: now - 90 * DAY });
 
 	// ── history ──
 	update(T.budget, "Sent the draft numbers to Maria. Total ask is $412k, up 8% from Q3.", 5 * DAY);

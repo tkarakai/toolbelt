@@ -6,6 +6,7 @@ import { createModels } from "@earendil-works/pi-ai";
 import { createRegistry, defineExtension, defineTool, Harness, MemoryStorage, section } from "@earendil-works/pi-durable";
 import type { Case } from "./cases";
 import { runCheck, type CheckResult, type ToolCall } from "./checks";
+import { lenient } from "./lenient";
 import { omlxProvider, piModel, type Candidate, type OmlxModel, type RequestRecord } from "./omlx";
 import type { Seeded } from "./seed";
 import { openWorld, type EvalWorld } from "./world";
@@ -23,6 +24,8 @@ export type RunOptions = {
 	recorder: { url: string; take: () => RequestRecord[] };
 	/** Extra system prompt text (a prompt variant). */
 	instructions?: string;
+	/** Resolve names the way a proposed ToolBelt change would (lenient.ts): an interface variant. */
+	lenient?: boolean;
 };
 
 export type TurnRecord = {
@@ -39,6 +42,8 @@ export type TurnRecord = {
 	checks: CheckResult[];
 	/** Prompt tokens of the last request: how much context the model was holding. */
 	contextTokens: number;
+	/** Screens show_screen put in front of the person during the turn ("plugin/screen"). */
+	shown?: string[];
 };
 
 export type CaseRun = {
@@ -62,7 +67,7 @@ export type CaseRun = {
 
 const PREAMBLE = `You are the assistant built into ToolBelt, a Mac menu bar app. You help the person with what their ToolBelt plugins show, mostly their tasks in OnTrack.
 Use the ToolBelt tools to look things up before answering; never guess or invent tasks, dates, people or numbers. If something isn't there, say so.
-You can only read ToolBelt. You can't change anything: when asked to, say so and tell the person how to do it in ToolBelt.
+You can read ToolBelt and, when the person asks, show them a screen. You can't change their tasks or anything else: when asked to, say so and tell the person how to do it in ToolBelt.
 Answer in plain, concise language. Refer to tasks by name. Give dates and times when they matter.`;
 
 function now() {
@@ -106,6 +111,7 @@ export async function runCase(c: Case, candidate: Candidate, om: OmlxModel, o: R
 		run.seeded = w.seeded;
 
 		let calls: ToolCall[] = [];
+		const callTool = o.lenient ? lenient(w.call) : w.call;
 		const tools = w.tools.map((t) =>
 			defineTool({
 				name: t.name,
@@ -114,7 +120,7 @@ export async function runCase(c: Case, candidate: Candidate, om: OmlxModel, o: R
 				execute: async (args: unknown) => {
 					const a = (args ?? {}) as Record<string, unknown>;
 					const t0 = Date.now();
-					const r = await w.call(t.name, a);
+					const r = await callTool(t.name, a);
 					calls.push({ name: t.name, args: a, output: r.text, isError: r.isError, ms: Date.now() - t0 });
 					if (r.isError) throw new Error(r.text);
 					return { output: [{ type: "text" as const, text: r.text }] };
@@ -160,6 +166,7 @@ export async function runCase(c: Case, candidate: Candidate, om: OmlxModel, o: R
 		for (const turn of c.turns) {
 			for (const p of turn.person ?? []) await w.person(p);
 			calls = [];
+			const shownBefore = w.navigated.length;
 			const t0 = Date.now();
 			const record: TurnRecord = { user: turn.user, answer: "", thinkingChars: 0, calls, toolErrors: 0, status: "error", ms: 0, requests: [], checks: [], contextTokens: 0 };
 			try {
@@ -199,9 +206,10 @@ export async function runCase(c: Case, candidate: Candidate, om: OmlxModel, o: R
 			await Bun.sleep(50);
 			record.requests = o.recorder.take();
 			record.contextTokens = record.requests.at(-1)?.promptTokens ?? 0;
+			record.shown = w.navigated.slice(shownBefore);
 			if (reports.length) record.reason = [record.reason, ...reports.splice(0)].filter(Boolean).join("; ");
 			const checks = typeof turn.checks === "function" ? turn.checks(w.seeded) : turn.checks;
-			record.checks = checks.map((ch) => runCheck(ch, answer, calls));
+			record.checks = checks.map((ch) => runCheck(ch, answer, calls, record.shown));
 			if (record.status !== "done") record.checks.push({ label: "answered", kind: "pattern", pass: false, detail: record.reason });
 			run.turns.push(record);
 		}
@@ -217,8 +225,9 @@ export async function runCase(c: Case, candidate: Candidate, om: OmlxModel, o: R
 	return run;
 }
 
+/** Soft checks (how the agent got there) are reported but don't count. */
 export function score(run: CaseRun) {
-	const all = run.turns.flatMap((t) => t.checks);
+	const all = run.turns.flatMap((t) => t.checks).filter((x) => !x.soft);
 	run.score = all.length ? all.filter((x) => x.pass).length / all.length : 0;
 	run.pass = !run.error && all.length > 0 && all.every((x) => x.pass);
 }
@@ -229,7 +238,7 @@ export function regrade(run: CaseRun, c: Case, seeded: Seeded) {
 		const t = run.turns[i];
 		if (!t) return;
 		const checks = typeof turn.checks === "function" ? turn.checks(run.seeded ?? seeded) : turn.checks;
-		t.checks = checks.map((ch) => runCheck(ch, t.answer, t.calls));
+		t.checks = checks.map((ch) => runCheck(ch, t.answer, t.calls, t.shown));
 		if (t.status !== "done") t.checks.push({ label: "answered", kind: "pattern", pass: false, detail: t.reason });
 	});
 	score(run);

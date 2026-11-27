@@ -17,6 +17,7 @@ const pct = (xs: number[], p: number) => {
 	const s = xs.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
 	return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : NaN;
 };
+const share = <T>(xs: T[], f: (x: T) => boolean) => (xs.length ? xs.filter(f).length / xs.length : NaN);
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 
 export type CandidateSummary = {
@@ -38,6 +39,14 @@ export type CandidateSummary = {
 	decodeTps: number;
 	thinkingTokensPerTurn: number;
 	maxContext: number;
+	/** Characters of tool output the model read per turn. */
+	toolCharsPerTurn: number;
+	/** Share of read_screen calls that passed a view (search, filters, sort). */
+	viewReads: number;
+	/** Share of read_screen calls that asked for details. */
+	detailReads: number;
+	/** Share of soft checks (how the agent got there) passed. */
+	softScore: number;
 	memory: number | null;
 	loadMs: number | null;
 	byArea: Record<string, number>;
@@ -51,7 +60,9 @@ export function summarize(runs: CaseRun[], loads: Load[], verdicts: (Verdict | n
 		const turns = rs.flatMap((r) => r.turns);
 		const reqs = turns.flatMap((t) => t.requests);
 		const judged = list.map((x) => x.v).filter((v): v is Verdict => !!v && !v.error);
-		const load = loads.find((l) => l.model === rs[0].model);
+			const load = loads.find((l) => l.model === rs[0].model);
+		const reads = turns.flatMap((t) => t.calls).filter((c) => c.name === "read_screen");
+		const soft = turns.flatMap((t) => t.checks).filter((c) => c.soft);
 		const areas = new Map<string, number[]>();
 		for (const r of rs) {
 			const area = caseById(r.case)?.area ?? "other";
@@ -75,7 +86,11 @@ export function summarize(runs: CaseRun[], loads: Load[], verdicts: (Verdict | n
 			prefillTps: median(reqs.filter((r) => (r.promptTokens ?? 0) - (r.cachedTokens ?? 0) > 500).map((r) => r.promptTps ?? NaN)),
 			decodeTps: median(reqs.filter((r) => (r.completionTokens ?? 0) >= 100).map((r) => r.genTps ?? NaN)),
 			thinkingTokensPerTurn: avg(turns.map((t) => t.requests.reduce((n, r) => n + (r.reasoningTokens ?? 0), 0))),
-			maxContext: Math.max(0, ...turns.map((t) => t.contextTokens)),
+				maxContext: Math.max(0, ...turns.map((t) => t.contextTokens)),
+			toolCharsPerTurn: avg(turns.map((t) => t.calls.reduce((n, c) => n + c.output.length, 0))),
+			viewReads: share(reads, (c) => !!c.args.view),
+			detailReads: share(reads, (c) => c.args.details === true),
+			softScore: share(soft, (c) => c.pass),
 			memory: load?.actualSize ?? load?.estimatedSize ?? null,
 			loadMs: load?.loadMs ?? null,
 			byArea: Object.fromEntries([...areas].map(([a, s]) => [a, avg(s)])),
@@ -107,7 +122,7 @@ export function writeReport(dir: string) {
 		const score = avg(rs.map((x) => x.r.score));
 		const passed = rs.filter((x) => x.r.pass).length;
 		const v = rs.map((x) => verdicts[x.i]).filter((x): x is Verdict => !!x && !x.error);
-		const failed = rs.flatMap((x) => x.r.turns.flatMap((t) => t.checks.filter((c) => !c.pass).map((c) => `${c.label}${c.detail ? `: ${c.detail}` : ""}`))).concat(rs.filter((x) => x.r.error).map((x) => x.r.error!));
+		const failed = rs.flatMap((x) => x.r.turns.flatMap((t) => t.checks.filter((c) => !c.pass && !c.soft).map((c) => `${c.label}${c.detail ? `: ${c.detail}` : ""}`))).concat(rs.filter((x) => x.r.error).map((x) => x.r.error!));
 		const tone = passed === rs.length ? "good" : score >= 0.5 ? "warn" : "bad";
 		return `<td class="${tone}" title="${esc([...new Set(failed)].join("\n"))}"><a href="#run-${rs[0].i}">${passed}/${rs.length}</a>${v.length ? `<small> · ${fmt.n(avg(v.map((x) => x.score)), 1)}</small>` : ""}</td>`;
 	};
@@ -119,7 +134,7 @@ export function writeReport(dir: string) {
 				(t, n) => `<div class="turn"><p class="user"><b>Person:</b> ${esc(t.user)}</p>
 ${t.calls.map((c) => `<details class="call${c.isError ? " err" : ""}"><summary>${esc(c.name)} <code>${esc(JSON.stringify(c.args))}</code> · ${c.output.length.toLocaleString()} chars · ${c.ms} ms</summary><pre>${esc(c.output.slice(0, 20_000))}${c.output.length > 20_000 ? "\n…" : ""}</pre></details>`).join("\n")}
 <div class="answer"><b>Agent</b> <small>(${t.status}${t.reason ? `: ${esc(t.reason)}` : ""} · ${fmt.s(t.ms)} · ${t.requests.length} requests · context ${fmt.k(t.contextTokens)} tokens${t.thinkingChars ? ` · thinking ${t.thinkingChars.toLocaleString()} chars` : ""})</small><pre>${esc(t.answer)}</pre></div>
-<ul class="checks">${t.checks.map((c) => `<li class="${c.pass ? "ok" : "no"}">${c.pass ? "✓" : "✗"} ${esc(c.label)}${c.detail ? ` <small>${esc(c.detail)}</small>` : ""}</li>`).join("")}</ul>
+<ul class="checks">${t.checks.map((c) => `<li class="${c.pass ? "ok" : c.soft ? "mute" : "no"}">${c.pass ? "✓" : "✗"} ${esc(c.label)}${c.soft ? " <small>(soft)</small>" : ""}${c.detail ? ` <small>${esc(c.detail)}</small>` : ""}</li>`).join("")}</ul>
 ${n === r.turns.length - 1 && v && !v.error ? `<p class="judge"><b>Judge ${v.score}/5${v.faithful ? "" : " · unfaithful"}</b> ${v.issues.map(esc).join("; ")}</p>` : ""}</div>`,
 			)
 			.join("\n");
@@ -140,8 +155,8 @@ details.call{margin:2px 0 2px 12px;font-size:12px}details.call.err summary{color
 </style></head><body>
 <h1>Agent model evaluation</h1>
 <p class="mute">${esc(meta.startedAt ?? "")} · oMLX ${esc(meta.omlx ?? "")} · ${caseIds.length} cases × ${meta.repeat ?? 1} · ${runs.length} runs. Hover a grid cell for its failed checks; click it for the transcript.</p>
-<h2>Leaderboard</h2><div class="wrap"><table><tr><th>Candidate</th><th>Cases passed</th><th>Checks</th><th>Judge</th><th>OnTrack</th><th>Safety</th><th>Turn median</th><th>Turn p90</th><th>Calls/turn</th><th>Tool errors</th><th>Failed turns</th><th>TTFT</th><th>Prefill tok/s</th><th>Decode tok/s</th><th>Thinking tok/turn</th><th>Max context</th><th>Memory</th></tr>
-${summary.map((s) => `<tr><td><b>${esc(s.candidate)}</b></td><td>${fmt.pct(s.passRate)}</td><td>${fmt.pct(s.checkScore)}</td><td>${s.judgeScore === null ? "–" : `${fmt.n(s.judgeScore, 1)}${s.unfaithful ? ` <small>(${s.unfaithful} unfaithful)</small>` : ""}`}</td><td>${fmt.pct(s.byArea.ontrack ?? NaN)}</td><td>${fmt.pct(s.byArea.safety ?? NaN)}</td><td>${fmt.s(s.turnMsMedian)}</td><td>${fmt.s(s.turnMsP90)}</td><td>${fmt.n(s.callsPerTurn, 1)}</td><td>${s.toolErrors}</td><td>${s.failedTurns}</td><td>${fmt.n(s.ttftMedian, 1)} s</td><td>${fmt.n(s.prefillTps)}</td><td>${fmt.n(s.decodeTps)}</td><td>${fmt.n(s.thinkingTokensPerTurn)}</td><td>${fmt.k(s.maxContext)}</td><td>${fmt.gb(s.memory)}</td></tr>`).join("\n")}
+<h2>Leaderboard</h2><div class="wrap"><table><tr><th>Candidate</th><th>Cases passed</th><th>Checks</th><th>Judge</th><th>OnTrack</th><th>Safety</th><th>Turn median</th><th>Turn p90</th><th>Calls/turn</th><th>Tool errors</th><th>Failed turns</th><th>TTFT</th><th>Prefill tok/s</th><th>Decode tok/s</th><th>Thinking tok/turn</th><th>Max context</th><th>Tool chars/turn</th><th>Reads with view</th><th>Reads with details</th><th>Soft checks</th><th>Memory</th></tr>
+${summary.map((s) => `<tr><td><b>${esc(s.candidate)}</b></td><td>${fmt.pct(s.passRate)}</td><td>${fmt.pct(s.checkScore)}</td><td>${s.judgeScore === null ? "–" : `${fmt.n(s.judgeScore, 1)}${s.unfaithful ? ` <small>(${s.unfaithful} unfaithful)</small>` : ""}`}</td><td>${fmt.pct(s.byArea.ontrack ?? NaN)}</td><td>${fmt.pct(s.byArea.safety ?? NaN)}</td><td>${fmt.s(s.turnMsMedian)}</td><td>${fmt.s(s.turnMsP90)}</td><td>${fmt.n(s.callsPerTurn, 1)}</td><td>${s.toolErrors}</td><td>${s.failedTurns}</td><td>${fmt.n(s.ttftMedian, 1)} s</td><td>${fmt.n(s.prefillTps)}</td><td>${fmt.n(s.decodeTps)}</td><td>${fmt.n(s.thinkingTokensPerTurn)}</td><td>${fmt.k(s.maxContext)}</td><td>${fmt.k(s.toolCharsPerTurn)}</td><td>${fmt.pct(s.viewReads)}</td><td>${fmt.pct(s.detailReads)}</td><td>${fmt.pct(s.softScore)}</td><td>${fmt.gb(s.memory)}</td></tr>`).join("\n")}
 </table></div>
 <h2>Cases</h2><div class="wrap"><table><tr><th>Case</th>${summary.map((s) => `<th>${esc(s.candidate)}</th>`).join("")}</tr>
 ${caseIds.map((id) => `<tr><td title="${esc(caseById(id)?.rubric.join("\n"))}">${esc(caseById(id)?.title ?? id)} <small>${esc(id)}</small></td>${summary.map((s) => cell(s.candidate, id)).join("")}</tr>`).join("\n")}

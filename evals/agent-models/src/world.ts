@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { McpAdapter } from "../../../test/agent-scenarios/adapters";
 import { createWorld, FIXTURES, type World } from "../../../test/agent-scenarios/harness";
-import type { PersonAction } from "../../../test/agent-scenarios/format";
+import type { Answer, PersonAction } from "../../../test/agent-scenarios/format";
 import hostPackage from "../../../package.json";
 import { seedOnTrack, type Seeded } from "./seed";
 import { pluginDir, setup } from "./setup";
@@ -24,6 +24,8 @@ export type EvalWorld = {
 	person(action: PersonAction): Promise<void>;
 	/** The audit log: every call the agent made, as ToolBelt saw it. */
 	audit(): { operation: string; outcome: string; plugin?: string; screen?: string; detail?: string }[];
+	/** Screens show_screen put in front of the person ("plugin/screen"), oldest first. */
+	navigated: string[];
 	stop(): Promise<void>;
 };
 
@@ -32,6 +34,8 @@ export type WorldSetup = {
 	access?: Record<string, "none" | "read" | "act">;
 	person?: PersonAction[];
 	mode?: "interactive" | "autonomous";
+	/** How the person answers show_screen's question whenever their screens ask (default: they don't answer). */
+	answer?: Answer;
 };
 
 export async function openWorld(setupOpts: WorldSetup = {}, client = "agent-model-eval"): Promise<EvalWorld> {
@@ -46,6 +50,17 @@ export async function openWorld(setupOpts: WorldSetup = {}, client = "agent-mode
 			prepare: async (data) => void (seeded = await seedOnTrack(data)),
 		},
 	);
+	// The person answers each question show_screen asks on their screens.
+	const answered = new Set<string>();
+	const answering = setupOpts.answer
+		? setInterval(() => {
+				for (const q of world.agents.core.state().approvals) {
+					if (answered.has(q.id)) continue;
+					answered.add(q.id);
+					world.agents.handle({ operation: "answer", id: q.id, allow: setupOpts.answer!.allow, duration: setupOpts.answer!.duration as never });
+				}
+			}, 100)
+		: undefined;
 	try {
 		for (const p of setupOpts.person ?? []) await world.person(p);
 		const mcp = new McpAdapter({ socket: world.socket, autonomous: setupOpts.mode === "autonomous", client });
@@ -74,14 +89,17 @@ export async function openWorld(setupOpts: WorldSetup = {}, client = "agent-mode
 				return { text, isError: r.result.isError === true };
 			},
 			person: (a) => world.person(a),
+			navigated: world.navigated,
 			// No file until the first call: a model that answers without tools leaves no audit log.
 			audit: () => (existsSync(join(world.dir, "agent-audit.jsonl")) ? world.audit() : []),
 			async stop() {
+				clearInterval(answering);
 				await mcp.close();
 				await world.stop();
 			},
 		};
 	} catch (e) {
+		clearInterval(answering);
 		await world.stop();
 		throw e;
 	}

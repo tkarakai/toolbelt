@@ -3,6 +3,9 @@
 //   bench  [--models a,b] [--sizes 1000,8000,32000,60000]   load time, memory, prefill/decode speed by prompt size
 //   run    [--models a,b:think] [--cases x,y] [--all] [--repeat n] [--out dir] [--judge provider/model]
 //          [--prompt file]         extra system prompt text (a prompt variant), recorded in meta.json
+//          [--lenient]             resolve filter, option, plugin and screen names as a proposed ToolBelt change would (lenient.ts)
+//          [--agent claude-acp]    run through Claude Code's ACP adapter as the ToolBelt Agent plugin does (acp.ts),
+//                                  instead of the pi-durable harness; candidates are then "<model>@claude"
 //   report <results dir>           rebuilds report.html and summary.json from runs.jsonl
 //   regrade <results dir>          applies the current checks to stored runs (after changing cases.ts)
 // Models are oMLX ids; append ":think" to run with thinking on. Without --models, `run` uses
@@ -12,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { regrade, runCase, type CaseRun } from "./agent";
+import { runCaseAcp } from "./acp";
 import { CASES } from "./cases";
 import { bench } from "./bench";
 import { judgeRuns } from "./judge";
@@ -33,6 +37,8 @@ const { positionals, values } = parseArgs({
 		judge: { type: "string" },
 		sizes: { type: "string" },
 		prompt: { type: "string" },
+		lenient: { type: "boolean" },
+		agent: { type: "string" },
 		"max-turns": { type: "string", default: "12" },
 		"timeout": { type: "string", default: "600" },
 		"max-output": { type: "string", default: "8192" },
@@ -58,7 +64,9 @@ if (command === "models") {
 } else if (command === "run") {
 	await setup();
 	const status = await omlxStatus();
-	const candidates = (values.models?.split(",") ?? config.default).map(parseCandidate);
+	if (values.agent && values.agent !== "claude-acp") throw new Error(`unknown --agent ${values.agent} (claude-acp)`);
+	const acpCommand = values.agent ? [Bun.which("claude-agent-acp") ?? "claude-agent-acp"] : null;
+	const candidates = (values.models?.split(",") ?? config.default).map(parseCandidate).map((c) => (acpCommand ? { ...c, id: `${c.id}@claude` } : c));
 	for (const cand of candidates) if (!status.models.some((m) => m.id === cand.model)) throw new Error(`oMLX has no model ${cand.model} (see: bun src/cli.ts models)`);
 	const ids = values.cases?.split(",");
 	const cases = CASES.filter((c) => (ids ? ids.includes(c.id) : values.all || !c.slow));
@@ -73,7 +81,8 @@ if (command === "models") {
 	);
 	const instructions = values.prompt ? readFileSync(values.prompt, "utf8").trim() : undefined;
 	if (instructions) writeFileSync(join(out, "prompt.txt"), instructions);
-	const recorder = startRecorder();
+	// Through Claude Code, thinking off means an explicit `thinking: disabled` (see startRecorder).
+	const recorder = startRecorder({ noThinking: !!acpCommand && candidates.every((c) => c.thinking === "off") });
 	const runsFile = join(out, "runs.jsonl");
 	console.log(`results: ${out}`);
 	for (const cand of candidates) {
@@ -85,7 +94,10 @@ if (command === "models") {
 		for (let r = 0; r < repeat; r++)
 			for (const c of cases) {
 				const run: CaseRun & { repeat: number } = {
-					...(await runCase(c, cand, om, { maxTurns: Number(values["max-turns"]), turnTimeoutMs: Number(values.timeout) * 1000, maxOutput: Number(values["max-output"]), recorder, instructions })),
+					...(await (async () => {
+						const opts = { maxTurns: Number(values["max-turns"]), turnTimeoutMs: Number(values.timeout) * 1000, maxOutput: Number(values["max-output"]), recorder, instructions, lenient: values.lenient };
+						return acpCommand ? runCaseAcp(c, cand, om, { ...opts, command: acpCommand }) : runCase(c, cand, om, opts);
+					})()),
 					repeat: r,
 				};
 				appendFileSync(runsFile, JSON.stringify(run) + "\n");

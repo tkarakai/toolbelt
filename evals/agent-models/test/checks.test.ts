@@ -54,3 +54,26 @@ describe("the hiring check", () => {
 		expect(runCheck(check, "Ines is still in the running.", []).pass).toBe(false);
 	});
 });
+
+test("called matches nested view arguments by their wanted parts", () => {
+	const read = { name: "read_screen", args: { plugin: "ontrack", view: { filters: { "label:3": ["High"], "label:4": ["Blocked", "Todo"] } } }, output: "", isError: false, ms: 1 };
+	const want = (filters: Record<string, string[]>) => ({ kind: "called" as const, label: "x", tool: "read_screen", args: { view: { filters } } });
+	expect(runCheck(want({ "label:4": ["blocked"] }), "", [read]).pass).toBe(true);
+	expect(runCheck(want({ "label:3": ["High"], "label:4": ["Blocked"] }), "", [read]).pass).toBe(true);
+	expect(runCheck(want({ "label:3": ["Low"] }), "", [read]).pass).toBe(false);
+	expect(runCheck({ kind: "called", label: "x", tool: "read_screen", args: { plugin: "kit" } }, "", [read]).pass).toBe(false);
+	expect(runCheck({ ...want({ "label:4": ["Blocked"] }), ok: true }, "", [{ ...read, isError: true }]).pass).toBe(false);
+});
+
+test("shown and soft checks", () => {
+	expect(runCheck({ kind: "shown", label: "x", screen: "ontrack/tasks" }, "", [], ["ontrack/tasks"]).pass).toBe(true);
+	expect(runCheck({ kind: "shown", label: "x", screen: "ontrack/tasks" }, "", [], []).pass).toBe(false);
+	expect(runCheck({ kind: "shown", label: "x", not: true }, "", [], []).pass).toBe(true);
+	expect(runCheck({ kind: "mentions", label: "x", items: ["archiv"], soft: true }, "it's settled", []).soft).toBe(true);
+});
+
+test("alternatives may be grouped inside an item", () => {
+	expect(itemMatches("the change wasn't allowed, so nothing changed", "declin|wasn't (allowed|approved)")).toBe(true);
+	expect(itemMatches("I have no tool for that", "no (tool|way|ability)")).toBe(true);
+	expect(itemMatches("anyway, here it is", "no (tool|way|ability)")).toBe(false);
+});
