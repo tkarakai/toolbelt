@@ -1,6 +1,8 @@
 # SDK changelog
 
 ## Unreleased
+
+## 0.6.0 — 2026-11-27
 - Add `ui.collapsible-cards`: a `card` with `collapsible: true` (and an `id` and a `title`) folds its children under its header, which opens and closes it. ToolBelt keeps whether it's open per card `id`; `open` sets how it starts (closed by default) and, when it changes between renders to a boolean, opens or closes it. Older hosts ignore both and show the card open.
 - Add plugin secrets (`secrets`, ToolBelt's next release): `ctx.secrets.get/has/set/delete` keep values such as API keys in the macOS login Keychain, owned by ToolBelt per plugin, publisher and profile. A `text` field's `secret: "<name>"` and an `environment` field's `secretPrefix` (secret entries stored as `<prefix>/<KEY>`) let the person type secrets that ToolBelt stores itself; render them with `value: ""` (validation rejects a value), ToolBelt sets `stored`, and the `field` event carries `{ secret, value: true | false }` or entries without values. New exports: `Secrets`, `SECRET_NAME`, `LIMITS.secretBytes`, `LIMITS.secrets`, `LIMITS.secretRequests`; new protocol messages: plugin and host `secret`.
 - The SDK reads host messages ahead while a handler runs (still handling them one at a time, in order), so a handler or `start()` waiting for a secret gets its answer.
