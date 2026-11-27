@@ -7,7 +7,7 @@
 // remembered per profile. On a phone, one floating plugin at a time shows as a bottom sheet. The
 // menu-bar popover doesn't list floating plugins: they belong with the screens they float over.
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronsUpDown, GripVertical, Loader2, Minus, Sparkles, X } from "lucide-react";
+import { ArrowUp, ChevronsUpDown, GripVertical, Loader2, Minus, Sparkles, X } from "lucide-react";
 import type { Node, Suggestion } from "../shared/protocol";
 import type { PluginInfo } from "../shared/rpc";
 import { Icon } from "@/lib/icon";
@@ -21,6 +21,7 @@ import { FloatingSurface } from "@/renderer/floating-context";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { ShortcutTooltip } from "@/components/shortcut-tooltip";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 
 type FloatingNode = Extract<Node, { type: "floating" }>;
@@ -518,15 +519,30 @@ function TitleBar({ info, node, emit, focused, onDrag, onMinimize, onSwitch, mob
 const fills = (c: Node) => c.type === "conversation" || c.type === "log" || c.type === "terminal";
 
 /** The panel's content. A conversation, log or terminal fills the space; otherwise the content
- *  scrolls, like a page. A trailing composer stays at the bottom either way. */
+ *  scrolls, like a page. A trailing composer floats over the bottom, the content scrolling under
+ *  it: its height is `--floating-composer-height`, which the content keeps clear at its end. */
 function PanelBody({ node, emit }: { node: FloatingNode; emit: (name: string, payload?: unknown) => void }) {
 	const last = node.children[node.children.length - 1];
 	const composer = last?.type === "composer" ? last : null;
 	const body = composer ? node.children.slice(0, -1) : node.children;
 	const filled = body.some(fills);
+	const panel = useRef<HTMLDivElement>(null);
+	const tray = useRef<HTMLDivElement>(null);
+	// Set on the element as it resizes (not React state): the conversation's end follows it.
+	useLayoutEffect(() => {
+		const el = tray.current;
+		const host = panel.current;
+		if (!el || !host) return;
+		const set = () => host.style.setProperty("--floating-composer-height", `${el.offsetHeight}px`);
+		set();
+		if (typeof ResizeObserver === "undefined") return;
+		const watch = new ResizeObserver(set);
+		watch.observe(el);
+		return () => watch.disconnect();
+	}, [!!composer]);
 	return (
-		<div className="flex min-h-0 flex-1 flex-col">
-			<div data-floating-body className={cn("flex min-h-0 flex-1 flex-col", filled ? "gap-2 px-2.5 pt-2.5" : "gap-5 overflow-y-auto overscroll-contain px-4 pt-4 pb-5", filled && !composer && "pb-2.5")}>
+		<div ref={panel} className="relative flex min-h-0 flex-1 flex-col">
+			<div data-floating-body className={cn("flex min-h-0 flex-1 flex-col", filled ? "gap-2 px-2.5 pt-2.5" : "gap-5 overflow-y-auto overscroll-contain px-4 pt-4", !filled && (composer ? "pb-[calc(var(--floating-composer-height,0px)+0.5rem)]" : "pb-[calc(var(--floating-safe-bottom,0px)+1.25rem)]"), filled && !composer && "pb-[calc(var(--floating-safe-bottom,0px)+0.625rem)]")}>
 				{body.map((c, i) => (
 					<div key={i} className={cn("min-w-0", fills(c) ? "flex min-h-0 flex-1 flex-col" : "shrink-0")}>
 						<Render node={c} emit={emit} />
@@ -534,8 +550,12 @@ function PanelBody({ node, emit }: { node: FloatingNode; emit: (name: string, pa
 				))}
 			</div>
 			{composer && (
-				<div className={cn("shrink-0 p-2.5", filled ? "pt-2" : "border-t")}>
-					<Render node={composer} emit={emit} />
+				// The fade lets what scrolls under the tray disappear into the window; it passes the
+				// pointer through to the content, the tray takes it.
+				<div ref={tray} className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-popover from-55% to-transparent px-2.5 pt-4 pb-[calc(var(--floating-safe-bottom,0px)+0.625rem)]">
+					<div className="pointer-events-auto">
+						<Render node={composer} emit={emit} />
+					</div>
 				</div>
 			)}
 		</div>
@@ -610,6 +630,7 @@ function AskBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { inf
 						aria-label={composer.action.label}
 						placeholder={composer.placeholder ?? composer.action.label}
 						autoComplete="off"
+						enterKeyHint="send"
 						onChange={(e) => (setDraft(e.target.value), setPick(0))}
 						onKeyDown={(e) => {
 							if (e.nativeEvent.isComposing) return;
@@ -626,12 +647,18 @@ function AskBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { inf
 								setDraft("");
 							}
 						}}
-						className="min-w-0 flex-1 cursor-text bg-transparent text-[15px] outline-none placeholder:text-muted-foreground disabled:opacity-60"
+						className={cn("min-w-0 flex-1 cursor-text bg-transparent outline-none placeholder:text-muted-foreground disabled:opacity-60", mobile ? "text-base" : "text-[15px]")}
 					/>
 				) : (
 					<span className="flex-1 truncate text-sm text-muted-foreground">{info.manifest.name}</span>
 				)}
 				{!mobile && <Kbd className="shrink-0">{focused ? "esc" : (keys ?? "esc")}</Kbd>}
+				{/* A phone gets the panel composer's send button. */}
+				{mobile && composer && (
+					<Button size="icon-sm" aria-label={composer.action.label} disabled={!draft.trim() || composer.action.disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => send(draft)} className="shrink-0 rounded-full">
+						<ArrowUp />
+					</Button>
+				)}
 				{node.actions?.map((a) => (
 					<ShortcutTooltip key={a.id} label={a.label}>
 						<Button variant="ghost" size="icon-sm" aria-label={a.label} disabled={a.disabled} onClick={() => emit(a.id, {})} className="text-muted-foreground">
@@ -662,6 +689,8 @@ function FloatingSheet() {
 	const tree = useSurface(info?.manifest.id ?? "", SURFACE);
 	// An ask bar is as tall as it needs; a panel takes most of the screen.
 	const bar = tree?.type === "floating" && tree.mode === "bar";
+	// With the keyboard open the sheet sits on it (and the home indicator is under the keyboard).
+	const keyboard = useKeyboardInset(f.sheet.open);
 	useEffect(() => {
 		if (!f.sheet.open) setMenu(false);
 	}, [f.sheet.open]);
@@ -686,6 +715,7 @@ function FloatingSheet() {
 				<section
 					data-floating-sheet={info.manifest.id}
 					aria-label={info.manifest.name}
+					style={{ "--floating-safe-bottom": keyboard ? "0px" : "env(safe-area-inset-bottom)", ...(keyboard && { bottom: keyboard, maxHeight: `calc(100dvh - ${keyboard}px - 0.75rem)` }) } as React.CSSProperties}
 					className={cn("fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] border-t bg-popover text-popover-foreground shadow-[0_-10px_40px_-10px_rgb(0_0_0/0.35)] transition-[height] duration-300 ease-out animate-in slide-in-from-bottom-8 fade-in-0", bar ? "max-h-[88dvh]" : full ? "h-[88dvh]" : "h-[58dvh]")}
 				>
 					<button type="button" aria-label={full ? "Make smaller" : "Make larger"} disabled={bar} onClick={() => setFull(!full)} className="mx-auto mt-2 mb-0.5 h-1.5 w-10 shrink-0 rounded-full bg-border" />
@@ -717,7 +747,8 @@ function SheetContent({ info, onSwitch }: { info: PluginInfo; onSwitch?: () => v
 	const close = () => f.minimize(info.manifest.id);
 	return (
 		<FloatingContextValue info={info}>
-			<div className="flex min-h-0 flex-1 flex-col pb-[env(safe-area-inset-bottom)]">
+			{/* A panel keeps the safe area clear itself, so its content scrolls under the composer to the edge. */}
+			<div className={cn("flex min-h-0 flex-1 flex-col", (!node || node.mode === "bar") && "pb-(--floating-safe-bottom)")}>
 				{node && <TitleBar info={info} node={{ ...node, actions: node.mode === "bar" ? [] : node.actions }} emit={emit} focused onMinimize={close} onSwitch={onSwitch} mobile />}
 				{!node ? (
 					<div className="flex flex-1 items-center justify-center text-muted-foreground"><Sparkles className="size-5 animate-pulse" /></div>

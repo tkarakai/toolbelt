@@ -14,5 +14,5 @@ export function GitHubButton({ retryAt, hint, disabled, ...props }: ComponentPro
   const text = blocked ? rateLimitTooltip(retryAt!, now) : hint;
   const button = <Button {...props} disabled={disabled || blocked}/>;
   if (!text) return button;
-  return <TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild><span className="inline-flex max-w-full" tabIndex={disabled || blocked ? 0 : undefined}>{button}</span></TooltipTrigger><TooltipContent>{text}</TooltipContent></Tooltip></TooltipProvider>;
+  return <TooltipProvider delayDuration={200} disableHoverableContent><Tooltip><TooltipTrigger asChild><span className="inline-flex max-w-full" tabIndex={disabled || blocked ? 0 : undefined}>{button}</span></TooltipTrigger><TooltipContent>{text}</TooltipContent></Tooltip></TooltipProvider>;
 }

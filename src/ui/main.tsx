@@ -43,7 +43,9 @@ document.addEventListener("contextmenu", (e) => {
 
 createRoot(document.getElementById("root")!).render(
 	<StrictMode>
-		<TooltipProvider delayDuration={400}>
+		{/* Tooltips hold no controls, so they aren't hoverable: a hoverable one keeps its grace area
+		    open on the way to a neighbouring trigger and blocks that trigger's own tooltip. */}
+		<TooltipProvider delayDuration={400} disableHoverableContent>
 			<ThemeSync />
 			{isPopover ? <Popover /> : <App />}
 			{/* On a phone, toasts span the width just above the bottom tab bar. */}
