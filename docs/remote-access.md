@@ -329,7 +329,9 @@ Plugins don't learn that a client is remote or touch-based, and the protocol doe
      down, giving their room to the content; scrolling up 12 px, reaching the top, a new tab or
      focus moving into a bar brings them back (`lib/hide-on-scroll.ts`, `SlideAway`). Content
      with little to scroll keeps them. Each bar's row collapses over 200 ms, so the content
-     grows as the bar moves out.
+     grows as the bar moves out. When they come back with the content scrolled to within their
+     height of its end, it keeps its distance from the end as it shrinks (`keepsEnd`), so the
+     last rows end above the tab bar instead of behind where it reappears.
    - Switching tools and tabs on a touch screen replaces the history entry instead of adding
      one (`setHash` in `App.tsx`): phone tab bars don't stack up Back steps, and with no
      ToolBelt history iOS's own back swipe from the left edge (in Safari and in home-screen

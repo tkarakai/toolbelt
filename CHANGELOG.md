@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- On a phone, the header and tab bar coming back at the bottom of a list no longer cover its last rows: the end of the list stays in view above the tab bar.
 
 ## 0.8.0 — 2026-11-27
 - The bundled SDK Explorer is 0.4.0: ⌘J opens its floating window, a demo of floating plugins (ask bar, panel, busy sidebar item). New profiles get it; existing ones update it from its releases.
