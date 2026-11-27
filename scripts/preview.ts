@@ -127,7 +127,7 @@ const agents = createAgentInterface({
   person: {
     devices: () => [{ name: "the browser preview", kind: "mac" as const, showing: true }],
     openWindow: () => {},
-    navigate: (plugin, screen) => broadcast("navigate", { plugin, screen }),
+    navigate: (plugin, screen, selection) => broadcast("navigate", { plugin, screen, selection }),
     view: (plugin, surface) => host.personView(plugin, surface),
     setView: (plugin, surface, view) => {
       const clean = cleanView(host.declaredView(plugin, surface) ?? undefined, view);

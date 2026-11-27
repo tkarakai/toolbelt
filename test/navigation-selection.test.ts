@@ -61,3 +61,10 @@ test("rows and empty headers in deeply nested sections open every section around
     item: "\u0001group:\0web\0web/progressing\0web/snoozed", collection: "table:tasks", ancestors: [], groups: ["\0web", "\0web\0web/progressing"],
   });
 });
+
+test("an agent's handoff keeps asking for the row's details", () => {
+  const tree: Node = { type: "page", children: [{ type: "table", id: "tasks", columns: [], rows: [{ id: "4", cells: {}, group: "later", details: [{ label: "Note", value: "x" }] }] }] };
+  expect(findSelectionTarget(tree, { item: "4", collection: "table:tasks", details: true })).toEqual({
+    item: "4", collection: "table:tasks", details: true, ancestors: [], groups: ["\0later"],
+  });
+});

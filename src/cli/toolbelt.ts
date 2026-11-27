@@ -27,6 +27,7 @@ Usage:
       --person               read exactly what the person's screens show instead
   toolbelt show <plugin> [screen]       Show the person a screen on every ToolBelt screen they
                                         have open, with the same view options (asks them first)
+      --row ID               select this row (its {id: …} in read) with its details open
       --open-window          open ToolBelt's window on the Mac if it's closed
   toolbelt search <words…> [--plugin ID]  Lines mentioning every word, across all screens
   toolbelt plugins                      Installed plugins and available updates
@@ -53,7 +54,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
 	status: [],
 	screens: ["plugin"],
 	read: ["max-rows", "table", "offset", "parent", "details", "no-details", "person", ...VIEW_FLAGS],
-	show: ["open-window", ...VIEW_FLAGS],
+	show: ["row", "open-window", ...VIEW_FLAGS],
 	search: ["plugin"],
 	plugins: [],
 	mcp: ["client"],
@@ -62,7 +63,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
 };
 
 type Args = { positional: string[]; flags: Map<string, string | true>; repeated: Map<string, string[]> };
-const VALUED = ["socket", "max-rows", "table", "offset", "parent", "plugin", "client", ...VIEW_FLAGS];
+const VALUED = ["socket", "max-rows", "table", "offset", "parent", "row", "plugin", "client", ...VIEW_FLAGS];
 /** Flags that may be given more than once (`--filter a=x --filter b=y`). */
 const REPEATABLE = new Set(["filter", "sort", "control"]);
 function parse(argv: string[]): Args {
@@ -344,7 +345,7 @@ async function main() {
 			if (!rest[0]) throw new UsageError("Usage: toolbelt show <plugin> [screen]");
 			tool = "show_screen";
 			const view = viewOf(flags, repeated);
-			args = { plugin: rest[0], ...(rest[1] ? { screen: rest[1] } : {}), ...(view ? { view } : {}), ...(flags.has("open-window") ? { open_window: true } : {}) };
+			args = { plugin: rest[0], ...(rest[1] ? { screen: rest[1] } : {}), ...(view ? { view } : {}), ...(typeof flags.get("row") === "string" ? { row: flags.get("row") } : {}), ...(flags.has("open-window") ? { open_window: true } : {}) };
 			break;
 		}
 		case "search":

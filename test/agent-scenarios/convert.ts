@@ -383,6 +383,48 @@ const EXTRA: Scenario[] = [
 		origin: { run: "fixtures", case: "new", plugins: ["desk"], channel: "MCP and CLI", calls: [], verdict: "new" },
 	},
 	{
+		id: "22-show-row",
+		title: "The agent shows the person one task with its details open",
+		prompt: "Open the CI migration task so I can see its details",
+		persona: "Person chatting with Claude Code, with Desk open on the Mac, who finished the passport renewal",
+		channels: ["mcp", "cli"],
+		setup: { person: [{ open: "desk/tasks" }, { event: { screen: "desk/tasks", name: "settle", payload: { rowId: "6" } } }] },
+		steps: [
+			{
+				call: "show_screen",
+				args: { plugin: "desk", row: "4" },
+				answer: { allow: true, duration: "hour" },
+				expect: {
+					contains: ['Showing Desk › Tasks, with "Migrate CI to the new runners" selected on the Mac.', '"Migrate CI to the new runners" is selected and scrolled into view with its details open'],
+					navigated: ["desk/tasks"],
+				},
+			},
+			// The finished task is hidden by the person's Ongoing filter: refused, with the view that shows it.
+			{
+				call: "show_screen",
+				args: { plugin: "desk", row: "6" },
+				expect: { refused: true, contains: ['filter "Status" (Open, Waiting) hides it. Nothing changed.', 'view {"filters":{"status":[]}}'], navigated: [] },
+			},
+			{
+				call: "show_screen",
+				args: { plugin: "desk", row: "6", view: { filters: { status: [] } } },
+				expect: { contains: ['Showing Desk › Tasks, Status: all, with "Renew passport" selected on the Mac.'], navigated: ["desk/tasks"], personView: { screen: "desk/tasks", view: { filters: { status: [] } } } },
+			},
+			{ call: "show_screen", args: { plugin: "desk", row: "99" }, expect: { refused: true, contains: ['Desk › Tasks has no row "99".', "read_screen shows each row's id as {id: …}"], navigated: [] } },
+		],
+		expect: {
+			audit: [
+				{ operation: "view_grant", outcome: "ok", plugin: "desk" },
+				{ operation: "show_screen", outcome: "ok", plugin: "desk" },
+				{ operation: "show_screen", outcome: "denied", plugin: "desk" },
+				{ operation: "show_screen", outcome: "ok", plugin: "desk" },
+				{ operation: "show_screen", outcome: "denied", plugin: "desk" },
+			],
+		},
+		rubric: ["Shows the CI migration task with its details open and says it's on the Mac.", "For a finished task the Ongoing filter hides, shows it with the Status filter cleared."],
+		origin: { run: "fixtures", case: "new", plugins: ["desk"], channel: "MCP and CLI", calls: [], verdict: "new" },
+	},
+	{
 		id: "18-person-dialog-and-filter",
 		title: "The person has a dialog open and a non-default filter",
 		prompt: "What's done on my task list?",

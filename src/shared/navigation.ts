@@ -1,8 +1,12 @@
 import type { Node, Row } from "./protocol";
 import { flatSections, groupKey, sectionAncestors, sectionGroup } from "./sections";
 
-/** Renderer selection, carried by the host when a quick-view item opens the main window. */
-export type NavigationSelection = { item: string; collection?: string };
+/**
+ * Renderer selection, carried by the host when a quick-view item opens the main window or an
+ * agent shows the person a row. `details`: also open the row's details (the drawer beside the
+ * table, or its sheet where the drawer doesn't fit).
+ */
+export type NavigationSelection = { item: string; collection?: string; details?: boolean };
 export type WindowNavigation = { plugin: string; screen?: string; selection?: NavigationSelection };
 export type SelectionTarget = NavigationSelection & { collection: string; ancestors: string[]; groups: string[] };
 
