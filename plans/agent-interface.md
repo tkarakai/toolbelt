@@ -608,7 +608,7 @@ upgrade.
 | 7 | Wave A plugin upgrades (OnTrack, Upkeep, Processes) | Phase A | R11 | 6 |
 | 8 | Floating plugins in host and SDK (a window over the main screen; phone sheet), `TOOLBELT_AGENT_COMMAND` and `toolbelt mcp --client` | Step 4, host side | — | 7 |
 | 9 | Agent plugin 0.1: in-app chat as an ACP client, read-and-show only (reads screens, `show_screen` under a view grant) | Step 4 | — | 8, its SDK release |
-| 10 | Wave B1 in host, SDK and SDK Explorer, then plugin upgrades. The core of the original step 5 lands here. The Agent plugin gains actions and approval cards | Phase B1 (step 1, action side) | R1–R5, R7, R9–R12 | 9 |
+| 10 | Wave B1, specified in [agent-actions.md](agent-actions.md): B1.1 action resolver, B1.2 protocol 3, B1.3 agents act (`run_action`, `fill_form`, approvals, write grants), B1.4 plugin upgrades. Typed `params` and plugin management are not in it | Phase B1 (step 1, action side) | R1–R5, R9–R12 | 9 |
 | 11 | Autonomous sessions under standing grants | Phase B2 | R13 | 10 |
 | 12 | Remaining plugin-declared tools, per plugin | Rest of step 5 | R7 | 10 |
 | 13 | ToolBelt-hosted autonomous agents (scheduled ACP sessions under standing grants) | New step 6, optional | R13 | 9, 11 |
@@ -650,6 +650,14 @@ upgrade.
   only reads and `show_screen`, which wave A has; actions and their approval cards join it in
   B1, whose approvals design it then informs. It is a plugin, not a host feature, on a generic
   host feature (floating plugins) that other plugins can use too.
+- **Decided for wave B1 (2026-11-27), detailed in [agent-actions.md](agent-actions.md):** approvals
+  are answered only on ToolBelt's own screens, never through MCP elicitation, and show what the
+  host resolved; risk is declared once per action id next to the views; writes ask, with an
+  optional timed grant per agent and plugin, while destructive, external and `confirm` actions
+  ask every time; agents fill forms in their own instance (typed `params` later); an agent's
+  navigation and clipboard go back to it; calls wait 60 s for approval; plugin management by
+  agents moves out of B1. This supersedes R3's per-action `effect`/`agent` fields and policy
+  matrix, R4's elicitation and R7's params for this wave.
 - **Decided for wave A (2026-11-25):** `show_screen` with any device not showing ToolBelt tells
   the agent so it asks the person; grants are per agent; durations end (default today, at most
   30 days); the host saves the person's view; `agent.access` is required, so Settings → Agents
@@ -794,8 +802,8 @@ consume it through their pinned SDK, and the format becomes a documented, versio
 
 ## 5.7 Open questions
 
-None for wave A (decided in 5.4). The Settings → Agents approvals view still needs a full design
-before wave B1.
+None for waves A and B1. Wave B1's approvals are decided in [agent-actions.md](agent-actions.md);
+the Settings → Agents queue of pending approvals is designed with wave B2.
 
 ## 5.8 In-app chat (step 4)
 
