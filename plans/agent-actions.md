@@ -51,17 +51,73 @@ and never text the agent supplies.
 
 | | Milestone | Contract | Ships as |
 | --- | --- | --- | --- |
+| B1.0 | MCP 2026-07-28: a server for both the current revision and earlier ones | Agent interface (MCP) | App minor |
 | B1.1 | Action resolver: the host checks every event, from every client | None (host only) | App patch/minor |
 | B1.2 | Protocol 3: action and form declarations, event ids and results, origin, per-instance hooks, wave A's SDK gaps; the change journal | Protocol 3, SDK major | SDK + app, then every plugin |
 | B1.3 | Agents act: `run_action`, `fill_form`, approvals, write grants, result routing, audit, CLI | Agent interface (MCP, CLI) | App minor |
 | B1.4 | Plugin upgrades: OnTrack and Upkeep move to `act`; the others move to protocol 3 | Plugins | Plugin releases |
 
-B1.1 can ship on its own. B1.2 and B1.3 can be built together but are reviewed separately.
+B1.0 and B1.1 are host only and can ship on their own, in either order. B1.0 lands before B1.3, so the new tools are built and tested on both MCP eras from the start. B1.2 and B1.3 can be built together but are reviewed separately.
 B1.2's SDK and host publish first (per [docs/releases.md](../docs/releases.md)). After that, each
 plugin releases for protocol 3: OnTrack, Upkeep, Processes, SDK Explorer (the demo seed) and
 Agent.
 
 ---
+
+## MCP 2026-07-28
+
+The MCP specification changed after the agent interface shipped. ToolBelt's server negotiates
+`2025-11-25` and earlier, the revisions the spec now calls *legacy*. Revision `2026-07-28` (the
+current one; the draft adds no relevant change) makes the core stateless:
+
+- The `initialize` handshake is gone. Every request carries its version, client info and
+  capabilities in `_meta`, and servers must answer `server/discover`.
+- `subscriptions/listen` replaces `resources/subscribe`.
+- Server-to-client requests (elicitation, sampling, roots) become multi round-trip requests:
+  `InputRequiredResult` and a retry.
+- Results carry `resultType`, and lists and reads carry `ttlMs`/`cacheScope`.
+- Tasks are an extension.
+- Logging, sampling and roots are deprecated.
+
+The spec defines a *dual-era* server that serves both kinds of client. Which clients send modern
+requests yet (Claude Code, Codex, the ACP adapters) is unconfirmed, so ToolBelt must serve both.
+
+### What it changes in this plan
+
+| Spec change | Effect on B1 and later |
+| --- | --- |
+| Stateless core, no protocol sessions; cross-call state goes in server-minted handles | ToolBelt's agent session stays tied to the transport connection: one shim process, or one CLI command group, on the local socket. That covers acting instances, drafts, "this session" grants, the one-approval-at-a-time limit and audit grouping. It is application state of a connection, not an MCP session. A modern client names the session from the first request's `io.modelcontextprotocol/clientInfo` (a `--client` name still wins). After a ToolBelt restart, drafts are gone: acting on a dialog that no longer exists is refused with "open it again". No handle arguments are added. |
+| Multi round-trip requests replace `elicitation/create`; `requestState` is attacker-controlled input | Confirms the decision not to use elicitation for approvals. Under MRTR the answer arrives as the agent client's own retry of the call, so the agent's process carries it. ToolBelt sends no `inputRequests`. |
+| `InputRequiredResult` with only `requestState` (the client may retry immediately) | Not used for approval waits. It has no back-off hint, and clients' handling is untested. B1 keeps the 60 s blocking call on both eras. |
+| Progress and cancellation stay; request-scoped notifications flow on the request's response | While `run_action` or `fill_form` waits for approval, a request with a `progressToken` gets `notifications/progress` ("Waiting for your approval in ToolBelt"). `notifications/cancelled` for a waiting call withdraws its approval dialog from the person's screens and audits it as cancelled. Both work on both eras. |
+| Tasks extension (`io.modelcontextprotocol/tasks`): durable task ids, `tasks/get` polling, `tasks/cancel`; `input_required` means the *client* must supply input | Wave B2's `pending_approval` is a task in status `working`, with a status message such as "Waiting for your approval in ToolBelt", for clients that declare the extension. It is not `input_required`, because the person answers in ToolBelt, not through the client. `tasks/cancel` withdraws the request. Other clients get a plain `pending_approval` result and a status tool. This supersedes agent-interface.md R13's `input_required` note. |
+| `resultType` on every result; `ttlMs`/`cacheScope` on discover, lists and reads | Modern results carry `resultType: "complete"`. Tools: a long TTL, since the list is fixed and in a fixed order. Resource lists and reads: a short TTL, `cacheScope: "private"`. |
+| `subscriptions/listen`; notifications tagged with `io.modelcontextprotocol/subscriptionId` | Modern clients subscribe to screens this way. After a ToolBelt restart, the shim re-sends the client's open `subscriptions/listen` requests, as it replays `resources/subscribe` today, because the client's own stdio connection never broke. |
+| Error codes: resource not found `-32602` (was `-32002`), `UnsupportedProtocolVersion` `-32022`, `ping` removed | The error codes depend on the era of the request. Conformance tests cover both eras. |
+| Logging, sampling and roots deprecated | Not adopted. The plugin and host logs stay ToolBelt's own. |
+| Tool annotations and the human-in-the-loop guidance unchanged; schemas may use any JSON Schema 2020-12 keyword | `run_action`/`fill_form` annotations stand. Clients may treat annotations as untrusted hints; ToolBelt's approvals don't rely on them. |
+| MCP Apps (`io.modelcontextprotocol/ui`): server HTML in the client's sandboxed iframe (Claude Desktop and web, VS Code, Cursor; not Claude Code) | Never used for approvals: an app's buttons act through the client. Showing a read-only screen inline in a chat is a possible later addition. |
+| Skills extension (`io.modelcontextprotocol/skills`; Claude Code supports it) | Later: serve `toolbelt skill` through it, so clients get the instructions without a copied file. |
+| Events extension (`io.modelcontextprotocol/events`) | Considered for autonomous agents (B2, step 6), such as "tell me when a task becomes overdue". |
+
+### B1.0 Dual-era server
+
+- **Modern requests** (those with `io.modelcontextprotocol/protocolVersion` in `_meta`) are
+  served statelessly per `2026-07-28`:
+  - `server/discover` advertises versions, capabilities, identity and instructions.
+  - An unsupported version gets `-32022` with the supported list.
+  - Results carry `resultType` and, where required, `ttlMs`/`cacheScope`, plus
+    `io.modelcontextprotocol/serverInfo` in `_meta`.
+  - `subscriptions/listen` delivers resource updates and list changes.
+  - Resource not found is `-32602`.
+- **An `initialize` request selects legacy behavior** for that connection, exactly as today. The
+  spec allows a dual-era server to serve both eras at once.
+- **The shim** stops assuming a handshake. It replays `initialize` only when the client sent
+  one, and otherwise replays open `subscriptions/listen` requests.
+- **Conformance** runs every case on both eras, adding: discover; modern version mismatch;
+  `resultType`; cache fields; listen, acknowledgment, tagging and cancellation;
+  progress and cancellation during an approval wait (B1.3).
+- docs/agent-interface.md's MCP surface section is updated when it ships.
 
 ## B1.1 Action resolver
 
@@ -345,6 +401,8 @@ fill_form({ plugin, screen, form, values: { [field]: value }, row?, view?, open_
   `open_window: true` available after the person agrees.
 - **Autonomous sessions** run only what needs no approval or what a grant covers. Anything that
   would ask is refused at once, and the refusal points to wave B2.
+- **Waiting** reports progress and can be cancelled (see MCP 2026-07-28 above). A cancelled call
+  withdraws its approval dialog and is audited as cancelled.
 - **Limits:**
   - One pending approval per session; a second call waits behind the first.
   - At most 30 actions a minute per session.
@@ -366,7 +424,7 @@ Each action or fill writes one entry:
 - the operation (`run_action`/`fill_form`), plugin, screen and action or form id;
 - the row count;
 - the effect;
-- the approval (`none`, `grant`, `once`, `denied`, `timed out`, `changed`);
+- the approval (`none`, `grant`, `once`, `denied`, `timed out`, `cancelled`, `changed`);
 - the outcome and the plugin's error.
 
 Entries never contain `text`, field values, row titles or `data`: the log is kept forever.
@@ -407,6 +465,8 @@ An agent's change is also in the change journal (B1.2). Both entries carry the e
   (item 12).
 - Typed `params`/`result` on actions and plugin-declared tools (roadmap item 14).
 - Plugin management by agents (B1b).
-- `pending_approval` and standing grants for autonomous agents (B2).
+- `pending_approval` and standing grants for autonomous agents (B2), on the Tasks extension
+  where the client has it.
+- MCP Apps for inline read-only screens, and the Skills and Events extensions.
 - Agents running toast actions, `select` and `reorder`.
 - ViewHub extraction beyond the routing by event id above.
