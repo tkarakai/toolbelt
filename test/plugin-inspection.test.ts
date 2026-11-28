@@ -10,7 +10,7 @@ import { parsePackageManifest } from "../src/shared/package";
 import { agentAccessText, unmetRequirements } from "../src/ui/components/plugin-inspection";
 
 const manifest = (overrides: Record<string, unknown> = {}) => parsePackageManifest({
-  formatVersion: 1, id: "demo", name: "Demo", repo: "test/demo", version: "1.0.0", entry: "index.js", protocol: 2, agent: { access: "read" },
+  formatVersion: 1, id: "demo", name: "Demo", repo: "test/demo", version: "1.0.0", entry: "index.js", protocol: 3, agent: { access: "read" },
   requires: { host: ">=0.3.0", bun: ">=1.3.0", platforms: ["portable"] },
   capabilities: { required: ["ui.core"], optional: ["ui.timeline"] },
   data: { schema: 2, supports: [1, 2] },
@@ -25,7 +25,7 @@ test("a compatible plugin's facts are compared with this host", () => {
   expect(i.host).toEqual({ requires: ">=0.3.0", version: "0.5.1", ok: true });
   expect(i.bun).toEqual({ requires: ">=1.3.0", version: "1.4.4", ok: true });
   expect(i.platforms).toEqual({ declared: ["portable"], current: "darwin-arm64", ok: true });
-  expect(i.protocol).toEqual({ plugin: 2, host: 2, ok: true });
+  expect(i.protocol).toEqual({ plugin: 3, host: 3, ok: true });
   expect(i.capabilities.required).toEqual([{ id: "ui.core", supported: true }]);
   expect(i.capabilities.optional).toEqual([{ id: "ui.timeline", supported: true }]);
   expect(i).toMatchObject({ agentAccess: "read", sdk: "0.3.18", data: { schema: 2, supports: [1, 2] }, screens: 2, quickView: true, command: "demo" });

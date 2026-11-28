@@ -308,7 +308,7 @@ test("real plugin archive passes bounded extraction and lifecycle on an isolated
     name: "Fixture",
     repo: "example/plugin",
     version: "1.0.0",
-    protocol: 2, agent: { access: "read" },
+    protocol: 3, agent: { access: "read" },
     entry: "index.js",
     screens: [{ id: "main", title: "Main", default: true }],
     requires: { host: ">=0.1.0", bun: ">=1.3.0", platforms: ["portable"] },

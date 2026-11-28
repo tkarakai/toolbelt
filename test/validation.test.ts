@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { protocolReason, validateTree, validateMessage } from "../src/shared/validation";
+import { protocolReason, resultDataProblem, validateTree, validateMessage, validateViewState } from "../src/shared/validation";
 const table = (cell: unknown) => ({
   type: "table",
   id: "test",
@@ -58,7 +58,7 @@ test("protocol metadata, unknown nodes, deep trees and non-finite values reject"
   expect(() =>
     validateMessage({
       type: "hello",
-      protocol: 2,
+      protocol: 3,
       sdk: "test",
       capabilities: [{}],
     }),
@@ -419,4 +419,36 @@ test("filter options can name their section", () => {
   expect(() => validateTree(page("Progressing"))).not.toThrow();
   expect(() => validateTree(page(undefined))).not.toThrow();
   expect(() => validateTree(page(3))).toThrow();
+});
+
+test("protocol 3 messages: declarations, results, tags and view refusals", () => {
+  const declarations = { views: { "screen:a": { search: true, options: { filters: { s: ["a"] }, controls: { m: ["x"] } } } }, actions: { done: { effect: "write", agent: false, describe: "Marks it done" } }, forms: { settings: { effect: "view" } } };
+  const hello = (d: unknown) => ({ type: "hello", protocol: 3, sdk: "t", capabilities: [], declarations: d });
+  expect(() => validateMessage(hello(declarations))).not.toThrow();
+  expect(() => validateMessage({ type: "hello", protocol: 3, sdk: "t", capabilities: [] })).toThrow("message.declarations");
+  for (const reserved of ["field", "search", "filter", "filter-arrange", "sort", "select", "reorder", "dialog-close"])
+    expect(() => validateMessage(hello({ ...declarations, actions: { [reserved]: { effect: "write" } } }))).toThrow(`message.declarations.actions.${reserved}`);
+  expect(() => validateMessage(hello({ ...declarations, actions: { x: { effect: "dangerous" } } }))).toThrow();
+  expect(() => validateMessage(hello({ ...declarations, actions: { x: { effect: "write", describe: "x".repeat(1001) } } }))).toThrow();
+  expect(() => validateMessage(hello({ ...declarations, forms: { x: { effect: "external" } } }))).toThrow();
+  expect(() => validateMessage(hello({ ...declarations, actions: { [""]: { effect: "write" } } }))).toThrow();
+  expect(() => validateMessage({ type: "declarations", declarations })).not.toThrow();
+
+  expect(() => validateMessage({ type: "result", id: "e1", handled: true, data: { ids: ["a"] } })).not.toThrow();
+  expect(() => validateMessage({ type: "result", id: "e1", handled: false, error: "refused: no" })).not.toThrow();
+  expect(() => validateMessage({ type: "result", id: "", handled: true })).toThrow();
+  expect(() => validateMessage({ type: "result", id: "e1", handled: "yes" })).toThrow();
+  expect(() => validateMessage({ type: "result", id: "e1", handled: true, data: "x".repeat(64 * 1024) })).toThrow("message.data");
+  expect(resultDataProblem(undefined)).toBeNull();
+  expect(resultDataProblem({ a: 1 })).toBeNull();
+  expect(resultDataProblem(() => 1)).toBe("its data isn't JSON");
+  expect(resultDataProblem("x".repeat(64 * 1024))).toBe("its data is larger than 64 KiB");
+
+  for (const type of ["toast", "clipboard", "navigate"]) {
+    const base = type === "toast" ? { text: "t" } : type === "clipboard" ? { text: "t" } : { screen: "main" };
+    expect(() => validateMessage({ type, ...base, event: "e1" })).not.toThrow();
+    expect(() => validateMessage({ type, ...base, event: 3 })).toThrow();
+  }
+  expect(() => validateMessage({ type: "view", surface: "screen:a", instance: "person", view: { sort: { t: null } }, refused: "the plugin refused this view" })).not.toThrow();
+  expect(() => validateViewState({ sort: { t: null } })).not.toThrow();
 });

@@ -1,5 +1,5 @@
 import { LIMITS, SECRET_NAME } from "./package";
-import { MAX_SECTION_DEPTH, type Node, type PluginMessage } from "./protocol";
+import { MAX_SECTION_DEPTH, RESERVED_EVENTS, type Declarations, type Node, type PluginMessage } from "./protocol";
 
 type Schema = (value: unknown, path: string) => void;
 const fail = (path: string): never => {
@@ -747,7 +747,7 @@ const arrangement = object({ order: array(text), grouped: array(text) });
 export const viewState: Schema = object({
   search: optional(text),
   filters: optional(record(array(text))),
-  sort: optional(record(sortKey)),
+  sort: optional(record(union(sortKey, literal(null)))),
   controls: optional(record(text)),
   arrange: optional(arrangement),
 });
@@ -757,10 +757,56 @@ const viewDeclaration: Schema = object({
   sort: optional(record(union(sortKey, literal(null)))),
   controls: optional(record(text)),
   arrange: optional(arrangement),
+  options: optional(object({ filters: optional(record(array(text))), controls: optional(record(array(text))) })),
 });
 export function validateViewState(value: unknown) {
   bounded(value);
   viewState(value, "view");
+}
+/** Declared ids: non-empty, at most 256 characters; action ids aren't built-in event names. */
+const ids =
+  (schema: Schema, reserved: readonly string[] = []): Schema =>
+  (v, p) => {
+    record(schema)(v, p);
+    for (const id of Object.keys(v as object))
+      if (!id || id.length > 256 || reserved.includes(id)) fail(`${p}.${id}`);
+  };
+const shortText: Schema = (v, p) => {
+  text(v, p);
+  if ((v as string).length > 1000) fail(p);
+};
+const declarations: Schema = object({
+  views: record(viewDeclaration),
+  actions: ids(object({ effect: enumeration("view", "write", "external", "destructive"), agent: optional(bool), describe: optional(shortText) }), RESERVED_EVENTS),
+  forms: ids(object({ effect: enumeration("view", "write"), agent: optional(bool) })),
+});
+/** A plugin's declarations (`Declarations`), as its hello and `declarations` message carry them. */
+export function validateDeclarations(value: unknown): asserts value is Declarations {
+  bounded(value);
+  declarations(value, "declarations");
+}
+/** An event id or a tag naming one: the host's, at most 128 characters. */
+const eventId: Schema = (v, p) => {
+  text(v, p);
+  if (!v || (v as string).length > 128) fail(p);
+};
+/** Whether an event result's `data` is JSON within `LIMITS.resultBytes` (undefined: none). */
+export function resultDataProblem(data: unknown): string | null {
+  if (data === undefined) return null;
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(data);
+  } catch {
+    json = undefined;
+  }
+  if (json === undefined) return "its data isn't JSON";
+  if (Buffer.byteLength(json) > LIMITS.resultBytes) return `its data is larger than ${LIMITS.resultBytes / 1024} KiB`;
+  try {
+    bounded(data);
+  } catch (error) {
+    return protocolReason(error);
+  }
+  return null;
 }
 export function validateMessage(
   value: unknown,
@@ -773,7 +819,7 @@ export function validateMessage(
       protocol: number,
       sdk: text,
       capabilities: array(text),
-      views: optional(record(viewDeclaration)),
+      declarations,
     }),
     ready: object({ type: literal("ready") }),
     prepared: object({
@@ -783,8 +829,12 @@ export function validateMessage(
       reason: optional(text),
     }),
     render: object({ type: literal("render"), surface: text, instance: text, tree: node }),
-    view: object({ type: literal("view"), surface: text, instance: text, view: viewState }),
-    views: object({ type: literal("views"), views: record(viewDeclaration) }),
+    view: object({ type: literal("view"), surface: text, instance: text, view: viewState, refused: optional(text) }),
+    declarations: object({ type: literal("declarations"), declarations }),
+    result: (v, p) => {
+      object({ type: literal("result"), id: eventId, handled: bool, error: optional(text), data: any })(v, p);
+      if (resultDataProblem((v as { data?: unknown }).data)) fail(`${p}.data`);
+    },
     badge: object({
       type: literal("badge"),
       value: union(text, number, literal(null)),
@@ -804,12 +854,14 @@ export function validateMessage(
           }),
         }),
       ),
+      event: optional(eventId),
     }),
-    clipboard: object({ type: literal("clipboard"), text }),
+    clipboard: object({ type: literal("clipboard"), text, event: optional(eventId) }),
     navigate: object({
       type: literal("navigate"),
       screen: text,
       select: optional(text),
+      event: optional(eventId),
     }),
     secret: (v, p) => {
       object({

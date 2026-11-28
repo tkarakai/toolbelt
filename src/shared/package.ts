@@ -3,6 +3,13 @@ import { parseManifest, type Manifest } from "./protocol";
 
 export const PACKAGE_FORMAT = 1;
 export const SDK_VERSION = "0.6.0";
+/**
+ * The ToolBelt version this SDK matches: the first app release that speaks its `PROTOCOL_VERSION`
+ * and offers its `CAPABILITIES`. Plugin release tooling probes packages as this host version unless
+ * a release config names another (docs/releases.md). A host change that adds to the protocol or the
+ * capabilities sets it to the app version that will ship the change.
+ */
+export const HOST_VERSION = "0.10.0";
 export const CAPABILITIES = [
   "ui.core",
   "ui.action-key",
@@ -63,6 +70,10 @@ export const LIMITS = {
   secrets: 256,
   /** Secret requests a plugin may have waiting at once (`secrets`). */
   secretRequests: 16,
+  /** The largest `data` an event's `result` may carry, as JSON in UTF-8 bytes. */
+  resultBytes: 64 * 1024,
+  /** How long the host waits for an event's `result` before reporting no answer. */
+  resultMs: 10000,
 };
 /**
  * A secret's name (`secrets`): what the plugin calls it, such as `openai/api-key`. Environment

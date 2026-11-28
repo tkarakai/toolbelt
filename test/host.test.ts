@@ -3,8 +3,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PluginHost, discover, pluginDirs } from "../src/bun/host";
-import type { Node } from "../src/shared/protocol";
+import { NO_ANSWER, PluginHost, discover, pluginDirs, type EventSettled, type EventTag } from "../src/bun/host";
+import { EventRoutes } from "../src/bun/event-routes";
+import type { Node, ToastAction, ViewState } from "../src/shared/protocol";
+import { LIMITS } from "../src/shared/package";
 import type { PluginInfo } from "../src/shared/plugin-state";
 import { SDK_VERSION } from "../src/shared/package";
 
@@ -34,7 +36,7 @@ describe("discover", () => {
       [join(fixtures, "echo"), fixtures, "/nonexistent"],
       (m) => skipped.push(m),
     );
-    expect(found.map((d) => d.manifest.id).sort()).toEqual(["crash", "echo", "floater"]);
+    expect(found.map((d) => d.manifest.id).sort()).toEqual(["acts", "crash", "echo", "floater"]);
     expect(found.find((d) => d.manifest.id === "echo")!.dir).toBe(
       join(fixtures, "echo"),
     );
@@ -218,13 +220,14 @@ describe("the host checks each person's event against their screen", () => {
     root = mkdtempSync(join(tmpdir(), "toolbelt-resolver-"));
     const dir = join(root, "heard");
     mkdirSync(dir);
-    writeFileSync(join(dir, "toolbelt.json"), JSON.stringify({ id: "heard", name: "Heard", protocol: 2, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "main", title: "Main" }] }));
+    writeFileSync(join(dir, "toolbelt.json"), JSON.stringify({ id: "heard", name: "Heard", protocol: 3, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "main", title: "Main" }] }));
     writeFileSync(
       join(dir, "index.ts"),
       `import { definePlugin } from ${JSON.stringify(join(import.meta.dir, "../src/sdk"))};
 const heard = [];
 let rows = ["a", "b"];
 definePlugin({
+  actions: { toast: { effect: "view" }, off: { effect: "write" }, delete: { effect: "destructive" }, open: { effect: "external" }, "open-in": { effect: "external" }, undo: { effect: "write" } },
   render: {
     "screen:main": () => ({
       type: "page",
@@ -306,5 +309,164 @@ definePlugin({
     await until(() => s.heard().length === 2);
     await Bun.sleep(100);
     expect(s.heard()).toEqual([["screen:main", "toast", {}], ["toast", "undo", { rowId: "a" }]]);
+  });
+});
+
+describe("protocol 3: declarations, results, tags and instances (the acts fixture)", () => {
+  let host: PluginHost | undefined;
+  afterEach(async () => {
+    if (host) await host.stopPlugin("acts");
+    host = undefined;
+  });
+
+  function start() {
+    const settled: EventSettled[] = [];
+    const toasts: { text: string; action?: ToastAction; event?: EventTag }[] = [];
+    const clipboard: { text: string; event?: EventTag }[] = [];
+    const navigations: { screen: string; select?: string; event: EventTag }[] = [];
+    const refusals: { instance: string; reason: string; view: ViewState }[] = [];
+    const logs: string[] = [];
+    host = new PluginHost({
+      dirs: [join(fixtures, "acts")],
+      bun: process.execPath,
+      host: { name: "test", version: "0" },
+      data,
+      diagnostic: (_p, kind, line) => kind === "stderr" && logs.push(String(line)),
+    });
+    host.subscribe({
+      plugins: () => {},
+      tree: () => {},
+      toast: (_p, text, _tone, action, event) => toasts.push({ text, action, event }),
+      clipboard: (_p, text, event) => clipboard.push({ text, event }),
+      navigate: (_p, screen, select, event) => navigations.push({ screen, select, event }),
+      settled: (e) => settled.push(e),
+      viewRefused: (_p, _s, instance, reason, view) => refusals.push({ instance, reason, view }),
+    });
+    host.start();
+    const text = (instance?: string) => JSON.stringify(host!.snapshot("acts", "screen:main", instance)?.tree ?? null).match(/"text":"([^"]*\|[^"]*)"/)?.[1];
+    const outcome = (id: string | null) => until(() => settled.find((e) => e.id === id));
+    return { settled, toasts, clipboard, navigations, refusals, logs, text, outcome };
+  }
+
+  async function opened() {
+    const s = start();
+    await until(() => host!.list()[0]?.state === "running");
+    host!.open("acts", "screen:main");
+    await until(() => s.text()?.includes("open:screen:main:person:person"));
+    return s;
+  }
+
+  test("each event gets an id and settles once with the plugin's result", async () => {
+    const s = await opened();
+    const ok = host!.event("acts", "screen:main", "ok", {});
+    expect(ok).toMatch(/^[0-9a-f-]{36}$/);
+    expect(await s.outcome(ok)).toEqual({ id: ok!, plugin: "acts", surface: "screen:main", name: "ok", actor: { kind: "person", via: "window" }, outcome: "ok" });
+    expect((await s.outcome(host!.event("acts", "screen:main", "skip", {}))).outcome).toBe("not-handled");
+    expect(await s.outcome(host!.event("acts", "screen:main", "fail", {}))).toMatchObject({ outcome: "error", error: "it broke" });
+    const data = host!.event("acts", "screen:main", "data", {}, { kind: "person", via: "remote", device: "Phone" });
+    expect(await s.outcome(data)).toMatchObject({ outcome: "ok", data: { created: "r-1", event: data }, actor: { kind: "person", via: "remote", device: "Phone" } });
+    // View events are answered too: the SDK applies them.
+    expect((await s.outcome(host!.event("acts", "screen:main", "search", { query: "x" }))).outcome).toBe("ok");
+    // A refused event never reaches the plugin: no id, nothing settles.
+    expect(host!.event("acts", "screen:main", "invented", {})).toBeNull();
+    expect(new Set(s.settled.map((e) => e.id)).size).toBe(s.settled.length);
+  });
+
+  test("an event without a result in time settles as no answer; its late result is ignored", async () => {
+    const s = await opened();
+    const wait = LIMITS.resultMs;
+    LIMITS.resultMs = 200;
+    try {
+      const id = host!.event("acts", "screen:main", "hang", {});
+      expect(await s.outcome(id)).toMatchObject({ outcome: "no-answer", error: NO_ANSWER });
+      await until(() => s.logs.some((l) => l.includes("result for an unknown or settled event ignored")));
+      expect(s.settled.filter((e) => e.id === id)).toHaveLength(1);
+    } finally {
+      LIMITS.resultMs = wait;
+    }
+  });
+
+  test("navigation tagged with an event goes to the view that sent it, once; untagged and late navigation is ignored", async () => {
+    const s = await opened();
+    const routes = new EventRoutes<string>();
+    // The window and two paired devices each act; each navigation goes back to its sender.
+    for (const [view, actor] of [
+      ["window", { kind: "person", via: "window" }],
+      ["phone", { kind: "person", via: "remote", device: "Phone" }],
+      ["tablet", { kind: "person", via: "remote", device: "Tablet" }],
+    ] as const) {
+      const id = host!.event("acts", "screen:main", "go", {}, actor);
+      routes.record(id, view);
+      await s.outcome(id);
+      const nav = await until(() => s.navigations.find((n) => n.event.id === id));
+      expect(nav).toEqual({ screen: "other", select: "row-1", event: { id: id!, actor } });
+      expect(routes.viewOf(nav.event.id)).toBe(view);
+    }
+    // One navigation per event (the second `navigate` in the handler), none from background work.
+    await Bun.sleep(150);
+    expect(s.navigations).toHaveLength(3);
+    expect(s.logs.filter((l) => l.includes("the event already navigated"))).toHaveLength(3);
+    expect(s.logs.filter((l) => l.includes("not in response to a recent event"))).toHaveLength(3);
+  });
+
+  test("toasts and clipboard text carry their event; a toast button must be declared", async () => {
+    const s = await opened();
+    const undo = host!.event("acts", "screen:main", "undo-toast", {});
+    await until(() => s.toasts.find((t) => t.text === "Deleted"));
+    expect(s.toasts.find((t) => t.text === "Deleted")).toEqual({ text: "Deleted", action: { id: "undo", label: "Undo" }, event: { id: undo!, actor: { kind: "person", via: "window" } } });
+    // The declared Undo works like any toast button.
+    expect(host!.event("acts", "toast", "undo", null)).not.toBeNull();
+    host!.event("acts", "screen:main", "bad-toast", {});
+    await until(() => s.toasts.find((t) => t.text === "Saved"));
+    expect(s.toasts.find((t) => t.text === "Saved")!.action).toBeUndefined();
+    expect(s.logs.some((l) => l.includes(`toast shown without its button: action "not-declared" isn't declared in actions`))).toBe(true);
+    expect(host!.event("acts", "toast", "not-declared", null)).toBeNull();
+    const copy = host!.event("acts", "screen:main", "copy", {});
+    await until(() => s.clipboard.length);
+    expect(s.clipboard).toEqual([{ text: "copied text", event: { id: copy!, actor: { kind: "person", via: "window" } } }]);
+  });
+
+  test("a render using an undeclared action id shows the render error, and offers nothing", async () => {
+    const s = await opened();
+    host!.event("acts", "screen:main", "break", {});
+    await until(() => host!.snapshot("acts", "screen:main")?.error);
+    expect(host!.snapshot("acts", "screen:main")).toMatchObject({ tree: null, error: `action "mend" (toolbar) isn't declared in actions` });
+    expect(s.logs.some((l) => l.startsWith("Rejected a render of screen:main") && l.includes(`"mend"`))).toBe(true);
+    expect(host!.list()[0].state).toBe("running");
+    expect(host!.event("acts", "screen:main", "mend", {})).toBeNull();
+    // The plugin's other screens keep working.
+    host!.open("acts", "screen:other");
+    await until(() => host!.snapshot("acts", "screen:other")?.tree);
+  });
+
+  test("onOpen and onClose fire for every instance with its origin; ctx.open keeps its surface meaning", async () => {
+    const s = await opened();
+    host!.open("acts", "screen:main", "agent:a", {});
+    await until(() => s.text()?.includes("open:screen:main:agent:a:agent"));
+    host!.close("acts", "screen:main", "agent:a");
+    await until(() => s.text()?.includes("close:screen:main:agent:a:agent:open"));
+    host!.close("acts", "screen:main");
+    host!.open("acts", "screen:main");
+    await until(() => s.text()?.includes("close:screen:main:person:person:closed"));
+  });
+
+  test("view refusals: values outside the declared options and onView's false keep the instance's view", async () => {
+    const s = await opened();
+    // An agent instance opening with a value outside the options starts from the defaults.
+    host!.open("acts", "screen:main", "agent:bad", { controls: { mode: "grid" } });
+    await until(() => s.refusals.length === 1);
+    expect(s.refusals[0]).toEqual({ instance: "agent:bad", reason: `control "mode" has no option "grid"`, view: {} });
+    await until(() => s.text("agent:bad")?.startsWith("agent:bad||list|"));
+    expect(host!.instanceView("acts", "screen:main", "agent:bad")).toEqual({});
+    // The host setting the person's view: refused by onView, the person's view stays.
+    host!.setView("acts", "screen:main", "person", { search: "kept" });
+    await until(() => s.text()?.startsWith("person|kept|"));
+    host!.setView("acts", "screen:main", "person", { search: "no" });
+    await until(() => s.refusals.length === 2);
+    expect(s.refusals[1]).toEqual({ instance: "person", reason: "the plugin refused this view", view: { search: "kept" } });
+    // A person's view event refused the same way: its result says so.
+    const id = host!.event("acts", "screen:main", "search", { query: "no" });
+    expect(await s.outcome(id)).toMatchObject({ outcome: "not-handled", error: "refused: the plugin refused this view" });
+    expect(s.text()?.startsWith("person|kept|")).toBe(true);
   });
 });

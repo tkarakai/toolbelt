@@ -191,8 +191,9 @@ screens share one, `PERSON`; the core opens agent instances of its own through
 
 - **Its own view.** `read_screen` without `view` reads `agent:default`: the screen as it starts,
   with the plugin's default search, filters and sort, whatever the person set. With `view`
-  (`{ search, filters: { id: [values] }, sort: { table: "key" | "-key" }, controls: { id: value } }`)
-  it reads the declared defaults overlaid with those. Each distinct view (canonical JSON) is one
+  (`{ search, filters: { id: [values] }, sort: { table: "key" | "-key" | null }, controls: { id: value } }`)
+  it reads the declared defaults overlaid with those; `sort: { table: null }` reads the table
+  unsorted, also one that starts sorted (the view state's `null` sort). Each distinct view (canonical JSON) is one
   instance, `agent:<hash>`, shared by every session that asks for it; reads never send events,
   so sharing is safe. The person's screens never change.
 - **Names.** A filter, control or sortable column can be named by its id or its label (a column

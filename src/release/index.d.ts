@@ -15,8 +15,11 @@ export type ReleaseConfig = {
       }
     >
   >;
-  hostVersion: string;
+  /** The ToolBelt version plugin packages are probed as; default: `HOST_VERSION` of the pinned SDK. */
+  hostVersion?: string;
 };
+/** The ToolBelt version this SDK matches (its protocol and capabilities): the default probe host version. */
+export declare const HOST_VERSION: string;
 export declare function run(
   args: string[],
   cwd?: string,
@@ -31,12 +34,12 @@ export declare function updateJSONVersion(
 export declare function packagePlugin(
   root: string,
   output: string,
-  hostVersion: string,
+  hostVersion?: string,
   extras?: string[],
 ): Promise<string[]>;
 export declare function verifyPlugin(
   archive: string,
-  hostVersion: string,
+  hostVersion?: string,
   expected?: { repo: string; version: string; target: string },
 ): Promise<PackageManifest>;
 export declare function pluginManifest(): PackageManifest;

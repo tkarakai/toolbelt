@@ -20,7 +20,7 @@ for (const scenario of [
   {
     name: "render of an undeclared surface",
     script:
-      'console.log(JSON.stringify({type:"hello",protocol:2,sdk:"test",capabilities:[]}));console.log(JSON.stringify({type:"ready"}));console.log(JSON.stringify({type:"render",surface:"screen:nope",tree:{type:"text",text:"x"}}));setInterval(()=>{},1000)',
+      'console.log(JSON.stringify({type:"hello",protocol:3,sdk:"test",capabilities:[],declarations:{views:{},actions:{},forms:{}}}));console.log(JSON.stringify({type:"ready"}));console.log(JSON.stringify({type:"render",surface:"screen:nope",tree:{type:"text",text:"x"}}));setInterval(()=>{},1000)',
   },
   {
     name: "unterminated frame",
@@ -29,7 +29,7 @@ for (const scenario of [
   {
     name: "message flood",
     script:
-      'console.log(JSON.stringify({type:"hello",protocol:2,sdk:"test",capabilities:[]}));console.log(JSON.stringify({type:"ready"}));for(let i=0;i<200;i++)console.log(JSON.stringify({type:"badge",value:i}));setInterval(()=>{},1000)',
+      'console.log(JSON.stringify({type:"hello",protocol:3,sdk:"test",capabilities:[],declarations:{views:{},actions:{},forms:{}}}));console.log(JSON.stringify({type:"ready"}));for(let i=0;i<200;i++)console.log(JSON.stringify({type:"badge",value:i}));setInterval(()=>{},1000)',
   },
 ])
   test(`malformed plugin quarantines: ${scenario.name}`, async () => {
@@ -40,7 +40,7 @@ for (const scenario of [
         id: "malformed",
         name: "Malformed",
         entry: "index.js",
-        protocol: 2, agent: { access: "read" },
+        protocol: 3, agent: { access: "read" },
         screens: [{ id: "main", title: "Main" }],
       }),
     );
@@ -76,7 +76,7 @@ test("an invalid screen costs only that screen: the plugin keeps running and rec
       id: "partial",
       name: "Partial",
       entry: "index.js",
-      protocol: 2, agent: { access: "read" },
+      protocol: 3, agent: { access: "read" },
       screens: [{ id: "main", title: "Main" }, { id: "activity", title: "Activity" }],
     }),
   );
@@ -85,7 +85,7 @@ test("an invalid screen costs only that screen: the plugin keeps running and rec
   writeFileSync(
     join(root, "index.js"),
     `const send = (m) => console.log(JSON.stringify(m));
-send({ type: "hello", protocol: 2, sdk: "test", capabilities: [] });
+send({ type: "hello", protocol: 3, sdk: "test", capabilities: [], declarations: { views: {}, actions: { go: { effect: "write" } }, forms: {} } });
 send({ type: "ready" });
 const rows = (n) => Array.from({ length: n }, (_, i) => ({ id: "r" + i, cells: { a: "x", b: "y", c: "z" } }));
 const table = (r, cells) => ({ type: "table", id: "runs", columns: [{ key: "a", title: "A" }], rows: cells ? [{ id: "a", cells }] : r });

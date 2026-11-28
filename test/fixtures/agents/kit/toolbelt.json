@@ -3,7 +3,7 @@
   "name": "Kit",
   "icon": "package",
   "version": "0.4.1",
-  "protocol": 2,
+  "protocol": 3,
   "entry": "index.ts",
   "repo": "example/kit",
   "agent": { "access": "read" },

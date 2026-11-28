@@ -58,6 +58,7 @@ const view = (): Node => ({
 });
 
 definePlugin({
+  actions: { increment: { effect: "write" } },
   render: {
     "screen:main": view,
     quick: () => ({
@@ -92,6 +93,96 @@ A surface the plugin hasn't rendered accepts no events, and a toast button works
 after the toast was sent. Never put an action's meaning in payload keys of your own: the
 renderer sends only the keys listed there.
 
+## Actions, forms and events
+
+Every action id a plugin's trees or toasts use, and every form, is declared once, plugin-wide,
+with what it does. ToolBelt reads the declarations to know what an action does (agents will ask
+the person before a change), and refuses a tree that uses anything undeclared.
+
+```ts
+definePlugin({
+  actions: {
+    "new-task": { effect: "view" },                 // opens a dialog in this instance
+    done: { effect: "write" },
+    snooze: { effect: "write", describe: "Hides the task until the date" },
+    "open-in-editor": { effect: "external" },
+    delete: { effect: "destructive" },
+    reveal: { effect: "view", agent: false },       // never offered to agents
+  },
+  forms: {
+    "task-draft": { effect: "view" },               // a dialog's fields before Save
+    "task-pane": { effect: "write" },               // saves as it changes
+  },
+  render: { /* … */ },
+});
+```
+
+- **Effects.** `view` changes only the instance that sent it: it opens or closes a dialog,
+  expands something, or copies to the clipboard. `write` changes the plugin's data. `external`
+  reaches outside the plugin: it opens an app or URL, starts a process, runs an update or sends a
+  message. `destructive` deletes, or can't be undone. A form is `view` when it edits a draft or
+  only this instance (a dialog before its main action) and `write` when each field saves as it
+  changes (a row pane, settings). Secret fields stay human-only whatever their form declares.
+- `agent: false` keeps an action from agents whatever access the plugin has; `describe` is one
+  line for agents when the label isn't enough (at most 1,000 characters).
+- **Which ids.** Every action wherever a tree carries one: page toolbar, table row and bulk
+  actions, split-button `menu` alternatives, cards, detail items, dialog buttons, list items and
+  `list.open`, a `tags` field's `open`, timeline `edit` and entry actions, composers, floating
+  title-bar `actions` and `suggestions`, and toast buttons. A table's actions count even while it
+  has no rows. Forms: every `form` node's id, and every `segmented` or `choice` control that isn't
+  a view control of its surface (declared in `views`); a control that is one needs no form.
+- Built-in event names can't be action ids: `field`, `search`, `filter`, `filter-arrange`,
+  `sort`, `select`, `reorder` and `dialog-close` (`RESERVED_EVENTS`).
+- `actions` and `forms` may be functions of the context, like `views` (a form per row, actions
+  built from configuration). The SDK reads them at the handshake, again after `start` resolves
+  (sending them only if they changed, before `ready`) and on `ctx.declare()`.
+- **The host rejects a render** that uses an undeclared action or form: that instance shows the
+  render error, and the plugin's log says which id and where (`action "mend" (toolbar) isn't
+  declared in actions`). A toast whose button isn't declared is shown without the button, and the
+  log says so. The SDK's `fakeHost` reports both the same way, so a missing declaration shows up
+  in tests and development mode the first time the screen renders.
+
+### Events and results
+
+`onEvent(surface, name, payload, ctx, event)` gets `event` as `{ id, instance, origin, agent?,
+view }`: the event's id, the instance that sent it, `origin` `"person"` (any of the person's
+screens) or `"agent"` (an agent acting for them, with its client name in `agent`), and that
+instance's `View`. Treat an agent's event as the person acting through it: validate it the same
+way, and skip hidden side effects (don't mark something read because an agent opened it).
+
+The SDK answers every event with a `result` once `onEvent` settles, so the plugin never sends one
+itself. `onEvent` returns:
+
+- nothing: handled;
+- `false`: not handled (the plugin doesn't act on this event);
+- `{ data }`: handled, with JSON of at most 64 KiB (`LIMITS.resultBytes`) for whoever sent it,
+  such as a created task's id or a started job's id.
+
+A thrown error becomes the result's `error` (handled, failed); data that isn't JSON or is too
+large becomes an error too, and the host refuses an oversized result the same way. A plugin
+without `onEvent` answers every event as not handled. View events the SDK applies are answered
+by the SDK (a refused view change is not handled, with why in `error`).
+
+The host waits 10 s (`LIMITS.resultMs`) for a result. A plugin that starts longer work returns
+early, with ids in `data`, and reports progress through its screens. Without a result in time
+the event settles as "no answer in 10 s (the plugin may still act)". Messages are handled one at
+a time, so a slow handler delays the plugin's next events: keep handlers short.
+
+**Tags.** Toasts, clipboard text and navigation sent while a handler runs carry its event's id
+(`event` on the `toast`, `clipboard` and `navigate` messages); the SDK adds it. Anything sent
+later, from a timer or background work, carries none. The host uses the tag to send navigation
+to the screen that acted (see "Navigating to a screen"); toasts and clipboard text go to the
+person as before.
+
+### Instances opening and closing
+
+`onOpen(surface, ctx, { instance, origin })` and `onClose(surface, ctx, { instance, origin })`
+fire for every instance of a surface: the person's (`origin: "person"`) and each agent's
+(`"agent"`). `ctx.open` still lists the surfaces with at least one open instance: it already
+lists the surface in `onOpen`, and no longer does in `onClose` once its last instance closed.
+Start and stop polling by `ctx.open`, and keep per-instance state (an open dialog, a draft) by
+`instance`.
+
 ## Views
 
 A surface's search, filters, sort and page controls are its *view*. The SDK owns it: declare the
@@ -116,8 +207,21 @@ definePlugin({
 
 - The SDK applies `search`, `filter`, `filter-arrange` (with `arrange` declared), `sort` and
   page-control `field` events (form and field are the control's id) for declared ids. They don't
-  reach `onEvent`; `onView(surface, view, ctx)` says the view changed, before the render.
-  Events for undeclared ids reach `onEvent` as before.
+  reach `onEvent`; `onView(surface, view, ctx)` says the view is about to change, before the
+  render, and also fires when an instance opens with a view (a saved one, or an agent's). Events
+  for undeclared ids reach `onEvent` as before.
+- **Allowed values.** `options: { filters: { status: ["open", "done"] }, controls: { layout:
+  ["list", "board"] } }` lists the values a filter or control may take. The SDK refuses a change
+  with another value, and drops such values from a saved view instead (a filter whose every
+  saved value went falls back to its default).
+- **Refusing a change.** `onView` may return `false`: the instance keeps its view (an instance
+  opening with a view starts from the defaults instead). For either kind of refusal the SDK
+  sends the host `view` with the kept view and `refused` (why), renders again, and answers a
+  view event as not handled. The host logs it and tells its listeners, so agents learn their
+  view was refused.
+- **Sorting.** `sort` with `key: null` returns a table to unsorted, also one that starts sorted:
+  the view state holds `null` for it (`sort: { tasks: null }`). The SDK fills `sort` for declared
+  tables anywhere on the page: in cards, stacks and the page's dialog.
 - The SDK fills the tree from the view: the page's `search.query`, each declared filter's
   `selected`, each declared table's `sort` and each declared control's `value`. Filtering the
   data stays the plugin's: render only what the view lets through.
@@ -133,18 +237,23 @@ definePlugin({
   also set it (an agent showing the person something, the person's Restore).
 - The declaration is the screen's view schema for agents: ids and defaults from it, option
   values from the rendered tree. Keep filter option values and column keys stable.
-- **View controls from data.** `views` may be a function of the context, read at the handshake.
-  When the data it comes from changes (a filter per label, and the person adds a label), call
-  `ctx.declareViews()`: the SDK reads it again, sends the host the new declarations (a `views`
-  message) and drops each instance's state for ids no longer declared.
+- **View controls from data.** `views` may be a function of the context, read at the handshake
+  and again after `start` resolves, so data loaded in `start` needs nothing more. When the data it
+  comes from changes later (a filter per label, and the person adds a label), call
+  `ctx.declare()`: the SDK reads `views`, `actions` and `forms` again, sends the host the new
+  declarations (a `declarations` message) and drops each instance's state for ids no longer
+  declared, including filters removed from an arrangement.
 
-Protocol 2 messages: the host sends `open`/`close` with `instance` (and `open` with the view to
-start from), `view` to set an instance's view and `event` with `instance`; the plugin sends
-`render` with `instance`, `view` when an instance's view changes, and its declarations as
-`views` in `hello` and again in a `views` message when they change. The host refuses to install or start plugins built for another protocol version; an installed one stays listed as needing an update.
+Protocol 3 messages: the host sends `open`/`close` with `instance` (and `open` with the view to
+start from), `view` to set an instance's view and `event` with `id`, `instance`, `origin` and,
+for an agent, `agent`. The plugin sends `hello` with `declarations` (`{ views, actions, forms }`),
+`declarations` when they change, `render` with `instance`, `view` when an instance's view changes
+or a change was refused (`refused`), `result` once per event, and `toast`, `clipboard` and
+`navigate` with the `event` they were sent for. The host refuses to install or start plugins
+built for another protocol version; an installed one stays listed as needing an update.
 
 A tree the host can't accept (an invalid node or value, more than the complexity limits, an
-undeclared asset) costs only its instance of the surface: the host logs why in the plugin's log,
+undeclared asset, action or form) costs only its instance of the surface: the host logs why in the plugin's log,
 shows an error in place of that screen, and shows the plugin's next valid tree for it. The
 plugin, its other screens and other instances keep working, so an agent's unfiltered view that
 grows too large never breaks the person's. Transport, rate and handshake violations, renders
@@ -243,7 +352,7 @@ Place `toolbelt.json` at the archive root beside the bundled entrypoint:
   "version": "1.0.0",
   "repo": "example/counter",
   "entry": "index.js",
-  "protocol": 2,
+  "protocol": 3,
   "agent": { "access": "read" },
   "icon": "plus",
   "requires": {
@@ -319,7 +428,8 @@ CLI command collisions are rejected. Active helper leases block version/data cha
 
 ## Lifecycle and migrations
 
-`definePlugin` supports `start`, `prepare`, `stop`, `onOpen`, `onClose` and `onEvent`.
+`definePlugin` supports `start`, `prepare`, `stop`, `onOpen`, `onClose`, `onView` and `onEvent`
+(`onOpen` and `onClose` per instance: see "Instances opening and closing").
 The SDK sends hello and explicit readiness around startup; the host validates negotiation
 before exposing trees. Initialization must distinguish `context.mode`:
 
@@ -383,8 +493,13 @@ A minimal build can use Bun's bundler, copy the manifest/assets/notices, and the
 `validatePackage(outputRoot)` from the SDK. Build every declared executable entry and inspect
 dynamic imports. Typecheck, run behavior/fake-host/lifecycle tests, and launch the output
 from an extracted temporary directory with no source checkout or ambient `node_modules`.
-The SDK's `fakeHost` utility exposes messages, `send` and `close`; use real bounded host
-integration as well as the in-memory tests for packaging and readiness.
+The SDK's `fakeHost` (`@toolbelt/sdk/testing`) runs a plugin over an in-memory transport with
+the host's checks: `hello()`, `open(surface, instance?, view?)`, `closeInstance`, `setView`,
+`event(surface, name, payload?, { instance, origin, agent })` (resolving to the result with the
+toasts, clipboard text and navigation tagged with it), `tree(surface, instance?)`,
+`declarations`, `rejected` (renders the host would reject, with why), `refusals` (refused view
+changes), `invalid` (messages that fail validation), and the raw `messages`, `send` and `close`.
+Use real bounded host integration as well as the in-memory tests for packaging and readiness.
 
 Archive with portable ustar headers and no macOS metadata:
 
@@ -407,6 +522,12 @@ Use the owning repository's exact release runbook:
 [Upkeep](https://github.com/tkarakai/toolbelt-upkeep/blob/main/docs/releases.md), or
 [SDK Explorer](https://github.com/tkarakai/toolbelt-sdk-demo/blob/main/docs/releases.md).
 Those repos use the shared release CLI from their pinned SDK. Merging a validated release PR authorizes CI publication; local builds do not publish. Host app and SDK publication is in [releases.md](releases.md).
+
+The release tooling probes the package as a ToolBelt version: by default the pinned SDK's
+`HOST_VERSION`, the first app release that speaks the SDK's protocol and capabilities. Leave
+`hostVersion` out of `release.config.ts` and the `hostVersion` argument of `packagePlugin` out,
+so adopting a new SDK moves the probe with it; give one only to probe as another host version.
+The manifest's `requires.host` must accept the probed version.
 
 Publish from the plugin's own repository, with frozen dependencies and pinned Bun/actions
 in CI. The release must contain the ready-to-run archive plus exactly one
@@ -500,14 +621,16 @@ the main action a safe default or require the capability.
 
 ### Navigating to a screen
 
-`Context.navigate(screen, {select?})` sends `{type: "navigate", screen, select?}`. The host
-honors it only for a screen declared in the manifest, and only within 10 s after it delivered
-an event (an action, field, search, sort, filter, dialog or toast-button event) to that plugin.
-Each event allows one navigation. Opening or closing a surface doesn't count as an event.
-Rejected calls are logged as diagnostics. An honored call opens or focuses the main window,
-shows the screen and selects `select` there through the same stable-ID handoff as quick-view
-Enter. A toast button reaches the
-plugin as an event with `surface: "toast"`, so the plugin can respond to it by navigating.
+`Context.navigate(screen, {select?})` sends `{type: "navigate", screen, select?, event}`, tagged
+with the event being handled. The host honors it only for a screen declared in the manifest, only
+when it's tagged with an event the host sent within the last 10 s (an action, field, search,
+sort, filter, dialog or toast-button event), and once per event. Untagged navigation (from
+`start`, a timer or background work) is ignored. Opening or closing a surface isn't an event.
+Rejected calls are logged as diagnostics. An honored call goes to the screen that sent the event:
+from the window or the menu bar it opens or focuses the main window; from a paired device it
+navigates that device only. It shows the screen and selects `select` there through the same
+stable-ID handoff as quick-view Enter. A toast button reaches the plugin as an event with
+`surface: "toast"`, so the plugin can respond to it by navigating.
 
 With `ui.toast-key`, a toast button can have a ⌘ shortcut: `key` is `cmd+`, optionally
 `shift+`, then a lowercase letter, such as `"cmd+z"` for Undo. While the toast shows, the main

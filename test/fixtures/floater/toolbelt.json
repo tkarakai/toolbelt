@@ -1,2 +1,2 @@
-{ "id": "floater", "name": "Floater", "icon": "sparkles", "version": "1.0.0", "protocol": 2, "agent": { "access": "none" }, "entry": "index.ts",
+{ "id": "floater", "name": "Floater", "icon": "sparkles", "version": "1.0.0", "protocol": 3, "agent": { "access": "none" }, "entry": "index.ts",
   "screens": [], "floating": { "shortcut": "k" } }

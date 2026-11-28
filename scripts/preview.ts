@@ -7,6 +7,7 @@ import { localControlRequest } from "../src/bun/loopback";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { PluginHost, configDir } from "../src/bun/host";
+import { EventRoutes } from "../src/bun/event-routes";
 import { PackageManager } from "../src/bun/packages";
 import { PluginManagerService } from "../src/bun/plugin-manager-service";
 import { pluginAsset } from "../src/bun/plugin-assets";
@@ -139,6 +140,8 @@ const agents = createAgentInterface({
 agentCommand = agents.command;
 
 const icons = new FileIcons(join(root, "cache/icons"));
+/** The browser tab that sent each recent plugin event. */
+const eventClients = new EventRoutes<RemoteClient>();
 // Replaced by the server's broadcast once it listens.
 let broadcast: (name: string, payload: unknown) => void = () => {};
 const localArchives = developmentProfile
@@ -168,12 +171,11 @@ host.subscribe({
     p.stdin.write(text);
     p.stdin.end();
   },
-  navigate: (plugin, screen, select) =>
-    broadcast("navigate", {
-      plugin,
-      screen,
-      selection: select ? { item: select } : undefined,
-    }),
+  // A plugin's navigation goes to the tab that sent the event it was handling.
+  navigate: (plugin, screen, select, event) => {
+    const client = eventClients.viewOf(event.id);
+    client?.send("navigate", { plugin, screen, selection: select ? { item: select } : undefined });
+  },
 });
 host.start();
 manager.start({ scheduledChecks: !developmentProfile });
@@ -365,7 +367,10 @@ const handlers: { [K in Exclude<keyof Requests, "popoverLayout">]: (p: Requests[
     if (client.opened.delete(`${p.plugin}\n${p.surface}`)) host.close(p.plugin, p.surface);
     return true;
   },
-  event: (p) => (host.event(p.plugin, p.surface, p.name, p.payload), true),
+  event: (p, client) => {
+    eventClients.record(host.event(p.plugin, p.surface, p.name, p.payload, { kind: "person", via: "remote", ...(client.device ? { device: client.device.name } : {}) }), client);
+    return true;
+  },
   restartPlugin: async (p) => (await host.restart(p.plugin), true),
   settings: () => ({
     ...settings,

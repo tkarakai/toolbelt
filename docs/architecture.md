@@ -10,6 +10,7 @@ JSON-lines and do not inject browser JavaScript, HTML or React components.
 | Area | Implementation |
 | --- | --- |
 | App windows, menu, tray, shortcut, RPC and app updater | `src/bun/index.ts`, `native-popover.ts`, `hotkey.ts`, `updater.ts` |
+| Which view sent each plugin event, for its navigation | `src/bun/event-routes.ts` (the app and the browser preview) |
 | Plugin processes, handshake, message bounds, restart and diagnostics | `src/bun/host.ts`, `owned-process.ts` |
 | Package storage, verification, transactions and recovery | `src/bun/packages.ts`, `durability.ts` |
 | GitHub release selection, downloads and source identity | `src/bun/plugin-github.ts` |
@@ -40,7 +41,7 @@ The package carries a bundled entrypoint and any fully local helpers or dependen
 No publisher install/build scripts execute during download or extraction.
 
 Format version, protocol major, plugin version, SDK diagnostic version, host version and
-managed-data schema are separate contracts. Package format is currently 1 and protocol 2.
+managed-data schema are separate contracts. Package format is currently 1 and protocol 3.
 Unknown required capabilities reject activation; optional capabilities require plugin-authored
 fallbacks using the host's negotiated capability set. Compatibility is checked before the
 installed plugin is disrupted. The host provides Bun; it does not install per-plugin runtimes.
@@ -110,11 +111,31 @@ instance (and the view to start from); actions, fields, search and sort produce 
 the person's instance once the host has checked it against that instance's tree (see "Action
 resolver"), and the host can set an instance's `view`. The SDK owns each instance's
 view (search, filters, sort, page controls) and reports the person's, which the host saves in
-`views.json` ([plugins.md](plugins.md#views)). Only the person's instance's trees reach the web
-views and remote clients. Protocol 2 is the only one the host accepts. Plugin messages include complete render trees,
-badges, toasts, clipboard requests and screen navigation. The host honors navigation only for
-a declared screen, within 10 s after it delivered an event to that plugin, and once per event.
-It then reuses window navigation and the selection handoff. stdout is protocol only; stderr is diagnostic output.
+`views.json` ([plugins.md](plugins.md#views)), or reports a refused change (`view` with
+`refused`), which the host logs and passes to listeners (`viewRefused`). Only the person's
+instance's trees reach the web views and remote clients. Protocol 3 is the only one the host
+accepts. The plugin's hello carries its declarations (views, and the action and form ids its
+trees may use, with their effects), replaced by `declarations` messages. Plugin messages include
+complete render trees, badges, toasts, clipboard requests, screen navigation and event results.
+stdout is protocol only; stderr is diagnostic output.
+
+**Event ids and results.** `PluginHost.event(plugin, surface, name, payload, actor)` returns the
+id it gave the event (null when the event was refused). The actor is `{ kind: "person", via:
+"window" | "popover" | "remote", device? }` (agents' actors come with wave B1.3); the event
+message carries `id` and `origin` (and `agent`, the client name, for an agent). `PluginProcess`
+keeps each event it sent with its actor until its `result` arrives or `LIMITS.resultMs` (10 s)
+passes, then once tells listeners `settled` with `{ id, plugin, surface, name, actor, outcome,
+error?, data? }`: `ok`, `not-handled`, `error` (a handled event with `error`, or a result the host
+refused, such as data over 64 KiB) or `no-answer` (including events a stopped or restarted
+process never answered). A late or unknown result is logged and ignored. Toasts, clipboard and
+navigation carry the event the plugin was handling (`event`); listeners get it with its actor.
+The host honors navigation only for a declared screen, tagged with an event it sent within
+`NAVIGATE_GRACE_MS` (10 s), once per event; untagged navigation is ignored. `index.ts` records
+which view sent each event (`EventRoutes`) and sends navigation back there: a paired device's
+connection navigates that device only, the window and popover navigate the main window, reusing
+window navigation and the selection handoff. The browser preview routes to the tab that acted.
+Toasts and clipboard text still go to the person whatever the event; wave B1.3 routes an agent's
+by the tag.
 
 The host validates every message, tree and host action payload. Limits include a 4 MiB frame,
 32 levels, 50,000 tree values/nodes, 120 messages and 16 MiB per second, 30 renders per second,
@@ -126,7 +147,9 @@ Crashes use bounded backoff and eventually leave the plugin failed. Invalid prot
 rendering failures are contained per plugin; host settings and other plugins remain usable.
 An invalid render tree from a running plugin for a declared surface is contained to that
 instance of the surface: `PluginProcess.rejectRender` logs it, replaces the tree with a host
-error tree, and `snapshot` reports `error` with no tree until a valid render arrives.
+error tree, and `snapshot` reports `error` with no tree until a valid render arrives. A tree that
+uses an action or form id the plugin didn't declare (`undeclared` in `src/shared/actions.ts`) is
+rejected the same way; a toast whose button isn't declared is shown without the button.
 Owned process groups receive graceful termination followed by a bounded forced stop. Parent
 exit alone does not establish descendant exit. Observed jobs and independently launched
 terminal sessions must not belong to a plugin-owned process group.
@@ -262,14 +285,20 @@ there, so the renderer and the host can't drift:
   rows and a section it has (`onto` with `reorderOnto`); `dialog-close` the open dialog. View
   events pass when the page shows that control (a sortable column for `sort`, every filter id for
   `filter-arrange`) or the view declaration covers it, as the SDK's `viewChange` applies it.
-  A plugin may name an action like a built-in event; what the tree offers decides.
+  Built-in event names can't be declared as action ids (`RESERVED_EVENTS`), so a tree can't
+  offer an action named like one; the check still lets what the tree offers decide.
+- `undeclared(tree, declarations)` walks the same offers, plus actions nothing offers yet (a
+  table's actions without rows, a list's `open` without items, a timeline's actions without
+  entries, a `tags` field's `open` without pills), and names the first action id not in the
+  plugin's `actions`, form not in its `forms`, or control that is neither a view control of the
+  surface nor a declared form. The host rejects such a render; the SDK's `fakeHost` reports it.
 - `resolve(tree, address)` is the same check for an address (`{ kind: "action", action, row, … }`)
   instead of a payload: it builds the payload with `payloadFor`, refuses an action offered in
   several places unless `table`, `list` or `dialog` narrows it, and returns the action, its place
   in words, the rows with their titles and the `confirm` text.
 
 `PluginProcess.personEvent` checks every person's event (window, popover and remote clients all
-reach `PluginHost.event`) against the person instance's current tree, after the size check and
+reach `PluginHost.event`, which says which one in the actor) against the person instance's current tree, after the size check and
 before the Keychain path and delivery. The renderer only shows trees the host sent, so its tree is
 never newer than the host's and a refusal means the target really changed. A refused event is
 dropped and logged in the plugin's log with its reason (never its values), and the person gets a

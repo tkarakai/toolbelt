@@ -10,6 +10,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import {
+  HOST_VERSION,
   freeze,
   json,
   prepareNotes,
@@ -389,7 +390,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (!item) throw Error("No package for native runner");
     await verifyPlugin(
       join("release-candidate", item.asset),
-      config.hostVersion,
+      config.hostVersion ?? HOST_VERSION,
       {
         repo: descriptor.repo,
         version: descriptor.version,

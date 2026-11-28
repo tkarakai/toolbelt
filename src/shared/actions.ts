@@ -2,8 +2,8 @@
 // whether an event matches it. Pure code shared by the renderer, which builds every event payload
 // through `payloadFor`, and the host, which checks every person's event (`checkEvent`) against
 // the person's current tree before the plugin hears it. Agents resolve their addresses with
-// `resolve`. Nothing here changes the protocol: it maps today's event names and payloads
-// (`EventPayloads` in protocol.ts) back onto the tree.
+// `resolve`. It maps event names and payloads (`EventPayloads` in protocol.ts) back onto the tree,
+// and `undeclared` finds action and form ids a tree uses without the plugin declaring them.
 import { HUES, type Action, type Cell, type Dialog, type EventPayloads, type Field, type Node, type Row, type TagValue, type TimelineEntry, type ViewDeclaration } from "./protocol";
 import { flatSections, rowSection } from "./sections";
 import { viewChange } from "./views";
@@ -148,6 +148,11 @@ type Offered = {
 	fields: FieldSpot[];
 	tables: { node: Table; pane?: string; titles: Map<string, string> }[];
 	pages: Extract<Node, { type: "page" }>[];
+	/** Every action id the tree uses, offered now or not (a table's actions without rows), with a place. */
+	actionIds: Map<string, string>;
+	/** Every form id (`form` nodes), and every control (`segmented`, `choice`) id, with a place. */
+	formIds: Map<string, string>;
+	controlIds: Map<string, string>;
 };
 
 const cellText = (cell: Cell | undefined): string =>
@@ -156,13 +161,21 @@ const quote = (s: string) => JSON.stringify(s.length > 64 ? `${s.slice(0, 63)}â€
 
 /** Everything a tree offers the person: actions, fields, tables and pages. */
 function offered(tree: Node): Offered {
-	const out: Offered = { offers: [], fields: [], tables: [], pages: [] };
+	const out: Offered = { offers: [], fields: [], tables: [], pages: [], actionIds: new Map(), formIds: new Map(), controlIds: new Map() };
+	const uses = (ids: Map<string, string>, id: string, place: string) => void (ids.has(id) || ids.set(id, place));
+	const usesActions = (actions: Action[] | undefined, place: string) => withAlternatives(actions ?? []).forEach((a) => uses(out.actionIds, a.id, place));
 	type Ctx = { pane?: { row: string; title: string }; dialog?: Dialog };
 	const inDrawer = (ctx: Ctx, place: string) => (ctx.pane ? `${place} in the drawer of ${quote(ctx.pane.title || ctx.pane.row)}` : place);
 	const paneRows = (ctx: Ctx) => (ctx.pane ? [{ id: ctx.pane.row, title: ctx.pane.title }] : []);
-	const offer = (ctx: Ctx, o: Omit<Offer, "base" | "rows" | "text" | "place"> & { base: Record<string, unknown>; place: string; text?: boolean; rows?: Offer["rows"] }) =>
+	const offer = (ctx: Ctx, o: Omit<Offer, "base" | "rows" | "text" | "place"> & { base: Record<string, unknown>; place: string; text?: boolean; rows?: Offer["rows"] }) => {
+		uses(out.actionIds, o.name, inDrawer(ctx, o.place));
 		out.offers.push({ ...o, base: inPane(o.base, ctx.pane?.row), place: inDrawer(ctx, o.place), text: o.text ?? !!o.action.input, rows: o.rows ?? paneRows(ctx), ...(ctx.dialog ? { dialog: ctx.dialog.id } : {}) });
-	const control = (c: Control, ctx: Ctx) => void out.fields.push({ form: c.id, field: c, row: ctx.pane?.row, place: inDrawer(ctx, `control ${quote(c.label ?? c.id)}`) });
+	};
+	const control = (c: Control, ctx: Ctx) => {
+		const place = inDrawer(ctx, `control ${quote(c.label ?? c.id)}`);
+		uses(out.controlIds, c.id, place);
+		out.fields.push({ form: c.id, field: c, row: ctx.pane?.row, place });
+	};
 
 	const table = (node: Table, ctx: Ctx) => {
 		// `contextSelect`: a context row acts as the row it stands for, and its events name that row.
@@ -179,6 +192,7 @@ function offered(tree: Node): Offered {
 		const as = (id: string) => standFor.get(id) ?? id;
 		out.tables.push({ node, pane: ctx.pane?.row, titles });
 		const all = node.actions ?? [];
+		usesActions(all, inDrawer(ctx, `table ${quote(node.id)}`));
 		const visit = (r: Row) => {
 			const id = as(r.id);
 			const title = titles.get(r.id) ?? "";
@@ -234,6 +248,7 @@ function offered(tree: Node): Offered {
 				node.children.forEach((c) => walk(c, ctx));
 				return;
 			case "card":
+				usesActions(node.actions, inDrawer(ctx, `card ${quote(node.title ?? node.id ?? "")}`));
 				if (ctx.pane)
 					// A drawer section: plain buttons, sent with the drawer's row.
 					for (const a of node.actions ?? []) offer(ctx, { name: a.id, action: a, place: `section ${quote(node.title ?? node.id ?? "")}`, base: {} });
@@ -245,6 +260,7 @@ function offered(tree: Node): Offered {
 			case "table":
 				return table(node, ctx);
 			case "list":
+				if (node.open) uses(out.actionIds, node.open.id, inDrawer(ctx, `list ${quote(node.id)}`));
 				for (const it of node.items) {
 					for (const a of withAlternatives(it.actions ?? []))
 						offer(ctx, { name: a.id, action: a, place: `item ${quote(it.title)} in list ${quote(node.id)}`, base: { rowId: it.id }, rows: [{ id: it.id, title: it.title }], list: node.id });
@@ -253,7 +269,9 @@ function offered(tree: Node): Offered {
 				}
 				return;
 			case "form":
+				uses(out.formIds, node.id, inDrawer(ctx, `form ${quote(node.id)}`));
 				for (const f of node.fields) {
+					if (f.type === "tags" && f.open) uses(out.actionIds, f.open.id, inDrawer(ctx, `field ${quote(f.label || f.id)} of form ${quote(node.id)}`));
 					out.fields.push({ form: node.id, field: f, row: ctx.pane?.row, place: inDrawer(ctx, `field ${quote(f.label || f.id)} of form ${quote(node.id)}`) });
 					if (f.type === "tags" && f.open)
 						for (const t of f.value)
@@ -261,6 +279,7 @@ function offered(tree: Node): Offered {
 				}
 				return;
 			case "timeline":
+				usesActions([...(node.edit ? [node.edit] : []), ...(node.actions ?? [])], inDrawer(ctx, `timeline ${quote(node.id)}`));
 				for (const e of node.entries)
 					for (const a of entryActions(node, e))
 						offer(ctx, { name: a.id, action: a, place: `entry ${quote(e.id)} of timeline ${quote(node.id)}`, base: { timeline: node.id, entryId: e.id }, text: a === node.edit || !!a.input });
@@ -456,10 +475,11 @@ function checkBuiltIn(found: Offered, name: string, p: Record<string, unknown>, 
 		case "sort": {
 			const bad = onlyKeys(p, ["table", "key", "desc"]);
 			if (bad) return refuse(bad);
-			if (typeof p.key !== "string" || typeof p.desc !== "boolean") return refuse("its key must be text and desc true or false");
+			if ((typeof p.key !== "string" && p.key !== null) || typeof p.desc !== "boolean") return refuse("its key must be text (or null: unsorted) and desc true or false");
 			const t = tableOf(found, p.table);
-			const shown = t?.node.columns.some((c) => c.key === p.key && c.sortable);
-			return shown || viewChange(declared, {}, name, p) ? ok(`table ${quote(String(p.table))}`) : refuse(`table ${quote(String(p.table))} can't be sorted by ${quote(p.key)}`);
+			// `key: null` returns a table to unsorted.
+			const shown = t?.node.columns.some((c) => (p.key === null || c.key === p.key) && c.sortable);
+			return shown || viewChange(declared, {}, name, p) ? ok(`table ${quote(String(p.table))}`) : refuse(p.key === null ? `table ${quote(String(p.table))} can't be sorted` : `table ${quote(String(p.table))} can't be sorted by ${quote(p.key)}`);
 		}
 	}
 	return null;
@@ -502,3 +522,20 @@ export function resolve(tree: Node, address: Address, declared?: ViewDeclaration
 }
 
 export const isRefused = (r: Resolved | Refused): r is Refused => "refused" in r;
+
+/**
+ * Why a tree can't be shown with these declarations (null: it can): an action id the plugin didn't
+ * declare in `actions`, wherever the tree carries one (toolbars, rows, bulk actions, split-button
+ * alternatives, cards, details, dialogs, lists, tags, timelines, composers, floating actions and
+ * suggestions), a `form` not declared in `forms`, or a control (`segmented`, `choice`) that is
+ * neither a declared view control of the surface nor a declared form.
+ */
+export function undeclared(tree: Node, declared: { actions?: Record<string, unknown>; forms?: Record<string, unknown>; view?: ViewDeclaration }): string | null {
+	const found = offered(tree);
+	const has = (o: object | undefined, id: string) => !!o && Object.hasOwn(o, id);
+	for (const [id, place] of found.actionIds) if (!has(declared.actions, id)) return `action ${quote(id)} (${place}) isn't declared in actions`;
+	for (const [id, place] of found.formIds) if (!has(declared.forms, id)) return `form ${quote(id)} (${place}) isn't declared in forms`;
+	for (const [id, place] of found.controlIds)
+		if (!has(declared.view?.controls, id) && !has(declared.forms, id)) return `${place} isn't a declared view control or form`;
+	return null;
+}

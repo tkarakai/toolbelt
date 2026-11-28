@@ -1,0 +1,2 @@
+{ "id": "acts", "name": "Acts", "icon": "list-checks", "version": "1.0.0", "protocol": 3, "agent": { "access": "read" }, "entry": "index.ts",
+  "screens": [{ "id": "main", "title": "Main", "default": true }, { "id": "other", "title": "Other" }] }

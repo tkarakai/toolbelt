@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PluginHost } from "../src/bun/host";
+import { applyView, cleanView, resolveView, viewChange, viewProblem } from "../src/shared/views";
 import { ViewStore } from "../src/bun/views";
 import type { Node, ViewState } from "../src/shared/protocol";
 import { until } from "./agent-scenarios/harness";
@@ -21,7 +22,7 @@ afterEach(async () => {
 function plugin() {
 	const root = mkdtempSync(join(tmpdir(), "tb-views-"));
 	roots.push(root);
-	writeFileSync(join(root, "toolbelt.json"), JSON.stringify({ id: "list", name: "List", protocol: 2, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "main", title: "Main" }] }));
+	writeFileSync(join(root, "toolbelt.json"), JSON.stringify({ id: "list", name: "List", protocol: 3, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "main", title: "Main" }] }));
 	writeFileSync(
 		join(root, "index.ts"),
 		`import { definePlugin } from ${JSON.stringify(SDK)};
@@ -111,15 +112,16 @@ test("agent instances render their own view, never reach the person's, and survi
 test("a plugin's runtime declarations replace its handshake's", async () => {
 	const root = mkdtempSync(join(tmpdir(), "tb-views-"));
 	roots.push(root);
-	writeFileSync(join(root, "toolbelt.json"), JSON.stringify({ id: "labels", name: "Labels", protocol: 2, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "main", title: "Main" }] }));
+	writeFileSync(join(root, "toolbelt.json"), JSON.stringify({ id: "labels", name: "Labels", protocol: 3, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "main", title: "Main" }] }));
 	writeFileSync(
 		join(root, "index.ts"),
 		`import { definePlugin } from ${JSON.stringify(SDK)};
 let labels = ["home"];
 definePlugin({
 	views: () => ({ "screen:main": { filters: Object.fromEntries(labels.map((l) => ["label:" + l, []])) } }),
+	actions: { add: { effect: "write" } },
 	render: { "screen:main": () => ({ type: "page", actions: [{ id: "add", label: "Add" }], children: [{ type: "text", text: labels.join(",") }] }) },
-	onEvent: (_s, name, _p, ctx) => { if (name === "add") { labels = [...labels, "work"]; ctx.declareViews(); } },
+	onEvent: (_s, name, _p, ctx) => { if (name === "add") { labels = [...labels, "work"]; ctx.declare(); } },
 });`,
 	);
 	const { host } = world(root);
@@ -131,4 +133,41 @@ definePlugin({
 	await until(() => Object.keys(host.declaredView("labels", "screen:main")?.filters ?? {}).length === 2);
 	expect(host.declaredView("labels", "screen:main")).toEqual({ filters: { "label:home": [], "label:work": [] } });
 	expect(host.list()[0].state).toBe("running");
+});
+
+test("cleanView: a cleared sort stays cleared; options and removed filters are dropped", () => {
+	const declared = {
+		filters: { status: ["open"], kind: [] },
+		sort: { t: { key: "due", desc: false } },
+		controls: { mode: "list" },
+		arrange: { order: ["status", "kind"], grouped: [] },
+		options: { filters: { status: ["open", "done"] }, controls: { mode: ["list", "board"] } },
+	};
+	expect(cleanView(declared, { sort: { t: null } })).toEqual({ sort: { t: null } });
+	expect(resolveView(declared, { sort: { t: null } }, "person").sort).toEqual({ t: null });
+	expect(cleanView(declared, { filters: { status: ["done", "archived"] }, controls: { mode: "grid" } })).toEqual({ filters: { status: ["done"] } });
+	// Every value gone: back to the default, not "all".
+	expect(cleanView(declared, { filters: { status: ["archived"] } })).toEqual({});
+	expect(cleanView(declared, { filters: { status: [] } })).toEqual({ filters: { status: [] } });
+	expect(cleanView(declared, { arrange: { order: ["gone", "kind", "status"], grouped: ["gone", "kind"] } })).toEqual({ arrange: { order: ["kind", "status"], grouped: ["kind"] } });
+	expect(viewProblem(declared, { filters: { status: ["open", "archived"] } })).toBe(`filter "status" has no option "archived"`);
+	expect(viewProblem(declared, { controls: { mode: "grid" } })).toBe(`control "mode" has no option "grid"`);
+	expect(viewProblem(declared, { filters: { kind: ["anything"] }, controls: { mode: "board" } })).toBeNull();
+	expect(viewChange(declared, {}, "sort", { table: "t", key: null, desc: false })).toEqual({ sort: { t: null } });
+	expect(viewChange(declared, {}, "sort", { table: "t", key: "due", desc: true })).toEqual({ sort: { t: { key: "due", desc: true } } });
+});
+
+test("applyView fills the sort of tables in cards, stacks and the page's dialog", () => {
+	const table = (id: string, sort?: { key: string; desc: boolean }): Node => ({ type: "table", id, columns: [{ key: "n", title: "N", sortable: true }], rows: [], ...(sort ? { sort } : {}) });
+	const declared = { sort: { a: null, b: { key: "n", desc: true }, c: { key: "n", desc: false } } };
+	const tree: Node = {
+		type: "page",
+		children: [{ type: "card", children: [{ type: "stack", children: [table("a", { key: "n", desc: false })] }] }, table("b")],
+		dialog: { id: "d", title: "D", children: [table("c")] },
+	};
+	const out = applyView(tree, resolveView(declared, {}, "person"), declared) as Extract<Node, { type: "page" }>;
+	const card = out.children[0] as Extract<Node, { type: "card" }>;
+	expect(((card.children[0] as Extract<Node, { type: "stack" }>).children[0] as Extract<Node, { type: "table" }>).sort).toBeUndefined();
+	expect((out.children[1] as Extract<Node, { type: "table" }>).sort).toEqual({ key: "n", desc: true });
+	expect((out.dialog!.children[0] as Extract<Node, { type: "table" }>).sort).toEqual({ key: "n", desc: false });
 });

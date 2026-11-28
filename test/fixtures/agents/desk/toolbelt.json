@@ -3,7 +3,7 @@
   "name": "Desk",
   "icon": "list-checks",
   "version": "1.2.0",
-  "protocol": 2,
+  "protocol": 3,
   "entry": "index.ts",
   "repo": "example/desk",
   "agent": { "access": "read" },

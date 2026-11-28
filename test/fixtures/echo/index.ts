@@ -7,6 +7,7 @@ import { dataDir, definePlugin, type Node } from "../../../src/sdk";
 let n = 0;
 const actions = ["bump", "boom", "where", "go-nope", "go-main"].map((id) => ({ id, label: id }));
 definePlugin({
+	actions: { bump: { effect: "write" }, boom: { effect: "external" }, where: { effect: "view" }, "go-nope": { effect: "view" }, "go-main": { effect: "view" } },
 	start: (ctx) => {
 		ctx.badge(n);
 		ctx.navigate("main");
