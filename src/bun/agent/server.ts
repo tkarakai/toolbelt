@@ -70,7 +70,10 @@ export class AgentServer {
 	}
 
 	stop() {
-		for (const socket of this.connections) socket.end();
+		for (const socket of this.connections) {
+			socket.data?.session?.end();
+			socket.end();
+		}
 		this.connections.clear();
 		this.listener?.stop(true);
 		this.listener = null;

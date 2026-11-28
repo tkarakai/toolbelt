@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- AI agents can connect with the current MCP version (2026-07-28) as well as earlier ones: ToolBelt answers requests that carry their own version without a handshake, says which versions it speaks, and sends screen updates over the new subscription streams, which survive a ToolBelt restart. Agents that still use the older handshake work as before.
 
 ## 0.9.1 — 2026-11-28
 - On a phone, a row whose details are an editable pane (such as an OnTrack task) opens in a sheet that fits the screen. A long task used to open taller than the screen, showing only its bottom, and a swipe down to see its top closed the sheet instead of scrolling it.
