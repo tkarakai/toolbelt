@@ -469,6 +469,14 @@ seconds. Proposed model:
   approvals expire as denied after 24 hours.
 - **Never granted:** `destructive` and `trust` actions always queue for the person; `human-only` operations are
   never offered.
+- **On the current MCP revision.** Autonomous sessions use what 2026-07-28 added for this:
+  - pending approvals as Tasks-extension tasks (`working` with a status message, durable ids,
+    `tasks/cancel` withdraws the request);
+  - screen changes through `subscriptions/listen`;
+  - triggers ("a task became overdue") through the Events extension.
+
+  Clients without the extensions get plain results and a status tool
+  ([agent-actions.md](agent-actions.md#mcp-2026-07-28)).
 - **Where autonomous agents come from.** Initially from outside ToolBelt (Claude Code routines,
   cron plus the CLI), connecting through steps 2–3 and declaring autonomous mode. ToolBelt
   running its own scheduled agents through ACP would be a later step 6.
@@ -613,9 +621,9 @@ upgrade.
 | 10 | Wave B1, specified in [agent-actions.md](agent-actions.md): B1.0 dual-era MCP server (2026-07-28 and legacy), B1.1 action resolver, B1.2 protocol 3, B1.3 agents act (`run_action`, `fill_form`, approvals, write grants), B1.4 plugin upgrades. Typed `params` and plugin management are not in it | Phase B1 (step 1, action side) | R1–R5, R9–R12 | 9 |
 | 11 | History wave, to be specified after B1: snapshots of plugin data after changes, with restore and a preview (host, every plugin); per-record history, a history UI element and revert (SDK, plugin by plugin, OnTrack first); views of the change journal | — | — | 10 |
 | 12 | Revisit the approval rules: changes that history can undo ask less | — | R3, R4 | 11 |
-| 13 | Autonomous sessions under standing grants | Phase B2 | R13 | 10 |
+| 13 | Autonomous sessions under standing grants, built on MCP 2026-07-28: pending approvals as Tasks-extension tasks, changes through `subscriptions/listen`, triggers through the Events extension, with plain-result fallbacks for clients without them | Phase B2 | R13 | 10 |
 | 14 | Remaining plugin-declared tools, per plugin | Rest of step 5 | R7 | 10 |
-| 15 | ToolBelt-hosted autonomous agents (scheduled ACP sessions under standing grants) | New step 6, optional | R13 | 9, 13 |
+| 15 | ToolBelt-hosted autonomous agents (scheduled ACP sessions under standing grants, on the same MCP 2026-07-28 features as item 13) | New step 6, optional | R13 | 9, 13 |
 
 ## 5.4 Decisions
 
@@ -694,6 +702,25 @@ Processes 0.2.0 (`none`), all on protocol 2. The
 evaluation, with 17 life-like requests answered through MCP and the CLI, is in
 [agent-interface-eval/report.html](agent-interface-eval/report.html). Its cases now run as
 automated scenarios (5.6).
+
+Since wave A shipped, the agent interface has gained the following (0.7.0–0.9.0; described
+in [docs/agent-interface.md](../docs/agent-interface.md)):
+
+- **Views:** filters, options, columns and controls named by label as well as id
+  (`Names read as`). A filter's id and option values are shown where they differ from labels.
+  A filter that hides rows says which ones and how to include them.
+- **Search and hints:** `search_screens` names rows that default filters hid, and offers the
+  closest lines when none has every word. Agents are told what a badge means, and not to ask
+  again after the person declines.
+- **Showing a row:** `show_screen` takes `row`, opening that row's details on every person's
+  screen, or names the search or filter that hides it.
+- **Compact reads:** details off by default, paging by top-level rows with `parent`, and size
+  budgets.
+
+Wave B1's tools reuse all of these
+([agent-actions.md](agent-actions.md#what-it-builds-on)). Part 4's API sketch is the original
+proposal: the tools that exist are in docs/agent-interface.md, and B1 adds `run_action` and
+`fill_form`.
 
 Built differently from the plan:
 
@@ -807,7 +834,7 @@ consume it through their pinned SDK, and the format becomes a documented, versio
 
 **Wave B1 extension.** When guarded actions arrive:
 
-- steps gain `{ "call": "run_action", … }` with `expect.approval: "requested"` (or `"none"` for
+- steps gain `{ "call": "run_action", … }` and `{ "call": "fill_form", … }` with `expect.approval: "requested"` (or `"none"` for
   safe actions);
 - person actions gain `approve` and `deny` for a pending approval, and `grant` for a standing
   grant in autonomous mode;

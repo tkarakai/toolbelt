@@ -324,37 +324,85 @@ action), fake-host tests (results, errors, tags, refusals, per-instance hooks), 
 
 - Effective access `act` (the plugin declares `act`, and the person hasn't lowered it) is needed
   to run actions. Settings → Agents makes `act` selectable.
-- Actions declared `agent: false`, secret fields, `select`, `reorder` and toast actions are not
-  offered to agents in B1.
+- **Not offered to agents in B1:**
+  - actions declared `agent: false`;
+  - secret fields (Keychain `secret` text fields, `secretPrefix` environment entries), and
+    `sensitive` text fields, which reads mask;
+  - `select`, `reorder` and toast actions;
+  - the `quick` and `floating` surfaces. Agents act on screens only.
+
+### What it builds on
+
+B1.3 reuses the agent interface as it is today ([docs/agent-interface.md](../docs/agent-interface.md)),
+so acting feels like reading:
+
+- **Addressing:** plugin and screen ids match in any case and by plugin name or screen title.
+  Unknown ones get close matches, and hidden plugins are never suggested.
+- **Views:** `view` is `read_screen`'s object, `{ search, filters: { id: [values] }, sort: { table: "key" | "-key" }, controls: { id: value } }`.
+  It has the same name rules (ids or labels, `Names read as: …`) and the same refusals (fields
+  the screen doesn't declare, then values the rendered screen doesn't offer). Agents can also
+  return a table to unsorted (`sort: { table: null }`), which B1.2's `applyView` fix allows.
+- **Rows:** a row is its id as `read_screen` prints it (`{id: …}`). A row that isn't in the
+  acting instance's tree is refused with `show_screen`'s diagnosis (`locateRow`):
+  - the search or filter that hides it, and the full `view` to call again with; or
+  - that the screen has no such row, with close ids.
+- **Answers:** "no answer" and "refused" are worded as `show_screen` words them. After no
+  answer, ask the person whether to try again. After a refusal, don't ask again unless the
+  person asks.
+- **Sessions:** the hello, mode and CLI grouping by `ppid` stay as they are, so a script's
+  `toolbelt act` and `toolbelt fill` calls are one session.
 
 ### Instances
 
-Reads keep their shared instances (one per distinct view). Acting uses a private instance per
-session and screen (`agent:<session>:<screen>`), opened with the view the agent asks for. A
-dialog an agent opens, and its draft, belong to that session only. The instance is held while
-the session lives, or released after 10 idle minutes. `read_screen` with `acting: true` reads
-it (dialogs included).
+Reads keep their shared instances (`agent:default`, `agent:<hash>`), which are safe to share
+because reads send no events. Acting uses a private instance per session and screen
+(`agent:<session>:<screen>`):
+
+- A dialog the agent opens, and its draft, belong to that session only.
+- `view` on `run_action`/`fill_form` replaces the acting instance's view (the screen's defaults
+  overlaid with it). Without `view`, the instance keeps the view it has.
+- `view: "person"` copies the person's current view into the acting instance, so an agent can
+  act on a row it found with `read_screen view: "person"`. The person's own instance is never
+  acted on: their open dialogs and drafts stay theirs.
+- The instance stays open for 10 minutes after the session's last call. CLI connections that
+  continue a grouped session continue its draft.
+- `read_screen` with `acting: true` reads the acting instance, dialogs included (CLI
+  `--acting`).
 
 ### Tools
 
-The tool list stays fixed (`listChanged: false`).
+The tool list stays fixed (`listChanged: false`) and in a fixed order.
 
 ```
 run_action({ plugin, screen, action, row?, rows?, table?, dialog?, target?, text?, view?, open_window?, format? })
 fill_form({ plugin, screen, form, values: { [field]: value }, row?, view?, open_window?, format? })
 ```
 
-- **Where an action is found:** `row`/`rows` (and `table` when row ids repeat across tables)
-  addresses row and bulk actions. Without them, an open dialog in the acting instance is
-  searched first, then the page, cards and detail items. An action id offered in several places
-  without a row is refused, and the refusal lists the places, with `dialog` to choose one.
+- **Names, as for views:**
+  - An action by its id or label, ignoring case. A label two different actions share is
+    refused with their ids.
+  - A form and field by id or label.
+  - An option of a `select`, `combobox` or `tags` field by value or label.
+  - Results say how names were read.
+- **Where an action is found:**
+  - `row`/`rows` addresses row and bulk actions; add `table` when row ids repeat across tables.
+  - Without rows, an open dialog in the acting instance is searched first, then the page, cards
+    and detail items.
+  - An action offered in several places without a row is refused, listing the places; `dialog`
+    picks one.
 - **`fill_form`** sends one `field` event per value, in order, each resolved and validated.
   Values that don't match a field's type are refused before anything is sent. The form's
   declared effect decides approval: a `view` form (a dialog draft) never asks; a `write` form
   asks as a write.
-- **`read_screen` lists each offered action with its effect** (`done`, `snooze (write)`,
-  `delete (destructive, asks)`, `open (external, asks)`) and each fillable form's fields with
-  their types and options. `list_screens` lists declared actions per screen.
+- **`read_screen` shows what can be done, in its current compact form:**
+  - Each table's enabled row and bulk actions are listed once, with ids where they differ from
+    labels (`Snooze [snooze]`) and their effect where it asks or writes: `Done (write)`,
+    `Delete (destructive, asks)`, `Open (external, asks)`. With `details: true`, a row that
+    allows fewer lists its own.
+  - Toolbar, card and dialog actions are marked the same way.
+  - Fillable forms show their fields' types and options.
+  - `list_screens` lists each screen's declared actions beside its view schema.
+  - Nothing changes for plugins below `act`.
 - **Annotations:**
   - `run_action`: `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`,
     `openWorldHint: true`.
@@ -363,14 +411,22 @@ fill_form({ plugin, screen, form, values: { [field]: value }, row?, view?, open_
 - **Result** (text by default, JSON with `format: "json"`):
   - The outcome: done, not handled, the plugin's error, refused (with why), denied, or timed out.
   - Whether it was asked and how it was approved: once, by a grant, or no approval needed.
+  - `Names read as: …`.
   - The plugin's `data`.
   - Toasts, navigation (screen and row) and clipboard text the event caused.
-  - The acting instance's changes after its next render (up to 2 s): rows added, removed and
-    changed, with their titles; dialogs opened or closed; at most 40 lines, then a pointer to
-    `read_screen`.
-- **CLI:** `toolbelt act <plugin> <screen> <action> [--row id]… [--target id] [--text …] [--dialog id] [--json]`
-  and `toolbelt fill <plugin> <screen> <form> field=value… [--row id] [--json]`. Both are
-  documented in the skill file.
+  - The acting instance's changes after its next render (up to 2 s), in the serializer's row
+    format: rows added, removed and changed, with their titles and ids; dialogs opened or
+    closed. It stays within the text budget: at most 40 lines, then a pointer to
+    `read_screen acting: true`.
+  - Times in JSON follow the existing convention: epoch ms with an ISO copy.
+- **CLI**, following `toolbelt read`/`show`'s flags (`--filter id=v`, `--sort table=-key`,
+  `--search`, `--control id=v`, `--person`, `--json`), documented in the skill file:
+  - `toolbelt act <plugin> <screen> <action> [--row id]… [--table id] [--target id] [--text …] [--dialog id]`
+  - `toolbelt fill <plugin> <screen> <form> --set field=value… [--row id]`
+- **Settings → Agents:**
+  - **Access** gains **Making changes** under **Changing your view**: write grants by agent and
+    plugin, until when, each with Revoke.
+  - **Activity** shows the new operations and their approvals, with the existing filters.
 
 ### Approvals
 
@@ -437,7 +493,9 @@ An agent's change is also in the change journal (B1.2). Both entries carry the e
   duration, `approve once`, `deny`, `revoke`); `expect.state` through a fixture debug screen
   (an approved action happens exactly once; a denied, expired or changed one never does);
   `expect.audit` for the approval lifecycle; dialogs filled by two sessions at once staying
-  apart.
+  apart; actions, forms and options named by label; acting on a row found with
+  `view: "person"`; a row hidden by the acting view refused with the view that shows it; a CLI
+  script's `act` and `fill` calls sharing one draft.
 - **Conformance:** annotations; refusals and denials as `isError` results.
 - **Unit:** the resolver against every addressable node type.
 
