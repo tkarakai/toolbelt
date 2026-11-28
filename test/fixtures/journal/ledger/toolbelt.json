@@ -1,0 +1,2 @@
+{ "id": "ledger", "name": "Ledger", "icon": "notebook", "version": "1.0.0", "protocol": 3, "agent": { "access": "read" }, "entry": "index.ts",
+  "screens": [{ "id": "main", "title": "Main", "default": true }] }

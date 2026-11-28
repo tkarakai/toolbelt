@@ -26,6 +26,7 @@ import {
 } from "./development";
 import type { DevelopmentRequest } from "../shared/development";
 import { PluginHost, configDir, type PersonActor } from "./host";
+import { ChangeJournal } from "./journal";
 import { EventRoutes } from "./event-routes";
 import { PATHS } from "electrobun/main";
 import { PackageManager, type Installed } from "./packages";
@@ -129,6 +130,8 @@ const viewUrl = (hash = "") =>
 const developmentLog = new DiagnosticLog();
 // The person's view of each screen, shared by every person's screen and saved by the host.
 const personViews = new ViewStore(join(profileRoot, "views.json"));
+// Every change made through a plugin's screens (docs/architecture.md, "Change journal"); checked now.
+const journal = new ChangeJournal(join(profileRoot, "journal/changes.jsonl"));
 // Set once the agent interface exists (below); plugins started before that don't get it.
 let agentCommand: string[] | null = null;
 // Plugin secrets live in the login Keychain; other profiles (ToolBelt Dev, TOOLBELT_CONFIG_DIR,
@@ -143,6 +146,7 @@ const host = new PluginHost({
   host: { name: variant.name, version: pkg.version },
   data: join(profileRoot, "data"),
   views: personViews,
+  journal,
   ...(developmentProfile
     ? {
         diagnostic: (plugin: string, kind: string, detail: unknown) =>
@@ -916,6 +920,9 @@ if (
           return Response.json({ error: "Invalid JSON" }, { status: 400 });
         return Response.json(await developmentRequest(request as DevelopmentRequest));
       }
+      // Reading only: nothing edits or deletes journal entries.
+      if (url.pathname === "/journal")
+        return Response.json({ ...journal.status(), newest: journal.read(Number(q.get("limit") ?? 50) || 50) });
       switch (url.pathname) {
         case "/popover":
           showPopover();
@@ -960,6 +967,7 @@ if (
         update: updater.state(),
         development: development.state(),
         remote: remoteAccess.state(),
+        journal: (({ breaks: _, ...summary }) => summary)(journal.status()),
         profile: profileRoot,
         pid: process.pid,
         execPath: process.execPath,

@@ -360,7 +360,8 @@ describe("protocol 3: declarations, results, tags and instances (the acts fixtur
     const s = await opened();
     const ok = host!.event("acts", "screen:main", "ok", {});
     expect(ok).toMatch(/^[0-9a-f-]{36}$/);
-    expect(await s.outcome(ok)).toEqual({ id: ok!, plugin: "acts", surface: "screen:main", name: "ok", actor: { kind: "person", via: "window" }, outcome: "ok" });
+    const settled = await s.outcome(ok);
+    expect(settled).toEqual({ id: ok!, plugin: "acts", surface: "screen:main", name: "ok", actor: { kind: "person", via: "window" }, outcome: "ok", change: { name: "ok", effect: "write", rows: [], at: settled.change!.at } });
     expect((await s.outcome(host!.event("acts", "screen:main", "skip", {}))).outcome).toBe("not-handled");
     expect(await s.outcome(host!.event("acts", "screen:main", "fail", {}))).toMatchObject({ outcome: "error", error: "it broke" });
     const data = host!.event("acts", "screen:main", "data", {}, { kind: "person", via: "remote", device: "Phone" });

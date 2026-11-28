@@ -97,7 +97,10 @@ renderer sends only the keys listed there.
 
 Every action id a plugin's trees or toasts use, and every form, is declared once, plugin-wide,
 with what it does. ToolBelt reads the declarations to know what an action does (agents will ask
-the person before a change), and refuses a tree that uses anything undeclared.
+the person before a change), and refuses a tree that uses anything undeclared. Every event for a
+`write`, `external` or `destructive` action, and every field of a `write` form, goes in the
+host's change journal: who sent it, the action id or `form.field`, the row ids and the outcome,
+never values, titles or result data ([architecture.md](architecture.md#change-journal)).
 
 ```ts
 definePlugin({

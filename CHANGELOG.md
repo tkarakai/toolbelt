@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- ToolBelt keeps a journal of every change made through plugin screens: who made it (you on the Mac, the menu bar, a paired device, or later an agent), which action, which items and when, without storing what was typed or shown. Each entry is chained to the one before it, so an entry edited or removed afterwards shows up when ToolBelt starts.
 - **Plugins need upgrading.** ToolBelt speaks plugin protocol 3 and runs only plugins built for it; older plugins show that they need an update until their next release. Plugins now declare what each of their actions does (whether it only changes the view, changes their data, reaches outside ToolBelt or deletes something), which lets agents be asked before they change anything in a later release.
 - When a plugin answers an action by showing another screen, it shows it on the device you acted on, even if you (or another device) acted elsewhere in the meantime; before, it could land on whichever screen acted last. If that device has disconnected, nothing moves.
 - AI agents can connect with the current MCP version (2026-07-28) as well as earlier ones: ToolBelt answers requests that carry their own version without a handshake, says which versions it speaks, and sends screen updates over the new subscription streams, which survive a ToolBelt restart. Agents that still use the older handshake work as before.
