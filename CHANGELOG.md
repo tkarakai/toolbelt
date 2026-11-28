@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.9.1 — 2026-11-28
 - On a phone, a row whose details are an editable pane (such as an OnTrack task) opens in a sheet that fits the screen. A long task used to open taller than the screen, showing only its bottom, and a swipe down to see its top closed the sheet instead of scrolling it.
 
 ## 0.9.0 — 2026-11-27
