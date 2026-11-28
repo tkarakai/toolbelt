@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- AI agents can connect with the current MCP version (2026-07-28) as well as earlier ones: ToolBelt answers requests that carry their own version without a handshake, says which versions it speaks, and sends screen updates over the new subscription streams, which survive a ToolBelt restart. Agents that still use the older handshake work as before.
 - ToolBelt checks every plugin action against what the screen offers before the plugin gets it, from the Mac window, the menu bar and paired devices alike: a click on a row that has just gone, a disabled button or an action the screen no longer shows is dropped, and a toast says "That item changed. Try again." Disabled buttons on a row's details and on list items now look disabled too.
 
 ## 0.9.1 — 2026-11-28

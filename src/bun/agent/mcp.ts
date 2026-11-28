@@ -1,10 +1,36 @@
 // One MCP session over the agent socket (docs/agent-interface.md): JSON-RPC 2.0, one message per line.
 // Tools come from the core's operation registry; every screen is also a resource that clients
 // can subscribe to. Requests are answered in order of arrival.
+//
+// Dual-era (MCP 2026-07-28, Versioning): a request whose `_meta` names a protocol version is served
+// statelessly per the modern revision (no handshake, `server/discover`, `resultType`, cache hints,
+// `subscriptions/listen`); anything else follows the legacy `initialize` handshake revisions. One
+// connection may carry both.
 import type { AgentSession } from "../../shared/agents";
 import { AgentRefusal, ViewRefusal, type AgentCore, type ViewInput } from "./core";
 
+/** Legacy revisions, negotiated by `initialize`. */
 export const MCP_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+/** Modern revisions, named in every request's `_meta`. */
+export const MODERN_VERSIONS = ["2026-07-28"];
+const META = "io.modelcontextprotocol/";
+/** MCP 2026-07-28 error codes. */
+const UNSUPPORTED_VERSION = -32022;
+/** What a modern `subscriptions/listen` handler returns: its response comes when the stream ends. */
+const LATER = Symbol("later");
+/**
+ * Cache hints (MCP 2026-07-28, Caching). Tools and templates change only with ToolBelt's version;
+ * the resource list follows plugin state and access (list_changed invalidates it); a screen
+ * changes any time, its updates throttled to one a second.
+ */
+const CACHE: Record<string, { ttlMs: number; cacheScope: "public" | "private" }> = {
+	"server/discover": { ttlMs: 3_600_000, cacheScope: "private" },
+	"tools/list": { ttlMs: 3_600_000, cacheScope: "public" },
+	"prompts/list": { ttlMs: 3_600_000, cacheScope: "public" },
+	"resources/templates/list": { ttlMs: 3_600_000, cacheScope: "public" },
+	"resources/list": { ttlMs: 5_000, cacheScope: "private" },
+	"resources/read": { ttlMs: 1_000, cacheScope: "private" },
+};
 const INSTRUCTIONS =
 	"ToolBelt is a Mac menu bar app whose plugins show the person's tasks, software updates, processes and more. " +
 	"Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. " +
@@ -62,11 +88,22 @@ function viewUri(uri: string) {
 	return rest ? `${base}?${rest}` : base;
 }
 
+type Era = "legacy" | "modern";
+type RequestId = string | number;
+/** A modern subscription stream: the screens it watches and whether it wants list changes. */
+type Listen = { uris: Set<string>; list: boolean };
+
 export class McpSession {
-	/** Subscribed URI → the instance it watches and how to stop. */
-	private subscriptions = new Map<string, { plugin: string; surface: string; instance: string; stop: () => void }>();
+	/** Watched URI → the instance it watches, how to stop, and who asked for it. */
+	private watches = new Map<string, { plugin: string; surface: string; instance: string; stop: () => void }>();
+	/** URIs a legacy client subscribed to with `resources/subscribe`. */
+	private legacy = new Set<string>();
+	/** Modern `subscriptions/listen` streams, by their request id. */
+	private listens = new Map<RequestId, Listen>();
 	private pendingUpdates = new Map<string, ReturnType<typeof setTimeout>>();
 	private initialized = false;
+	/** A modern request's `clientInfo` named the session already. */
+	private clientNamed = false;
 	private offTree: () => void;
 	private offPlugins: () => void;
 
@@ -79,21 +116,26 @@ export class McpSession {
 	) {
 		this.offTree = core.onTree((plugin, surface, instance) => {
 			// Subscriptions to a paged URI of the screen's instance are notified with that URI.
-			for (const [uri, sub] of this.subscriptions) {
-				if (sub.plugin !== plugin || sub.surface !== surface || sub.instance !== instance || this.pendingUpdates.has(uri)) continue;
+			for (const [uri, w] of this.watches) {
+				if (w.plugin !== plugin || w.surface !== surface || w.instance !== instance || this.pendingUpdates.has(uri)) continue;
 				// At most one update a second per screen.
 				this.pendingUpdates.set(uri, setTimeout(() => {
 					this.pendingUpdates.delete(uri);
-					if (this.subscriptions.has(uri)) this.notify("notifications/resources/updated", { uri });
+					if (this.legacy.has(uri)) this.notify("notifications/resources/updated", { uri });
+					for (const [id, l] of this.listens) if (l.uris.has(uri)) this.notify("notifications/resources/updated", { uri }, id);
 				}, 1000));
 			}
 		});
 		this.offPlugins = core.onPlugins(() => {
 			if (this.initialized) this.notify("notifications/resources/list_changed", {});
+			for (const [id, l] of this.listens) if (l.list) this.notify("notifications/resources/list_changed", {}, id);
 			// A subscription to a screen that's no longer available ends.
-			for (const uri of [...this.subscriptions.keys()]) {
+			for (const uri of [...this.watches.keys()]) {
 				const [, plugin] = uri.match(RESOURCE) ?? [];
-				if (!core.visible().some((p) => p.id === plugin)) this.unsubscribe(uri);
+				if (core.visible().some((p) => p.id === plugin)) continue;
+				this.legacy.delete(uri);
+				for (const l of this.listens.values()) l.uris.delete(uri);
+				this.release(uri);
 			}
 		});
 	}
@@ -101,18 +143,76 @@ export class McpSession {
 	close() {
 		this.offTree();
 		this.offPlugins();
-		for (const uri of [...this.subscriptions.keys()]) this.unsubscribe(uri);
+		this.legacy.clear();
+		this.listens.clear();
+		for (const uri of [...this.watches.keys()]) this.release(uri);
 		for (const t of this.pendingUpdates.values()) clearTimeout(t);
 		this.pendingUpdates.clear();
 	}
 
-	private notify(method: string, params: unknown) {
-		this.send({ jsonrpc: "2.0", method, params });
+	/** ToolBelt stops serving agents: modern streams end gracefully (Subscriptions, Graceful Closure). */
+	end() {
+		for (const id of this.listens.keys()) this.send({ jsonrpc: "2.0", id, result: this.modern({ _meta: { [`${META}subscriptionId`]: id } }) });
+		this.listens.clear();
 	}
 
-	private unsubscribe(uri: string) {
-		this.subscriptions.get(uri)?.stop();
-		this.subscriptions.delete(uri);
+	/** A notification; on a modern stream it carries the stream's id. */
+	private notify(method: string, params: Record<string, unknown>, subscription?: RequestId) {
+		this.send({ jsonrpc: "2.0", method, params: subscription === undefined ? params : { ...params, _meta: { [`${META}subscriptionId`]: subscription } } });
+	}
+
+	/** Starts watching a screen URI (a view of it), unless something watches it already. */
+	private watch(uri: string, notFound: number) {
+		if (this.watches.has(uri)) return;
+		const [, plugin, screen, query] = uri.match(RESOURCE) ?? [];
+		if (!plugin || !this.core.screens().some((s) => s.plugin === plugin && s.screen === screen)) throw new RpcError(notFound, `Unknown resource ${uri}`);
+		try {
+			this.watches.set(uri, this.core.watch(plugin, screen, pagingOf(query).view as ViewInput | undefined));
+		} catch (error) {
+			if (error instanceof ViewRefusal) throw new RpcError(-32602, error.message);
+			if (error instanceof AgentRefusal) throw new RpcError(notFound, error.message);
+			throw error;
+		}
+	}
+
+	/** Stops watching a URI once no legacy subscription or modern stream wants it. */
+	private release(uri: string) {
+		if (this.legacy.has(uri) || [...this.listens.values()].some((l) => l.uris.has(uri))) return;
+		this.watches.get(uri)?.stop();
+		this.watches.delete(uri);
+	}
+
+	/** A modern result: `resultType`, the server's identity and, for cacheable methods, cache hints. */
+	private modern(result: Record<string, unknown>, method?: string) {
+		const meta = (result._meta as Record<string, unknown> | undefined) ?? {};
+		return {
+			...result,
+			...(method && CACHE[method] ? CACHE[method] : {}),
+			resultType: "complete",
+			_meta: { ...meta, [`${META}serverInfo`]: this.serverInfo() },
+		};
+	}
+
+	private serverInfo() {
+		return { name: "toolbelt", title: "ToolBelt", version: this.core.version };
+	}
+
+	/** Checks a modern request's `_meta` (MCP 2026-07-28, Per-request protocol fields). */
+	private checkModern(meta: Record<string, unknown>) {
+		const version = meta[`${META}protocolVersion`];
+		// A missing required field is a malformed request; a version ToolBelt doesn't speak lists the ones it does.
+		if (typeof version !== "string") throw new RpcError(-32602, `Missing ${META}protocolVersion in _meta`);
+		if (!MODERN_VERSIONS.includes(version))
+			throw new RpcError(UNSUPPORTED_VERSION, "Unsupported protocol version", { supported: [...MODERN_VERSIONS, ...MCP_VERSIONS], requested: version });
+		const capabilities = meta[`${META}clientCapabilities`];
+		if (!capabilities || typeof capabilities !== "object" || Array.isArray(capabilities))
+			throw new RpcError(-32602, `Missing ${META}clientCapabilities in _meta`);
+		const client = meta[`${META}clientInfo`] as { name?: unknown } | undefined;
+		// The first request that names its client names the session, as initialize does for legacy clients.
+		if (!this.named && !this.clientNamed && typeof client?.name === "string" && client.name.trim()) {
+			this.clientNamed = true;
+			this.core.renameSession(this.session, client.name);
+		}
 	}
 
 	/** Handles one parsed message; replies through `send`. */
@@ -123,17 +223,27 @@ export class McpSession {
 			if (isRequest) this.send({ jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid request" } });
 			return;
 		}
+		const params = message.params && typeof message.params === "object" ? message.params : {};
+		const meta = params._meta && typeof params._meta === "object" ? (params._meta as Record<string, unknown>) : null;
+		// Modern requests name their version; discover and listen exist only in the modern revision.
+		const era: Era = (meta && `${META}protocolVersion` in meta) || method === "server/discover" || method === "subscriptions/listen" ? "modern" : "legacy";
 		try {
-			const result = await this.dispatch(method, message.params ?? {});
-			if (isRequest) this.send({ jsonrpc: "2.0", id, result: result ?? {} });
+			if (era === "modern" && isRequest) this.checkModern(meta ?? {});
+			const result = await this.dispatch(method, params, era, isRequest ? id : undefined);
+			if (!isRequest || result === LATER) return;
+			const body = (result ?? {}) as Record<string, unknown>;
+			this.send({ jsonrpc: "2.0", id, result: era === "modern" ? this.modern(body, method) : body });
 		} catch (error) {
 			if (!isRequest) return;
 			const code = error instanceof RpcError ? error.code : error instanceof AgentRefusal ? -32602 : -32603;
-			this.send({ jsonrpc: "2.0", id, error: { code, message: error instanceof Error ? error.message : String(error) } });
+			const data = error instanceof RpcError && error.data !== undefined ? { data: error.data } : {};
+			this.send({ jsonrpc: "2.0", id, error: { code, message: error instanceof Error ? error.message : String(error), ...data } });
 		}
 	}
 
-	private async dispatch(method: string, params: Record<string, unknown>): Promise<unknown> {
+	private async dispatch(method: string, params: Record<string, unknown>, era: Era, id: RequestId | undefined): Promise<unknown> {
+		// Resource not found: -32002 before 2026-07-28, Invalid Params since.
+		const notFound = era === "modern" ? -32602 : -32002;
 		switch (method) {
 			case "initialize": {
 				const requested = typeof params.protocolVersion === "string" ? params.protocolVersion : "";
@@ -142,14 +252,22 @@ export class McpSession {
 				return {
 					protocolVersion: MCP_VERSIONS.includes(requested) ? requested : MCP_VERSIONS[0],
 					capabilities: { tools: { listChanged: false }, resources: { subscribe: true, listChanged: true } },
-					serverInfo: { name: "toolbelt", title: "ToolBelt", version: this.core.version },
+					serverInfo: this.serverInfo(),
 					instructions: INSTRUCTIONS,
 				};
 			}
+			case "server/discover":
+				return {
+					supportedVersions: [...MODERN_VERSIONS, ...MCP_VERSIONS],
+					capabilities: { tools: { listChanged: false }, resources: { subscribe: true, listChanged: true } },
+					instructions: INSTRUCTIONS,
+				};
 			case "notifications/initialized":
 				this.initialized = true;
 				return;
 			case "ping":
+				// Removed in 2026-07-28.
+				if (era === "modern") throw new RpcError(-32601, "Method not found: ping");
 				return {};
 			case "tools/list":
 				return {
@@ -201,31 +319,58 @@ export class McpSession {
 			case "resources/read": {
 				const uri = String(params.uri ?? "");
 				const [, plugin, screen, query] = uri.match(RESOURCE) ?? [];
-				if (!plugin) throw new RpcError(-32002, `Unknown resource ${uri}`);
+				if (!plugin) throw new RpcError(notFound, `Unknown resource ${uri}`);
 				const r = await this.core.call(this.session, "read_screen", { plugin, screen, ...pagingOf(query), _resource: viewUri(uri) });
 				// Not found only when it doesn't exist for agents; a crashed plugin is a server-side failure.
-				if (r.isError) throw new RpcError(r.kind === "refused" ? -32002 : r.kind === "invalid" ? -32602 : -32603, r.text);
+				if (r.isError) throw new RpcError(r.kind === "refused" ? notFound : r.kind === "invalid" ? -32602 : -32603, r.text);
 				return { contents: [{ uri, mimeType: "text/markdown", text: r.text }] };
 			}
-			case "resources/subscribe": {
+			case "resources/subscribe":
+			case "resources/unsubscribe": {
+				// Replaced by subscriptions/listen in 2026-07-28.
+				if (era === "modern") throw new RpcError(-32601, `Method not found: ${method} (use subscriptions/listen)`);
 				const uri = String(params.uri ?? "");
-				const [, plugin, screen, query] = uri.match(RESOURCE) ?? [];
-				if (!plugin || !this.core.screens().some((s) => s.plugin === plugin && s.screen === screen))
-					throw new RpcError(-32002, `Unknown resource ${uri}`);
-				if (!this.subscriptions.has(uri)) {
-					try {
-						this.subscriptions.set(uri, this.core.watch(plugin, screen, pagingOf(query).view as ViewInput | undefined));
-					} catch (error) {
-						if (error instanceof ViewRefusal) throw new RpcError(-32602, error.message);
-						if (error instanceof AgentRefusal) throw new RpcError(-32002, error.message);
-						throw error;
-					}
+				if (method === "resources/unsubscribe") {
+					this.legacy.delete(uri);
+					this.release(uri);
+					return {};
 				}
+				this.watch(uri, notFound);
+				this.legacy.add(uri);
 				return {};
 			}
-			case "resources/unsubscribe":
-				this.unsubscribe(String(params.uri ?? ""));
-				return {};
+			case "subscriptions/listen": {
+				if (id === undefined) return;
+				const filter = params.notifications && typeof params.notifications === "object" ? (params.notifications as Record<string, unknown>) : null;
+				if (!filter) throw new RpcError(-32602, "subscriptions/listen needs notifications");
+				// The acknowledgment lists what ToolBelt honors: resource list changes and screens that
+				// exist for agents. The tool and prompt lists never change.
+				const uris = new Set<string>();
+				for (const uri of Array.isArray(filter.resourceSubscriptions) ? filter.resourceSubscriptions : []) {
+					if (typeof uri !== "string") continue;
+					try {
+						this.watch(uri, notFound);
+						uris.add(uri);
+					} catch (error) {
+						if (!(error instanceof RpcError)) throw error;
+					}
+				}
+				const list = filter.resourcesListChanged === true;
+				this.listens.set(id, { uris, list });
+				this.notify("notifications/subscriptions/acknowledged", {
+					notifications: { ...(list ? { resourcesListChanged: true } : {}), ...(Array.isArray(filter.resourceSubscriptions) ? { resourceSubscriptions: [...uris] } : {}) },
+				}, id);
+				return LATER;
+			}
+			case "notifications/cancelled": {
+				// Ends a modern stream (stdio); a cancelled ordinary request has nothing to stop.
+				const requestId = params.requestId as RequestId | undefined;
+				const listen = requestId !== undefined ? this.listens.get(requestId) : undefined;
+				if (!listen) return;
+				this.listens.delete(requestId!);
+				for (const uri of listen.uris) this.release(uri);
+				return;
+			}
 			case "prompts/list":
 				return { prompts: [] };
 			default:
@@ -236,7 +381,7 @@ export class McpSession {
 }
 
 class RpcError extends Error {
-	constructor(readonly code: number, message: string) {
+	constructor(readonly code: number, message: string, readonly data?: unknown) {
 		super(message);
 	}
 }

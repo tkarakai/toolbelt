@@ -144,7 +144,11 @@ const RESTARTING =
  * update, a restart, agents turned off), the shim stays up for its MCP client: it answers
  * requests with a "not reachable" error, reconnects with backoff (and right away when a request
  * arrives), replays the client's `initialize`, `initialized` and resource subscriptions on the
- * new session, and tells the client the resource list may have changed.
+ * new session, and tells the client the resource list may have changed. A modern client (MCP
+ * 2026-07-28) has no handshake to replay: its open `subscriptions/listen` streams are sent again
+ * with their ids, their acknowledgments swallowed, and the streams told the list and their screens
+ * may have changed. The streams outlive ToolBelt for the client: their graceful end when ToolBelt
+ * stops isn't passed on.
  */
 async function mcp(path: string, autonomous: boolean, name?: string) {
 	const hello = JSON.stringify({ toolbelt: 1, client: "mcp", ...(name ? { name } : {}), mode: autonomous ? "autonomous" : "interactive" }) + "\n";
@@ -156,15 +160,23 @@ async function mcp(path: string, autonomous: boolean, name?: string) {
 	let initialize: Record<string, unknown> | null = null;
 	let initialized = false;
 	const subscriptions = new Set<string>();
+	/** The client's open modern streams: request id (as JSON) → the request line. */
+	const listens = new Map<string, string>();
+	/** Replayed streams whose acknowledgment the client already had. */
+	const replayed = new Set<string>();
 	// Replies to the shim's own replayed requests aren't the client's.
 	const own = new Set<string>();
 	let seq = 0;
 	const out = (message: unknown) => process.stdout.write(JSON.stringify(message) + "\n");
 	const fromServer = (line: string) => {
-		if (own.size)
+		if (own.size || listens.size)
 			try {
 				const m = JSON.parse(line);
 				if (typeof m.id === "string" && own.delete(m.id)) return;
+				// A stream's end (ToolBelt stopping) stays with the shim, which reopens it.
+				if (m.id !== undefined && m.method === undefined && listens.has(JSON.stringify(m.id))) return;
+				const sub = m.method === "notifications/subscriptions/acknowledged" ? m.params?._meta?.["io.modelcontextprotocol/subscriptionId"] : undefined;
+				if (sub !== undefined && replayed.delete(JSON.stringify(sub))) return;
 			} catch {}
 		process.stdout.write(line + "\n");
 	};
@@ -200,6 +212,15 @@ async function mcp(path: string, autonomous: boolean, name?: string) {
 		if (initialized) socket!.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
 		for (const uri of subscriptions) request("resources/subscribe", { uri });
 		if (initialized) out({ jsonrpc: "2.0", method: "notifications/resources/list_changed" });
+		for (const [key, line] of listens) {
+			replayed.add(key);
+			socket!.write(line + "\n");
+			const { id, params } = JSON.parse(line);
+			const tag = { _meta: { "io.modelcontextprotocol/subscriptionId": id } };
+			if (params?.notifications?.resourcesListChanged === true) out({ jsonrpc: "2.0", method: "notifications/resources/list_changed", params: tag });
+			for (const uri of Array.isArray(params?.notifications?.resourceSubscriptions) ? params.notifications.resourceSubscriptions : [])
+				out({ jsonrpc: "2.0", method: "notifications/resources/updated", params: { uri, ...tag } });
+		}
 		return true;
 	}
 
@@ -227,7 +248,7 @@ async function mcp(path: string, autonomous: boolean, name?: string) {
 			const line = buffer.slice(0, i);
 			buffer = buffer.slice(i + 1);
 			if (!line.trim()) continue;
-			let message: { id?: unknown; method?: unknown; params?: { uri?: unknown } } | null = null;
+			let message: { id?: unknown; method?: unknown; params?: { uri?: unknown; requestId?: unknown } } | null = null;
 			try {
 				message = JSON.parse(line);
 			} catch {}
@@ -236,6 +257,8 @@ async function mcp(path: string, autonomous: boolean, name?: string) {
 			if (message?.method === "notifications/initialized") initialized = true;
 			if (message?.method === "resources/subscribe" && typeof message.params?.uri === "string") subscriptions.add(message.params.uri);
 			if (message?.method === "resources/unsubscribe" && typeof message.params?.uri === "string") subscriptions.delete(message.params.uri);
+			if (message?.method === "subscriptions/listen" && message.id !== undefined && message.id !== null) listens.set(JSON.stringify(message.id), line);
+			if (message?.method === "notifications/cancelled" && message.params?.requestId !== undefined) listens.delete(JSON.stringify(message.params.requestId));
 			const isRequest = message?.id !== undefined && message?.id !== null;
 			if (!current() && isRequest && message?.method !== "initialize") await reopen();
 			const conn = current();
@@ -275,10 +298,9 @@ async function call(path: string, autonomous: boolean, tool: string, args: Recor
 		});
 	// One shell or script's calls (same parent process) group into one session in the audit log.
 	socket.write(JSON.stringify({ toolbelt: 1, client: "toolbelt-cli", mode: autonomous ? "autonomous" : "interactive", group: `ppid:${process.ppid}` }) + "\n");
-	const init = await request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "toolbelt-cli", version: "1" } });
-	if (init.error) throw new Error(init.error.message);
-	socket.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-	const response = await request("tools/call", { name: tool, arguments: args });
+	// A modern (MCP 2026-07-28) request needs no handshake: it names its version itself.
+	const meta = { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientInfo": { name: "toolbelt-cli", version: "1" }, "io.modelcontextprotocol/clientCapabilities": {} };
+	const response = await request("tools/call", { name: tool, arguments: args, _meta: meta });
 	socket.end();
 	if (response.error) throw new Error(response.error.message);
 	return response.result as { content: { type: string; text: string }[]; structuredContent?: unknown; isError?: boolean };
