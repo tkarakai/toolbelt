@@ -36,8 +36,8 @@ ToolBelt:
 - ToolBelt's state (plugin processes, trees, the package manager, settings) lives in the Bun
   main process. The WebView is one view among several (window, popover, remote clients).
 
-The Model Context Protocol (spec 2026-07-28: stateless core, extensions for Tasks and MCP
-Apps, elicitation) is supported by every major agent and maps directly onto ToolBelt's
+The Model Context Protocol (spec 2026-07-28: stateless core, multi round-trip requests,
+extensions for Tasks and MCP Apps) is supported by every major agent and maps directly onto ToolBelt's
 structure. A CLI complements it for coding agents and scripts.
 
 ## The steps
@@ -45,7 +45,7 @@ structure. A CLI complements it for coding agents and scripts.
 | # | Step | Delivers on its own | Depends on |
 | --- | --- | --- | --- |
 | 1 | Internal agent API in Bun: screens as tools plus host operations | One place that defines addressing, serialization, risk, approval, audit and redaction. An in-process LLM loop, a command palette, cross-plugin search and semantic tests can use it directly | — |
-| 2 | Loopback MCP server plus a stdio shim | Any MCP client (Claude Code, Claude Desktop, Codex, IDEs) can operate ToolBelt. Surfaces become MCP resources with change notifications; risk maps to tool annotations; approvals use elicitation where the requester is the person | 1 |
+| 2 | Loopback MCP server plus a stdio shim | Any MCP client (Claude Code, Claude Desktop, Codex, IDEs) can operate ToolBelt. Surfaces become MCP resources with change notifications; risk maps to tool annotations; approvals are answered on ToolBelt's own screens, never through elicitation (decided for B1, 5.4) | 1 |
 | 3 | `toolbelt` CLI and a skill file | Token-cheap, scriptable access for coding agents and humans (`toolbelt screen read processes`, `--json`) | 1 (same socket as 2) |
 | 4 | In-app chat as an ACP client | The person plugs in Claude Code, Codex or Gemini CLI through the Agent Client Protocol; ToolBelt hosts the conversation and points the agent at its own MCP server. ToolBelt doesn't own model choice, keys or the agent loop. Built as the Agent plugin (`tkarakai/toolbelt-agent`), a floating plugin: an ask bar that grows into a chat over the main screen (5.8) | 1, 2 |
 | 5 | Plugin-declared tools in the SDK | High-level, parameterized operations with typed results (`ontrack.addTask`, `upkeep.plan`) instead of driving screens | 1; the core moves into wave B1 (see 5.3) |
@@ -463,10 +463,20 @@ seconds. Proposed model:
   id, and the request is queued in Settings → Agents with a notification on the Mac (and on a
   paired phone, which is the person approving, not an agent using remote access). The agent can
   keep doing other work and check the approval later, or stop and report. With the MCP Tasks
-  extension the same thing appears as a task in the `input_required` state. Unanswered
+  extension the same thing appears as a task in the `working` state with a status message,
+  not `input_required`: the person answers in ToolBelt, not through the client (see
+  [agent-actions.md](agent-actions.md#mcp-2026-07-28)). Unanswered
   approvals expire as denied after 24 hours.
 - **Never granted:** `destructive` and `trust` actions always queue for the person; `human-only` operations are
   never offered.
+- **On the current MCP revision.** Autonomous sessions use what 2026-07-28 added for this:
+  - pending approvals as Tasks-extension tasks (`working` with a status message, durable ids,
+    `tasks/cancel` withdraws the request);
+  - screen changes through `subscriptions/listen`;
+  - triggers ("a task became overdue") through the Events extension.
+
+  Clients without the extensions get plain results and a status tool
+  ([agent-actions.md](agent-actions.md#mcp-2026-07-28)).
 - **Where autonomous agents come from.** Initially from outside ToolBelt (Claude Code routines,
   cron plus the CLI), connecting through steps 2–3 and declaring autonomous mode. ToolBelt
   running its own scheduled agents through ACP would be a later step 6.
@@ -608,10 +618,12 @@ upgrade.
 | 7 | Wave A plugin upgrades (OnTrack, Upkeep, Processes) | Phase A | R11 | 6 |
 | 8 | Floating plugins in host and SDK (a window over the main screen; phone sheet), `TOOLBELT_AGENT_COMMAND` and `toolbelt mcp --client` | Step 4, host side | — | 7 |
 | 9 | Agent plugin 0.1: in-app chat as an ACP client, read-and-show only (reads screens, `show_screen` under a view grant) | Step 4 | — | 8, its SDK release |
-| 10 | Wave B1 in host, SDK and SDK Explorer, then plugin upgrades. The core of the original step 5 lands here. The Agent plugin gains actions and approval cards | Phase B1 (step 1, action side) | R1–R5, R7, R9–R12 | 9 |
-| 11 | Autonomous sessions under standing grants | Phase B2 | R13 | 10 |
-| 12 | Remaining plugin-declared tools, per plugin | Rest of step 5 | R7 | 10 |
-| 13 | ToolBelt-hosted autonomous agents (scheduled ACP sessions under standing grants) | New step 6, optional | R13 | 9, 11 |
+| 10 | Wave B1, specified in [agent-actions.md](agent-actions.md): B1.0 dual-era MCP server (2026-07-28 and legacy), B1.1 action resolver, B1.2 protocol 3, B1.3 agents act (`run_action`, `fill_form`, approvals, write grants), B1.4 plugin upgrades. Typed `params` and plugin management are not in it | Phase B1 (step 1, action side) | R1–R5, R9–R12 | 9 |
+| 11 | History wave, to be specified after B1: snapshots of plugin data after changes, with restore and a preview (host, every plugin); per-record history, a history UI element and revert (SDK, plugin by plugin, OnTrack first); views of the change journal | — | — | 10 |
+| 12 | Revisit the approval rules: changes that history can undo ask less | — | R3, R4 | 11 |
+| 13 | Autonomous sessions under standing grants, built on MCP 2026-07-28: pending approvals as Tasks-extension tasks, changes through `subscriptions/listen`, triggers through the Events extension, with plain-result fallbacks for clients without them | Phase B2 | R13 | 10 |
+| 14 | Remaining plugin-declared tools, per plugin | Rest of step 5 | R7 | 10 |
+| 15 | ToolBelt-hosted autonomous agents (scheduled ACP sessions under standing grants, on the same MCP 2026-07-28 features as item 13) | New step 6, optional | R13 | 9, 13 |
 
 ## 5.4 Decisions
 
@@ -650,6 +662,27 @@ upgrade.
   only reads and `show_screen`, which wave A has; actions and their approval cards join it in
   B1, whose approvals design it then informs. It is a plugin, not a host feature, on a generic
   host feature (floating plugins) that other plugins can use too.
+- **Decided for wave B1 (2026-11-27), detailed in [agent-actions.md](agent-actions.md):** approvals
+  are answered only on ToolBelt's own screens, never through MCP elicitation, and show what the
+  host resolved; risk is declared once per action id next to the views; writes ask, with an
+  optional timed grant per agent and plugin, while destructive, external and `confirm` actions
+  ask every time; agents fill forms in their own instance (typed `params` later); an agent's
+  navigation and clipboard go back to it; calls wait 60 s for approval; plugin management by
+  agents moves out of B1. This supersedes R3's per-action `effect`/`agent` fields and policy
+  matrix, R4's elicitation and R7's params for this wave.
+- **MCP 2026-07-28 (checked 2026-11-27).** The server becomes dual-era before agents can act
+  (B1.0): stateless modern requests and the legacy handshake side by side. The cross-reference
+  of the spec's changes against waves B1 and later is in
+  [agent-actions.md](agent-actions.md#mcp-2026-07-28). Approvals stay off elicitation and multi
+  round-trip requests. B2 builds on the Tasks extension. Logging, sampling and roots are not
+  adopted.
+- **A change journal for every actor, and history after B1 (decided 2026-11-27).** People
+  approve without reading once approvals become routine, so safety can't rest on approvals
+  alone. Wave B1 adds a host journal of every change, made by people and agents alike (who,
+  which action, which rows, when, the outcome). It is append-only and hash-chained, and no
+  tooling edits it ([agent-actions.md](agent-actions.md#change-journal)). History and
+  reversibility follow as their own wave (roadmap 11), to be specified then. After it, the
+  approval rules are revisited so that reversible changes ask less (roadmap 12).
 - **Decided for wave A (2026-11-25):** `show_screen` with any device not showing ToolBelt tells
   the agent so it asks the person; grants are per agent; durations end (default today, at most
   30 days); the host saves the person's view; `agent.access` is required, so Settings → Agents
@@ -669,6 +702,25 @@ Processes 0.2.0 (`none`), all on protocol 2. The
 evaluation, with 17 life-like requests answered through MCP and the CLI, is in
 [agent-interface-eval/report.html](agent-interface-eval/report.html). Its cases now run as
 automated scenarios (5.6).
+
+Since wave A shipped, the agent interface has gained the following (0.7.0–0.9.0; described
+in [docs/agent-interface.md](../docs/agent-interface.md)):
+
+- **Views:** filters, options, columns and controls named by label as well as id
+  (`Names read as`). A filter's id and option values are shown where they differ from labels.
+  A filter that hides rows says which ones and how to include them.
+- **Search and hints:** `search_screens` names rows that default filters hid, and offers the
+  closest lines when none has every word. Agents are told what a badge means, and not to ask
+  again after the person declines.
+- **Showing a row:** `show_screen` takes `row`, opening that row's details on every person's
+  screen, or names the search or filter that hides it.
+- **Compact reads:** details off by default, paging by top-level rows with `parent`, and size
+  budgets.
+
+Wave B1's tools reuse all of these
+([agent-actions.md](agent-actions.md#what-it-builds-on)). Part 4's API sketch is the original
+proposal: the tools that exist are in docs/agent-interface.md, and B1 adds `run_action` and
+`fill_form`.
 
 Built differently from the plan:
 
@@ -782,7 +834,7 @@ consume it through their pinned SDK, and the format becomes a documented, versio
 
 **Wave B1 extension.** When guarded actions arrive:
 
-- steps gain `{ "call": "run_action", … }` with `expect.approval: "requested"` (or `"none"` for
+- steps gain `{ "call": "run_action", … }` and `{ "call": "fill_form", … }` with `expect.approval: "requested"` (or `"none"` for
   safe actions);
 - person actions gain `approve` and `deny` for a pending approval, and `grant` for a standing
   grant in autonomous mode;
@@ -794,8 +846,8 @@ consume it through their pinned SDK, and the format becomes a documented, versio
 
 ## 5.7 Open questions
 
-None for wave A (decided in 5.4). The Settings → Agents approvals view still needs a full design
-before wave B1.
+None for waves A and B1. Wave B1's approvals are decided in [agent-actions.md](agent-actions.md);
+the Settings → Agents queue of pending approvals is designed with wave B2.
 
 ## 5.8 In-app chat (step 4)
 
