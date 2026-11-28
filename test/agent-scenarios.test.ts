@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatRun, loadScenarios, runScenario } from "./agent-scenarios/harness";
 import { validateScenario } from "./agent-scenarios/format";
-import { CliAdapter } from "./agent-scenarios/adapters";
+import { CLI, CliAdapter } from "./agent-scenarios/adapters";
 
 const scenarios = loadScenarios();
 const out = process.env.AGENT_SCENARIOS_OUT;
@@ -42,5 +42,23 @@ describe("scenario format", () => {
 		expect(CliAdapter.argv("search_screens", { query: "q4 budget", plugin: "desk" }, false)).toEqual(["search", "q4", "budget", "--plugin", "desk"]);
 		expect(CliAdapter.argv("list_plugins", {}, true)).toEqual(["plugins", "--json"]);
 		expect(() => CliAdapter.argv("toolbelt_status", { verbose: true }, false)).toThrow("no option");
+		// Acting: act and fill with their flags and the view flags.
+		expect(CliAdapter.argv("run_action", { plugin: "errands", screen: "list", action: "Mark done", rows: ["e1", "e2"], view: "person", open_window: true }, true)).toEqual(["act", "errands", "list", "Mark done", "--row", "e1", "--row", "e2", "--person", "--open-window", "--json"]);
+		expect(CliAdapter.argv("fill_form", { plugin: "errands", screen: "list", form: "details", row: "e1", values: { Note: "a=b", labels: ["x", "y"] } }, false)).toEqual(["fill", "errands", "list", "details", "--set", "Note=a=b", "--set", "labels=x, y", "--row", "e1"]);
+		expect(CliAdapter.argv("read_screen", { plugin: "errands", acting: true }, false)).toEqual(["read", "errands", "--acting"]);
+		expect(() => validateScenario({ ...base, steps: [{ call: "read_screen", approve: "once" }] })).toThrow("approve is for");
+		expect(() => validateScenario({ ...base, channels: ["mcp", "cli"], steps: [{ call: "run_action", as: "second" }] })).toThrow("as (another agent)");
+	});
+	test("the CLI's act and fill refuse malformed command lines", async () => {
+		const run = async (...argv: string[]) => {
+			const p = Bun.spawn([process.execPath, CLI, "--socket", "/nonexistent/sock", ...argv], { stdout: "pipe", stderr: "pipe" });
+			const [err, code] = await Promise.all([new Response(p.stderr).text(), p.exited]);
+			return { err, code };
+		};
+		expect(await run("act", "errands", "list")).toMatchObject({ code: 2, err: expect.stringContaining("Usage: toolbelt act") });
+		expect(await run("fill", "errands", "list", "details")).toMatchObject({ code: 2, err: expect.stringContaining("--set") });
+		expect(await run("fill", "errands", "list", "details", "--set", "novalue")).toMatchObject({ code: 2, err: expect.stringContaining("FIELD=VALUE") });
+		expect(await run("act", "errands", "list", "done", "--set", "a=b")).toMatchObject({ code: 2, err: expect.stringContaining("Unknown option") });
+		expect(await run("read", "errands", "--acting", "--person")).toMatchObject({ code: 2, err: expect.stringContaining("--acting") });
 	});
 });

@@ -50,8 +50,10 @@ describe("MCP conformance", () => {
 			// and strict mode refuses unknown keywords.
 			const validate = ajv.compile(tool.inputSchema);
 			expect(validate({ unexpected: true })).toBe(tool.inputSchema.additionalProperties !== false);
-			// show_screen changes only what the person's screens show.
-			expect(tool.annotations).toEqual({ title: tool.title, readOnlyHint: tool.name !== "show_screen", destructiveHint: false, idempotentHint: true, openWorldHint: false });
+			// show_screen changes only what the person's screens show; run_action and fill_form act.
+			if (tool.name === "run_action") expect(tool.annotations).toEqual({ title: tool.title, readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
+			else if (tool.name === "fill_form") expect(tool.annotations).toEqual({ title: tool.title, readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+			else expect(tool.annotations).toEqual({ title: tool.title, readOnlyHint: tool.name !== "show_screen", destructiveHint: false, idempotentHint: true, openWorldHint: false });
 		}
 		const read = ajv.compile(tools.find((t: { name: string }) => t.name === "read_screen").inputSchema);
 		expect(read({ plugin: "desk", screen: "tasks", format: "json", max_rows: 3, table: "tasks", offset: 0, details: false })).toBe(true);
@@ -371,4 +373,76 @@ describe("MCP conformance", () => {
 		expect(status.content[0].text).toContain("Desk (desk)");
 		expect((await inspector("--method", "resources/list")).resources.length).toBe(6);
 	});
+});
+
+// Acting (B1.3): run_action and fill_form in a world with a plugin agents may act on.
+describe("MCP conformance: acting", () => {
+	let acting: World;
+	const own: McpAdapter[] = [];
+	beforeAll(async () => {
+		acting = await createWorld({ acting: true });
+	});
+	afterAll(async () => {
+		for (const c of own) await c.close();
+		await acting.stop();
+	});
+	const MODERN = { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientInfo": { name: "acting-conformance", version: "1" }, "io.modelcontextprotocol/clientCapabilities": {} };
+	async function connect(initialize: boolean) {
+		const client = new McpAdapter({ socket: acting.socket, autonomous: false, client: "acting-conformance" });
+		own.push(client);
+		const c = (await client.connection(initialize))!;
+		return { ...c, client };
+	}
+	const eras = [
+		{ era: "legacy", initialize: true, meta: (extra: Record<string, unknown> = {}) => (Object.keys(extra).length ? { _meta: extra } : {}) },
+		{ era: "modern", initialize: false, meta: (extra: Record<string, unknown> = {}) => ({ _meta: { ...MODERN, ...extra } }) },
+	] as const;
+
+	for (const { era, initialize, meta } of eras) {
+		test(`${era}: refusals and denials are isError results, not JSON-RPC errors`, async () => {
+			const { request } = await connect(initialize);
+			const call = async (name: string, args: Record<string, unknown>) => (await request("tools/call", { name, arguments: args, ...meta() })).result;
+			// A plugin agents may only read, an unknown action, a secret field.
+			for (const [name, args] of [
+				["run_action", { plugin: "desk", screen: "tasks", action: "settle", row: "1" }],
+				["run_action", { plugin: "errands", screen: "list", action: "explode" }],
+				["fill_form", { plugin: "errands", screen: "list", form: "details", row: "e1", values: { code: "1" } }],
+			] as const) {
+				const r = await call(name, args);
+				expect(r.isError).toBe(true);
+				expect(r.structuredContent).toBeUndefined();
+			}
+			// The person says no.
+			const pending = call("run_action", { plugin: "errands", screen: "list", action: "remove", row: "e2" });
+			const asked = await until(() => acting.agents.core.state().approvals.find((a) => a.change), 4000, "the approval");
+			acting.agents.handle({ operation: "answer", id: asked.id, allow: false });
+			const denied = await pending;
+			expect(denied.isError).toBe(true);
+			expect(denied.content[0].text).toContain("The person didn't allow this");
+			// A view action runs without asking; JSON carries the same as text.
+			const json = await call("run_action", { plugin: "errands", screen: "list", action: "copy-list", format: "json" });
+			expect(json.isError).toBeUndefined();
+			expect(JSON.parse(json.content[0].text)).toEqual(json.structuredContent);
+			expect(json.structuredContent).toMatchObject({ outcome: "done", approval: "none", action: { id: "copy-list", effect: "view" }, clipboard: [expect.any(String)], atIso: expect.any(String) });
+			if (era === "modern") expect(json.resultType).toBe("complete");
+		});
+
+		test(`${era}: an approval wait reports progress, and cancelling withdraws its dialog`, async () => {
+			const { send, client } = await connect(initialize);
+			const id = `wait-${era}`;
+			const start = client.notifications().length;
+			send({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "run_action", arguments: { plugin: "errands", screen: "list", action: "remove", row: "e4" }, ...meta({ progressToken: `progress-${era}` }) } });
+			await until(() => acting.agents.core.state().approvals.some((a) => a.change), 4000, "the approval");
+			const progress = await until(() => client.notifications().slice(start).find((n) => n.method === "notifications/progress"), 4000, "progress");
+			expect(progress.params).toMatchObject({ progressToken: `progress-${era}`, message: "Waiting for your approval in ToolBelt", total: 3 });
+			send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason: "the person changed their mind" } });
+			// The dialog goes from every screen, nothing runs, and the cancelled request gets no response.
+			await until(() => !acting.agents.core.state().approvals.length, 4000, "the dialog to go");
+			await Bun.sleep(200);
+			expect(client.lines.map((l) => JSON.parse(l)).some((m) => m.id === id)).toBe(false);
+			const audit = acting.audit().filter((a) => a.operation === "run_action" && a.action === "remove");
+			expect(audit.at(-1)).toMatchObject({ outcome: "denied", approval: "cancelled", effect: "destructive", rows: 1 });
+			expect((await acting.state()).removed).toEqual([]);
+		});
+	}
 });

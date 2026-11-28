@@ -1,7 +1,7 @@
 // The agent interface (docs/agent-interface.md): what AI agents may reach in ToolBelt, and what
 // Settings → Agents shows about them. Shared by the main process, the renderer and the CLI.
 
-/** How far agents may go with a plugin. `act` is reserved: agents can only read today. */
+/** How far agents may go with a plugin: hidden, read its screens, or also run its actions and fill its forms. */
 export const AGENT_ACCESS = ["none", "read", "act"] as const;
 export type AgentAccess = (typeof AGENT_ACCESS)[number];
 const RANK: Record<AgentAccess, number> = { none: 0, read: 1, act: 2 };
@@ -24,8 +24,8 @@ export function effectiveAccess(declared: AgentAccess, choice?: AgentAccess): Ag
 export const atLeast = (access: AgentAccess, needed: AgentAccess) => RANK[access] >= RANK[needed];
 
 /**
- * How long the person lets an agent change what their screens show (`show_screen`). There is no
- * "forever": every grant ends.
+ * How long the person lets an agent change what their screens show (`show_screen`), or make
+ * changes in a plugin (write grants). There is no "forever": every grant ends.
  */
 export const GRANT_DURATIONS = [
 	{ id: "session", label: "This session" },
@@ -62,6 +62,16 @@ export function grantEnd(duration: GrantDuration, at: number): number | null {
  */
 export type ViewGrant = { client: string; granted: number; until: number; duration: GrantDuration };
 
+/**
+ * The person lets an agent (by client name) run actions declared `write` (without `confirm`) and
+ * fill `write` forms in one plugin without asking each time, until `until`. Never covers actions
+ * that ask every time: `external`, `destructive` or with `confirm`.
+ */
+export type WriteGrant = ViewGrant & { plugin: string };
+
+/** What running an action does, as the plugin declares it (protocol `Effect`). */
+export type ActionEffect = "view" | "write" | "external" | "destructive";
+
 /** Saved in settings.json under `agents`. */
 export type AgentSettings = {
 	/** The agent interface listens only while this is on. Off by default. */
@@ -70,8 +80,10 @@ export type AgentSettings = {
 	access: Record<string, AgentAccess>;
 	/** Agents allowed to change the person's view, until each grant ends. */
 	grants: ViewGrant[];
+	/** Agents allowed to make changes in a plugin without asking each time, until each grant ends. */
+	writeGrants: WriteGrant[];
 };
-export const AGENT_DEFAULTS: AgentSettings = { enabled: false, access: {}, grants: [] };
+export const AGENT_DEFAULTS: AgentSettings = { enabled: false, access: {}, grants: [], writeGrants: [] };
 
 /** Saved agent settings, each field checked; anything malformed takes its default. */
 export function agentSettings(saved: unknown): AgentSettings {
@@ -80,18 +92,18 @@ export function agentSettings(saved: unknown): AgentSettings {
 	if (s.access && typeof s.access === "object")
 		for (const [id, value] of Object.entries(s.access as Record<string, unknown>))
 			if (AGENT_ACCESS.includes(value as AgentAccess)) access[id] = value as AgentAccess;
+	const valid = (g: Record<string, unknown>) =>
+		!!g && typeof g.client === "string" && typeof g.granted === "number" && typeof g.until === "number" && GRANT_DURATIONS.some((d) => d.id === g.duration && d.id !== "session");
 	const grants: ViewGrant[] = [];
 	if (Array.isArray(s.grants))
 		for (const g of s.grants as Record<string, unknown>[])
-			if (
-				g &&
-				typeof g.client === "string" &&
-				typeof g.granted === "number" &&
-				typeof g.until === "number" &&
-				GRANT_DURATIONS.some((d) => d.id === g.duration && d.id !== "session")
-			)
-				grants.push({ client: g.client.slice(0, 64), granted: g.granted, until: g.until, duration: g.duration as GrantDuration });
-	return { enabled: s.enabled === true, access, grants };
+			if (valid(g)) grants.push({ client: (g.client as string).slice(0, 64), granted: g.granted as number, until: g.until as number, duration: g.duration as GrantDuration });
+	const writeGrants: WriteGrant[] = [];
+	if (Array.isArray(s.writeGrants))
+		for (const g of s.writeGrants as Record<string, unknown>[])
+			if (valid(g) && typeof g.plugin === "string" && g.plugin)
+				writeGrants.push({ client: (g.client as string).slice(0, 64), plugin: g.plugin.slice(0, 64), granted: g.granted as number, until: g.until as number, duration: g.duration as GrantDuration });
+	return { enabled: s.enabled === true, access, grants, writeGrants };
 }
 
 /** `interactive`: a person is talking to the agent. `autonomous`: nobody is assumed present. */
@@ -118,7 +130,31 @@ export type AuditEntry = {
 	screen?: string;
 	outcome: "ok" | "denied" | "error";
 	detail?: string;
+	// run_action and fill_form (and change_approval) entries: what was asked for, never text,
+	// field values, row titles or the plugin's data.
+	/** The action id (run_action). */
+	action?: string;
+	/** The form id (fill_form). */
+	form?: string;
+	/** How many rows it acts on. */
+	rows?: number;
+	effect?: ActionEffect;
+	/** How it was allowed, or why not. */
+	approval?: ChangeApprovalOutcome;
+	/** The plugin's answer: handled, not handled, failed, or no answer in time. */
+	result?: "ok" | "not-handled" | "error" | "no-answer";
+	/** The plugin's error. */
+	error?: string;
+	/** The event ids sent, as the change journal records them. */
+	events?: string[];
 };
+
+/**
+ * How an agent's change was allowed: `none` (nothing needed asking), `grant` (a write grant), `once`
+ * (the person allowed it), or why it wasn't: `denied`, `timed out` (no answer in time), `cancelled`
+ * (the agent withdrew it), `changed` (the screen changed before it could run).
+ */
+export type ChangeApprovalOutcome = "none" | "grant" | "once" | "denied" | "timed out" | "cancelled" | "changed";
 
 /** An audit entry as read back: `id` is its position in the log, the cursor for paging. */
 export type AuditRecord = AuditEntry & { id: number };
@@ -149,6 +185,9 @@ export const OPERATION_LABELS: Record<string, string> = {
 	list_plugins: "Listed plugins",
 	show_screen: "Showed you a screen",
 	view_grant: "Asked to change your view",
+	run_action: "Ran an action",
+	fill_form: "Filled in a form",
+	change_approval: "Asked to make a change",
 };
 
 /** Whether an entry matches a filter. */
@@ -160,7 +199,7 @@ export function auditMatches(e: AuditEntry, f: AuditFilter = {}): boolean {
 	if (f.until !== undefined && e.at > f.until) return false;
 	const words = (f.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
 	if (!words.length) return true;
-	const text = [e.operation, OPERATION_LABELS[e.operation], e.plugin, e.screen, e.client, e.detail].filter(Boolean).join(" ").toLowerCase();
+	const text = [e.operation, OPERATION_LABELS[e.operation], e.plugin, e.screen, e.client, e.detail, e.action, e.form, e.effect, e.approval, e.error].filter(Boolean).join(" ").toLowerCase();
 	return words.every((w) => text.includes(w));
 }
 
@@ -175,16 +214,44 @@ export type AgentPlugin = {
 	effective: AgentAccess;
 };
 
-/** An agent asking the person to let it change what their screens show. */
+/**
+ * What an agent wants to change, as the host resolved it (never the agent's own words): shown in
+ * the approval dialog on every person's screen.
+ */
+export type ChangeRequest = {
+	/** `run`: an action; `fill`: fields of a form that saves as it changes. */
+	kind: "run" | "fill";
+	plugin: string;
+	/** The plugin's name. */
+	pluginName: string;
+	/** The screen's title. */
+	screen: string;
+	/** The action's label, or the form's title. */
+	label: string;
+	effect: ActionEffect;
+	/** Titles of the first rows it acts on (at most 5), and how many rows in all. */
+	rows: string[];
+	rowCount: number;
+	/** The plugin's own question (`confirm`). */
+	confirm?: string;
+	/** For an action in a dialog: the dialog's title and its fields' current values. For a fill: the values it sets. */
+	fields?: { title?: string; values: { label: string; value: string }[] };
+	/** Whether "Allow changes in <plugin>" is offered: a write that no grant covers and that doesn't ask every time. */
+	grantable: boolean;
+};
+
+/** An agent asking the person: to change what their screens show, or to make a change (`change`). */
 export type ViewApproval = {
 	id: string;
 	client: string;
 	mode: AgentMode;
-	/** What it wants to show: "Desk › Tasks, filtered by Status: Done". */
+	/** What it wants to show: "Desk › Tasks, filtered by Status: Done". For a change, where it acts. */
 	what: string;
 	at: number;
 	/** When the agent stops waiting (epoch ms). */
 	expires: number;
+	/** Set when the agent wants to run an action or fill a form. */
+	change?: ChangeRequest;
 };
 
 /** A screen an agent changed for the person, with how to put it back. */
@@ -213,6 +280,8 @@ export type AgentsState = {
 	audit: AuditRecord[];
 	/** Agents allowed to change the person's view, saved ones and this-session ones. */
 	grants: (ViewGrant & { session?: string })[];
+	/** Agents allowed to make changes in a plugin, saved ones and this-session ones. */
+	writeGrants: (WriteGrant & { pluginName: string; session?: string })[];
 	/** Agents waiting for the person to answer, oldest first: every person's screen asks. */
 	approvals: ViewApproval[];
 	/** Screens an agent changed, each page showing "Shown by …" with Restore. */
@@ -223,9 +292,13 @@ export type AgentsRequest =
 	| { operation: "read" }
 	| { operation: "setEnabled"; enabled: boolean }
 	| { operation: "setAccess"; plugin: string; access: AgentAccess | null }
-	/** The person's answer to a view-control request. */
-	| { operation: "answer"; id: string; allow: boolean; duration?: GrantDuration }
+	/**
+	 * The person's answer to a request. For a change, `scope` says how: `once` (default) or `grant`
+	 * (allow changes in that plugin for `duration`, offered only when the request is grantable).
+	 */
+	| { operation: "answer"; id: string; allow: boolean; duration?: GrantDuration; scope?: "once" | "grant" }
 	| { operation: "revokeGrant"; client: string }
+	| { operation: "revokeWriteGrant"; client: string; plugin: string }
 	/** Put back the person's view from before an agent changed it, or keep it and drop the notice. */
 	| { operation: "restoreView"; plugin: string; surface: string }
 	| { operation: "dismissShown"; plugin: string; surface: string }

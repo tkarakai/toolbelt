@@ -1,6 +1,6 @@
 // Plugin trees as agents read them (docs/agent-interface.md): compact text, or the tree as JSON, both
 // with sensitive values masked and long tables paged. Pure: no host state.
-import type { Action, Cell, Dot, Field, GroupLabel, Node, Row, Section, Tag } from "../../shared/protocol";
+import type { Action, ActionDeclaration, Cell, Dot, Field, FormDeclaration, GroupLabel, Node, Row, Section, Tag } from "../../shared/protocol";
 import { labelled } from "./names";
 
 export const MASK = "••••••";
@@ -22,7 +22,57 @@ export type ReadOptions = {
 	resource?: string;
 	/** Filter ids the reader chose: not pointed out as hiding rows. */
 	chosen?: string[];
+	/**
+	 * What the plugin declares its actions and forms do. Actions declared `agent: false` are left
+	 * out at every access level. With `acting` (the plugin is at `act`), reads also say what can be
+	 * done: action ids where they differ from labels and their effect where it writes or asks, and
+	 * fillable forms with their fields' types and options.
+	 */
+	declared?: Declared;
+	acting?: boolean;
 };
+
+/** A plugin's action and form declarations, as reads use them. */
+export type Declared = { actions: Record<string, ActionDeclaration>; forms: Record<string, FormDeclaration> };
+
+/** Whether agents may see an action: not declared `agent: false`. */
+const offeredTo = (declared: Declared | undefined, id: string) => !declared || !Object.hasOwn(declared.actions, id) || declared.actions[id].agent !== false;
+
+/** What running an action does, in a read: nothing for `view`; `write`; or `… , asks` when it asks every time. */
+export function effectNote(effect: ActionDeclaration["effect"] | undefined, confirm: boolean): string {
+	if (!effect || effect === "view") return confirm ? "asks" : "";
+	if (effect === "write") return confirm ? "write, asks" : "write";
+	return `${effect}, asks`;
+}
+
+/** Whether agents may fill a field: never secret (Keychain) or sensitive ones. */
+export const fillable = (f: Field) => !((f.type === "text" && (f.secret !== undefined || f.sensitive)) || (f.type === "environment" && f.secretPrefix !== undefined));
+
+/** A field's type, and its choices where it has them, for an agent filling it. */
+export function fieldKind(f: Field): string {
+	if (!fillable(f)) return "not offered to agents";
+	switch (f.type) {
+		case "select":
+		case "combobox":
+			return `${f.type === "combobox" && f.freeform ? "text or one of" : "one of"}: ${f.options.map((o) => labelled(o.label, o.value)).join(", ")}`;
+		case "switch":
+			return "on or off";
+		case "datetime":
+			return f.time === false ? "date YYYY-MM-DD" : "date YYYY-MM-DD or YYYY-MM-DDTHH:MM";
+		case "duration":
+			return `minutes${f.none ? ` or null (${f.none})` : ""}`;
+		case "tags":
+			return `tags: ${f.keys.map((k) => `${labelled(k.label, k.key)}${k.flag ? "" : k.values?.length ? ` (${k.values.join(", ")}${k.freeform ? ", or any" : ""})` : ""}`).join(", ")}`;
+		case "options":
+			return "list of items";
+		case "environment":
+			return "environment entries";
+		case "color":
+			return "color";
+		default:
+			return "text";
+	}
+}
 
 /** A filter's options a read leaves out (its unchecked options with rows), for `search_screens`. */
 export type Hidden = { id: string; label: string; options: { value: string; label: string; count?: number }[] };
@@ -138,7 +188,7 @@ function tagLabels(f: Extract<Field, { type: "tags" }>) {
 	});
 }
 
-function fieldText(f: Field, now: number): string {
+export function fieldText(f: Field, now: number): string {
 	switch (f.type) {
 		case "text":
 			if (f.secret !== undefined) return f.stored ? `${MASK} (saved in Keychain)` : "not set";
@@ -189,10 +239,26 @@ function emptyField(f: Field): boolean {
 	}
 }
 
-/** Enabled actions' labels, each once (plugins often offer variants under one label). */
-const actionLabels = (actions?: Action[]) => [
-	...new Set((actions ?? []).filter((a) => !a.disabled).map((a) => a.label + (a.menu?.length ? ` (or: ${a.menu.map((m) => m.label).join(", ")})` : ""))),
-];
+/**
+ * Enabled actions' labels, each once (plugins often offer variants under one label), without those
+ * declared `agent: false`. Acting, each label gets its id where it differs and its effect.
+ */
+function actionLabels(actions: Action[] | undefined, opts?: { declared?: Declared; acting?: boolean }) {
+	const shown = (list: Action[]) => list.filter((a) => !a.disabled && offeredTo(opts?.declared, a.id));
+	const name = (a: Action) => {
+		if (!opts?.acting) return a.label;
+		const note = effectNote(opts.declared?.actions[a.id]?.effect, a.confirm !== undefined);
+		return `${labelled(a.label, a.id)}${note ? ` (${note})` : ""}`;
+	};
+	return [
+		...new Set(
+			shown(actions ?? []).map((a) => {
+				const menu = shown(a.menu ?? []);
+				return name(a) + (menu.length ? ` (or: ${menu.map(name).join(", ")})` : "");
+			}),
+		),
+	];
+}
 
 type Out = {
 	lines: string[];
@@ -213,8 +279,10 @@ function sizeOf(out: Out) {
 	return out.size;
 }
 
-type WalkOptions = Required<Omit<ReadOptions, "table" | "parent" | "resource" | "chosen">> & {
+type WalkOptions = Required<Omit<ReadOptions, "table" | "parent" | "resource" | "chosen" | "declared" | "acting">> & {
 	chosen?: string[];
+	declared?: Declared;
+	acting?: boolean;
 	table?: string;
 	parent?: string;
 	resource?: string;
@@ -252,10 +320,10 @@ export function findRow(rows: Row[], id: string): Row | undefined {
 }
 
 /** Labels of the row's own actions when they differ from the table's (`Row.actions` names a subset). */
-function ownActions(row: Row, actions: Action[] | undefined) {
+function ownActions(row: Row, actions: Action[] | undefined, opts?: WalkOptions) {
 	if (!row.actions || !actions?.length) return null;
-	const all = actionLabels(actions);
-	const mine = actionLabels(actions.filter((a) => row.actions!.includes(a.id)));
+	const all = actionLabels(actions, opts);
+	const mine = actionLabels(actions.filter((a) => row.actions!.includes(a.id)), opts);
 	return mine.length === all.length ? null : mine;
 }
 
@@ -320,7 +388,7 @@ function rowLines(row: Row, cols: Columns, depth: number, opts: WalkOptions, out
 	const rowDot = dotText(row.dot);
 	const flags = [row.unread ? "unread" : "", row.context ? `context for ${row.context}` : "", rowDot && !plain.some((p) => p.includes(rowDot)) ? rowDot : ""].filter(Boolean);
 	// A row's own action list is part of its details: without them, the table's list stands.
-	const own = opts.details ? ownActions(row, actions) : null;
+	const own = opts.details ? ownActions(row, actions, opts) : null;
 	out.lines.push(`${indent}- ${cells.join(" · ")}  {id: ${row.id}}${flags.length ? ` [${flags.join(", ")}]` : ""}${own ? ` (actions: ${own.length ? own.join(", ") : "none"})` : ""}`);
 	if (opts.details) {
 		// A stat or detail that repeats the row line's cell of the same name is left out, as is a
@@ -388,13 +456,16 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 				out.lines.push(`Search: ${node.highlight.join(" ")}`);
 				out.notes.push(`search "${node.highlight.join(" ")}"`);
 			}
-			const toolbar = actionLabels(node.actions);
+			const toolbar = actionLabels(node.actions, opts);
 			if (toolbar.length) out.lines.push(`Toolbar actions: ${toolbar.join(", ")}`);
 			for (const child of node.children) walk(child, opts, out);
 			if (node.dialog) {
 				out.lines.push("", `## Dialog open: ${node.dialog.title}${node.dialog.description ? ` — ${node.dialog.description}` : ""}`);
 				out.notes.push(`dialog "${node.dialog.title}" open`);
 				for (const child of node.dialog.children) walk(child, opts, out);
+				// Acting, the dialog's buttons: an agent fills the dialog, then presses one.
+				const buttons = opts.acting ? actionLabels(node.dialog.actions, opts) : [];
+				if (buttons.length) out.lines.push(`Dialog actions: ${buttons.join(", ")}`);
 			}
 			return;
 		}
@@ -418,12 +489,12 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			} else {
 				out.lines.push(`Columns: ${node.columns.map((c) => c.title || c.key).join(" · ")}`);
 			}
-			const rowActions = actionLabels(node.actions);
-			const fewer = node.rows.some((r) => ownActions(r, node.actions));
+			const rowActions = actionLabels(node.actions, opts);
+			const fewer = node.rows.some((r) => ownActions(r, node.actions, opts));
 			if (rowActions.length)
 				out.lines.push(`Row actions: ${rowActions.join(", ")}${fewer ? (opts.details ? " (a row that allows fewer lists its own)" : ` (a row may allow fewer: ${detailsOn(opts)} to list each row's own)`) : ""}`);
 			if (!opts.details && hasDetails(page.rows)) out.lines.push(`(rows' details left out: ${detailsOn(opts)} to include them)`);
-			const bulk = actionLabels(node.bulkActions);
+			const bulk = actionLabels(node.bulkActions, opts);
 			if (bulk.length) out.lines.push(`Bulk actions: ${bulk.join(", ")}`);
 			const sections = sectionPaths(node.sections);
 			const used = new Set<string>();
@@ -490,11 +561,20 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 		case "stats":
 			out.lines.push(node.items.map((i) => `${i.label}: ${i.at !== undefined ? when(i.at, now) : oneLine(String(i.value))}${i.hint ? ` (${oneLine(i.hint)})` : ""}`).join(" · "));
 			return;
-		case "form":
+		case "form": {
 			// Ids are the plugin's internals: a form or field without a label is shown without one.
 			// An untitled form needs no heading; a field with neither label nor value says nothing.
+			// Acting, a form agents may fill names its id, what filling it does, and each field's
+			// id, type and choices, also when the field is empty.
+			const form = opts.acting && opts.declared && Object.hasOwn(opts.declared.forms, node.id) && opts.declared.forms[node.id].agent !== false ? opts.declared.forms[node.id] : null;
 			out.lines.push("");
-			if (node.title || node.description) out.lines.push(`## Form${node.title ? `: ${node.title}` : ""}${node.description ? ` — ${node.description}` : ""}`);
+			if (form)
+				out.lines.push(`## Form${node.title ? `: ${node.title}` : ""} [${node.id}] (fill_form; ${form.effect === "write" ? "saves as it changes, write" : "a draft: changes nothing until its action runs"})${node.description ? ` — ${node.description}` : ""}`);
+			else if (node.title || node.description) out.lines.push(`## Form${node.title ? `: ${node.title}` : ""}${node.description ? ` — ${node.description}` : ""}`);
+			if (form) {
+				for (const f of node.fields) out.lines.push(`- ${f.label ? `${oneLine(f.label)} ` : ""}[${f.id}] (${fieldKind(f)}): ${oneLine(fieldText(f, now)).trim() || "(empty)"}`);
+				return;
+			}
 			for (const f of node.fields) {
 				const value = oneLine(fieldText(f, now)).trim();
 				// In a drawer: an empty field, or a value the row line or its section already shows, is left out.
@@ -502,6 +582,7 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 				if (f.label || value) out.lines.push(`- ${f.label ? `${oneLine(f.label)}: ` : ""}${value}`);
 			}
 			return;
+		}
 		case "empty":
 			out.lines.push(`(empty: ${node.title}${node.description ? ` — ${node.description}` : ""})`);
 			return;
@@ -510,7 +591,7 @@ function walk(node: Node, opts: WalkOptions, out: Out) {
 			out.lines.push(node.text);
 			return;
 		case "card": {
-			const acts = actionLabels(node.actions);
+			const acts = actionLabels(node.actions, opts);
 			const body: Out = { lines: ["", `## ${node.title ?? "Card"}${node.description ? ` — ${node.description}` : ""}`], notes: out.notes };
 			for (const child of node.children) walk(child, opts, body);
 			if (acts.length) body.lines.push(`Actions: ${acts.join(", ")}`);
@@ -580,6 +661,8 @@ export function treeText(tree: Node, options: ReadOptions = {}) {
 		now: options.now ?? Date.now(),
 		table: options.table,
 		chosen: options.chosen,
+		declared: options.declared,
+		acting: options.acting,
 	}, out);
 	const lines = out.lines.flatMap((l) => l.split("\n"));
 	while (lines[0] === "") lines.shift();
@@ -625,6 +708,12 @@ function visualHere(key: string, value: unknown, o: Record<string, unknown>, par
 	if (key === "rows") return typeof value === "number";
 	return false;
 }
+/** Keys holding actions (or a row's action ids) and single actions, where `agent: false` ones are left out. */
+const ACTION_LISTS = new Set(["actions", "bulkActions", "menu", "suggestions"]);
+const ACTION_KEYS = new Set(["action", "open", "edit"]);
+const isAction = (v: unknown): v is { id: string; label: string } =>
+	!!v && typeof v === "object" && !Array.isArray(v) && typeof (v as { id?: unknown }).id === "string" && typeof (v as { label?: unknown }).label === "string" && !("type" in v);
+
 /** Field types whose choices (`options`, a tags field's `keys`) are repeated in every row's drawer. */
 const CHOICE_FIELDS = new Set(["select", "combobox", "tags"]);
 /** `cells` is keyed by the plugin's column keys (its values are protocol cells); a field's `value` is plugin data. */
@@ -649,8 +738,14 @@ export function treeJson(tree: Node, options: ReadOptions = {}): Node {
 		const o: Record<string, unknown> = {};
 		// A choice field in a row's drawer: its value's labels instead of the choices, which every row repeats.
 		const choices = !ctx.data && ctx.inRow && typeof source.type === "string" && CHOICE_FIELDS.has(source.type) && "value" in source;
-		for (const [k, v] of Object.entries(source)) {
-			if (!ctx.data && (VISUAL_KEYS.has(k) || visualHere(k, v, source, ctx.key ?? ""))) continue;
+		for (const [k, v0] of Object.entries(source)) {
+			if (!ctx.data && (VISUAL_KEYS.has(k) || visualHere(k, v0, source, ctx.key ?? ""))) continue;
+			// Actions declared `agent: false` aren't there for agents.
+			let v = v0;
+			if (!ctx.data && options.declared) {
+				if (ACTION_LISTS.has(k) && Array.isArray(v)) v = v.filter((a) => (typeof a === "string" ? offeredTo(options.declared, a) : !isAction(a) || offeredTo(options.declared, a.id)));
+				else if (ACTION_KEYS.has(k) && isAction(v) && !offeredTo(options.declared, v.id)) continue;
+			}
 			if (ctx.row && !details && DETAIL_KEYS.includes(k)) continue;
 			if (choices && (k === "options" || k === "keys")) continue;
 			// Rows (and their children) are the objects under a table's `rows`.
@@ -658,6 +753,8 @@ export function treeJson(tree: Node, options: ReadOptions = {}): Node {
 			o[k] = cut(v, { row, inRow: ctx.inRow || ctx.row, data: ctx.data === "keys" ? false : dataScope(k, ctx.data), key: k });
 			if (!ctx.data && TIME_KEYS.includes(k) && typeof v === "number") o[`${k}Iso`] = new Date(v).toISOString();
 		}
+		// Acting: what running an action does, as declared.
+		if (!ctx.data && options.acting && options.declared && isAction(source) && Object.hasOwn(options.declared.actions, source.id)) o.effect = options.declared.actions[source.id].effect;
 		if (choices) {
 			const f = source as Field;
 			if (f.type === "tags") o.valueLabels = tagLabels(f);
@@ -702,7 +799,7 @@ export function treeJson(tree: Node, options: ReadOptions = {}): Node {
 }
 
 /** Lines that describe a screen's controls, not its content: search skips them. */
-const CONTROL_LINE = /^(#|Columns:|Row actions:|Bulk actions:|Toolbar actions:|Actions:|Filter |Hidden by this filter:|Control |Empty sections:|\(showing|\(offset |\(\d+ (rows?|items) not listed|\(truncated)/;
+const CONTROL_LINE = /^(#|Columns:|Row actions:|Bulk actions:|Toolbar actions:|Dialog actions:|Actions:|Filter |Hidden by this filter:|Control |Empty sections:|\(showing|\(offset |\(\d+ (rows?|items) not listed|\(truncated)/;
 const ROW_LINE = /^- .*\{id: [^}]*\}/;
 export const SEARCH_CLIP = 300;
 

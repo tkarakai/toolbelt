@@ -107,7 +107,8 @@ export type PersonViews = {
  * (`remote`, named by `device` when it's paired). Agents act through a session (wave B1.3).
  */
 export type PersonActor = { kind: "person"; via: "window" | "popover" | "remote"; device?: string };
-export type Actor = PersonActor | { kind: "agent"; client: string; session: string; mode: AgentMode };
+export type AgentActor = { kind: "agent"; client: string; session: string; mode: AgentMode };
+export type Actor = PersonActor | AgentActor;
 /** The person in the Mac's window: the actor when a caller doesn't say. */
 export const WINDOW: PersonActor = { kind: "person", via: "window" };
 
@@ -988,6 +989,34 @@ export class PluginProcess {
     return id;
   }
 
+  /**
+   * An agent's event on one of its own instances of a screen (never the person's), delivered only
+   * when that instance's current tree offers it. Agents never send `select` or `reorder`, actions
+   * or forms declared `agent: false`, or secret fields. `approval` says how the change was allowed
+   * (the change journal records it). Returns the event's id, or why it was refused.
+   */
+  agentEvent(surface: string, instance: string, name: string, payload: unknown, actor: AgentActor, approval: "none" | "grant" | "once"): { id: string } | { refused: string } {
+    if (instance === PERSON) return { refused: "agents act only in their own instances" };
+    if (!surface.startsWith("screen:") || !this.declared(surface)) return { refused: "agents act on screens only" };
+    if (this.state !== "running") return { refused: `the plugin is ${this.state}` };
+    const key = instanceKey(surface, instance);
+    const tree = this.renderErrors.has(key) ? undefined : this.trees.get(key);
+    if (!tree) return { refused: "nothing is shown there yet" };
+    if (name === "select" || name === "reorder") return { refused: `${name} isn't offered to agents` };
+    if (name !== "field" && Object.hasOwn(this.declaredActions, name) && this.declaredActions[name].agent === false) return { refused: `${JSON.stringify(name)} isn't offered to agents` };
+    const resolved = checkEvent(tree, name, payload, this.declaredViews[surface]);
+    if (isRefused(resolved)) return resolved;
+    if (name === "field") {
+      const p = payload as { form: string; field: string; rowId?: string; secret?: unknown };
+      if (this.declaredForms[p.form]?.agent === false) return { refused: `form ${JSON.stringify(p.form)} isn't offered to agents` };
+      if (p.secret !== undefined || findSecretField(tree, p.form, p.field, p.rowId)) return { refused: "secret fields aren't offered to agents" };
+    }
+    const id = crypto.randomUUID();
+    const change = this.changeOf(name, payload, resolved.rows.map((r) => r.id));
+    this.sendEvent(id, surface, instance, name, payload, actor, change ? { ...change, approval } : undefined);
+    return { id };
+  }
+
   private secretProblem(text: string) {
     this.log(`secrets: ${text}`);
     this.listener.toast(this.manifest.id, text, "error");
@@ -1259,6 +1288,22 @@ export class PluginHost {
       throw new Error("Invalid event metadata");
     validateEventPayload(payload);
     return this.get(plugin).personEvent(surface, name, payload, actor);
+  }
+
+  /** An agent's event on one of its own instances (`PluginProcess.agentEvent`). */
+  agentEvent(plugin: string, surface: string, instance: string, name: string, payload: unknown, actor: AgentActor, approval: "none" | "grant" | "once"): { id: string } | { refused: string } {
+    if (typeof name !== "string" || name.length > 256 || typeof surface !== "string" || surface.length > 256 || typeof instance !== "string" || instance.length > 256)
+      throw new Error("Invalid event metadata");
+    validateEventPayload(payload);
+    const p = this.plugins.get(plugin);
+    if (!p) return { refused: "the plugin isn't installed" };
+    return p.agentEvent(surface, instance, name, payload, actor, approval);
+  }
+
+  /** What a plugin declares its actions and forms do (empty until its hello). */
+  declarations(plugin: string): { actions: Record<string, ActionDeclaration>; forms: Record<string, FormDeclaration> } | null {
+    const p = this.plugins.get(plugin);
+    return p ? { actions: p.declaredActions, forms: p.declaredForms } : null;
   }
 
   async restart(plugin: string) {

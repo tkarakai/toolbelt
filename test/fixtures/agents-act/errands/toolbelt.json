@@ -1,0 +1,14 @@
+{
+  "id": "errands",
+  "name": "Errands",
+  "icon": "shopping-cart",
+  "version": "1.0.0",
+  "protocol": 3,
+  "entry": "index.ts",
+  "repo": "example/errands",
+  "agent": { "access": "act" },
+  "screens": [
+    { "id": "list", "title": "Errands", "default": true },
+    { "id": "debug", "title": "Debug state" }
+  ]
+}

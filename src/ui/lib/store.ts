@@ -87,10 +87,12 @@ const handlers: { [K in keyof Messages]: (p: Messages[K]) => void } = {
     arrived.set(key(plugin, surface), performance.now());
     set({ trees: { ...state.trees, [key(plugin, surface)]: tree } });
   },
-  toast: ({ plugin, text, tone, action }) => {
-    const name =
+  toast: ({ plugin, text, tone, action, source }) => {
+    const plugged =
       state.plugins.find((p) => p.manifest.id === plugin)?.manifest.name ??
       plugin;
+    // A toast answering an agent's change says which agent made it; its button is still yours.
+    const name = source ? `${plugged} · by ${source}` : plugged;
     showPluginToast(name, text, tone, action, (a) =>
       sendEvent(plugin, "toast", a.id, a.payload),
     );

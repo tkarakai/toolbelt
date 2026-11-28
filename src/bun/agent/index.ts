@@ -14,6 +14,28 @@ export function commandWarning(cliScript: string): string | null {
 	return `These commands run ${app ? `the ToolBelt build at ${app}` : `ToolBelt's source at ${cliScript}`}, not an installed app. Agents set up with them stop reaching ToolBelt when that ${app ? "build" : "folder"} is moved or deleted, such as when a worktree is removed. For a lasting setup, use the commands shown by ToolBelt installed in Applications.`;
 }
 import { AgentServer } from "./server";
+import type { EventTag } from "../host";
+
+/**
+ * Where what a plugin sends while handling an event goes, by who sent the event (docs/agent-interface.md,
+ * "Routing an agent's event"). An agent's navigation and clipboard text go back to the agent only
+ * (the core puts them in its result); its toasts too, except those of `write`, `external` and
+ * `destructive` actions, which the person also sees, as from the agent, with their buttons.
+ */
+export function personRouting(core: AgentCore) {
+	return {
+		/** Whether the person sees a toast, and as from whom (`source`: the agent's name). */
+		toast: (event?: EventTag): { show: boolean; source?: string } => {
+			if (event?.actor.kind !== "agent") return { show: true };
+			const source = core.toastSource(event.id);
+			return source ? { show: true, source } : { show: false };
+		},
+		/** Whether clipboard text reaches the Mac's clipboard. */
+		clipboard: (event?: EventTag) => event?.actor.kind !== "agent",
+		/** Whether a plugin's navigation moves the person's screens. */
+		navigate: (event: EventTag) => event.actor.kind !== "agent",
+	};
+}
 
 export type AgentInterfaceOptions = Omit<AgentCoreOptions, "auditFile" | "socket" | "command" | "commandWarning"> & {
 	/** ToolBelt's folder: the socket lives here (one ToolBelt process per folder). */
@@ -42,6 +64,8 @@ export function createAgentInterface(o: AgentInterfaceOptions) {
 		start: () => (o.settings().enabled ? server.start() : core.setRunning(false, null)),
 		stop: () => server.stop(),
 		handle: (request: AgentsRequest) => core.handle(request, enable),
+		/** Where plugins' toasts, clipboard text and navigation go for agents' events. */
+		routing: personRouting(core),
 	};
 }
 

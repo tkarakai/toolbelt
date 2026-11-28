@@ -435,10 +435,17 @@ host.subscribe({
   tree: (plugin, surface, tree, instance) => {
     if (instance === PERSON) views.forEach((v) => v.send.tree({ plugin, surface, tree }));
   },
-  toast: (plugin, text, tone, action) =>
-    views.forEach((v) => v.send.toast({ plugin, text, tone, action })),
-  clipboard: (_plugin, text) => Utils.clipboardWriteText(text),
+  // An agent's event: its toasts reach the person only for changes (as from the agent), its
+  // clipboard text and navigation never (the agent gets them in its result).
+  toast: (plugin, text, tone, action, event) => {
+    const route = agents.routing.toast(event);
+    if (route.show) views.forEach((v) => v.send.toast({ plugin, text, tone, action, ...(route.source ? { source: route.source } : {}) }));
+  },
+  clipboard: (_plugin, text, event) => {
+    if (agents.routing.clipboard(event)) Utils.clipboardWriteText(text);
+  },
   navigate: (plugin, screen, select, event) => {
+    if (!agents.routing.navigate(event)) return;
     const selection = select ? { item: select } : undefined;
     // The host honors navigation only for an event it sent moments ago; it goes to the view that
     // sent that event: a paired device, or the Mac's window (from the window or the popover).

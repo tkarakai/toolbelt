@@ -167,15 +167,21 @@ host.subscribe({
   tree: (plugin, surface, tree, instance) => {
     if (instance === PERSON) broadcast("tree", { plugin, surface, tree });
   },
-  toast: (plugin, text, tone, action) =>
-    broadcast("toast", { plugin, text, tone, action }),
-  clipboard: (_plugin, text) => {
+  // As the app routes them: an agent's toasts reach the person only for changes, its clipboard
+  // text and navigation never.
+  toast: (plugin, text, tone, action, event) => {
+    const route = agents.routing.toast(event);
+    if (route.show) broadcast("toast", { plugin, text, tone, action, ...(route.source ? { source: route.source } : {}) });
+  },
+  clipboard: (_plugin, text, event) => {
+    if (!agents.routing.clipboard(event)) return;
     const p = Bun.spawn(["pbcopy"], { stdin: "pipe" });
     p.stdin.write(text);
     p.stdin.end();
   },
   // A plugin's navigation goes to the tab that sent the event it was handling.
   navigate: (plugin, screen, select, event) => {
+    if (!agents.routing.navigate(event)) return;
     const client = eventClients.viewOf(event.id);
     client?.send("navigate", { plugin, screen, selection: select ? { item: select } : undefined });
   },

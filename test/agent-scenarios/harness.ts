@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PluginHost } from "../../src/bun/host";
+import { ChangeJournal } from "../../src/bun/journal";
 import { ViewStore } from "../../src/bun/views";
 import { PERSON } from "../../src/shared/protocol";
 import { cleanView } from "../../src/shared/views";
@@ -12,9 +13,11 @@ import { createAgentInterface } from "../../src/bun/agent";
 import { declaredAccess, type AgentSettings } from "../../src/shared/agents";
 import { HOUR, NOW } from "../fixtures/agents/clock";
 import { adapter, uriOf, type ChannelAdapter, type Outcome } from "./adapters";
-import { needsResources, validateScenario, type Channel, type Expect, type PersonAction, type Scenario, type Step } from "./format";
+import { needsResources, validateScenario, type Approve, type Channel, type Expect, type PersonAction, type Scenario, type Step } from "./format";
 
 export const FIXTURES = join(import.meta.dir, "../fixtures/agents");
+/** Plugins agents may act on: worlds with `setup.acting` add them. */
+export const ACT_FIXTURES = join(import.meta.dir, "../fixtures/agents-act");
 export const SCENARIOS = join(import.meta.dir, "scenarios");
 
 export function loadScenarios(dir = SCENARIOS): Scenario[] {
@@ -60,15 +63,19 @@ export async function createWorld(setup: Scenario["setup"] = {}, options: WorldO
 	const dir = mkdtempSync(join(tmpdir(), "tb-sc-"));
 	await options.prepare?.(join(dir, "data"));
 	const views = new ViewStore(join(dir, "views.json"), 0);
-	const host = new PluginHost({ dirs: options.dirs ?? [FIXTURES], bun: process.execPath, host: { name: "ToolBelt", version: options.hostVersion ?? "0.3.24" }, data: join(dir, "data"), views });
+	// Every change made through a plugin's screens, by people and agents alike.
+	const journal = new ChangeJournal(join(dir, "journal/changes.jsonl"), { syncMs: 10 });
+	const host = new PluginHost({ dirs: options.dirs ?? (setup.acting ? [FIXTURES, ACT_FIXTURES] : [FIXTURES]), bun: process.execPath, host: { name: "ToolBelt", version: options.hostVersion ?? "0.3.24" }, data: join(dir, "data"), views, journal });
 	// The person's screens, as show_screen sees them: the Mac's window and paired devices.
 	const devices = { window: setup.devices?.window ?? true, paired: setup.devices?.paired ?? [] };
 	const navigated: string[] = [];
 	const trees: { plugin: string; surface: string; at: number }[] = [];
-	host.subscribe({ plugins: () => {}, tree: (plugin, surface) => void trees.push({ plugin, surface, at: Date.now() }), toast: () => {} });
+	/** Events the plugins answered. */
+	const settled = new Set<string>();
+	host.subscribe({ plugins: () => {}, tree: (plugin, surface) => void trees.push({ plugin, surface, at: Date.now() }), toast: () => {}, settled: (e) => void settled.add(e.id) });
 	host.start();
 	await until(() => host.list().every((p) => p.state === "running"), 10_000, "fixture plugins to start");
-	let settings: AgentSettings = { enabled: setup.agents ?? true, access: { ...(setup.access ?? {}) }, grants: [] };
+	let settings: AgentSettings = { enabled: setup.agents ?? true, access: { ...(setup.access ?? {}) }, grants: [], writeGrants: [] };
 	const agents = createAgentInterface({
 		host,
 		settings: () => settings,
@@ -93,6 +100,7 @@ export async function createWorld(setup: Scenario["setup"] = {}, options: WorldO
 		now: options.now ?? (() => NOW),
 		holdMs: 5000,
 		approvalMs: 3000,
+		settleRenderMs: 300,
 		person: {
 			devices: () => [{ name: "the Mac", kind: "mac" as const, showing: devices.window }, ...devices.paired.map((d) => ({ name: d.name, kind: "device" as const, showing: d.connected }))],
 			openWindow: () => void (devices.window = true),
@@ -106,7 +114,22 @@ export async function createWorld(setup: Scenario["setup"] = {}, options: WorldO
 		},
 	});
 	await agents.start();
+	// What reaches the person, routed as the app routes it (src/bun/index.ts): toasts, the Mac's
+	// clipboard and plugins' navigation.
+	const personToasts: { text: string; source?: string }[] = [];
+	const clipboard: string[] = [];
+	host.subscribe({
+		plugins: () => {},
+		tree: () => {},
+		toast: (_plugin, text, _tone, _action, event) => {
+			const route = agents.routing.toast(event);
+			if (route.show) personToasts.push({ text, ...(route.source ? { source: route.source } : {}) });
+		},
+		clipboard: (_plugin, text, event) => void (agents.routing.clipboard(event) && clipboard.push(text)),
+		navigate: (plugin, screen, _select, event) => void (agents.routing.navigate(event) && navigated.push(`${plugin}/${screen}`)),
+	});
 	const socket = agents.server.path;
+	let stateOpen = false;
 	const world = {
 		dir,
 		host,
@@ -118,6 +141,31 @@ export async function createWorld(setup: Scenario["setup"] = {}, options: WorldO
 		async answer(answer: { allow: boolean; duration?: string }) {
 			const asked = await until(() => agents.core.state().approvals[0], 4000, "the person to be asked").catch(() => null);
 			if (asked) agents.handle({ operation: "answer", id: asked.id, allow: answer.allow, duration: answer.duration as never });
+		},
+		personToasts,
+		clipboard,
+		journal: () => (journal.flush(), journal.read(1000).sort((a, b) => a.seq - b.seq)),
+		/**
+		 * Answers a run_action or fill_form approval once it's asked (or gives up after a few seconds),
+		 * after doing `meanwhile`. `cancel` is the adapter's: the agent withdraws the call.
+		 */
+		async approve(approve: Approve, meanwhile: PersonAction | undefined, cancel: () => void) {
+			const asked = await until(() => agents.core.state().approvals.find((a) => a.change), 4000, "the person to be asked").catch(() => null);
+			if (!asked) return;
+			if (meanwhile) await world.person(meanwhile);
+			if (approve === "cancel") return cancel();
+			if (approve === "deny") agents.handle({ operation: "answer", id: asked.id, allow: false });
+			else if (approve === "once") agents.handle({ operation: "answer", id: asked.id, allow: true, scope: "once" });
+			else agents.handle({ operation: "answer", id: asked.id, allow: true, scope: "grant", duration: approve.grant });
+		},
+		/** The errands fixture's state, from its debug screen (an instance of the harness's own). */
+		async state(): Promise<Record<string, unknown>> {
+			if (!stateOpen) {
+				host.open("errands", "screen:debug", "test:state", {});
+				stateOpen = true;
+			}
+			const tree = await until(() => host.snapshot("errands", "screen:debug", "test:state")?.tree, 4000, "errands' debug screen");
+			return JSON.parse(((tree as { children: { text: string }[] }).children[0]).text);
 		},
 		audit: () =>
 			readFileSync(join(dir, "agent-audit.jsonl"), "utf8")
@@ -142,8 +190,10 @@ export async function createWorld(setup: Scenario["setup"] = {}, options: WorldO
 					await until(() => host.snapshot(plugin, surface)?.tree, 4000, `${action.event.screen} to render`);
 				}
 				const before = trees.length;
-				host.event(plugin, surface, action.event.name, action.event.payload);
-				await until(() => trees.slice(before).some((t) => t.plugin === plugin && t.surface === surface), 4000, `${action.event.screen} to render after ${action.event.name}`);
+				const id = host.event(plugin, surface, action.event.name, action.event.payload);
+				// Once the plugin answered, the screen renders again if the event changed it.
+				await until(() => id !== null && settled.has(id), 4000, `${plugin} to answer ${action.event.name}`);
+				await until(() => trees.slice(before).some((t) => t.plugin === plugin && t.surface === surface), 1000, "").catch(() => {});
 				if (glance) host.close(plugin, surface);
 			} else if ("access" in action) {
 				agents.handle({ operation: "setAccess", plugin: action.access.plugin, access: action.access.level });
@@ -154,16 +204,21 @@ export async function createWorld(setup: Scenario["setup"] = {}, options: WorldO
 				const { plugin, surface } = split(action.restore);
 				agents.handle({ operation: "restoreView", plugin, surface });
 				await Bun.sleep(100);
+			} else if ("toast" in action) {
+				const id = host.event(action.toast.plugin, "toast", action.toast.action, action.toast.payload);
+				await until(() => id !== null && settled.has(id), 4000, `${action.toast.plugin} to answer its toast's ${action.toast.action}`);
 			} else if ("revoke" in action) {
-				// "*": every agent's grant.
-				for (const client of action.revoke === "*" ? agents.core.state().grants.map((g) => g.client) : [action.revoke])
-					agents.handle({ operation: "revokeGrant", client });
+				// "*": every agent's grants, view and write.
+				const state = agents.core.state();
+				for (const client of action.revoke === "*" ? state.grants.map((g) => g.client) : [action.revoke]) agents.handle({ operation: "revokeGrant", client });
+				for (const g of state.writeGrants) if (action.revoke === "*" || g.client === action.revoke) agents.handle({ operation: "revokeWriteGrant", client: g.client, plugin: g.plugin });
 			}
 		},
 		async stop() {
 			agents.stop();
 			agents.core.stop();
 			host.stop();
+			journal.flush();
 			await Bun.sleep(50);
 			rmSync(dir, { recursive: true, force: true });
 		},
@@ -202,6 +257,18 @@ const describeStep = (step: Step) =>
 export async function runScenario(s: Scenario, channel: Channel): Promise<RunRecord> {
 	const world = await createWorld(s.setup);
 	const agent: ChannelAdapter = adapter(channel, { socket: world.socket, autonomous: s.mode === "autonomous", client: `scenario ${s.id}` });
+	/** Other agents a step names (`as`), each its own session. */
+	const others = new Map<string, ChannelAdapter>();
+	const agentFor = async (name?: string) => {
+		if (name === undefined) return agent;
+		let other = others.get(name);
+		if (!other) {
+			other = adapter(channel, { socket: world.socket, autonomous: s.mode === "autonomous", client: `scenario ${s.id} ${name}` });
+			others.set(name, other);
+			await other.start?.();
+		}
+		return other;
+	};
 	const record: RunRecord = { scenario: s.id, channel, steps: [], failures: [] };
 	try {
 		for (const p of s.setup?.person ?? []) await world.person(p);
@@ -214,10 +281,16 @@ export async function runScenario(s: Scenario, channel: Channel): Promise<RunRec
 			const started = Date.now();
 			let outcome: Outcome | null = null;
 			const navigatedBefore = world.navigated.length;
+			const toastsBefore = world.personToasts.length;
+			const clipboardBefore = world.clipboard.length;
 			if ("call" in step) {
 				const answering = step.answer ? world.answer(step.answer) : null;
-				outcome = await agent.call(step.call, step.args ?? {}, step.structured === true);
+				let cancel = () => {};
+				const cancelled = new Promise<void>((resolve) => (cancel = resolve));
+				const approving = step.approve !== undefined ? world.approve(step.approve, step.meanwhile, cancel) : null;
+				outcome = await (await agentFor(step.as)).call(step.call, step.args ?? {}, step.structured === true, cancelled);
 				await answering;
+				await approving;
 			}
 			else if ("read" in step) outcome = await agent.read!(uriOf(step.read));
 			else if ("subscribe" in step) outcome = await agent.subscribe!(uriOf(step.subscribe));
@@ -231,6 +304,28 @@ export async function runScenario(s: Scenario, channel: Channel): Promise<RunRec
 				const want = JSON.stringify(step.expect.personView.view);
 				const got = await until(() => JSON.stringify(world.host.personView(plugin, surface)) === want && want, 2000, "").catch(() => JSON.stringify(world.host.personView(plugin, surface)));
 				if (got !== want) failures.push(`${where}: expected the person's view of ${step.expect.personView.screen} to be ${want}, got ${got}`);
+			}
+			if (step.expect?.state) {
+				const want = step.expect.state;
+				const matches = (state: Record<string, unknown>) => Object.entries(want).every(([k, v]) => JSON.stringify(state[k]) === JSON.stringify(v));
+				let last: Record<string, unknown> = {};
+				const end = Date.now() + 2000;
+				while (Date.now() < end) {
+					last = await world.state();
+					if (matches(last)) break;
+					await Bun.sleep(20);
+				}
+				for (const [k, v] of Object.entries(want)) if (JSON.stringify(last[k]) !== JSON.stringify(v)) failures.push(`${where}: expected errands' ${k} to be ${JSON.stringify(v)}, got ${JSON.stringify(last[k])}`);
+			}
+			if (step.expect?.personToasts) {
+				// Toasts arrive while the plugin handles the event: give a late one a moment.
+				await Bun.sleep(50);
+				const seen = world.personToasts.slice(toastsBefore).map((t) => ({ text: t.text, fromAgent: t.source !== undefined }));
+				if (JSON.stringify(seen) !== JSON.stringify(step.expect.personToasts)) failures.push(`${where}: expected the person to see toasts ${JSON.stringify(step.expect.personToasts)}, got ${JSON.stringify(seen)}`);
+			}
+			if (step.expect?.clipboard) {
+				const written = world.clipboard.slice(clipboardBefore);
+				if (JSON.stringify(written) !== JSON.stringify(step.expect.clipboard)) failures.push(`${where}: expected the Mac's clipboard to get ${JSON.stringify(step.expect.clipboard)}, got ${JSON.stringify(written)}`);
 			}
 			const got: { method: string; params: unknown }[] = [];
 			if (agent.resources && agent.notifications)
@@ -261,8 +356,27 @@ export async function runScenario(s: Scenario, channel: Channel): Promise<RunRec
 				else from = at + 1;
 			}
 		}
+		if (s.expect?.journal) {
+			// Entries are written once each event's result arrives.
+			await Bun.sleep(50);
+			const journal = world.journal();
+			const fits = (e: (typeof journal)[number], want: NonNullable<NonNullable<Scenario["expect"]>["journal"]>[number]) =>
+				e.name === want.name && e.actor.kind === want.actor && (want.approval === undefined || e.approval === want.approval) && (want.outcome === undefined || e.outcome === want.outcome);
+			let from = 0;
+			for (const want of s.expect.journal) {
+				const at = journal.findIndex((e, i) => i >= from && fits(e, want));
+				if (at < 0) record.failures.push(`${s.id} [${channel}]: no journal entry ${JSON.stringify(want)} in order (journal: ${JSON.stringify(journal.map((e) => ({ name: e.name, actor: e.actor.kind, approval: e.approval, outcome: e.outcome })))})`);
+				else from = at + 1;
+			}
+			if (s.expect.journalExact && journal.length !== s.expect.journal.length)
+				record.failures.push(`${s.id} [${channel}]: expected ${s.expect.journal.length} journal entries, got ${journal.length}: ${JSON.stringify(journal.map((e) => ({ name: e.name, actor: e.actor.kind, approval: e.approval })))}`);
+			// The journal and the audit log name the same events.
+			const audited = new Set(world.audit().flatMap((a) => (a.events as string[] | undefined) ?? []));
+			for (const e of journal) if (e.actor.kind === "agent" && !audited.has(e.event)) record.failures.push(`${s.id} [${channel}]: journal entry ${e.name} (event ${e.event}) has no audit entry`);
+		}
 	} finally {
 		await agent.close();
+		for (const other of others.values()) await other.close();
 		await world.stop();
 	}
 	return record;

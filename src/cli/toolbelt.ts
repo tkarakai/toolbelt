@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { bundledSettingsFolder } from "../shared/variant";
 import skill from "./SKILL.md" with { type: "text" };
 
-const HELP = `toolbelt — read ToolBelt's plugin screens from the terminal or an AI agent.
+const HELP = `toolbelt — read ToolBelt's plugin screens, and act in the ones you allow, from the terminal or an AI agent.
 
 Usage:
   toolbelt status                       App version, updates, plugins and their screens
@@ -25,10 +25,24 @@ Usage:
       --sort TABLE=KEY       sort a table by a column (-KEY descending); repeatable
       --control ID=VALUE     set a page control; repeatable
       --person               read exactly what the person's screens show instead
+      --acting               read your acting copy (where act and fill work), dialogs included
   toolbelt show <plugin> [screen]       Show the person a screen on every ToolBelt screen they
                                         have open, with the same view options (asks them first)
       --row ID               select this row (its {id: …} in read) with its details open
       --open-window          open ToolBelt's window on the Mac if it's closed
+  toolbelt act <plugin> <screen> <action>   Run an action (its id or label) in your acting copy of
+                                        the screen; changes ask the person in ToolBelt first
+      --row ID               the row it acts on; repeat for a bulk action on several rows
+      --table ID             the table, when row ids repeat across tables
+      --target ID            one of the action's targets
+      --text TEXT            text for an action that takes it
+      --dialog ID            the dialog the action is in
+      --open-window          open ToolBelt's window to ask, if no ToolBelt screen is open
+      View options (and --person) replace your acting copy's view first.
+  toolbelt fill <plugin> <screen> <form>   Set fields of a form (its id or title) in your acting copy
+      --set FIELD=VALUE      a field (id or label) and its value; repeatable
+      --row ID               the row whose drawer holds the form
+      --open-window          as for act; view options and --person as for act
   toolbelt search <words…> [--plugin ID]  Lines mentioning every word, across all screens
   toolbelt plugins                      Installed plugins and available updates
   toolbelt mcp                          Run as an MCP server on stdio (for Claude Code, Codex, …)
@@ -39,11 +53,13 @@ Options:
   --socket PATH    ToolBelt's agent socket (default: agent.sock in the folder of the app this
                    command ships in, so ToolBelt Dev's command talks to ToolBelt Dev)
   --autonomous     Mark this session as autonomous: nobody is watching it
-  --json           Print the structured result as JSON (status, screens, read, search, plugins)
+  --json           Print the structured result as JSON (every command but mcp and skill)
 
 ToolBelt must be running with Settings → Agents → "Let agents use ToolBelt" on.
-Exit codes: 1 when ToolBelt can't be reached, 2 when the call was refused or failed or the
-command line is wrong.`;
+One script's or shell's commands are one session: act and fill share an acting copy, and its
+drafts, for 10 minutes after the last command.
+Exit codes: 1 when ToolBelt can't be reached, 2 when the call was refused, denied or failed or
+the command line is wrong.`;
 
 /** A mistake in the command line: printed with a pointer to help, exit code 2. */
 class UsageError extends Error {}
@@ -53,8 +69,10 @@ const VIEW_FLAGS = ["search", "filter", "sort", "control"];
 const COMMAND_FLAGS: Record<string, string[]> = {
 	status: [],
 	screens: ["plugin"],
-	read: ["max-rows", "table", "offset", "parent", "details", "no-details", "person", ...VIEW_FLAGS],
+	read: ["max-rows", "table", "offset", "parent", "details", "no-details", "person", "acting", ...VIEW_FLAGS],
 	show: ["row", "open-window", ...VIEW_FLAGS],
+	act: ["row", "table", "target", "text", "dialog", "open-window", "person", ...VIEW_FLAGS],
+	fill: ["set", "row", "open-window", "person", ...VIEW_FLAGS],
 	search: ["plugin"],
 	plugins: [],
 	mcp: ["client"],
@@ -63,9 +81,9 @@ const COMMAND_FLAGS: Record<string, string[]> = {
 };
 
 type Args = { positional: string[]; flags: Map<string, string | true>; repeated: Map<string, string[]> };
-const VALUED = ["socket", "max-rows", "table", "offset", "parent", "row", "plugin", "client", ...VIEW_FLAGS];
+const VALUED = ["socket", "max-rows", "table", "offset", "parent", "row", "plugin", "client", "target", "text", "dialog", "set", ...VIEW_FLAGS];
 /** Flags that may be given more than once (`--filter a=x --filter b=y`). */
-const REPEATABLE = new Set(["filter", "sort", "control"]);
+const REPEATABLE = new Set(["filter", "sort", "control", "row", "set"]);
 function parse(argv: string[]): Args {
 	const positional: string[] = [];
 	const flags = new Map<string, string | true>();
@@ -359,8 +377,10 @@ async function main() {
 			{
 				const view = viewOf(flags, repeated);
 				if (view && flags.has("person")) throw new UsageError("--person reads the person's view; it can't be combined with view options.");
+				if (flags.has("acting") && (view || flags.has("person"))) throw new UsageError("--acting reads your acting copy with the view it has; give view options to act or fill instead.");
 				if (flags.has("person")) args.view = "person";
 				else if (view) args.view = view;
+				if (flags.has("acting")) args.acting = true;
 			}
 			break;
 		case "show": {
@@ -368,6 +388,40 @@ async function main() {
 			tool = "show_screen";
 			const view = viewOf(flags, repeated);
 			args = { plugin: rest[0], ...(rest[1] ? { screen: rest[1] } : {}), ...(view ? { view } : {}), ...(typeof flags.get("row") === "string" ? { row: flags.get("row") } : {}), ...(flags.has("open-window") ? { open_window: true } : {}) };
+			break;
+		}
+		case "act": {
+			if (rest.length < 3) throw new UsageError("Usage: toolbelt act <plugin> <screen> <action> [--row ID]…");
+			tool = "run_action";
+			const rows = repeated.get("row") ?? [];
+			args = {
+				plugin: rest[0],
+				screen: rest[1],
+				action: rest.slice(2).join(" "),
+				...(rows.length === 1 ? { row: rows[0] } : rows.length > 1 ? { rows } : {}),
+				...(typeof flags.get("table") === "string" ? { table: flags.get("table") } : {}),
+				...(typeof flags.get("target") === "string" ? { target: flags.get("target") } : {}),
+				...(typeof flags.get("text") === "string" ? { text: flags.get("text") } : {}),
+				...(typeof flags.get("dialog") === "string" ? { dialog: flags.get("dialog") } : {}),
+				...(flags.has("open-window") ? { open_window: true } : {}),
+			};
+			actingView(args);
+			break;
+		}
+		case "fill": {
+			if (rest.length < 3) throw new UsageError("Usage: toolbelt fill <plugin> <screen> <form> --set FIELD=VALUE…");
+			tool = "fill_form";
+			const sets = repeated.get("set") ?? [];
+			if (!sets.length) throw new UsageError("toolbelt fill needs at least one --set FIELD=VALUE. Run toolbelt help.");
+			const values: Record<string, string> = {};
+			for (const pair of sets) {
+				const at = pair.indexOf("=");
+				if (at <= 0) throw new UsageError(`--set needs FIELD=VALUE (got ${pair}). Run toolbelt help.`);
+				values[pair.slice(0, at)] = pair.slice(at + 1);
+			}
+			args = { plugin: rest[0], screen: rest[1], form: rest.slice(2).join(" "), values, ...(typeof flags.get("row") === "string" ? { row: flags.get("row") } : {}), ...(flags.has("open-window") ? { open_window: true } : {}) };
+			if ((repeated.get("row") ?? []).length > 1) throw new UsageError("toolbelt fill takes one --row.");
+			actingView(args);
 			break;
 		}
 		case "search":
@@ -380,6 +434,13 @@ async function main() {
 			break;
 		default:
 			throw new UsageError(`Unknown command ${command}. Run toolbelt help.`);
+	}
+	/** act and fill: the view flags (or --person) replace the acting copy's view. */
+	function actingView(target: Record<string, unknown>) {
+		const view = viewOf(flags, repeated);
+		if (view && flags.has("person")) throw new UsageError("--person copies the person's view; it can't be combined with view options.");
+		if (flags.has("person")) target.view = "person";
+		else if (view) target.view = view;
 	}
 	// --json asks every tool for its structured result.
 	if (flags.has("json")) args.format = "json";

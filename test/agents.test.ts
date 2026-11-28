@@ -76,8 +76,8 @@ describe("access levels", () => {
 	});
 	test("saved settings are checked", () => {
 		const grant = { client: "claude-code", granted: 1, until: 2, duration: "hour" };
-		expect(agentSettings({ enabled: "yes", access: { a: "read", b: "all", c: "none" }, grants: [grant, { ...grant, duration: "forever" }, { ...grant, duration: "session" }, { client: 3 }] })).toEqual({ enabled: false, access: { a: "read", c: "none" }, grants: [grant] as never });
-		expect(agentSettings(undefined)).toEqual({ enabled: false, access: {}, grants: [] });
+		expect(agentSettings({ enabled: "yes", access: { a: "read", b: "all", c: "none" }, grants: [grant, { ...grant, duration: "forever" }, { ...grant, duration: "session" }, { client: 3 }] })).toEqual({ enabled: false, access: { a: "read", c: "none" }, grants: [grant] as never, writeGrants: [] });
+		expect(agentSettings(undefined)).toEqual({ enabled: false, access: {}, grants: [], writeGrants: [] });
 	});
 	test("every view grant ends", () => {
 		const at = new Date(2026, 10, 25, 9, 30).getTime();
@@ -656,7 +656,7 @@ const tmp = () => mkdtempSync(join(tmpdir(), "tb-agent-"));
 
 function makeCore(host: AgentHost, access: Record<string, "none" | "read" | "act"> = {}) {
 	const dir = tmp();
-	let settings: AgentSettings = { enabled: true, access, grants: [] };
+	let settings: AgentSettings = { enabled: true, access, grants: [], writeGrants: [] };
 	const core = new AgentCore({
 		host,
 		settings: () => settings,
@@ -910,7 +910,7 @@ describe("agent core", () => {
 		const dir = tmp();
 		const core = new AgentCore({
 			host,
-			settings: () => ({ enabled: true, access: {}, grants: [] }),
+			settings: () => ({ enabled: true, access: {}, grants: [], writeGrants: [] }),
 			save: () => {},
 			app: () => ({ name: "ToolBelt Dev", version: "9.9.9", channel: "dev", developmentProfile: null, location: "/w/a/build.noindex/Toolbelt-dev.app" }),
 			installed: () => [
@@ -957,7 +957,7 @@ describe("agent views and the person's view", () => {
 	function viewCore(o: { window?: boolean; approvalMs?: number; render?: (view?: ViewState) => Node; devices?: PersonDevice[] } = {}) {
 		const host = fakeHost([manifest("tasks")], (_p, _s, view) => (o.render ? o.render(view) : page(3, view?.search ? { summary: `searched ${view.search}` } : {})), declared);
 		const dir = tmp();
-		let settings: AgentSettings = { enabled: true, access: {}, grants: [] };
+		let settings: AgentSettings = { enabled: true, access: {}, grants: [], writeGrants: [] };
 		const person = { views: new Map<string, ViewState>(), navigated: [] as string[], selections: [] as (NavigationSelection | undefined)[], window: o.window ?? true, opened: 0 };
 		let viewListener: ((plugin: string, surface: string, view: ViewState) => void) | undefined;
 		const subscribe = host.subscribe;
@@ -1236,8 +1236,9 @@ describe("agent socket", () => {
 		c.send({ jsonrpc: "2.0", method: "notifications/initialized" });
 		c.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
 		const tools = (await c.reply(2)).result.tools;
-		expect(tools.map((t: { name: string }) => t.name)).toEqual(["toolbelt_status", "list_screens", "read_screen", "search_screens", "show_screen", "list_plugins"]);
-		expect(tools.filter((t: { annotations: { readOnlyHint: boolean } }) => !t.annotations.readOnlyHint).map((t: { name: string }) => t.name)).toEqual(["show_screen"]);
+		// A fixed list in a fixed order.
+		expect(tools.map((t: { name: string }) => t.name)).toEqual(["toolbelt_status", "list_screens", "read_screen", "search_screens", "show_screen", "list_plugins", "run_action", "fill_form"]);
+		expect(tools.filter((t: { annotations: { readOnlyHint: boolean } }) => !t.annotations.readOnlyHint).map((t: { name: string }) => t.name)).toEqual(["show_screen", "run_action", "fill_form"]);
 		c.send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "read_screen", arguments: { plugin: "tasks" } } });
 		const read = (await c.reply(3)).result;
 		expect(read.content[0].text).toContain("Thing 0");
@@ -1302,7 +1303,7 @@ describe("agent socket", () => {
 	test("the CLI reads through the socket; the factory starts only when enabled", { timeout: 20_000 }, async () => {
 		const host = fakeHost([manifest("tasks")]);
 		const dir = tmp();
-		let settings: AgentSettings = { enabled: false, access: {}, grants: [] };
+		let settings: AgentSettings = { enabled: false, access: {}, grants: [], writeGrants: [] };
 		const agents = createAgentInterface({
 			host,
 			settings: () => settings,

@@ -67,7 +67,8 @@ export type ToolbeltRPC = {
             selectionChanged: { plugin: string; selection: import("./navigation").NavigationSelection | null; at?: number };
             pluginManagerState:ReturnType<import("../bun/plugin-manager-service").PluginManagerService["read"]>;
 			tree: Surface & { tree: Node };
-			toast: { plugin: string; text: string; tone?: "default" | "success" | "error"; action?: import("./protocol").ToastAction };
+			/** `source`: the agent whose change the toast answers ("Claude Code"); its button is still the person's. */
+			toast: { plugin: string; text: string; tone?: "default" | "success" | "error"; action?: import("./protocol").ToastAction; source?: string };
 			/** Ask before quitting (⌘Q, Quit buttons): this view shows the confirmation. */
 			confirmQuit: {};
 			/** Main window: switch to this plugin/screen. */

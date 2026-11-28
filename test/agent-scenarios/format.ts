@@ -6,8 +6,10 @@
 export type Channel = "mcp" | "cli";
 export const CHANNELS: Channel[] = ["mcp", "cli"];
 
-export type Tool = "toolbelt_status" | "list_screens" | "read_screen" | "search_screens" | "list_plugins" | "show_screen";
-export const TOOLS: Tool[] = ["toolbelt_status", "list_screens", "read_screen", "search_screens", "list_plugins", "show_screen"];
+export type Tool = "toolbelt_status" | "list_screens" | "read_screen" | "search_screens" | "list_plugins" | "show_screen" | "run_action" | "fill_form";
+export const TOOLS: Tool[] = ["toolbelt_status", "list_screens", "read_screen", "search_screens", "list_plugins", "show_screen", "run_action", "fill_form"];
+/** Tools whose changes the person approves (`approve` on their steps). */
+export const ACTING: Tool[] = ["run_action", "fill_form"];
 
 export type Access = "none" | "read" | "act";
 
@@ -24,11 +26,23 @@ export type PersonAction =
 	| { agents: boolean }
 	/** "Shown by" › Restore on a screen an agent changed ("plugin/screen"). */
 	| { restore: string }
-	/** Settings → Agents › Changing your view › Revoke, for an agent by client name. */
-	| { revoke: string };
+	/** Settings → Agents › Revoke: an agent's (client name; "*" for every agent's) view and write grants. */
+	| { revoke: string }
+	/** Presses a toast's button (Undo): the toast event the person sends. */
+	| { toast: { plugin: string; action: string; payload?: unknown } };
+
+type Duration = "session" | "hour" | "today" | "week" | "month";
+
+/**
+ * How the person answers a run_action or fill_form approval as soon as it's asked: allow once,
+ * allow with a write grant for a duration ("Allow changes in …"), or deny. "cancel": the agent
+ * withdraws the call while it waits (MCP `notifications/cancelled`; the CLI's process ends).
+ * Without it, nobody answers.
+ */
+export type Approve = "once" | "deny" | "cancel" | { grant: Duration };
 
 /** The person's answer to show_screen's question, given as soon as it's asked. */
-export type Answer = { allow: boolean; duration?: "session" | "hour" | "today" | "week" | "month" };
+export type Answer = { allow: boolean; duration?: Duration };
 
 export type Notification = {
 	method: "notifications/resources/updated" | "notifications/resources/list_changed";
@@ -50,8 +64,14 @@ export type Expect = {
 	notifications?: Notification[];
 	/** The person's saved view of a screen after this step (compared as JSON). */
 	personView?: { screen: string; view: Record<string, unknown> };
-	/** Screens shown on the person's screens by this step, in order ("plugin/screen"). */
+	/** Screens shown on the person's screens by this step, in order ("plugin/screen"): show_screen's, and plugins' navigation that reached them. */
 	navigated?: string[];
+	/** The errands fixture's state after this step (its debug screen): each key compared as JSON. */
+	state?: Record<string, unknown>;
+	/** Toasts the person saw during this step, in order, and whether each showed as from an agent. */
+	personToasts?: { text: string; fromAgent: boolean }[];
+	/** Text written to the Mac's clipboard during this step. */
+	clipboard?: string[];
 };
 
 export type Step =
@@ -61,6 +81,12 @@ export type Step =
 			/** The structured result (MCP structuredContent, CLI --json) instead of text. */ structured?: boolean;
 			/** For show_screen: how the person answers if asked; without it, nobody answers. */
 			answer?: Answer;
+			/** For run_action and fill_form: how the person answers the approval. */
+			approve?: Approve;
+			/** What the person does after the approval appears and before answering it. */
+			meanwhile?: PersonAction;
+			/** Another agent (its own session) makes this call: MCP only, where each client is a session. */
+			as?: string;
 			expect?: Expect;
 	  }
 	/** Resource steps: channels with resources only (MCP). */
@@ -69,7 +95,21 @@ export type Step =
 	| { unsubscribe: string; expect?: Expect }
 	| { person: PersonAction; expect?: Expect };
 
-export type AuditExpect = { operation: string; outcome: "ok" | "denied" | "error"; plugin?: string; mode?: "interactive" | "autonomous" };
+export type AuditExpect = {
+	operation: string;
+	outcome: "ok" | "denied" | "error";
+	plugin?: string;
+	mode?: "interactive" | "autonomous";
+	action?: string;
+	form?: string;
+	effect?: string;
+	rows?: number;
+	approval?: "none" | "grant" | "once" | "denied" | "timed out" | "cancelled" | "changed";
+	result?: "ok" | "not-handled" | "error" | "no-answer";
+};
+
+/** A change journal entry (journal/changes.jsonl), by the action id or `form.field` it records. */
+export type JournalExpect = { name: string; actor: "person" | "agent"; approval?: "none" | "grant" | "once"; outcome?: "ok" | "not-handled" | "error" | "no-answer" };
 
 export type Scenario = {
 	id: string;
@@ -88,10 +128,16 @@ export type Scenario = {
 		devices?: { window?: boolean; paired?: { name: string; connected: boolean }[] };
 		/** What the person does before the agent starts. */
 		person?: PersonAction[];
+		/** Adds the plugins agents may act on (test/fixtures/agents-act: errands). */
+		acting?: boolean;
 	};
 	steps: Step[];
 	/** Checks over the whole run: every output together, and the audit log. */
-	expect?: { contains?: string[]; absent?: string[]; audit?: AuditExpect[] };
+	/**
+	 * Checks over the whole run: every output together, audit entries in order, and change journal
+	 * entries in order (`journal`; every entry when `journalExact`).
+	 */
+	expect?: { contains?: string[]; absent?: string[]; audit?: AuditExpect[]; journal?: JournalExpect[]; journalExact?: boolean };
 	/** What a good final answer does: for a model judge (layer 4), not for scripted tests. */
 	rubric?: string[];
 	/** Where the scenario came from, e.g. the first hand-run evaluation. */
@@ -125,6 +171,7 @@ export function validateScenario(value: unknown): Scenario {
 		else if ("agents" in p) typeof p.agents === "boolean" || fail(`${where}: agents`);
 		else if ("restore" in p) screen(p.restore, where);
 		else if ("revoke" in p) typeof p.revoke === "string" || fail(`${where}: revoke`);
+		else if ("toast" in p) (typeof p.toast?.plugin === "string" && typeof p.toast.action === "string") || fail(`${where}: toast`);
 		else fail(`${where}: unknown person action ${keys[0]}`);
 	};
 	for (const p of s.setup?.person ?? []) person(p, "setup");
@@ -132,6 +179,9 @@ export function validateScenario(value: unknown): Scenario {
 		const where = `step ${i + 1}`;
 		if ("call" in step) {
 			if (!TOOLS.includes(step.call)) fail(`${where}: unknown tool ${step.call}`);
+			if (step.approve !== undefined && !ACTING.includes(step.call)) fail(`${where}: approve is for run_action and fill_form`);
+			if (step.meanwhile !== undefined) (step.approve !== undefined || fail(`${where}: meanwhile needs approve`), person(step.meanwhile, where));
+			if (step.as !== undefined && s.channels.includes("cli")) fail(`${where}: as (another agent) needs channels ["mcp"]: the CLI's calls from one test are one session`);
 		} else if ("read" in step) screen(step.read, where);
 		else if ("subscribe" in step) screen(step.subscribe, where);
 		else if ("unsubscribe" in step) screen(step.unsubscribe, where);
