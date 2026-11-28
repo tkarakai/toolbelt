@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EmptyState, Markdown, When, useConfirm, type Emit } from "./Render";
 import { MarkdownBox, PaneRow } from "./compose";
+import { entryActions, payloadFor } from "../../shared/actions";
 import { actionForEvent, formatKey } from "./pure";
 import { ENTERING, enterStyle, LEAVING, leavingProps, useRowMotion } from "./row-motion";
 
@@ -22,12 +23,6 @@ const stamp = (at: number) => {
 	const d = new Date(at);
 	const sameYear = d.getFullYear() === new Date().getFullYear();
 	return d.toLocaleString(undefined, { month: "short", day: "numeric", ...(!sameYear && { year: "numeric" }), hour: "numeric", minute: "2-digit" });
-};
-
-/** The entry's actions; editing in place comes first (↵, double-click). */
-const entryActions = (node: TimelineNode, e: TimelineEntry): Action[] => {
-	const all = [...(node.edit ? [node.edit] : []), ...(node.actions ?? [])];
-	return e.actions ? all.filter((a) => a === node.edit || e.actions!.includes(a.id)) : all;
 };
 
 export function Timeline({ node, emit }: { node: TimelineNode; emit: Emit }) {
@@ -47,7 +42,7 @@ export function Timeline({ node, emit }: { node: TimelineNode; emit: Emit }) {
 	}, [node.selected]);
 
 	const [editing, setEditing] = useState<string | null>(null);
-	const runOn = (a: Action, e: TimelineEntry) => (a === node.edit ? (setActive(e.id), setEditing(e.id)) : run(a, undefined, { timeline: node.id, entryId: e.id }));
+	const runOn = (a: Action, e: TimelineEntry) => (a === node.edit ? (setActive(e.id), setEditing(e.id)) : run(a, { timeline: node.id, entry: e.id }));
 	const focusEntry = (id: string) => {
 		setActive(id);
 		list.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(id)}"]`)?.focus();
@@ -56,7 +51,7 @@ export function Timeline({ node, emit }: { node: TimelineNode; emit: Emit }) {
 	const finishEdit = (e: TimelineEntry, text: string | null, refocus: boolean) => {
 		if (editing !== e.id) return;
 		setEditing(null);
-		if (text !== null && text.trim() && text !== e.text && node.edit) emit(node.edit.id, { timeline: node.id, entryId: e.id, text: text.trim() });
+		if (text !== null && text.trim() && text !== e.text && node.edit) emit(node.edit.id, payloadFor({ kind: "action", action: node.edit.id, timeline: node.id, entry: e.id, text: text.trim() }));
 		if (refocus) setTimeout(() => focusEntry(e.id));
 	};
 

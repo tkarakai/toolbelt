@@ -14,6 +14,7 @@ import { KeyHint } from "@/components/key-hint";
 import { ArrowUp } from "lucide-react";
 import { FloatingSurface } from "./floating-context";
 import { Markdown, type Emit } from "./Render";
+import { payloadFor } from "../../shared/actions";
 
 /** The row whose drawer pane holds what's rendered (its events carry it as `rowId`). */
 export const PaneRow = createContext<string | undefined>(undefined);
@@ -79,7 +80,7 @@ export function Composer({ node, emit }: { node: Extract<Node, { type: "composer
 	const input = useRef<HTMLInputElement>(null);
 	const send = (text: string) => {
 		if (!text.trim() || node.action.disabled) return;
-		emit(node.action.id, { composer: node.id, text: text.trim() });
+		emit(node.action.id, payloadFor({ kind: "action", action: node.action.id, composer: node.id, text: text.trim() }));
 		setDraft("");
 		box.current?.set("");
 	};

@@ -118,7 +118,7 @@ test("a plugin's runtime declarations replace its handshake's", async () => {
 let labels = ["home"];
 definePlugin({
 	views: () => ({ "screen:main": { filters: Object.fromEntries(labels.map((l) => ["label:" + l, []])) } }),
-	render: { "screen:main": () => ({ type: "text", text: labels.join(",") }) },
+	render: { "screen:main": () => ({ type: "page", actions: [{ id: "add", label: "Add" }], children: [{ type: "text", text: labels.join(",") }] }) },
 	onEvent: (_s, name, _p, ctx) => { if (name === "add") { labels = [...labels, "work"]; ctx.declareViews(); } },
 });`,
 	);
@@ -126,6 +126,7 @@ definePlugin({
 	await until(() => host.list()[0]?.state === "running");
 	expect(host.declaredView("labels", "screen:main")).toEqual({ filters: { "label:home": [] } });
 	host.open("labels", "screen:main");
+	await until(() => host.snapshot("labels", "screen:main")?.tree);
 	host.event("labels", "screen:main", "add");
 	await until(() => Object.keys(host.declaredView("labels", "screen:main")?.filters ?? {}).length === 2);
 	expect(host.declaredView("labels", "screen:main")).toEqual({ filters: { "label:home": [], "label:work": [] } });

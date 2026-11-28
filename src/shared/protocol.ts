@@ -883,9 +883,34 @@ export type PluginMessage =
 	 */
 	| { type: "secret"; requestId: string; op: "get" | "has" | "set" | "delete"; name: string; value?: string };
 
-/** Events Toolbelt sends, by `name`. */
+/**
+ * Events Toolbelt sends, by `name`. The renderer builds every payload with `payloadFor`
+ * (src/shared/actions.ts), and the host checks each person's event against the tree their
+ * screens show before the plugin hears it: an event the tree doesn't offer is dropped.
+ */
 export type EventPayloads = {
-	/** A table/list/card/dialog action: `name` is the action id. */
+	/**
+	 * An action: `name` is the action id, a split-button alternative's id (with the main action's
+	 * payload), or a floating window's suggestion id. The payload depends on where it was offered:
+	 *
+	 * - page toolbar, floating title bar, suggestion: `{}`
+	 * - table row (inline button, row menu, key, details drawer): `{ rowId }`, with `target` when the
+	 *   person picked one of the row's `targets` for the action. In a `contextSelect` table a context
+	 *   row's events carry the row it stands for.
+	 * - bulk action: `{ rowIds }`, the checked rows
+	 * - detail item: `{ rowId: actionRow ?? the row, target? }` (the item's `target`)
+	 * - boxed card: `{ rowId: card id }` (`{}` for a card without an id)
+	 * - dialog: `{ dialog }`
+	 * - list item: `{ rowId: item id }`; the list's `open`: `{ list, item }`
+	 * - timeline entry: `{ timeline, entryId }`; its `edit`: `{ timeline, entryId, text }`
+	 * - composer: `{ composer, text }`
+	 * - a `tags` field's `open`: `{ form, field, key, value }` (no `value` for a flag)
+	 * - toast button: surface `"toast"`, the button's own `payload`
+	 *
+	 * An action with `input` adds `text` (toolbar, rows, bulk, cards, list items, timeline entries).
+	 * Inside a row's `pane`, every event also carries that row's id as `rowId`, replacing one it
+	 * had (a section's button sends `{ rowId }`, a composer `{ composer, text, rowId }`).
+	 */
 	action: {
 		rowId?: string;
 		rowIds?: string[];
@@ -897,6 +922,14 @@ export type EventPayloads = {
 		entryId?: string;
 		/** A `composer`'s id; the text comes in `text`. */
 		composer?: string;
+		/** A list's `open`: the list's id and the item's. */
+		list?: string;
+		item?: string;
+		/** A `tags` field's `open`: the form, the field, and the pill's key and value. */
+		form?: string;
+		field?: string;
+		key?: string;
+		value?: string;
 		/** What was written: a composer, a timeline entry edited in place, an action's `input`. */
 		text?: string;
 	};
@@ -905,22 +938,33 @@ export type EventPayloads = {
 	search: { query: string };
 	/** A sortable column header was clicked: sort `table` by `key`. */
 	sort: { table: string; key: string; desc: boolean };
-	/** A form field changed. */
 	/**
-	 * `rowId`: the row whose `pane` holds the form. `secret`: a secret `text` field's name; its
-	 * `value` is then whether the secret is stored now (true: saved, false: removed).
+	 * A form field changed, or a page control (`segmented`, `choice`: `form` and `field` are the
+	 * control's id, `value` the option picked). `value` has the field type's shape: text for
+	 * `text`, `textarea`, `datetime`, `select` and `combobox`; a boolean for `switch`; a hue for
+	 * `color`; minutes or null for `duration`; `TagValue[]` for `tags`; `OptionItem[]` (without
+	 * `count`) for `options`; `EnvironmentEntry[]` for `environment`. `rowId`: the row whose `pane`
+	 * holds the form. `secret`: a secret `text` field's name; its `value` is then whether the secret
+	 * is stored now (true: saved, false: removed).
 	 */
 	field: { form: string; field: string; value: string | boolean | number | null | EnvironmentEntry[] | TagValue[] | OptionItem[]; rowId?: string; secret?: string };
 	/** A filter's checked options changed. */
 	filter: { filter: string; values: string[] };
+	/**
+	 * The filters were arranged (`Filter.group`): every filter id in its new order, and the
+	 * grouping ones in level order.
+	 */
+	"filter-arrange": { order: string[]; grouped: string[] };
 	/** The selection rested on a row (`selectEvents` tables); null when cleared. */
 	select: { table: string; rowId: string | null };
 	/**
 	 * A row was dragged (`reorder` tables) into `section`, before the row `before` (null: at the
 	 * end, or anywhere in a `"fixed"` section). `section` is a sub-section's id for a drop into
-	 * that sub-section, and `before` then a row in it.
+	 * that sub-section, and `before` then a row in it. With `reorderOnto`, a drop onto a row
+	 * carries `onto`: that row's id (for a context row, the row it stands for), with `before` null
+	 * and the row's section.
 	 */
-	reorder: { table: string; rowId: string; section: string; before: string | null };
+	reorder: { table: string; rowId: string; section: string; before: string | null; onto?: string };
 };
 
 /** Parse a manifest and check the parts Toolbelt relies on. Throws with a readable message. */

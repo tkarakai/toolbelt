@@ -9,6 +9,7 @@ definePlugin({
 			type: "floating",
 			mode: messages.length ? "panel" : "bar",
 			subtitle: "Test",
+			actions: [{ id: "env", label: "Agent command", icon: "terminal" }],
 			suggestions: [{ id: "ask-hello", label: "Say hello", icon: "hand" }],
 			children: [
 				...(messages.length ? [{ type: "conversation", id: "chat", messages } as Node] : []),

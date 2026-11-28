@@ -73,6 +73,7 @@ or restarts an app. The browser preview also has its existing simulated update f
 | --- | --- |
 | Renderer/layout/theme | Renderer-pure, validation and theme tests; real wide/narrow browser and native screens, dialogs, inspector and tool expansion |
 | Manifest/protocol/capabilities | Package, validation, SDK/fake-host and malformed/flood fixtures; update SDK Explorer coverage |
+| Event payloads/action resolver | `test/actions.test.ts` (every addressable node, refusals, payload bytes) and the host's refusal tests; a new node or event shape updates `src/shared/actions.ts` with its renderer call site. Click real actions in the preview (row menu, split button, dialog, composer, drawer field) and check the plugin still gets them |
 | Installer/lifecycle/data | Packages, activation-integrity, owned-process and power-recovery tests; real package install/prepare/probe/restore/remove with isolated data |
 | Assets | Asset-path/content validation tests and rendered icons/images on both surfaces |
 | Manager | Real service/RPC/UI review/install, channel/check/cancel/cleanup/remove/recovery and reactive state; backend validation remains authoritative |

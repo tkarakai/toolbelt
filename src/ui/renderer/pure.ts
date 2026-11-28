@@ -1,7 +1,9 @@
 // The renderer's pure parts — layout decisions and text helpers — kept free of React and the
 // web view, so the tests can import them.
 import type { Action, Column, DetailItem, Filter, Message, Row, Section } from "../../shared/protocol";
-import { flatSections, groupKey, sectionAncestors, sectionDepth, sectionGroup } from "../../shared/sections";
+import { flatSections, rowSection, sectionAncestors, sectionDepth, sectionGroup } from "../../shared/sections";
+import { withAlternatives } from "../../shared/actions";
+export { rowSection };
 
 /**
  * Actions in their groups (`Action.group`), groups in order of first appearance. Without any
@@ -22,7 +24,7 @@ export function groupActions(actions: Action[]): Action[][] {
 }
 
 /** Actions followed by their split-button alternatives (`menu`), in menu order. */
-export const withAlternatives = (actions: Action[]): Action[] => actions.flatMap((a) => [a, ...(a.menu ?? [])]);
+export { withAlternatives };
 
 /** The enabled action or alternative whose one-key shortcut is `key` (case-insensitive). */
 export const actionForKey = (actions: Action[], key: string): Action | undefined =>
@@ -380,16 +382,6 @@ export function groupSummaryLayout(columns: Column[], column: string | undefined
 /** Where a dragged row goes: into `section` (a section or sub-section id), before row `before` (null: the end, or the plugin's choice). */
 export type RowMove = { rowId: string; section: string; before: string | null };
 
-/**
- * The section a row is in, as drops name it ("" without a group): its sub-section's id inside
- * one of the table's declared `sections`, else its top-level group key.
- */
-export function rowSection(row: Row, sections?: Section[]): string {
-	const parents = sectionAncestors(sections);
-	const path = sectionGroup(row.group, parents);
-	const depth = sectionDepth(path, parents);
-	return depth ? groupKey(path[depth - 1]!) : "";
-}
 
 /** The group a row gets when it moves into `section`, keeping any groups it has inside its section. */
 function withSection(group: Row["group"], section: string, sections: Section[]): Row["group"] {

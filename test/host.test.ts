@@ -1,6 +1,6 @@
 // The plugin host against real child processes (fixtures in test/fixtures).
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PluginHost, discover, pluginDirs } from "../src/bun/host";
@@ -9,6 +9,8 @@ import type { PluginInfo } from "../src/shared/plugin-state";
 import { SDK_VERSION } from "../src/shared/package";
 
 const fixtures = join(import.meta.dir, "fixtures");
+/** The echo fixture's counter text. */
+const count = (tree: Node | null | undefined) => JSON.stringify(tree ?? null).match(/count \d+/)?.[0];
 const data = mkdtempSync(join(tmpdir(), "toolbelt-host-"));
 
 /** Resolve when `check` passes, polling. */
@@ -80,7 +82,7 @@ describe("PluginHost", () => {
     const s = start();
     expect(host!.open("echo", "screen:main")).toBeNull();
     await until(() => s.trees.find((t) => t.surface === "screen:main"));
-    expect(s.trees.at(-1)!.tree).toEqual({ type: "text", text: "count 0" });
+    expect(count(s.trees.at(-1)!.tree)).toBe("count 0");
 
     host!.event("echo", "screen:main", "bump");
     await until(() =>
@@ -95,10 +97,7 @@ describe("PluginHost", () => {
     expect(s.plugins().find((p) => p.manifest.id === "echo")?.sdk).toBe(SDK_VERSION);
 
     // A second viewer gets the cached tree right away.
-    expect(host!.open("echo", "screen:main")).toEqual({
-      type: "text",
-      text: "count 1",
-    });
+    expect(count(host!.open("echo", "screen:main"))).toBe("count 1");
   });
 
   test("a floating plugin renders its floating surface and gets the agent command", async () => {
@@ -128,14 +127,16 @@ describe("PluginHost", () => {
     host!.open("echo", "screen:main");
     await until(() => s.trees.find((t) => t.surface === "screen:main"));
     expect(s.navigations).toEqual([]); // start-up navigation: nobody asked
-    host!.event("echo", "screen:main", "go", { screen: "nope" });
-    host!.event("echo", "screen:main", "go", { screen: "main" });
+    host!.event("echo", "screen:main", "go-nope");
+    host!.event("echo", "screen:main", "go-main");
     await until(() => s.navigations.length);
     expect(s.navigations).toEqual(["echo/main/row-1"]);
   });
 
   test("each plugin gets its own data folder", async () => {
     const s = start();
+    host!.open("echo", "screen:main");
+    await until(() => s.trees.find((t) => t.surface === "screen:main"));
     host!.event("echo", "screen:main", "where");
     await until(() => s.toasts.includes(`data ${join(data, "echo")}`));
     expect(existsSync(join(data, "echo"))).toBe(true);
@@ -157,7 +158,7 @@ describe("PluginHost", () => {
     const s = start();
     host!.open("echo", "screen:main");
     await until(() => s.trees.some((t) => t.plugin === "echo"));
-    const count = s.trees.length;
+    const before = s.trees.length;
     const manifest = {
       ...host!.list().find((p) => p.manifest.id === "echo")!.manifest,
       version: "1.1.0",
@@ -172,8 +173,8 @@ describe("PluginHost", () => {
       enabled: true,
       channel: "stable",
     } as import("../src/bun/packages").Installed);
-    await until(() => s.trees.length > count);
-    expect(s.trees.at(-1)?.tree).toEqual({ type: "text", text: "count 0" });
+    await until(() => s.trees.length > before);
+    expect(count(s.trees.at(-1)?.tree)).toBe("count 0");
   });
 
   test("a plugin that keeps crashing ends up crashed, with its stderr", async () => {
@@ -199,6 +200,111 @@ describe("PluginHost", () => {
     );
     const n = s.trees.length;
     await until(() => s.trees.length > n, 5000); // rendered again after the restart
-    expect(s.trees.at(-1)!.tree).toEqual({ type: "text", text: "count 0" });
+    expect(count(s.trees.at(-1)!.tree)).toBe("count 0");
+  });
+});
+
+describe("the host checks each person's event against their screen", () => {
+  let host: PluginHost | undefined;
+  let root: string | undefined;
+  afterEach(async () => {
+    for (const p of host?.list() ?? []) await host!.stopPlugin(p.manifest.id);
+    host = undefined;
+    if (root) rmSync(root, { recursive: true, force: true });
+  });
+
+  /** A plugin whose screen lists every event it heard; `delete` removes the row, `toast` offers Undo. */
+  function start() {
+    root = mkdtempSync(join(tmpdir(), "toolbelt-resolver-"));
+    const dir = join(root, "heard");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "toolbelt.json"), JSON.stringify({ id: "heard", name: "Heard", protocol: 2, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "main", title: "Main" }] }));
+    writeFileSync(
+      join(dir, "index.ts"),
+      `import { definePlugin } from ${JSON.stringify(join(import.meta.dir, "../src/sdk"))};
+const heard = [];
+let rows = ["a", "b"];
+definePlugin({
+  render: {
+    "screen:main": () => ({
+      type: "page",
+      actions: [{ id: "toast", label: "Toast" }, { id: "off", label: "Off", disabled: true }],
+      children: [
+        { type: "table", id: "t", selectEvents: true, columns: [{ key: "n", title: "Name" }], actions: [{ id: "delete", label: "Delete" }, { id: "open", label: "Open", menu: [{ id: "open-in", label: "Open in…" }] }],
+          rows: rows.map((id) => ({ id, cells: { n: id.toUpperCase() } })) },
+        { type: "text", text: "heard " + JSON.stringify(heard) },
+      ],
+    }),
+  },
+  onEvent(surface, name, payload, ctx) {
+    heard.push([surface, name, payload ?? null]);
+    if (name === "delete") rows = rows.filter((r) => r !== payload.rowId);
+    if (name === "toast") ctx.toast("Done", "success", { id: "undo", label: "Undo", payload: { rowId: "a" } });
+    ctx.invalidate();
+  },
+});`,
+    );
+    const toasts: string[] = [];
+    const logs: string[] = [];
+    host = new PluginHost({ dirs: [root], bun: process.execPath, host: { name: "test", version: "0" }, data: join(root, "data"), diagnostic: (_p, kind, line) => kind === "stderr" && logs.push(String(line)) });
+    host.subscribe({ plugins: () => {}, tree: () => {}, toast: (_p, t) => toasts.push(t) });
+    host.start();
+    const heard = () => {
+      const tree = host!.snapshot("heard", "screen:main")?.tree as { children?: { type: string; text?: string }[] } | null | undefined;
+      const text = tree?.children?.find((c) => c.type === "text")?.text;
+      return text ? JSON.parse(text.slice("heard ".length)) : [];
+    };
+    return { toasts, logs, heard };
+  }
+
+  test("offered events reach the plugin unchanged; forged and stale ones never do", async () => {
+    const s = start();
+    await until(() => host!.list()[0]?.state === "running");
+    // Nothing is shown yet: nothing can have been clicked.
+    host!.event("heard", "screen:main", "delete", { rowId: "a" });
+    expect(s.logs.at(-1)).toContain('refused "delete" on screen:main: nothing is shown there yet');
+    host!.open("heard", "screen:main");
+    await until(() => host!.snapshot("heard", "screen:main")?.tree);
+
+    host!.event("heard", "screen:main", "open-in", { rowId: "b" });
+    await until(() => s.heard().length === 1);
+    expect(s.heard()).toEqual([["screen:main", "open-in", { rowId: "b" }]]);
+
+    // Invented, disabled, unoffered on that row, extra payload: dropped, logged, the person told.
+    host!.event("heard", "screen:main", "invented", {});
+    host!.event("heard", "screen:main", "off", {});
+    host!.event("heard", "screen:main", "delete", { rowId: "zzz" });
+    host!.event("heard", "screen:main", "delete", { rowId: "a", text: "sneaky" });
+    expect(s.logs.filter((l) => l.startsWith("refused"))).toHaveLength(5);
+    expect(s.toasts.filter((t) => t === "That item changed. Try again.")).toHaveLength(5);
+
+    // A stale click: the row went away before the second one arrived.
+    host!.event("heard", "screen:main", "delete", { rowId: "a" });
+    await until(() => s.heard().length === 2);
+    host!.event("heard", "screen:main", "delete", { rowId: "a" });
+    expect(s.logs.at(-1)).toContain(`row "a" isn't on the screen`);
+    // A selection that went stale is dropped without a toast: the person didn't ask for it.
+    const toasts = s.toasts.length;
+    host!.event("heard", "screen:main", "select", { table: "t", rowId: "a" });
+    expect(s.toasts.length).toBe(toasts);
+    host!.event("heard", "screen:main", "select", { table: "t", rowId: "b" });
+    await until(() => s.heard().length === 3);
+    await Bun.sleep(100);
+    expect(s.heard().map((e: unknown[]) => e[1])).toEqual(["open-in", "delete", "select"]);
+  });
+
+  test("a toast's button works while the host has seen that toast; a forged one doesn't", async () => {
+    const s = start();
+    host!.open("heard", "screen:main");
+    await until(() => host!.snapshot("heard", "screen:main")?.tree);
+    host!.event("heard", "toast", "undo", { rowId: "a" });
+    expect(s.logs.at(-1)).toContain("no recent toast offers it");
+    host!.event("heard", "screen:main", "toast", {});
+    await until(() => s.toasts.includes("Done"));
+    host!.event("heard", "toast", "undo", { rowId: "b" });
+    host!.event("heard", "toast", "undo", { rowId: "a" });
+    await until(() => s.heard().length === 2);
+    await Bun.sleep(100);
+    expect(s.heard()).toEqual([["screen:main", "toast", {}], ["toast", "undo", { rowId: "a" }]]);
   });
 });

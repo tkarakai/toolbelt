@@ -52,10 +52,7 @@
 			"person": {
 				"event": {
 					"screen": "desk/tasks",
-					"name": "reopen",
-					"payload": {
-						"rowId": "2"
-					}
+					"name": "reopen-all"
 				}
 			}
 		}
