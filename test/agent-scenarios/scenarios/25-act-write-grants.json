@@ -1,0 +1,78 @@
+{
+	"id": "25-act-write-grants",
+	"title": "A write grant covers plain writes, never confirmed, destructive or external actions",
+	"prompt": "Mark my errands done as I finish them today.",
+	"persona": "Someone who lets their agent make routine changes for the day",
+	"channels": ["mcp", "cli"],
+	"setup": { "acting": true },
+	"steps": [
+		{
+			"call": "run_action",
+			"args": { "plugin": "errands", "screen": "list", "action": "done", "row": "e1" },
+			"approve": { "grant": "today" },
+			"expect": {
+				"contains": ["Done: ran \"Mark done\" on \"Buy light bulbs\" {id: e1}", "The person allowed it in ToolBelt.", "Toast: \"Marked “Buy light bulbs” done\" [Undo]: also shown to the person"],
+				"personToasts": [{ "text": "Marked “Buy light bulbs” done", "fromAgent": true }]
+			}
+		},
+		{
+			"call": "run_action",
+			"args": { "plugin": "errands", "screen": "list", "action": "done", "row": "e2" },
+			"expect": { "contains": ["Allowed by the person's grant for changes in Errands"], "personToasts": [{ "text": "Marked “Pick up dry cleaning” done", "fromAgent": true }] }
+		},
+		{
+			"call": "fill_form",
+			"args": { "plugin": "errands", "screen": "list", "form": "details", "row": "e4", "values": { "Priority": "High" } },
+			"expect": { "contains": ["Priority [priority] = \"High\"", "Allowed by the person's grant for changes in Errands"], "state": { "errands": [
+				{ "id": "e1", "title": "Buy light bulbs", "done": true, "note": "", "priority": "normal" },
+				{ "id": "e2", "title": "Pick up dry cleaning", "done": true, "note": "", "priority": "normal" },
+				{ "id": "e3", "title": "Return library books", "done": true, "note": "", "priority": "normal" },
+				{ "id": "e4", "title": "Order birthday cake", "done": false, "note": "", "priority": "high" }
+			] } }
+		},
+		{
+			"call": "run_action",
+			"args": { "plugin": "errands", "screen": "list", "action": "pay", "row": "e4" },
+			"approve": "deny",
+			"expect": { "refused": true, "state": { "paid": [] } }
+		},
+		{
+			"call": "run_action",
+			"args": { "plugin": "errands", "screen": "list", "action": "remove", "row": "e4" },
+			"approve": "deny",
+			"expect": { "refused": true, "state": { "removed": [] } }
+		},
+		{
+			"call": "run_action",
+			"args": { "plugin": "errands", "screen": "list", "action": "open-map" },
+			"approve": "deny",
+			"expect": { "refused": true }
+		},
+		{ "person": { "revoke": "*" } },
+		{
+			"call": "run_action",
+			"args": { "plugin": "errands", "screen": "list", "action": "done", "row": "e4" },
+			"approve": "deny",
+			"expect": { "refused": true, "personToasts": [] }
+		}
+	],
+	"expect": {
+		"audit": [
+			{ "operation": "change_approval", "outcome": "ok", "action": "done", "approval": "once" },
+			{ "operation": "run_action", "outcome": "ok", "action": "done", "effect": "write", "approval": "once" },
+			{ "operation": "run_action", "outcome": "ok", "action": "done", "effect": "write", "approval": "grant" },
+			{ "operation": "fill_form", "outcome": "ok", "form": "details", "rows": 1, "effect": "write", "approval": "grant" },
+			{ "operation": "change_approval", "outcome": "denied", "action": "pay", "effect": "write", "approval": "denied" },
+			{ "operation": "change_approval", "outcome": "denied", "action": "remove", "effect": "destructive", "approval": "denied" },
+			{ "operation": "change_approval", "outcome": "denied", "action": "open-map", "effect": "external", "approval": "denied" },
+			{ "operation": "change_approval", "outcome": "denied", "action": "done", "approval": "denied" }
+		],
+		"journal": [
+			{ "name": "done", "actor": "agent", "approval": "once", "outcome": "ok" },
+			{ "name": "done", "actor": "agent", "approval": "grant", "outcome": "ok" },
+			{ "name": "details.priority", "actor": "agent", "approval": "grant", "outcome": "ok" }
+		],
+		"journalExact": true
+	},
+	"rubric": ["Says the grant lets it mark errands done today without asking each time.", "Never claims a grant covers paying, removing or opening the map."]
+}

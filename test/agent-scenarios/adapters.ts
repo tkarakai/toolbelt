@@ -15,7 +15,8 @@ export interface ChannelAdapter {
 	readonly resources: boolean;
 	/** Connects before the scenario starts, if the channel keeps a session (to see notifications). */
 	start?(): Promise<void>;
-	call(tool: Tool, args: Record<string, unknown>, structured: boolean): Promise<Outcome>;
+	/** `cancel`: resolves when the agent withdraws the call (a run_action waiting for approval). */
+	call(tool: Tool, args: Record<string, unknown>, structured: boolean, cancel?: Promise<void>): Promise<Outcome>;
 	read?(uri: string): Promise<Outcome>;
 	subscribe?(uri: string): Promise<Outcome>;
 	unsubscribe?(uri: string): Promise<Outcome>;
@@ -111,29 +112,38 @@ export class McpAdapter implements ChannelAdapter {
 		this.pending.clear();
 	}
 
-	private request(method: string, params: unknown = {}) {
+	private request(method: string, params: unknown = {}, cancel?: Promise<void>) {
 		return new Promise<any>((resolve) => {
 			if (!this.alive) return resolve({ closed: true });
 			const id = this.next++;
 			this.pending.set(id, resolve);
 			this.send({ jsonrpc: "2.0", id, method, params });
+			// A cancelled request gets no response: the client stops waiting for one.
+			void cancel?.then(() => {
+				if (!this.pending.has(id)) return;
+				this.send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason: "the agent withdrew it" } });
+				setTimeout(() => {
+					if (this.pending.delete(id)) resolve({ cancelled: true });
+				}, 300);
+			});
 		});
 	}
 
-	private async rpc(method: string, params: unknown): Promise<{ result?: any; error?: any } | null> {
+	private async rpc(method: string, params: unknown, cancel?: Promise<void>): Promise<{ result?: any; error?: any; cancelled?: true } | null> {
 		const c = await this.connection();
 		if (!c) return null;
-		const r = await c.request(method, params);
+		const r = await this.request(method, params, cancel);
 		// The shim answers for ToolBelt while it can't reach it (agents off, a restart).
 		return r.closed || r.error?.data?.reason === "unreachable" ? null : r;
 	}
 
 	private static unreachable: Outcome = { text: "", refused: false, unreachable: true };
 
-	async call(tool: Tool, args: Record<string, unknown>, structured: boolean): Promise<Outcome> {
+	async call(tool: Tool, args: Record<string, unknown>, structured: boolean, cancel?: Promise<void>): Promise<Outcome> {
 		// A structured step asks for JSON, as the CLI's --json does.
-		const r = await this.rpc("tools/call", { name: tool, arguments: structured ? { ...args, format: "json" } : args });
+		const r = await this.rpc("tools/call", { name: tool, arguments: structured ? { ...args, format: "json" } : args }, cancel);
 		if (!r) return McpAdapter.unreachable;
+		if (r.cancelled) return { text: "(cancelled: no response, as MCP has it)", refused: true, unreachable: false };
 		if (r.error) return { text: r.error.message, refused: true, unreachable: false };
 		const text = structured && r.result.structuredContent !== undefined ? compact(r.result.structuredContent) : r.result.content.map((c: { text: string }) => c.text).join("\n");
 		return { text, refused: r.result.isError === true, unreachable: false };
@@ -212,13 +222,46 @@ export class CliAdapter implements ChannelAdapter {
 			case "show_screen":
 				known(["plugin", "screen", "view", "row", "open_window"]);
 				return ["show", String(args.plugin), ...(args.screen ? [String(args.screen)] : []), ...CliAdapter.viewFlags(args.view), ...(args.row ? ["--row", String(args.row)] : []), ...(args.open_window ? ["--open-window"] : []), ...json];
+			case "run_action": {
+				known(["plugin", "screen", "action", "row", "rows", "table", "dialog", "target", "text", "view", "open_window"]);
+				const rows = [...(args.row !== undefined ? [String(args.row)] : []), ...((args.rows as string[] | undefined) ?? [])];
+				if (rows.length === 1 && args.rows) throw new Error("the CLI sends one --row as row");
+				return [
+					"act",
+					String(args.plugin),
+					String(args.screen),
+					String(args.action),
+					...rows.flatMap((r) => ["--row", r]),
+					...(args.table !== undefined ? ["--table", String(args.table)] : []),
+					...(args.dialog !== undefined ? ["--dialog", String(args.dialog)] : []),
+					...(args.target !== undefined ? ["--target", String(args.target)] : []),
+					...(args.text !== undefined ? ["--text", String(args.text)] : []),
+					...CliAdapter.viewFlags(args.view),
+					...(args.open_window ? ["--open-window"] : []),
+					...json,
+				];
+			}
+			case "fill_form":
+				known(["plugin", "screen", "form", "values", "row", "view", "open_window"]);
+				return [
+					"fill",
+					String(args.plugin),
+					String(args.screen),
+					String(args.form),
+					...Object.entries(args.values as Record<string, unknown>).flatMap(([k, v]) => ["--set", `${k}=${Array.isArray(v) ? v.join(", ") : String(v)}`]),
+					...(args.row !== undefined ? ["--row", String(args.row)] : []),
+					...CliAdapter.viewFlags(args.view),
+					...(args.open_window ? ["--open-window"] : []),
+					...json,
+				];
 			case "read_screen":
-				known(["plugin", "screen", "format", "max_rows", "table", "offset", "parent", "details", "view"]);
+				known(["plugin", "screen", "format", "max_rows", "table", "offset", "parent", "details", "view", "acting"]);
 				return [
 					"read",
 					String(args.plugin),
 					...(args.screen ? [String(args.screen)] : []),
 					...CliAdapter.viewFlags(args.view),
+					...(args.acting === true ? ["--acting"] : []),
 					...(args.max_rows !== undefined ? ["--max-rows", String(args.max_rows)] : []),
 					...(args.table !== undefined ? ["--table", String(args.table)] : []),
 					...(args.offset !== undefined ? ["--offset", String(args.offset)] : []),
@@ -229,10 +272,17 @@ export class CliAdapter implements ChannelAdapter {
 		}
 	}
 
-	async call(tool: Tool, args: Record<string, unknown>, structured: boolean): Promise<Outcome> {
+	async call(tool: Tool, args: Record<string, unknown>, structured: boolean, cancel?: Promise<void>): Promise<Outcome> {
 		const argv = CliAdapter.argv(tool, args, structured);
 		const p = Bun.spawn([process.execPath, CLI, "--socket", this.o.socket, ...(this.o.autonomous ? ["--autonomous"] : []), ...argv], { stdout: "pipe", stderr: "pipe" });
+		// Withdrawing a CLI call ends its process (Ctrl-C): its connection, and so its session, closes.
+		let killed = false;
+		void cancel?.then(() => {
+			killed = true;
+			p.kill();
+		});
 		const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+		if (killed) return { text: "(cancelled: the command was stopped)", refused: true, unreachable: false };
 		let text = out.trimEnd();
 		if (argv.includes("--json") && code === 0) text = compact(JSON.parse(text));
 		return { text: code === 1 ? err.trim() : text, refused: code === 2, unreachable: code === 1 };

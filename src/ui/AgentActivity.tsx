@@ -17,6 +17,31 @@ import { OPERATION_LABELS, type AgentMode, type AgentPlugin, type AuditEntry, ty
 const PAGE = 50;
 const HOUR = 3_600_000;
 const OUTCOMES: Record<AuditEntry["outcome"], string> = { ok: "Allowed", denied: "Refused", error: "Failed" };
+/** How an agent's change was allowed, in words. */
+const APPROVALS: Record<NonNullable<AuditEntry["approval"]>, string> = {
+	none: "no approval needed",
+	grant: "allowed by a grant",
+	once: "you allowed it",
+	denied: "not allowed",
+	"timed out": "no answer in time",
+	cancelled: "withdrawn by the agent",
+	changed: "the screen changed first",
+};
+const RESULTS: Record<NonNullable<AuditEntry["result"]>, string> = { ok: "done", "not-handled": "not handled", error: "failed", "no-answer": "no answer from the plugin" };
+/** An action or fill's entry in a line: what, how many rows, its effect, how it was allowed and what the plugin did. */
+const change = (e: AuditEntry) =>
+	e.action || e.form
+		? [
+				e.action ? `Action ${e.action}` : `Form ${e.form}`,
+				e.rows ? `${e.rows} row${e.rows === 1 ? "" : "s"}` : "",
+				e.effect && e.effect !== "view" ? e.effect : "",
+				e.approval ? APPROVALS[e.approval] : "",
+				e.result ? RESULTS[e.result] : "",
+				e.error ?? "",
+			]
+				.filter(Boolean)
+				.join(" · ")
+		: "";
 const MODES: Record<AgentMode, string> = { interactive: "Interactive", autonomous: "Autonomous" };
 type Filters = { query: string; plugins: string[]; outcomes: AuditEntry["outcome"][]; modes: AgentMode[]; range: TimeRange };
 const NO_FILTERS: Filters = { query: "", plugins: [], outcomes: [], modes: [], range: null };
@@ -232,6 +257,7 @@ export function AgentActivity({ plugins, newest }: { plugins: AgentPlugin[]; new
 											<div className="truncate text-xs text-muted-foreground @xl:hidden">
 												{[e.plugin && (names.get(e.plugin) ?? e.plugin) + (e.screen ? ` › ${e.screen}` : ""), `${e.client}${e.mode === "autonomous" ? " (autonomous)" : ""}`].filter(Boolean).join(" · ")}
 											</div>
+											{change(e) && <div className="mt-0.5 text-xs break-words text-muted-foreground">{change(e)}</div>}
 											{e.detail && <div className="mt-0.5 text-xs break-words text-muted-foreground">{e.detail}</div>}
 										</TableCell>
 										<TableCell className="hidden text-sm @xl:table-cell">

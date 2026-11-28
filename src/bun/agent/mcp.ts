@@ -36,7 +36,9 @@ const INSTRUCTIONS =
 	"Call toolbelt_status first, then read_screen for detail or search_screens to find something across plugins. " +
 	"read_screen reads your own copy of a screen; its view parameter searches, filters and sorts it in the same call without changing what the person sees. " +
 	"When the person asks you to show them something, show_screen changes what their screens show, after they allow it; to show them one task or row with its details open, pass its {id: …} from read_screen as show_screen's row. " +
-	"Otherwise access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. " +
+	"In plugins the person lets agents act on, read_screen lists each action with its id and what it does, and each fillable form; run_action runs an action and fill_form fills a form, in your own acting copy of the screen (read_screen with acting: true reads it). " +
+	"Changes ask the person on their ToolBelt screens and wait up to a minute: run them only when the person asked for them or agreed, say what you are about to do, and never retry a refusal unless they ask. " +
+	"If no ToolBelt screen is open, ask the person before passing open_window. In other plugins, access is read-only: describe what the person can do in ToolBelt rather than claiming to have done it. " +
 	"Plugins kept from agents by their author or the person are not listed.";
 
 type Message = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
@@ -104,6 +106,8 @@ export class McpSession {
 	private initialized = false;
 	/** A modern request's `clientInfo` named the session already. */
 	private clientNamed = false;
+	/** Tool calls running now, by request id: `notifications/cancelled` withdraws them (an approval wait ends). */
+	private calls = new Map<RequestId, AbortController>();
 	private offTree: () => void;
 	private offPlugins: () => void;
 
@@ -140,7 +144,13 @@ export class McpSession {
 		});
 	}
 
+	/** Whether a tool call with this request id is running now. */
+	running(id: unknown) {
+		return (typeof id === "string" || typeof id === "number") && this.calls.has(id);
+	}
+
 	close() {
+		for (const c of this.calls.values()) c.abort();
 		this.offTree();
 		this.offPlugins();
 		this.legacy.clear();
@@ -277,14 +287,33 @@ export class McpSession {
 						description: op.description,
 						inputSchema: op.params,
 						// show_screen changes only what the person's screens show: not read-only, never destructive.
-						annotations: { title: op.title, readOnlyHint: op.risk === "read", destructiveHint: false, idempotentHint: true, openWorldHint: false },
+						// run_action and fill_form declare their own.
+						annotations: { title: op.title, ...(op.annotations ?? { readOnlyHint: op.risk === "read", destructiveHint: false, idempotentHint: true, openWorldHint: false }) },
 					})),
 				};
 			case "tools/call": {
 				const name = typeof params.name === "string" ? params.name : "";
 				if (!this.core.operations.some((o) => o.name === name)) throw new RpcError(-32602, `Unknown tool ${name}`);
 				const args = params.arguments && typeof params.arguments === "object" ? (params.arguments as Record<string, unknown>) : {};
-				const r = await this.core.call(this.session, name, args);
+				// While a call waits for the person's approval: progress for a request with a
+				// progressToken, and cancellation by `notifications/cancelled` (both eras).
+				const meta = params._meta && typeof params._meta === "object" ? (params._meta as Record<string, unknown>) : {};
+				const token = meta.progressToken;
+				const controller = new AbortController();
+				if (id !== undefined) this.calls.set(id, controller);
+				let r: Awaited<ReturnType<AgentCore["call"]>>;
+				try {
+					r = await this.core.call(this.session, name, args, {
+						signal: controller.signal,
+						...(typeof token === "string" || typeof token === "number"
+							? { progress: (message: string, progress: number, total: number) => this.send({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: token, progress, total, message } }) }
+							: {}),
+					});
+				} finally {
+					if (id !== undefined) this.calls.delete(id);
+				}
+				// A cancelled request gets no response (MCP Cancellation).
+				if (controller.signal.aborted) return LATER;
 				return {
 					content: [{ type: "text", text: r.text }],
 					// Only for format "json", where the text is the same data serialized: clients that show
@@ -363,8 +392,10 @@ export class McpSession {
 				return LATER;
 			}
 			case "notifications/cancelled": {
-				// Ends a modern stream (stdio); a cancelled ordinary request has nothing to stop.
+				// Withdraws a tool call (its approval dialog goes from the person's screens), or ends a
+				// modern stream (stdio). The server reads it as it arrives, ahead of queued requests.
 				const requestId = params.requestId as RequestId | undefined;
+				if (requestId !== undefined) this.calls.get(requestId)?.abort();
 				const listen = requestId !== undefined ? this.listens.get(requestId) : undefined;
 				if (!listen) return;
 				this.listens.delete(requestId!);

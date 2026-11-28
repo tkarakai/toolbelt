@@ -1,0 +1,74 @@
+{
+	"id": "23-act-add-errand",
+	"title": "Add an errand through its dialog, approved once",
+	"prompt": "Add \"Buy milk\" at the bakery to my errands.",
+	"persona": "Someone asking Claude Code to add to a list in ToolBelt",
+	"channels": ["mcp", "cli"],
+	"setup": { "acting": true },
+	"steps": [
+		{
+			"call": "read_screen",
+			"args": { "plugin": "errands" },
+			"expect": {
+				"contains": [
+					"Toolbar actions: New errand [new-errand], Open map [open-map] (external, asks), Copy list [copy-list], Show state [show-debug]",
+					"Row actions: Mark done [done] (write), Pay (write, asks), Remove (destructive, asks)",
+					"Bulk actions: Mark done [done-all] (write)"
+				],
+				"absent": ["Reset door code", "reset-code"]
+			}
+		},
+		{
+			"call": "list_screens",
+			"args": { "plugin": "errands" },
+			"expect": { "contains": ["add (write: Adds the dialog's errand to the list)", "remove (destructive, asks)", "forms: draft (draft), details (write)"], "absent": ["reset-code"] }
+		},
+		{
+			"call": "run_action",
+			"args": { "plugin": "errands", "screen": "list", "action": "New errand" },
+			"expect": { "contains": ["Done: ran \"New errand\"", "No approval needed", "Names read as: action \"new-errand\" for \"New errand\".", "Dialog \"New errand\" opened."], "state": { "drafts": [""] } }
+		},
+		{
+			"call": "fill_form",
+			"args": { "plugin": "errands", "screen": "list", "form": "New errand", "values": { "Title": "Buy milk", "Store": "Bakery" } },
+			"expect": {
+				"contains": ["Done: set 2 fields of \"New errand\"", "Title [title] = \"Buy milk\"", "Store [store] = \"Bakery\"", "the form is a draft"], "absent": ["for \"Bakery\""],
+				"state": { "drafts": ["Buy milk"] }
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": { "plugin": "errands", "screen": "list", "acting": true },
+			"expect": {
+				"contains": ["Your acting copy", "## Dialog open: New errand", "## Form [draft] (fill_form; a draft: changes nothing until its action runs)", "- Title [title] (text): Buy milk", "Dialog actions: Add errand [add] (write)"]
+			}
+		},
+		{
+			"call": "read_screen",
+			"args": { "plugin": "errands", "screen": "list", "view": "person" },
+			"expect": { "absent": ["Dialog open", "Buy milk"] }
+		},
+		{
+			"call": "run_action",
+			"args": { "plugin": "errands", "screen": "list", "action": "add" },
+			"approve": "once",
+			"expect": {
+				"contains": ["Done: ran \"Add errand\" in dialog \"New errand\"", "The person allowed it in ToolBelt.", "The plugin returned: {\"id\":\"e5\"}", "Dialog \"New errand\" closed.", "+ added: Buy milk · Bakery  {id: e5} (in Open)"],
+				"state": { "counts": { "new-errand": 1, "field": 2, "add": 1 }, "drafts": [] },
+				"personToasts": []
+			}
+		}
+	],
+	"expect": {
+		"audit": [
+			{ "operation": "run_action", "outcome": "ok", "plugin": "errands", "action": "new-errand", "effect": "view", "approval": "none", "result": "ok" },
+			{ "operation": "fill_form", "outcome": "ok", "plugin": "errands", "form": "draft", "effect": "view", "approval": "none" },
+			{ "operation": "change_approval", "outcome": "ok", "plugin": "errands", "action": "add", "approval": "once" },
+			{ "operation": "run_action", "outcome": "ok", "plugin": "errands", "action": "add", "effect": "write", "rows": 0, "approval": "once", "result": "ok" }
+		],
+		"journal": [{ "name": "add", "actor": "agent", "approval": "once", "outcome": "ok" }],
+		"journalExact": true,
+		"absent": ["Buy milk at the bakery"]
+	},
+	"rubric": ["Opens the dialog, fills it and runs Add only after saying what it will add.", "Tells the person ToolBelt asked them to approve the change."]
+}

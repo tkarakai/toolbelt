@@ -1,0 +1,78 @@
+{
+	"id": "27-act-names-and-views",
+	"title": "Names by label, a row the acting view hides, and a row found in the person's view",
+	"prompt": "Note that the library books are returned, set the cake to high priority, and remove whatever I'm looking at.",
+	"persona": "Someone naming things as ToolBelt shows them",
+	"channels": ["mcp", "cli"],
+	"setup": { "acting": true, "person": [{ "event": { "screen": "errands/list", "name": "filter", "payload": { "filter": "status", "values": ["done"] } } }] },
+	"steps": [
+		{
+			"call": "run_action",
+			"args": { "plugin": "errands", "screen": "list", "action": "Mark done" },
+			"expect": { "refused": true, "contains": ["\"Mark done\" names more than one action: Mark done [done], Mark done [done-all]. Pass the id in brackets."] }
+		},
+		{
+			"call": "fill_form",
+			"args": { "plugin": "errands", "screen": "list", "form": "details", "row": "e3", "values": { "Note": "Returned" } },
+			"expect": { "refused": true, "contains": ["Row \"e3\" isn't on Errands › Errands in your acting copy: filter \"Status\" (Open) hides it. Nothing was done. To act on it, call fill_form again with row \"e3\" and view {\"filters\":{\"status\":[]}}."] }
+		},
+		{
+			"call": "fill_form",
+			"args": { "plugin": "errands", "screen": "list", "form": "Details", "row": "e3", "values": { "note": "Returned" }, "view": { "filters": { "Status": ["Done"] } } },
+			"approve": "once",
+			"expect": { "contains": ["Done: set 1 field of \"details\" for \"Return library books\" {id: e3}", "Names read as: filters {\"status\": [\"done\"]}."] }
+		},
+		{
+			"call": "fill_form",
+			"args": { "plugin": "errands", "screen": "list", "form": "details", "row": "e4", "values": { "Priority": "high" } },
+			"expect": { "refused": true, "contains": ["Row \"e4\" isn't on Errands › Errands in your acting copy: filter \"Status\" (Done) hides it."] }
+		},
+		{
+			"call": "fill_form",
+			"args": { "plugin": "errands", "screen": "list", "form": "details", "row": "e4", "values": { "Priority": "HIGH" }, "view": { "filters": { "status": ["open"] } } },
+			"approve": "once",
+			"expect": { "contains": ["Priority [priority] = \"High\""], "absent": ["for \"HIGH\""] }
+		},
+		{
+			"call": "read_screen",
+			"args": { "plugin": "errands", "screen": "list", "view": "person" },
+			"expect": { "contains": ["Return library books · Library  {id: e3}"] }
+		},
+		{
+			"call": "run_action",
+			"args": { "plugin": "errands", "screen": "list", "action": "Remove", "row": "e3", "view": "person" },
+			"approve": "once",
+			"expect": { "contains": ["Done: ran \"Remove\" on \"Return library books\" {id: e3}"], "state": { "removed": ["e3"] } }
+		},
+		{
+			"call": "run_action",
+			"args": { "plugin": "errands", "screen": "list", "action": "Reset door code", "row": "e1", "view": { "filters": { "status": ["open"] } } },
+			"expect": { "refused": true, "contains": ["isn't offered to agents"] }
+		},
+		{
+			"call": "fill_form",
+			"args": { "plugin": "errands", "screen": "list", "form": "details", "row": "e1", "values": { "Door code": "4321" } },
+			"expect": { "refused": true, "contains": ["Door code [code] is a secret or sensitive field: agents can't fill it."] }
+		},
+		{
+			"call": "fill_form",
+			"args": { "plugin": "errands", "screen": "list", "form": "details", "row": "e1", "values": { "Priority": "urgent" } },
+			"expect": { "refused": true, "contains": ["Priority has no option \"urgent\". Its options: Low, Normal, High."] }
+		}
+	],
+	"expect": {
+		"audit": [
+			{ "operation": "run_action", "outcome": "denied", "action": "Mark done" },
+			{ "operation": "fill_form", "outcome": "denied", "form": "details" },
+			{ "operation": "fill_form", "outcome": "ok", "form": "details", "rows": 1, "effect": "write", "approval": "once" },
+			{ "operation": "run_action", "outcome": "ok", "action": "remove", "rows": 1, "effect": "destructive", "approval": "once" }
+		],
+		"journal": [
+			{ "name": "details.note", "actor": "agent", "approval": "once" },
+			{ "name": "details.priority", "actor": "agent", "approval": "once" },
+			{ "name": "remove", "actor": "agent", "approval": "once" }
+		],
+		"journalExact": true
+	},
+	"rubric": ["Uses the view the refusal names instead of guessing.", "Removes only the row the person was looking at, after they approved."]
+}

@@ -20,8 +20,10 @@ app you can add to the home screen. Plugins keep running on the Mac, and only de
 to your Tailscale account and paired (approved on the Mac or from a paired device) can connect. See [Remote access](docs/remote-access.md).
 
 Settings → Agents lets AI agents on this Mac, such as Claude Code, read your plugins' screens
-through ToolBelt's MCP server or the `toolbelt` command. You choose what each plugin shares;
-agents can't change anything. See [Agent interface](docs/agent-interface.md).
+through ToolBelt's MCP server or the `toolbelt` command, and, in plugins that allow it, make
+changes for you. You choose what each plugin shares and whether agents may act; changes ask you
+first on your ToolBelt screens unless you allow an agent to make them for a while. See
+[Agent interface](docs/agent-interface.md).
 
 ## Manual installation
 

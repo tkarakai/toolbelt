@@ -61,6 +61,7 @@ export function AgentsSettings() {
 				<StatusGroup state={state} go={remember} />
 				<PluginAccessGroup plugins={state.plugins} />
 				<ViewGrantsGroup state={state} />
+				<WriteGrantsGroup state={state} />
 			</TabsContent>
 			<TabsContent value="connect" className="space-y-8">
 				{state.command ? (
@@ -142,7 +143,7 @@ function StatusGroup({ state, go }: { state: AgentsState; go: (tab: string) => v
 						</span>
 					</div>
 					<p className="text-sm text-muted-foreground">
-						AI agents on this Mac, such as Claude Code or Codex, can read the plugin screens you allow below, through ToolBelt’s MCP server or the toolbelt command. They can’t change anything.
+						AI agents on this Mac, such as Claude Code or Codex, can read the plugin screens you allow below, through ToolBelt’s MCP server or the toolbelt command. Where a plugin and you allow it, they can also make changes, asking you first on your ToolBelt screens.
 					</p>
 					{state.error ? (
 						<p className="text-sm text-destructive">{state.error}</p>
@@ -305,6 +306,7 @@ function PluginAccessGroup({ plugins }: { plugins: AgentPlugin[] }) {
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent position="popper" align="end">
+									{p.ceiling === "act" && <SelectItem value="act">{ACCESS_LABEL.act}</SelectItem>}
 									<SelectItem value="read">{ACCESS_LABEL.read}</SelectItem>
 									<SelectItem value="none">{ACCESS_LABEL.none}</SelectItem>
 								</SelectContent>
@@ -335,6 +337,31 @@ function ViewGrantsGroup({ state }: { state: AgentsState }) {
 						<span className="block truncate text-xs text-muted-foreground">{until(g)}</span>
 					</div>
 					<Button size="sm" variant="outline" onClick={() => void run({ operation: "revokeGrant", client: g.client })}>
+						Revoke
+					</Button>
+				</div>
+			))}
+		</SettingsGroup>
+	);
+}
+
+/** Agents the person let make changes in a plugin without asking each time, and until when. */
+function WriteGrantsGroup({ state }: { state: AgentsState }) {
+	return (
+		<SettingsGroup
+			title="Making changes"
+			description="Agents you let make changes in a plugin without asking each time. A grant never covers changes that ask every time: deleting, anything that can’t be undone or reaches outside ToolBelt, and actions the plugin asks you to confirm. Nothing is allowed forever."
+		>
+			{state.writeGrants.length === 0 && <p className="px-5 py-4 text-sm text-muted-foreground">No agent may make changes without asking right now.</p>}
+			{state.writeGrants.map((g) => (
+				<div key={`${g.client}-${g.plugin}-${g.session ?? ""}`} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+					<div className="min-w-0">
+						<span className="block truncate text-sm font-medium">
+							{g.client} <span className="font-normal text-muted-foreground">in</span> {g.pluginName}
+						</span>
+						<span className="block truncate text-xs text-muted-foreground">{until(g)}</span>
+					</div>
+					<Button size="sm" variant="outline" onClick={() => void run({ operation: "revokeWriteGrant", client: g.client, plugin: g.plugin })} aria-label={`Revoke ${g.client}’s changes in ${g.pluginName}`}>
 						Revoke
 					</Button>
 				</div>

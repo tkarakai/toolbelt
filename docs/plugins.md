@@ -96,8 +96,8 @@ renderer sends only the keys listed there.
 ## Actions, forms and events
 
 Every action id a plugin's trees or toasts use, and every form, is declared once, plugin-wide,
-with what it does. ToolBelt reads the declarations to know what an action does (agents will ask
-the person before a change), and refuses a tree that uses anything undeclared. Every event for a
+with what it does. ToolBelt reads the declarations to know what an action does (agents acting on a
+plugin at `act` ask the person before a change), and refuses a tree that uses anything undeclared. Every event for a
 `write`, `external` or `destructive` action, and every field of a `write` form, goes in the
 host's change journal: who sent it, the action id or `form.field`, the row ids and the outcome,
 never values, titles or result data ([architecture.md](architecture.md#change-journal)).
@@ -396,7 +396,10 @@ another app, and requires a corresponding `native.handoff` declaration.
 `agent: { "access": "none" | "read" | "act" }` (required) sets the most AI agents may do with
 the plugin through ToolBelt's agent interface ([agent-interface.md](agent-interface.md)). `none`
 hides it from agents, `read` lets them read its screens (each with a view of its own) and show
-the person a screen when asked, and `act` is reserved for actions. Declare `none` when screens
+the person a screen when asked, and `act` also lets them run the screens' actions and fill their
+forms, in a private instance of their own, with the person approving changes on ToolBelt's
+screens as each action's declared effect requires ([agent-interface.md](agent-interface.md#acting)).
+Declare `act` only with complete, accurate `actions` and `forms` declarations. Declare `none` when screens
 show data agents shouldn't see (command lines, environment values, credentials). The person can
 lower the level, never raise it. Agents read the same trees people see, so keep secrets in the
 Keychain ([secrets](#secrets)) or mark them in forms with `sensitive` or `secret` environment

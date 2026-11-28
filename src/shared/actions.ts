@@ -122,9 +122,13 @@ export function payloadFor(address: Address): Record<string, unknown> {
 type Table = Extract<Node, { type: "table" }>;
 type Control = Extract<Node, { type: "segmented" | "choice" }>;
 
+/** Where in a tree an action is offered. */
+export type OfferKind = "toolbar" | "dialog" | "row" | "detail" | "bulk" | "card" | "section" | "item" | "open" | "tag" | "entry" | "composer" | "floating" | "suggestion";
+
 /** A place the renderer sends an action event from, with the payload it sends. */
 type Offer = {
 	name: string;
+	kind: OfferKind;
 	action: Action;
 	place: string;
 	/** The payload without its optional parts. */
@@ -141,7 +145,7 @@ type Offer = {
 	dialog?: string;
 };
 
-type FieldSpot = { form: string; field: Field | Control; row?: string; place: string };
+type FieldSpot = { form: string; field: Field | Control; row?: string; place: string; dialog?: string; /** A `form` node's title; absent for page controls. */ title?: string; control: boolean };
 
 type Offered = {
 	offers: Offer[];
@@ -174,7 +178,7 @@ function offered(tree: Node): Offered {
 	const control = (c: Control, ctx: Ctx) => {
 		const place = inDrawer(ctx, `control ${quote(c.label ?? c.id)}`);
 		uses(out.controlIds, c.id, place);
-		out.fields.push({ form: c.id, field: c, row: ctx.pane?.row, place });
+		out.fields.push({ form: c.id, field: c, row: ctx.pane?.row, place, control: true, ...(ctx.dialog ? { dialog: ctx.dialog.id } : {}) });
 	};
 
 	const table = (node: Table, ctx: Ctx) => {
@@ -201,7 +205,7 @@ function offered(tree: Node): Offered {
 			for (const a of acts)
 				for (const x of [a, ...(a.menu ?? [])]) {
 					const targets = [...(r.targets?.[x.id] ?? []), ...(x !== a ? (r.targets?.[a.id] ?? []) : [])].map((t) => t.id);
-					offer(ctx, { name: x.id, action: x, place: `row ${quote(title || r.id)} in table ${quote(node.id)}`, base: { rowId: id }, targets, rows, table: node.id });
+					offer(ctx, { name: x.id, kind: "row", action: x, place: `row ${quote(title || r.id)} in table ${quote(node.id)}`, base: { rowId: id }, targets, rows, table: node.id });
 				}
 			if (r.pane) for (const n of r.pane) walk(n, { ...ctx, pane: { row: id, title } });
 			else
@@ -210,6 +214,7 @@ function offered(tree: Node): Offered {
 						const on = d.actionRow !== undefined ? as(d.actionRow) : id;
 						offer(ctx, {
 							name: a.id,
+							kind: "detail",
 							action: a,
 							place: `detail ${quote(d.label)} of row ${quote(title || r.id)} in table ${quote(node.id)}`,
 							base: { rowId: on, ...(d.target !== undefined ? { target: d.target } : {}) },
@@ -221,27 +226,27 @@ function offered(tree: Node): Offered {
 		};
 		node.rows.forEach(visit);
 		for (const a of withAlternatives(node.bulkActions ?? []))
-			offer(ctx, { name: a.id, action: a, place: `bulk actions of table ${quote(node.id)}`, base: {}, bulk: titles, rows: [], table: node.id });
+			offer(ctx, { name: a.id, kind: "bulk", action: a, place: `bulk actions of table ${quote(node.id)}`, base: {}, bulk: titles, rows: [], table: node.id });
 	};
 
 	const walk = (node: Node, ctx: Ctx): void => {
 		switch (node.type) {
 			case "page":
 				out.pages.push(node);
-				for (const a of withAlternatives(node.actions ?? [])) offer(ctx, { name: a.id, action: a, place: "toolbar", base: {} });
+				for (const a of withAlternatives(node.actions ?? [])) offer(ctx, { name: a.id, kind: "toolbar", action: a, place: "toolbar", base: {} });
 				node.controls?.forEach((c) => control(c, ctx));
 				node.children.forEach((c) => walk(c, ctx));
 				if (node.dialog) {
 					const d = node.dialog;
 					const inDialog = { ...ctx, dialog: d };
 					// Dialog buttons send directly: no confirmation or input step.
-					for (const a of withAlternatives(d.actions ?? [])) offer(inDialog, { name: a.id, action: a, place: `dialog ${quote(d.title)}`, base: { dialog: d.id }, text: false });
+					for (const a of withAlternatives(d.actions ?? [])) offer(inDialog, { name: a.id, kind: "dialog", action: a, place: `dialog ${quote(d.title)}`, base: { dialog: d.id }, text: false });
 					d.children.forEach((c) => walk(c, inDialog));
 				}
 				return;
 			case "floating":
-				for (const a of node.actions ?? []) offer(ctx, { name: a.id, action: a, place: "floating window", base: {}, text: false });
-				for (const s of node.suggestions ?? []) offer(ctx, { name: s.id, action: { id: s.id, label: s.label }, place: "suggestions", base: {}, text: false });
+				for (const a of node.actions ?? []) offer(ctx, { name: a.id, kind: "floating", action: a, place: "floating window", base: {}, text: false });
+				for (const s of node.suggestions ?? []) offer(ctx, { name: s.id, kind: "suggestion", action: { id: s.id, label: s.label }, place: "suggestions", base: {}, text: false });
 				node.children.forEach((c) => walk(c, ctx));
 				return;
 			case "stack":
@@ -251,10 +256,10 @@ function offered(tree: Node): Offered {
 				usesActions(node.actions, inDrawer(ctx, `card ${quote(node.title ?? node.id ?? "")}`));
 				if (ctx.pane)
 					// A drawer section: plain buttons, sent with the drawer's row.
-					for (const a of node.actions ?? []) offer(ctx, { name: a.id, action: a, place: `section ${quote(node.title ?? node.id ?? "")}`, base: {} });
+					for (const a of node.actions ?? []) offer(ctx, { name: a.id, kind: "section", action: a, place: `section ${quote(node.title ?? node.id ?? "")}`, base: {} });
 				else
 					for (const a of withAlternatives(node.actions ?? []))
-						offer(ctx, { name: a.id, action: a, place: `card ${quote(node.title ?? node.id ?? "")}`, base: node.id !== undefined ? { rowId: node.id } : {} });
+						offer(ctx, { name: a.id, kind: "card", action: a, place: `card ${quote(node.title ?? node.id ?? "")}`, base: node.id !== undefined ? { rowId: node.id } : {} });
 				node.children.forEach((c) => walk(c, ctx));
 				return;
 			case "table":
@@ -263,29 +268,29 @@ function offered(tree: Node): Offered {
 				if (node.open) uses(out.actionIds, node.open.id, inDrawer(ctx, `list ${quote(node.id)}`));
 				for (const it of node.items) {
 					for (const a of withAlternatives(it.actions ?? []))
-						offer(ctx, { name: a.id, action: a, place: `item ${quote(it.title)} in list ${quote(node.id)}`, base: { rowId: it.id }, rows: [{ id: it.id, title: it.title }], list: node.id });
+						offer(ctx, { name: a.id, kind: "item", action: a, place: `item ${quote(it.title)} in list ${quote(node.id)}`, base: { rowId: it.id }, rows: [{ id: it.id, title: it.title }], list: node.id });
 					if (node.open)
-						offer(ctx, { name: node.open.id, action: node.open, place: `item ${quote(it.title)} in list ${quote(node.id)}`, base: { list: node.id, item: it.id }, text: false, rows: [{ id: it.id, title: it.title }], list: node.id });
+						offer(ctx, { name: node.open.id, kind: "open", action: node.open, place: `item ${quote(it.title)} in list ${quote(node.id)}`, base: { list: node.id, item: it.id }, text: false, rows: [{ id: it.id, title: it.title }], list: node.id });
 				}
 				return;
 			case "form":
 				uses(out.formIds, node.id, inDrawer(ctx, `form ${quote(node.id)}`));
 				for (const f of node.fields) {
 					if (f.type === "tags" && f.open) uses(out.actionIds, f.open.id, inDrawer(ctx, `field ${quote(f.label || f.id)} of form ${quote(node.id)}`));
-					out.fields.push({ form: node.id, field: f, row: ctx.pane?.row, place: inDrawer(ctx, `field ${quote(f.label || f.id)} of form ${quote(node.id)}`) });
+					out.fields.push({ form: node.id, field: f, row: ctx.pane?.row, place: inDrawer(ctx, `field ${quote(f.label || f.id)} of form ${quote(node.id)}`), control: false, ...(node.title ? { title: node.title } : {}), ...(ctx.dialog ? { dialog: ctx.dialog.id } : {}) });
 					if (f.type === "tags" && f.open)
 						for (const t of f.value)
-							offer(ctx, { name: f.open.id, action: f.open, place: `field ${quote(f.label || f.id)} of form ${quote(node.id)}`, base: { form: node.id, field: f.id, key: t.key, value: t.value }, text: false });
+							offer(ctx, { name: f.open.id, kind: "tag", action: f.open, place: `field ${quote(f.label || f.id)} of form ${quote(node.id)}`, base: { form: node.id, field: f.id, key: t.key, value: t.value }, text: false });
 				}
 				return;
 			case "timeline":
 				usesActions([...(node.edit ? [node.edit] : []), ...(node.actions ?? [])], inDrawer(ctx, `timeline ${quote(node.id)}`));
 				for (const e of node.entries)
 					for (const a of entryActions(node, e))
-						offer(ctx, { name: a.id, action: a, place: `entry ${quote(e.id)} of timeline ${quote(node.id)}`, base: { timeline: node.id, entryId: e.id }, text: a === node.edit || !!a.input });
+						offer(ctx, { name: a.id, kind: "entry", action: a, place: `entry ${quote(e.id)} of timeline ${quote(node.id)}`, base: { timeline: node.id, entryId: e.id }, text: a === node.edit || !!a.input });
 				return;
 			case "composer":
-				offer(ctx, { name: node.action.id, action: node.action, place: `composer ${quote(node.id)}`, base: { composer: node.id }, text: true });
+				offer(ctx, { name: node.action.id, kind: "composer", action: node.action, place: `composer ${quote(node.id)}`, base: { composer: node.id }, text: true });
 				return;
 			case "segmented":
 			case "choice":
@@ -522,6 +527,58 @@ export function resolve(tree: Node, address: Address, declared?: ViewDeclaration
 }
 
 export const isRefused = (r: Resolved | Refused): r is Refused => "refused" in r;
+
+/**
+ * An action as a tree offers it, for agents choosing what to run (src/bun/agent): its id and
+ * definition, where it is, the payload the renderer would send (without `rowIds`, `target` or
+ * `text`), the rows it acts on, and what it takes.
+ */
+export type Offering = {
+	name: string;
+	kind: OfferKind;
+	action: Action;
+	place: string;
+	payload: Record<string, unknown>;
+	rows: { id: string; title: string }[];
+	/** Values `target` may take. */
+	targets: string[];
+	/** It carries text (`input` actions, composers, timeline edits). */
+	text: boolean;
+	/** Bulk actions: the rows `rowIds` may name, with their titles. */
+	bulk?: Map<string, string>;
+	table?: string;
+	list?: string;
+	/** The open dialog it's in. */
+	dialog?: string;
+};
+
+/** A field as a tree offers it: its form, where it is (a row's drawer, a dialog) and its definition. */
+export type FieldOffering = { form: string; field: Field | Control; row?: string; dialog?: string; title?: string; control: boolean; place: string };
+
+/** Every action and field a tree offers, in tree order. */
+export function offerings(tree: Node): { actions: Offering[]; fields: FieldOffering[] } {
+	const found = offered(tree);
+	return {
+		actions: found.offers.map((o) => ({
+			name: o.name,
+			kind: o.kind,
+			action: o.action,
+			place: o.place,
+			payload: o.base,
+			rows: o.rows,
+			targets: o.targets ?? [],
+			text: o.text,
+			...(o.bulk ? { bulk: o.bulk } : {}),
+			...(o.table !== undefined ? { table: o.table } : {}),
+			...(o.list !== undefined ? { list: o.list } : {}),
+			...(o.dialog !== undefined ? { dialog: o.dialog } : {}),
+		})),
+		fields: found.fields.map((f) => ({ ...f })),
+	};
+}
+
+/** Whether a field's value has the shape its type takes (as `checkEvent` checks field events). */
+export const fieldValueFits = (field: Field | Control, value: unknown) => valueFits(field, value);
 
 /**
  * Why a tree can't be shown with these declarations (null: it can): an action id the plugin didn't

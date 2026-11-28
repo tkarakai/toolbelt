@@ -136,7 +136,10 @@ export class AgentServer {
 				continue;
 			}
 			const session = c.session;
-			c.queue = c.queue.then(() => session.handle(message as never)).catch(() => {});
+			// Cancelling a running tool call (one waiting for an approval) can't wait behind it.
+			const m = message as { method?: unknown; params?: { requestId?: unknown } };
+			if (m?.method === "notifications/cancelled" && session.running(m.params?.requestId)) void session.handle(message as never).catch(() => {});
+			else c.queue = c.queue.then(() => session.handle(message as never)).catch(() => {});
 		}
 	}
 

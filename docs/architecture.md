@@ -111,7 +111,8 @@ screen (window, popover, paired devices) shares the `person` instance, and agent
 `agent:…` instances with views of their own. Visibility produces `open`/`close` with the
 instance (and the view to start from); actions, fields, search and sort produce `event` from
 the person's instance once the host has checked it against that instance's tree (see "Action
-resolver"), and the host can set an instance's `view`. The SDK owns each instance's
+resolver"), or from an agent's acting instance (`PluginHost.agentEvent`, below), and the host can
+set an instance's `view`. The SDK owns each instance's
 view (search, filters, sort, page controls) and reports the person's, which the host saves in
 `views.json` ([plugins.md](plugins.md#views)), or reports a refused change (`view` with
 `refused`), which the host logs and passes to listeners (`viewRefused`). Only the person's
@@ -123,8 +124,8 @@ stdout is protocol only; stderr is diagnostic output.
 
 **Event ids and results.** `PluginHost.event(plugin, surface, name, payload, actor)` returns the
 id it gave the event (null when the event was refused). The actor is `{ kind: "person", via:
-"window" | "popover" | "remote", device? }` (agents' actors come with wave B1.3); the event
-message carries `id` and `origin` (and `agent`, the client name, for an agent). `PluginProcess`
+"window" | "popover" | "remote", device? }` or, for an agent, `{ kind: "agent", client, session,
+mode }`; the event message carries `id` and `origin` (and `agent`, the client name, for an agent). `PluginProcess`
 keeps each event it sent with its actor until its `result` arrives or `LIMITS.resultMs` (10 s)
 passes, then once tells listeners `settled` with `{ id, plugin, surface, name, actor, outcome,
 error?, data?, change? }`: `ok`, `not-handled`, `error` (a handled event with `error`, or a result the host
@@ -137,8 +138,20 @@ The host honors navigation only for a declared screen, tagged with an event it s
 which view sent each event (`EventRoutes`) and sends navigation back there: a paired device's
 connection navigates that device only, the window and popover navigate the main window, reusing
 window navigation and the selection handoff. The browser preview routes to the tab that acted.
-Toasts and clipboard text still go to the person whatever the event; wave B1.3 routes an agent's
-by the tag.
+An agent's event is routed by its tag through `personRouting` (`src/bun/agent/index.ts`), used by
+`index.ts`, the preview and the scenario harness alike: its navigation never moves the person's
+screens, its clipboard text never reaches the Mac clipboard, and its toasts reach the person only
+for `write`, `external` and `destructive` actions, as from the agent (the toast RPC's `source`);
+the agent gets all of them in its result. Untagged toasts and clipboard text go to the person.
+
+**Agents' events.** `PluginHost.agentEvent(plugin, surface, instance, name, payload, actor,
+approval)` sends an agent's event on one of its own instances of a screen, never the person's
+instance, a `quick` or `floating` surface, `select` or `reorder`. It checks the event against that
+instance's current tree (`checkEvent`), refuses actions and forms declared `agent: false` and
+secret fields, and records `approval` (`none`, `grant` or `once`) in the event's change for the
+journal. It returns the event's id or why it refused; the agent core resolves, approves and
+re-resolves before calling it (see "Agent interface"). `PluginHost.declarations(plugin)` gives the
+core the plugin's action and form declarations.
 
 The host validates every message, tree and host action payload. Limits include a 4 MiB frame,
 32 levels, 50,000 tree values/nodes, 120 messages and 16 MiB per second, 30 renders per second,
@@ -318,7 +331,8 @@ and a button's event must match one by id and payload.
 `journal/changes.jsonl` in the plugin profile (beside `agent-audit.jsonl`; the development profile
 in development mode) records every change made through a plugin's screens, whoever made it. The
 agent audit records what agents read and asked for; the journal records what changed data. Both
-name the event id, so an agent's change can be matched to its audit entry (wave B1.3).
+name the event id (the audit entry's `events`), so an agent's change can be matched to its audit
+entry.
 
 **What is journaled.** When `PluginProcess` sends an event it takes its change (`changeOf`) from
 the declarations as they are then: an action declared `write`, `external` or `destructive` (named
@@ -329,7 +343,7 @@ drawer row of a pane field; toast buttons name none). The change rides with the 
 events, `select`, `dialog-close`, `view` actions, `view` forms (dialog drafts) and page controls
 the SDK keeps in the view change no data and aren't journaled; the action that saves a draft is.
 `reorder` (a row moved, often into another section) has no declaration in protocol 3 but changes data, so it is journaled as a `write` naming the moved row. Changes a plugin makes on its own (timers, sync) have no event and aren't
-journaled. Every actor is: the window, the popover and paired devices now, agents with B1.3.
+journaled. Every actor is: the window, the popover, paired devices and agents' sessions.
 
 **Entries.** One JSON line per change, written once the event settles (`JournalEntry` in
 `journal.ts`): `seq` (1, 2, …), `at` (when the host sent the event), `event` (its id), `actor`
@@ -419,16 +433,23 @@ press, edge swipe, swipe to dismiss), all in the host renderer: see
 
 ## Agent interface
 
-The agent interface ([agent-interface.md](agent-interface.md)) lets local AI agents read plugin screens. Its core
-opens agent instances of plugin surfaces through `PluginHost`, one per distinct view an agent
-asks for, and releases them when idle; it reads the person's instance only when asked. Text and
+The agent interface ([agent-interface.md](agent-interface.md)) lets local AI agents read plugin screens and, in
+plugins at `act`, run their actions and fill their forms. Its core opens agent instances of plugin
+surfaces through `PluginHost`, one per distinct view an agent reads (shared, since reads send no
+events), and releases them when idle; it reads the person's instance only when asked. Text and
 JSON come from `src/bun/agent/serialize.ts` with sensitive values masked (Keychain secrets only say
 whether they're saved). Transports are
 adapters over one operation registry: MCP over a `0600` Unix socket, and the `toolbelt` CLI with
 its stdio shim. Access is the lower of the manifest's required `agent.access` and the person's
-choice; agents can't send events. `show_screen` changes the person's view and navigates their
+choice. `show_screen` changes the person's view and navigates their
 open screens, optionally selecting a row with its details open (the same renderer selection a
 plugin's `navigate` carries), after the person grants it on those screens for a time they choose.
+`run_action` and `fill_form` act in a private instance per session and screen
+(`agent:<session>:<screen>`): the core resolves the agent's names against that instance's tree
+(`src/bun/agent/act.ts` over the resolver's `offerings`), asks the person on ToolBelt's own screens
+when the declared effect calls for it (host-drawn, showing the host's resolution), resolves again
+after an Allow and sends through `PluginHost.agentEvent`. Write grants, limits, routing and audit
+are in agent-interface.md.
 
 ## Keyboard
 

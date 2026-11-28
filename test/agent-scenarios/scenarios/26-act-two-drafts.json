@@ -1,0 +1,20 @@
+{
+	"id": "26-act-two-drafts",
+	"title": "Two agents' dialogs and drafts stay apart, and apart from the person's",
+	"prompt": "Start a new errand for milk (while another agent starts one for eggs).",
+	"persona": "Two agents working in ToolBelt at once",
+	"channels": ["mcp"],
+	"setup": { "acting": true },
+	"steps": [
+		{ "call": "run_action", "args": { "plugin": "errands", "screen": "list", "action": "new-errand" }, "expect": { "contains": ["Dialog \"New errand\" opened."] } },
+		{ "call": "run_action", "as": "second", "args": { "plugin": "errands", "screen": "list", "action": "new-errand" }, "expect": { "contains": ["Dialog \"New errand\" opened."] } },
+		{ "call": "fill_form", "args": { "plugin": "errands", "screen": "list", "form": "draft", "values": { "title": "Buy milk" } } },
+		{ "call": "fill_form", "as": "second", "args": { "plugin": "errands", "screen": "list", "form": "draft", "values": { "title": "Buy eggs" } }, "expect": { "state": { "drafts": ["Buy eggs", "Buy milk"] } } },
+		{ "call": "read_screen", "args": { "plugin": "errands", "screen": "list", "acting": true }, "expect": { "contains": ["- Title [title] (text): Buy milk"], "absent": ["Buy eggs"] } },
+		{ "call": "read_screen", "as": "second", "args": { "plugin": "errands", "screen": "list", "acting": true }, "expect": { "contains": ["- Title [title] (text): Buy eggs"], "absent": ["Buy milk"] } },
+		{ "call": "read_screen", "args": { "plugin": "errands", "screen": "list", "view": "person" }, "expect": { "absent": ["Dialog open", "Buy milk", "Buy eggs"] } },
+		{ "call": "read_screen", "args": { "plugin": "errands", "screen": "list" }, "expect": { "absent": ["Dialog open"] } }
+	],
+	"expect": { "journal": [], "journalExact": true },
+	"rubric": ["Doesn't confuse its draft with another agent's or the person's."]
+}

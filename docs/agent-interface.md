@@ -3,24 +3,28 @@
 AI agents (Claude Code, Codex, Claude Desktop, scripts) can read ToolBelt's plugin screens on
 this Mac through an MCP server and the `toolbelt` command. Each agent reads its own instance of a
 screen and can search, filter and sort it in the same call without changing what the person
-sees. The one thing an agent changes is the person's view (`show_screen`), when the person allows
-it on their own screens. Agents can't send plugin events, change settings or manage plugins. The
-person turns the interface on in **Settings → Agents** and chooses per plugin what agents may
-read.
+sees. An agent can change the person's view (`show_screen`) when the person allows it on their
+own screens, and in plugins the person lets agents act on, it can run the actions and fill the
+forms a screen offers (`run_action`, `fill_form`), in a private copy of the screen, with the
+person approving changes on their own ToolBelt screens. Agents can't change settings or manage
+plugins. The person turns the interface on in **Settings → Agents** and chooses per plugin what
+agents may do.
 
-The plan for later phases (actions with approvals, autonomous agents, an in-app chat) is in
-[plans/agent-interface.md](../plans/agent-interface.md); this document describes what exists.
+The plans for later phases (autonomous agents' approvals, plugin management, an in-app chat) are
+in [plans/agent-interface.md](../plans/agent-interface.md) and
+[plans/agent-actions.md](../plans/agent-actions.md); this document describes what exists.
 
 | Part | Implementation |
 | --- | --- |
 | Shared types: access levels, settings, sessions, audit entries, Settings → Agents requests | `src/shared/agents.ts` |
-| Core: access, the agent's view of surfaces, operations, sessions, audit | `src/bun/agent/core.ts`, `audit.ts` |
+| Core: access, the agent's view of surfaces, operations, acting, approvals, grants, sessions, audit | `src/bun/agent/core.ts`, `audit.ts` |
+| Acting: which action, form and values an agent names, a dialog's values, changes between renders | `src/bun/agent/act.ts` (over `offerings` in `src/shared/actions.ts`) |
 | Trees as text and JSON, redaction, paging | `src/bun/agent/serialize.ts` |
 | MCP over the agent socket | `src/bun/agent/mcp.ts`, `server.ts` |
 | Wiring for the app and the browser preview | `src/bun/agent/index.ts`, `src/bun/index.ts`, `scripts/preview.ts` |
 | `toolbelt` CLI, stdio MCP shim, skill file | `src/cli/toolbelt.ts`, `src/cli/SKILL.md` |
 | Settings → Agents | `src/ui/Agents.tsx` |
-| The approval dialog and "Shown by" notice on the person's screens | `src/ui/AgentPrompts.tsx` |
+| The approval dialogs (view and change) and "Shown by" notice on the person's screens | `src/ui/AgentPrompts.tsx` |
 | Views and instances (SDK, host, the person's saved view) | `src/shared/views.ts`, `src/sdk/index.ts`, `src/bun/host.ts`, `src/bun/views.ts`; see [plugins.md](plugins.md#views) |
 
 ## Access
@@ -29,8 +33,8 @@ The plan for later phases (actions with approvals, autonomous agents, an in-app 
   socket exists.
 - **What the plugin declares.** The manifest's required `agent.access`: `none` hides the
   plugin from agents entirely, `read` lets them read its screens and show the person a screen,
-  `act` is reserved for actions. `parseManifest` rejects a manifest without it or with another
-  value. The declared level is both the default and the most the person may allow. A registry
+  `act` also lets them run its actions and fill its forms (see Acting). `parseManifest` rejects a
+  manifest without it or with another value. The declared level is both the default and the most the person may allow. A registry
   record from before protocol 2 that declares nothing counts as `none` (`declaredAccess`); such
   a plugin can't run on this host anyway.
 - **The person's choice.** `agents.access[<plugin id>]` in `settings.json`, set in Settings →
@@ -38,7 +42,12 @@ The plan for later phases (actions with approvals, autonomous agents, an in-app 
   (`effectiveAccess`). Choosing the declared level clears the entry. Lowering access releases
   instances the agent holds for that plugin and ends resource subscriptions to it.
 - A plugin below `read` is absent from every result. Asking for it by id gets the same refusal
-  as an unknown plugin. `toolbelt_status` says only how many plugins are hidden.
+  as an unknown plugin. `toolbelt_status` says only how many plugins are hidden. Lowering a
+  plugin below `act` closes the acting copies agents have of it, with their drafts.
+- **Not offered to agents at any level:** actions declared `agent: false` (left out of reads,
+  text and JSON, and refused), secret fields (Keychain `secret` text fields, `secretPrefix`
+  environment entries) and `sensitive` text fields, which reads mask and fills refuse, `select`,
+  `reorder` and toast actions, and the `quick` and `floating` surfaces: agents act on screens only.
 - Remote access, plugin development mode and Settings → Agents itself are not reachable by
   agents. Paired remote devices are trusted like the Mac: they show Settings → Agents and use
   the same `agents` RPC and `agentsState` updates, so they can turn agents on or off and change
@@ -79,8 +88,13 @@ replay: the shim sends its open `subscriptions/listen` streams again with their 
 their second acknowledgment, and sends each stream a tagged `notifications/resources/list_changed`
 (when it asked for list changes) and `notifications/resources/updated` for each of its screens.
 A stream's graceful end when ToolBelt stops isn't passed on: for the client, the stream continues. The other
-commands (`status`, `screens`, `read`, `show`, `search`, `plugins`) make one modern MCP tool call each (no handshake) and print
-its text, or with `--json` ask for `format: "json"` and print the structured content. Each command
+commands (`status`, `screens`, `read`, `show`, `act`, `fill`, `search`, `plugins`) make one modern MCP tool call each (no handshake) and print
+its text, or with `--json` ask for `format: "json"` and print the structured content. `act <plugin>
+<screen> <action>` takes `--row` (repeated for a bulk action's rows), `--table`, `--target`,
+`--text`, `--dialog` and `--open-window`; `fill <plugin> <screen> <form>` takes `--set
+FIELD=VALUE` (repeatable), `--row` and `--open-window`; both take the view flags (`--search`,
+`--filter`, `--sort`, `--control`) or `--person`, which replace the acting copy's view first.
+`read --acting` reads the acting copy. Each command
 accepts only its own options; an unknown option, a missing value or a wrong number is a usage
 error. Exit codes: 1 when the socket can't be reached, 2 when the call was refused or failed or
 the command line is wrong. `toolbelt skill` prints `SKILL.md`.
@@ -135,10 +149,26 @@ Capabilities, in both eras: `tools` with `listChanged: false` (the tool list nev
 | `show_screen` | Shows the person a screen, optionally with a view and a row selected with its details open, on every person's screen that is open, after the person allows it; reports devices that don't show it (see Showing the person a screen) |
 | `search_screens` | Content lines containing every query word, across readable screens or one plugin, grouped by row (a row's line with its matching details, each shortened to 300 characters); when no line has every word, the closest lines; rows the screens' default filters hide; and the screens that couldn't be read |
 | `list_plugins` | The installation view: every installed plugin agents may see, enabled or not, with version, state (the runtime state while enabled, else `disabled`), access, available update, repository and channel |
+| `run_action` | Runs one action a screen offers in the session's acting copy, approved where it matters (see Acting): the outcome, how it was approved, names read, the plugin's data, toasts, navigation and clipboard text it caused, and the acting copy's changes |
+| `fill_form` | Sets fields of a form (a dialog's draft, or a form that saves as it changes) in the acting copy, one field event per value, approved as a write for forms declared `write` |
 
-Every tool is declared `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`,
-and `readOnlyHint: true` except `show_screen` (risk `view`: it changes what the person's screens
-show, never data).
+The list is fixed and in this order (`listChanged: false`). The read tools are declared
+`destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`, and `readOnlyHint: true`
+except `show_screen` (risk `view`: it changes what the person's screens show, never data).
+`run_action` is `readOnlyHint: false`, `destructiveHint: true`, `idempotentHint: false`,
+`openWorldHint: true`; `fill_form` is `readOnlyHint: false`, `destructiveHint: false`,
+`idempotentHint: true`, `openWorldHint: false`. Clients may treat annotations as hints;
+approvals don't rely on them. The server instructions explain reading, showing, acting and
+approvals, and when to ask the person first.
+
+**Waiting for approval, both eras.** While `run_action` or `fill_form` waits for the person, a
+request whose `_meta` has a `progressToken` gets `notifications/progress` (`progress`: seconds
+waited, `total`: the wait, `message`: "Waiting for your approval in ToolBelt") when it starts and
+every 5 s. `notifications/cancelled` naming the waiting request withdraws its approval dialog from
+every person's screen and audits it as `cancelled`; the cancelled request gets no response. The
+socket reads a cancellation of a running tool call as it arrives, ahead of requests queued behind
+that call; other requests on a connection are still answered in order. A connection that closes
+while its call waits (a CLI command stopped) cancels it the same way.
 Every tool takes `format`: `text` (default) or `json`. A text result is one text content item
 with everything the agent needs (times, whether a person has the screen open, hints, failed
 screens) and no `structuredContent`, because some clients (Claude Code) show `structuredContent`
@@ -189,6 +219,10 @@ Agents read plugin surfaces through instances ([plugins.md](plugins.md#views)). 
 screens share one, `PERSON`; the core opens agent instances of its own through
 `PluginHost.open(plugin, surface, instance, view)`:
 
+- **The acting copy.** `read_screen` with `acting: true` (CLI `--acting`) reads the session's
+  acting instance of the screen (see Acting), with the dialogs it opened and the drafts it
+  filled; its header says `Your acting copy`. It is refused for plugins below `act` and with
+  `view` (the view is changed by run_action's or fill_form's `view`).
 - **Its own view.** `read_screen` without `view` reads `agent:default`: the screen as it starts,
   with the plugin's default search, filters and sort, whatever the person set. With `view`
   (`{ search, filters: { id: [values] }, sort: { table: "key" | "-key" | null }, controls: { id: value } }`)
@@ -217,7 +251,11 @@ screens share one, `PERSON`; the core opens agent instances of its own through
   `viewState`. `personViewing` says whether someone besides the agent has the person's view open.
 - `viewSchema` (in `list_screens`) takes ids and defaults from the plugin's declaration and
   options from the person's or the default agent instance's latest tree, so options appear once
-  the screen has rendered.
+  the screen has rendered. For a plugin at `act`, `list_screens` also lists each screen's actions
+  (`actions: Done [done] (write), Snooze [snooze] (write: Hides the task until a later date), …`,
+  with the declaration's `describe`) and fillable forms (`forms: task (write), new (draft)`): the
+  ones its latest tree uses, or every declared one, marked as declared, until it has rendered
+  (JSON `actions`, `forms`).
 - A read of an instance nobody has open opens it, waits up to 4 s for its first render and keeps
   it open for 60 s after the last read, so plugins render and poll only while needed.
   Subscriptions keep it open until they end.
@@ -234,6 +272,16 @@ screens share one, `PERSON`; the core opens agent instances of its own through
 
 `serialize.ts` turns a tree into text an agent can use:
 
+- **What can be done, at `act` only.** For a plugin agents may act on, reads (and search) say
+  what each action does, from its declaration: action labels get their id in brackets where it
+  differs (`Snooze [snooze]`) and their effect where it writes or asks (`Done (write)`,
+  `Pay (write, asks)` for one with `confirm`, `Delete (destructive, asks)`, `Open (external,
+  asks)`), in toolbar, row, bulk, card and dialog action lists (`Dialog actions: …`, shown only
+  then); a fillable form names its id and what filling it does (`## Form: Task [task] (fill_form;
+  saves as it changes, write)` or `(fill_form; a draft: …)`), and lists every field, empty ones
+  too, as `- Label [id] (type and choices): value` (secret and sensitive fields say `not offered
+  to agents`). JSON action objects carry `effect`. Reads of plugins below `act` don't change,
+  except that actions declared `agent: false` are left out at every level.
 - Pages: summary, filters (marked as default when they match the filter's `default`), choice
   controls, search highlight, enabled toolbar actions and an open dialog. A filter's id and an
   option's value follow its label in brackets where they differ beyond case
@@ -359,6 +407,128 @@ It needs the plugin at `read` access.
 - **Audit.** Each question is a `view_grant` entry (`ok` with the duration, `denied` for a
   refusal or no answer), and each call a `show_screen` entry (a missing row is `denied`).
 
+## Acting
+
+In plugins at `act`, `run_action` and `fill_form` do what the person would do on a screen: press
+an action, type or pick in a form. What each action does comes from the plugin's declaration
+(protocol 3 `actions` and `forms`, [plugins.md](plugins.md)): `view` changes only the sending
+instance, `write` changes the plugin's data, `external` reaches outside it, `destructive` deletes or
+can't be undone.
+
+```
+run_action({ plugin, screen?, action, row?, rows?, table?, dialog?, target?, text?, view?, open_window?, format? })
+fill_form({ plugin, screen?, form, values: { [field]: value }, row?, view?, open_window?, format? })
+```
+
+### Acting instances
+
+Reads share their instances; acting uses a private instance per session and screen,
+`agent:<session>:<screen>`. A dialog the agent opens and its draft belong to that session only:
+other agents' and the person's screens never show them.
+
+- `view` replaces the acting instance's view (the screen's defaults overlaid with it, with
+  read_screen's names and checks; `PluginHost.setView`); without it the instance keeps its view.
+  `view: "person"` copies the person's current view into it, so an agent can act on a row it
+  found with `read_screen view: "person"`. The person's own instance is never acted on. A view
+  the plugin refuses is refused, and the instance keeps its view.
+- The instance stays open for 10 minutes after the session's last call (any call;
+  `actingHoldMs`). CLI connections that continue a grouped session (see Transport) continue its
+  instances and drafts, so a script's `toolbelt act` and `toolbelt fill` work on one draft. After a
+  ToolBelt restart the drafts are gone.
+
+### Finding what the agent names
+
+- **Names**, as for views (`act.ts`): an action by id or label, ignoring case. A label that
+  actions in different places share is read by the address: with `row`, that row's own action
+  (else a bulk action covering it); with `rows`, the bulk action (else, for one row, its own);
+  without rows, an action on no row. A label the address can't settle is refused with the ids
+  (`Snooze [snooze], Snooze [snooze-week]`); a form by id or title
+  (a dialog's untitled form by the dialog's title); a field by id or label; an option of a
+  `select`, `combobox` or `tags` field by value or label. The result says how names were read
+  (`Names read as: …`).
+- **Where:** `row` addresses a row's actions (also list items' and those in its drawer:
+  composers, timeline entries, detail actions) and a bulk action on that one row; `rows` (at most
+  200) a bulk action; `table` narrows when row ids repeat. Without rows, an open dialog in the
+  acting instance is searched first, then the toolbar and cards. An action offered in several
+  places is refused with them; `dialog` (or `table`) picks one. `target` must be one of the
+  action's targets, `text` is required for actions that take it and refused otherwise; disabled
+  actions are refused.
+- **Rows:** a row not in the acting instance's tree is refused with show_screen's diagnosis
+  (`locateRow`): the search or filter of the acting view that hides it and the full `view` to call
+  again with (`To act on it, call run_action again with row "e3" and view {"filters":{"status":[]}}`),
+  or that the screen has no such row, with close ids.
+- **Forms:** a form in a row's drawer needs `row`. Page controls are view state, not forms.
+  Every value is checked and put in its field's shape before anything is sent: switches take
+  true/false or on/off and yes/no, durations minutes or `none`, tags a list or `Key: value,
+  Flag` text, colors a hue; a value that doesn't fit is refused with the field's type and choices.
+  Each value is one `field` event, in order; a refused or failed one stops the rest, and the result
+  says which were set.
+- The core resolves the event (`checkEvent`) before anything is asked, and the host checks it again
+  against the instance's tree as it sends it (`PluginHost.agentEvent`).
+
+### Approvals
+
+| Effect | `confirm` | Asks |
+| --- | --- | --- |
+| `view` | any | Never |
+| `write` (actions, and fields of `write` forms) | no | Unless a write grant covers this agent and plugin |
+| `write` | yes | Every time |
+| `external`, `destructive` | any | Every time |
+
+- **The dialog** (`ChangeApprovalDialog` in `AgentPrompts.tsx`, under `ViewApprovalDialog`) is
+  drawn by ToolBelt on every person's screen that is open, the Mac's window and paired devices,
+  as view approvals are; plugins never draw it. It shows only what the host resolved in the
+  acting instance (`ChangeRequest` in `src/shared/agents.ts`), never text the agent supplied:
+  "<agent> wants to run “<label>”" (or "change “<form>”"), the plugin and screen, what the effect
+  means, the target rows' titles (the first 5 and a count), the plugin's `confirm` text, and for an
+  action in a dialog, the dialog's title with its field labels and current values (for a fill, the
+  values it sets). Buttons: **Deny** (focused), **Allow once** (destructive tone for destructive
+  actions) and, for an uncovered write, **Allow changes in <plugin>** with a duration
+  (`GRANT_DURATIONS`, default today). Closing the dialog denies.
+- **Re-resolution:** after Allow, the core resolves the call again against the acting instance's
+  current tree and sends only if it matches what the person approved (the same action and payload,
+  rows and their titles, `confirm` text, and for a dialog, its values; for a fill, the same form,
+  row and fields). Otherwise nothing is sent and the call is refused with what changed (audited
+  `changed`).
+- **Answers** are worded as show_screen's: no answer within 60 s (`approvalMs`) is refused with
+  "ask them whether to try again"; a refusal with "don't ask again unless they ask you to".
+- **Nobody to ask:** with no person's screen open, a call that would ask is refused at once
+  (which devices don't show ToolBelt); `open_window: true` (after the person agrees) opens the
+  window on the Mac and asks there.
+- **Autonomous sessions** run only what needs no approval or what a grant covers; anything that
+  would ask is refused at once, pointing to a later release (wave B2).
+- **Limits:** one pending approval per session (a session's acting calls run one at a time, a
+  second waiting behind the first's approval); at most 30 acting calls a minute per session
+  (`ACTIONS_PER_MINUTE`, refusals counted); bulk actions take at most 200 rows (`BULK_ROWS`).
+
+### Write grants
+
+**Allow changes in <plugin>** saves `{ client, plugin, granted, until, duration }` in
+`settings.json` → `agents.writeGrants` (a this-session grant lives in memory and ends with its
+session; a grouped CLI session keeps it while a later command may continue the group). A grant
+covers this agent (by client name) in that plugin, for `write` actions without `confirm` and
+fields of `write` forms; it never covers an action that asks every time. Settings → Agents →
+Access lists grants under **Making changes** with Revoke (`revokeWriteGrant`). Like view grants,
+they are consent, not authentication.
+
+### Results and routing
+
+- **The result** (text, or JSON with `format: "json"`): the outcome (done, not handled, the
+  plugin's error, no answer in 10 s, or a refusal with why: denied, timed out, changed), how it
+  was approved (no approval needed, once, or the grant and until when), `Names read as`, the
+  plugin's `data` (masked like other plugin text), toasts, the navigation it asked for and
+  clipboard text, and the acting instance's changes after its next render (up to 2 s,
+  `settleRenderMs`): rows added, removed and changed (with the section a row moved between) in the
+  serializer's row format, field values, the summary and a dialog opened or closed, at most 40
+  lines and then a pointer to `read_screen acting: true` (`changes` in `act.ts`). JSON times are
+  epoch ms with an ISO copy. A result whose plugin didn't handle the event, failed or didn't answer
+  is `isError`.
+- **Routing** (`personRouting`, by the event tags of B1.2): navigation goes into the result and
+  never moves the person's screens (agents use `show_screen` for that); clipboard text goes into the
+  result and never to the Mac clipboard; toasts go into the result and, for `write`, `external` and
+  `destructive` actions, are also shown to the person as from the agent (`<Plugin> · by <agent>`),
+  with their buttons (Undo) usable by the person, checked like any toast button.
+
 ## Sessions and audit
 
 Every tool call and resource read appends one line to `agent-audit.jsonl` in the plugin profile
@@ -366,6 +536,16 @@ folder (the development profile in development mode): time, session, client, mod
 plugin, screen, outcome (`ok`, `denied` for refusals: unknown or hidden plugins, screens and
 tables; `error` for failures such as a crashed plugin) and a short detail for refusals and errors.
 The log is append-only and never pruned.
+
+Each `run_action` and `fill_form` writes one entry of its own, with the action or form id, the
+row count, the effect, the approval (`none`, `grant`, `once`, `denied`, `timed out`, `cancelled`,
+`changed`), the plugin's answer (`result`: `ok`, `not-handled`, `error`, `no-answer`), its error
+and the event ids sent (`events`), which the change journal's entries for the same change carry
+too ([architecture.md](architecture.md), "Change journal": an agent's journal entry has the agent
+actor with its session and mode, and the approval). Its `detail` is a fixed phrase ("row hidden by
+the view", "the person said no"), never the refusal's text: entries never contain `text`, field
+values, row titles or the plugin's `data`. Each question to the person is a `change_approval`
+entry ("Asked to make a change") with the same fields and how it was answered.
 
 `AuditLog.query` reads it back newest first, in pages. An entry's id is the byte offset of its
 line, so paging stays stable while entries are appended: `before` continues with older entries
@@ -384,13 +564,16 @@ Settings → Agents has three sub-tabs (`src/ui/Agents.tsx`), the chosen one rem
   the socket, and four tiles: active sessions, readable plugins, requests today with refusals
   and failures (counted by an audit query from midnight, up to 1,000), and the last activity.
   The sessions, requests and last-activity tiles open Activity. Under it, **Plugin access**:
-  what each plugin declares and the person's choice, then **Changing your view**: the agents
-  allowed to change the person's view, until when, each with Revoke.
+  what each plugin declares and the person's choice ("Read and act" offered only for plugins that
+  declare `act`), then **Changing your view**: the agents allowed to change the person's view,
+  until when, each with Revoke, then **Making changes**: write grants by agent and plugin, until
+  when, each with Revoke.
 - **Connect:** **Setup commands** to add ToolBelt to agents and remove it again (see
   Transport).
 - **Activity:** **Active sessions** first (client name, mode, how long connected; also
   counted on the tab), then the log (`src/ui/AgentActivity.tsx`) as a table of time,
-  activity and detail, plugin and screen, agent and mode, and result. The search box and the Plugin, Result and
+  activity and detail, plugin and screen, agent and mode, and result. Acting entries add a line
+  with the action or form, rows, effect, how it was approved and what the plugin did. The search box and the Plugin, Result and
   Agent mode filters are the renderer's page search and multi-select `FilterMenu`, as plugin
   pages use them. Plugin lists installed plugins and any others the log mentions. Time
   (`src/ui/components/time-range-filter.tsx`, logic in `src/ui/lib/time-range.ts`) offers quick
@@ -407,9 +590,9 @@ Three layers run in `bun test` (and so in CI), without a model:
 
 | Layer | Where | What it checks |
 | --- | --- | --- |
-| Unit | `test/agents.test.ts`, `test/views.test.ts`, `test/sdk.test.ts` | Access levels, the manifest key, grants and their ends, redaction, text and JSON paging, the core against a fake host (hiding, refusals, holds and release, crashed plugins, search, access changes, view instances and checks, show_screen's questions, grants, timeouts, Restore), the socket and CLI; views and instances through a real SDK plugin (the person's saved view, agent instances, restarts, per-instance render errors) and the SDK's view handling |
+| Unit | `test/agents.test.ts`, `test/agent-act.test.ts`, `test/views.test.ts`, `test/sdk.test.ts` | Access levels, the manifest key, grants and their ends, redaction, text and JSON paging, the core against a fake host (hiding, refusals, holds and release, crashed plugins, search, access changes, view instances and checks, show_screen's questions, grants, timeouts, Restore), the socket and CLI; acting (actions, forms and values by name across node types, changes between renders, reads at `act`, write grants, routing, the per-minute limit, queued approvals, the host's checks on agents' events); views and instances through a real SDK plugin (the person's saved view, agent instances, restarts, per-instance render errors) and the SDK's view handling |
 | Scenarios | `test/agent-scenarios.test.ts`, `test/agent-scenarios/` | Life-like prompts with the tool calls an agent makes to answer them, run through every channel each lists, against real plugin processes |
-| MCP conformance | `test/agent-mcp-conformance.test.ts` | Both eras: modern `server/discover`, `_meta` checks (`-32602`, `-32022`), `resultType`, server identity and cache hints, removed methods, `subscriptions/listen` (acknowledgment, tagging, cancel), both eras on one connection, and the shim reopening modern streams; legacy version negotiation (also unsupported versions), tool input schemas compiled as JSON Schema 2020-12 in strict mode, annotations, JSON-RPC error codes (-32601, -32602, -32600, -32700), refusals as `isError` results, in-order answers, hello-less connections, resources (list, read, templates, subscribe and unsubscribe, `list_changed`) |
+| MCP conformance | `test/agent-mcp-conformance.test.ts` | Both eras: acting refusals and denials as `isError` results, progress and cancellation during an approval wait; modern `server/discover`, `_meta` checks (`-32602`, `-32022`), `resultType`, server identity and cache hints, removed methods, `subscriptions/listen` (acknowledgment, tagging, cancel), both eras on one connection, and the shim reopening modern streams; legacy version negotiation (also unsupported versions), tool input schemas compiled as JSON Schema 2020-12 in strict mode, annotations, JSON-RPC error codes (-32601, -32602, -32600, -32700), refusals as `isError` results, in-order answers, hello-less connections, resources (list, read, templates, subscribe and unsubscribe, `list_changed`) |
 
 ### Scenarios
 
@@ -423,23 +606,37 @@ A scenario (`test/agent-scenarios/format.ts`, one JSON file per case in
 - `steps`: tool calls (`call`, `args`, `structured` for MCP `structuredContent` or CLI
   `--json`), resource steps (`read`, `subscribe`, `unsubscribe`, MCP only) and person actions:
   `open` and `close` a screen, a UI `event` such as `search`, `filter` or an action id, `access`
-  for a plugin, the `agents` switch, `restore` on a screen an agent changed, or `revoke` a grant
-  (`"*"` for every agent's). A `show_screen` call step takes `answer` (`allow`, `duration`): the
-  person's answer as soon as they're asked; without it nobody answers.
+  for a plugin, the `agents` switch, `restore` on a screen an agent changed, `revoke` an agent's
+  view and write grants (`"*"` for every agent's), or press a `toast` button. A `show_screen`
+  call step takes `answer` (`allow`, `duration`): the person's answer as soon as they're asked;
+  without it nobody answers. A `run_action` or `fill_form` step takes `approve`: `"once"`,
+  `"deny"`, `{ "grant": "<duration>" }` or `"cancel"` (the agent withdraws the call: MCP
+  `notifications/cancelled`, the CLI's process stopped), and `meanwhile`, a person action done
+  after the dialog appears and before the answer (to change the screen under a pending approval).
+  `as` makes the call from another agent with its own session (MCP only).
+- `setup.acting` adds the plugins agents may act on (`test/fixtures/agents-act`).
 - `setup.devices`: whether the Mac's window is open (default yes) and paired devices with whether
   each has ToolBelt open, as `show_screen` sees them.
 - `expect` on a step: `contains` (facts), `absent` (secrets, hidden plugin ids), `refused`,
   `unreachable` (agents off), `notifications` that must arrive within a time after the step,
-  `personView` (the person's saved view of a screen afterwards) and `navigated` (the screens shown
-  on the person's screens by the step). Notifications are checked on channels that deliver them.
-- `expect` on the scenario: facts and absences over all outputs together, and audit log entries
-  in order (operation, outcome, plugin, mode).
+  `personView` (the person's saved view of a screen afterwards), `navigated` (the screens shown
+  on the person's screens by the step, by show_screen or a plugin's navigation),
+  `personToasts` (toasts the person saw, and whether each showed as from an agent), `clipboard`
+  (what reached the Mac's clipboard) and `state` (the errands fixture's state from its debug
+  screen). Notifications are checked on channels that deliver them.
+- `expect` on the scenario: facts and absences over all outputs together, audit log entries
+  in order (operation, outcome, plugin, mode, and for acting the action or form, effect, rows,
+  approval and result), and change journal entries in order (`journal`: name, actor kind,
+  approval, outcome; every entry with `journalExact`). Every agent journal entry must share its
+  event id with an audit entry.
 - `rubric`: what a good final answer does, for model-based evaluation. Scripted tests ignore it.
 - `origin`: where the case came from.
 
 `harness.ts` gives each run its own world: a real `PluginHost` with the fixture plugins in
-`test/fixtures/agents`, the agent interface with its socket in a temporary folder, and person
-actions applied through the host and the Settings → Agents requests. Adapters in `adapters.ts`
+`test/fixtures/agents` (and `test/fixtures/agents-act` for acting), a change journal, the agent
+interface with its socket in a temporary folder, person actions applied through the host and the
+Settings → Agents requests, and toasts, clipboard text and plugin navigation routed to the
+person as the app routes them (`personRouting`). Adapters in `adapters.ts`
 run steps the way clients do: `McpAdapter` starts the stdio shim (`toolbelt mcp`) and speaks
 JSON-RPC (a request the shim answers as unreachable counts as unreachable; it starts the shim
 again if it exits), and `CliAdapter` maps each tool to its
@@ -452,7 +649,11 @@ implementation: `desk` (a task list with sections, sub-sections and empty sectio
 rows, row panes with an inline form and a timeline, SDK-owned views: a filter with a default,
 search with a highlight and a sortable column; and a per-instance dialog), `kit` (updates with status sections and split actions, nested activity
 runs, a form with a sensitive field and secret environment entries, a 250-row table beside a
-short one) and `vault`, which declares `agent.access: none`. They date content around
+short one) and `vault`, which declares `agent.access: none`. `errands` (in `agents-act`) declares
+`act`: actions of every effect, one with `confirm`, a per-instance dialog draft form (`view`), a row
+drawer form (`write`) with a sensitive field, an `agent: false` action, a toast with Undo, a bulk
+action, an action returning `data`, one that copies text and one that navigates, and a debug screen
+with its state as JSON for `expect.state`. They date content around
 `test/fixtures/agents/clock.ts`, and the harness gives the core the same clock (`now` in
 `AgentCoreOptions`), so relative times are stable. Scenarios check facts, not whole outputs:
 absolute times are local to the machine running the tests.
@@ -463,7 +664,12 @@ transcripts). It maps that run's plugins and screens onto the fixtures and adds 
 facts and rubric from its overlay table. Change the overlay, not the generated files, for those
 cases. Its extras add scenarios 18–22: the person's dialog and filter, the agent's own views
 (19), showing the person a screen with grants, Restore and refusals (20), nobody to ask
-(21), and showing one row with its details, a row the view hides and an unknown row (22). New scenarios can be added to the converter's extras or written directly as JSON.
+(21), and showing one row with its details, a row the view hides and an unknown row (22).
+Scenarios 23–30 are written directly as JSON: acting through a dialog with one approval (23),
+denied, unanswered, withdrawn and changed approvals that never run (24), write grants and what
+they never cover (25), two sessions' drafts (26), names by label and rows hidden by the acting view
+or found in the person's (27), autonomous refusal (28), nobody to ask and the bulk limit (29), and
+routing (30). New scenarios can be added to the converter's extras or written directly as JSON.
 
 `bun run test:agents` runs the three layers. `AGENT_SCENARIOS_OUT=<dir>` also writes each
 scenario run as Markdown (`<id>.<channel>.md`: the prompt, every step with what the agent got
