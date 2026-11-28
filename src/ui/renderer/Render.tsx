@@ -26,6 +26,7 @@ import { dotClass, dotSpec, pillClass, shadeStyle, styleClass, textClass } from 
 import { duration, refreshEvery, relative } from "../../shared/time";
 import { selectionKey } from "../../shared/navigation";
 import { flatSections, sectionAncestors, sectionGroup } from "../../shared/sections";
+import { inPane, payloadFor, type ActionAddress } from "../../shared/actions";
 import { changesView, ENTER_MS, ENTERING, enterStyle, LEAVING, leavingProps, useRowMotion } from "./row-motion";
 import { cn } from "@/lib/utils";
 import { Icon, isFileIcon } from "@/lib/icon";
@@ -270,7 +271,7 @@ function Segmented({ node, emit }: { node: Extract<Node, { type: "segmented" }>;
 	const [value, setValue] = useState(node.value);
 	useEffect(() => setValue(node.value), [node.value]);
 	return (
-		<Tabs value={value} onValueChange={(v) => { setValue(v); emit("field", { form: node.id, field: node.id, value: v }); }}>
+		<Tabs value={value} onValueChange={(v) => { setValue(v); emit("field", payloadFor({ kind: "field", form: node.id, field: node.id, value: v })); }}>
 			<TabsList data-view-control aria-label={node.label ?? node.id}>
 				{node.options.map((o) => {
 					const trigger = <TabsTrigger value={o.value} className="gap-1.5 px-3 aria-selected:bg-selected aria-selected:text-selected-foreground dark:aria-selected:bg-selected dark:aria-selected:text-selected-foreground">
@@ -313,7 +314,7 @@ function Choice({ node, emit }: { node: Extract<Node, { type: "choice" }>; emit:
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent data-view-control align="start" className="w-72" onCloseAutoFocus={toTable}>
-				<DropdownMenuRadioGroup value={value} onValueChange={(v) => { setValue(v); emit("field", { form: node.id, field: node.id, value: v }); }}>
+				<DropdownMenuRadioGroup value={value} onValueChange={(v) => { setValue(v); emit("field", payloadFor({ kind: "field", form: node.id, field: node.id, value: v })); }}>
 					{groups.map((g, i) => (
 						<Fragment key={i}>
 							{i > 0 && <DropdownMenuSeparator />}
@@ -923,7 +924,7 @@ function PageDialog({ dialog, emit }: { dialog?: DialogNode; emit: Emit }) {
 	if (dialog) last.current = dialog;
 	const d = dialog ?? last.current;
 	if (!d) return null;
-	const close = () => emit("dialog-close", { dialog: d.id });
+	const close = () => emit("dialog-close", payloadFor({ kind: "dialog-close", dialog: d.id }));
 	return (
 		<Dialog open={!!dialog} onOpenChange={(o) => !o && dialog && close()}>
 			{d.resizable ? <ResizableDialog key={d.id} d={d} emit={emit} close={close} /> : <DialogBody d={d} emit={emit} close={close} />}
@@ -944,7 +945,7 @@ function DialogBody({ d, emit, close, className, style, header, children }: { d:
 	// The main action runs on ⌘↵ from anywhere; plain ↵ gets into the focused control (opens a
 	// picker, flips a toggle, presses a button). See `useDefaultAction`. Esc is Cancel / Close.
 	const main = d.actions?.find((a) => a.primary && !a.disabled && a.checked === undefined);
-	const defaultAction = useDefaultAction(main && (() => emit(main.id, { dialog: d.id })));
+	const defaultAction = useDefaultAction(main && (() => emit(main.id, payloadFor({ kind: "action", action: main.id, dialog: d.id }))));
 	return (
 		<DialogContent
 			{...defaultAction.handlers}
@@ -979,7 +980,7 @@ function DialogBody({ d, emit, close, className, style, header, children }: { d:
 					{d.actions?.some((a) => a.primary) ? "Cancel" : "Close"}
 					<KeyHint keys="esc" />
 				</Button>
-				<ActionButtons size="default" actions={d.actions ?? []} enter={main} enterKeys={defaultAction} onRun={(a) => emit(a.id, { dialog: d.id })} />
+				<ActionButtons size="default" actions={d.actions ?? []} enter={main} enterKeys={defaultAction} onRun={(a) => emit(a.id, payloadFor({ kind: "action", action: a.id, dialog: d.id }))} />
 			</DialogFooter>
 			{children}
 		</DialogContent>
@@ -1137,16 +1138,18 @@ function Spark({ values, tone, fill }: { values: number[]; tone?: Tone; fill?: b
 	);
 }
 
-type Confirm = { action: Action; payload?: Record<string, unknown> } | null;
+/** Where an action runs (its row, rows, target, timeline entry…): the payload comes from `payloadFor`. */
+export type ActionAt = Omit<ActionAddress, "kind" | "action">;
+type Confirm = { action: Action; at: ActionAt } | null;
+const actionPayload = (action: Action, at: ActionAt) => payloadFor({ kind: "action", action: action.id, ...at });
 
 export function useConfirm(emit: Emit) {
 	const [pending, setPending] = useState<Confirm>(null);
 	const run = useCallback(
-		(action: Action, rowId?: string, extra?: Record<string, unknown>) => {
-			const payload: Record<string, unknown> = { ...(rowId !== undefined && { rowId }), ...extra };
-			if (action.input && typeof payload.text !== "string") setAsking({ action, payload });
-			else if (action.confirm) setPending({ action, payload });
-			else emit(action.id, payload);
+		(action: Action, at: ActionAt = {}) => {
+			if (action.input && typeof at.text !== "string") setAsking({ action, at });
+			else if (action.confirm) setPending({ action, at });
+			else emit(action.id, actionPayload(action, at));
 		},
 		[emit],
 	);
@@ -1156,11 +1159,11 @@ export function useConfirm(emit: Emit) {
 	const [text, setText] = useState("");
 	const sendAsked = (t: string) => {
 		if (!asking || !t.trim()) return;
-		const next = { ...asking.payload, text: t.trim() };
+		const next = { ...asking.at, text: t.trim() };
 		setAsking(null);
 		setText("");
-		if (asking.action.confirm) setPending({ action: asking.action, payload: next });
-		else emit(asking.action.id, next);
+		if (asking.action.confirm) setPending({ action: asking.action, at: next });
+		else emit(asking.action.id, actionPayload(asking.action, next));
 	};
 	const prompt = (
 		<Dialog open={!!asking} onOpenChange={(o) => !o && (setAsking(null), setText(""))}>
@@ -1208,7 +1211,7 @@ export function useConfirm(emit: Emit) {
 						aria-keyshortcuts="Enter"
 						variant={pending?.action.tone === "destructive" ? "destructive" : "default"}
 						onClick={() => {
-							if (pending) emit(pending.action.id, pending.payload);
+							if (pending) emit(pending.action.id, actionPayload(pending.action, pending.at));
 							setPending(null);
 						}}
 					>
@@ -1223,7 +1226,7 @@ export function useConfirm(emit: Emit) {
 	return { run, dialog };
 }
 
-type Run = (a: Action, rowId?: string, extra?: Record<string, unknown>) => void;
+type Run = (a: Action, at?: ActionAt) => void;
 
 /** Put text on the clipboard from the web view. */
 export async function copyText(text: string) {
@@ -1309,7 +1312,7 @@ function RowActions({ actions, row, run, menuOpen, setMenuOpen, choosing, setCho
 	const pending = actions.find(a => a.id === choosing);
 	const targets = pending && choicesFor(row, pending);
 	const close = () => { setMenuOpen(false); setChoosing(null); };
-	const pick = (a: Action, target?: string) => { close(); run(a, row.id, target ? { target } : undefined); };
+	const pick = (a: Action, target?: string) => { close(); run(a, { row: row.id, ...(target ? { target } : {}) }); };
 	// A key does what clicking does: actions with several targets ask which one.
 	const byKey = (a: Action) => (actions.includes(a) && choicesFor(row, a) ? (setChoosing(a.id), focusFirstItem(content.current)) : pick(a));
 	return (
@@ -1568,9 +1571,9 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	const { run, dialog } = useConfirm(emitAction);
 	// An action with `focus` goes into the drawer instead, when the drawer can show (set below).
 	const focusInPane = useRef<(a: Action, rowId: string) => boolean>(() => false);
-	const runRow = useCallback<Run>((a, rowId, extra) => {
-		if (a.focus && rowId !== undefined && focusInPane.current(a, rowId)) return;
-		run(a, rowId, extra);
+	const runRow = useCallback<Run>((a, at) => {
+		if (a.focus && at?.row !== undefined && focusInPane.current(a, at.row)) return;
+		run(a, at);
 	}, [run]);
 	const allColumns = useMemo(() => node.columns, [JSON.stringify(node.columns)]);
 	const allActions = useMemo(() => node.actions ?? [], [JSON.stringify(node.actions ?? [])]);
@@ -1587,7 +1590,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 	 *  only in the row menu open that menu instead (their choice is a submenu there). */
 	const trigger = useCallback(
 		(a: Action, row: Row) => {
-			if (!choicesFor(row, a)) return runRow(a, row.id);
+			if (!choicesFor(row, a)) return runRow(a, { row: row.id });
 			if (a.inline) setChoosing({ row: row.id, action: a.id });
 			else setMenuFor(row.id);
 		},
@@ -1927,7 +1930,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		if (!node.selectEvents || sentSelection.current === selectedRow) return;
 		const t = setTimeout(() => {
 			sentSelection.current = selectedRow;
-			emit("select", { table: node.id, rowId: selectedRow === null ? null : standFor(selectedRow) });
+			emit("select", payloadFor({ kind: "select", table: node.id, row: selectedRow === null ? null : standFor(selectedRow) }));
 		}, SELECT_SETTLE_MS);
 		return () => clearTimeout(t);
 	}, [node.selectEvents, node.id, selectedRow, emit, standFor]);
@@ -2076,13 +2079,13 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				setRowDrag(null);
 				if (!commit || !target) return;
 				if (target.onto) {
-					emit("reorder", { table: node.id, rowId: row.id, section: target.section, before: null, onto: target.onto });
+					emit("reorder", payloadFor({ kind: "reorder", table: node.id, row: row.id, section: target.section, before: null, onto: target.onto }));
 					return;
 				}
 				const m: RowMove = { rowId: row.id, section: target.section, before: target.before };
 				// A nested row has no place of its own among the top-level rows to show early.
 				if (!live.current.rows.some((r) => r.id === row.id)) {
-					emit("reorder", { table: node.id, rowId: m.rowId, section: m.section, before: m.before });
+					emit("reorder", payloadFor({ kind: "reorder", table: node.id, row: m.rowId, section: m.section, before: m.before }));
 					return;
 				}
 				if (isNoopMove(live.current.rows, m, live.current.sections)) return;
@@ -2090,7 +2093,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 				addPending(live.current.nodeRows, m);
 				// Into a collapsed section, the row goes out of sight: don't select what can't be seen.
 				if (!live.current.hidesDrops(m.section)) setSelected(row.id);
-				emit("reorder", { table: node.id, rowId: m.rowId, section: m.section, before: m.before });
+				emit("reorder", payloadFor({ kind: "reorder", table: node.id, row: m.rowId, section: m.section, before: m.before }));
 			};
 			const up = () => finish(true);
 			const cancel = () => finish(false);
@@ -2120,7 +2123,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 		// A collapsed section opens to show the row arriving.
 		if (hidesDrops(m.section)) setCollapsedGroups((c) => ({ ...c, ...Object.fromEntries(openingKeys(m.section).map((k) => [k, false])) }));
 		addPending(node.rows, m);
-		emit("reorder", { table: node.id, rowId: m.rowId, section: m.section, before: m.before });
+		emit("reorder", payloadFor({ kind: "reorder", table: node.id, row: m.rowId, section: m.section, before: m.before }));
 		requestAnimationFrame(() => rowElement(wrap.current, row.id)?.scrollIntoView({ block: "nearest" }));
 	};
 	
@@ -2399,7 +2402,7 @@ function DataTable({ node, emit }: { node: Extract<Node, { type: "table" }>; emi
 							Clear
 						</Button>
 						<div className="ml-auto flex items-center gap-2">
-							<ActionButtons actions={bulk} onRun={(a) => run(a, undefined, { rowIds: [...checked] })} />
+							<ActionButtons actions={bulk} onRun={(a) => run(a, { rows: [...checked] })} />
 						</div>
 					</div>
 				)}
@@ -2894,13 +2897,13 @@ function RowDetails({ row, actions, run }: { row: Row; actions: Action[]; run: R
 						{s.title && <h3 className="px-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{s.title}</h3>}
 						<dl className="divide-y overflow-hidden rounded-lg border bg-background">
 							{s.items.map((d) => (
-								<DetailRow key={d.label + (d.actionRow ?? "") + (d.target ?? "")} d={d} run={(a) => run(a, d.actionRow ?? row.id, d.target !== undefined ? { target: d.target } : undefined)} />
+								<DetailRow key={d.label + (d.actionRow ?? "") + (d.target ?? "")} d={d} run={(a) => run(a, { row: d.actionRow ?? row.id, ...(d.target !== undefined ? { target: d.target } : {}) })} />
 							))}
 						</dl>
 					</section>
 				))}
 			</div>
-			{groups.length > 0 && <InspectorActions groups={groups} main={main} row={row} run={(a, target) => run(a, row.id, target ? { target } : undefined)} />}
+			{groups.length > 0 && <InspectorActions groups={groups} main={main} row={row} run={(a, target) => run(a, { row: row.id, ...(target ? { target } : {}) })} />}
 		</>
 	);
 }
@@ -2918,10 +2921,10 @@ const paneMenuClosed = (e: Event) => {
  * buttons below them. Events from the nodes carry the row.
  */
 function RowPane({ row, pane, actions, buttons, enter, run, emit }: { row: Row; pane: Node[]; actions: Action[]; buttons?: boolean; enter?: string; run: Run; emit: Emit }) {
-	const paneEmit = useCallback<Emit>((name, payload) => emit(name, { ...(payload as object | undefined), rowId: row.id }), [emit, row.id]);
+	const paneEmit = useCallback<Emit>((name, payload) => emit(name, inPane({ ...(payload as object | undefined) }, row.id)), [emit, row.id]);
 	const groups = groupActions(actions);
 	const first = groups[0] ?? [];
-	const runAction = (a: Action, target?: string) => run(a, row.id, target ? { target } : undefined);
+	const runAction = (a: Action, target?: string) => run(a, { row: row.id, ...(target ? { target } : {}) });
 	// Which menu is open (an action's id, or "" for ⋯), and the ⋯ menu's "which one?" action.
 	const [menu, setMenu] = useState<string | null>(null);
 	const [choosing, setChoosing] = useState<Action | null>(null);
@@ -3135,7 +3138,7 @@ function DetailRow({ d, run }: { d: DetailItem; run: (a: Action) => void }) {
 					{acts.map((a) => (
 						<Tooltip key={a.id}>
 							<TooltipTrigger asChild>
-								<Button variant="ghost" size="icon-xs" className="text-muted-foreground hover:text-foreground" aria-label={a.label} onClick={() => run(a)}>
+								<Button variant="ghost" size="icon-xs" className="text-muted-foreground hover:text-foreground" aria-label={a.label} disabled={a.disabled} onClick={() => run(a)}>
 									<Icon name={a.icon} />
 								</Button>
 							</TooltipTrigger>
@@ -3188,7 +3191,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 	const [pointerMoved] = useState(pointerTracker);
 	// An action with `input` asks for its text in a line under the item.
 	const [asking, setAsking] = useState<{ item: string; action: Action } | null>(null);
-	const runItem = useCallback((a: Action, id: string) => (a.input ? (setActive(id), setAsking({ item: id, action: a })) : run(a, id)), [run, setActive]);
+	const runItem = useCallback((a: Action, id: string) => (a.input ? (setActive(id), setAsking({ item: id, action: a })) : run(a, { row: id })), [run, setActive]);
 	useEffect(() => {
 		if (!keyboard) return;
 		const onKey = (e: KeyboardEvent) => {
@@ -3208,7 +3211,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
             } else if (i >= 0) {
                 const item = node.items[i]!;
                 // `open`: ↵ follows the item's link.
-                if (e.key === "Enter" && node.open && !node.open.disabled) { e.preventDefault(); emit(node.open.id, { list: node.id, item: item.id }); return; }
+                if (e.key === "Enter" && node.open && !node.open.disabled) { e.preventDefault(); emit(node.open.id, payloadFor({ kind: "action", action: node.open.id, list: node.id, item: item.id })); return; }
                 const action = e.key === "Enter" ? item.actions?.find(a => !a.disabled) : actionForEvent(item.actions ?? [], e);
                 if (action) { e.preventDefault(); runItem(action, item.id); }
             }
@@ -3253,7 +3256,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
                     onMouseMove={(e) => { if (canHoverNavigate(self.current) && pointerMoved(e) && (active !== it.id || !self.current?.contains(document.activeElement))) { focusPopoverCollection(self.current); setActive(it.id); } }}
                     onPointerDown={() => { focusPopoverCollection(self.current); setActive(it.id); }}
                     // `open`: the item is a link; its action buttons stop the click themselves.
-                    onClick={node.open && !node.open.disabled ? (e) => { if (!(e.target as HTMLElement).closest("button")) emit(node.open!.id, { list: node.id, item: it.id }); } : undefined}
+                    onClick={node.open && !node.open.disabled ? (e) => { if (!(e.target as HTMLElement).closest("button")) emit(node.open!.id, payloadFor({ kind: "action", action: node.open!.id, list: node.id, item: it.id })); } : undefined}
                     title={node.open?.label}
                     className={cn("group/row flex items-center gap-3 rounded-lg px-2.5 py-2 data-[active=true]:bg-selected data-[active=true]:text-selected-foreground", node.open && "cursor-pointer hover:bg-accent", it.leaving ? LEAVING : motion.entering.has(it.id) && ENTERING)}>
                     {it.icon ? <Icon name={it.icon} className="size-4 shrink-0" /> : node.inset && <span aria-hidden className="size-4 shrink-0" />}
@@ -3281,7 +3284,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 							{withAlternatives(it.actions).map((a, i) => (
 								<Tooltip key={a.id}>
 									<TooltipTrigger asChild>
-										<Button variant="ghost" size="icon-xs" tabIndex={-1} className="hover:bg-selected-foreground/15 hover:text-selected-foreground" onClick={() => runItem(a, it.id)} aria-label={a.label}>
+										<Button variant="ghost" size="icon-xs" tabIndex={-1} className="hover:bg-selected-foreground/15 hover:text-selected-foreground" disabled={a.disabled} onClick={() => runItem(a, it.id)} aria-label={a.label}>
 											<Icon name={a.icon} />
 										</Button>
 									</TooltipTrigger>
@@ -3299,7 +3302,7 @@ function List({ node, emit, keyboard = true }: { node: Extract<Node, { type: "li
 					<ItemInput
 						action={asking.action}
 						onSend={(text) => {
-							run(asking.action, it.id, { text });
+							run(asking.action, { row: it.id, text });
 							setAsking(null);
 							self.current?.focus({ preventScroll: true });
 						}}
@@ -3580,15 +3583,17 @@ type FieldValue = string | boolean | number | null | EnvironmentEntry[] | TagVal
  * A `field` event. A Keychain-backed field's names its secret (or prefix), so ToolBelt stores what
  * was typed and drops the event rather than hand the value to the plugin if the field changed.
  */
-const fieldEvent = (form: string, f: Field, value: FieldValue) => ({
-	form,
-	field: f.id,
-	value,
-	...(f.type === "text" && f.secret !== undefined ? { secret: f.secret } : f.type === "environment" && f.secretPrefix !== undefined ? { secret: f.secretPrefix } : {}),
-});
+const fieldEvent = (form: string, f: Field, value: FieldValue) =>
+	payloadFor({
+		kind: "field",
+		form,
+		field: f.id,
+		value,
+		secret: f.type === "text" && f.secret !== undefined ? f.secret : f.type === "environment" && f.secretPrefix !== undefined ? f.secretPrefix : undefined,
+	});
 /** `fill`: as wide as the space it's given (dialog forms), instead of the control's usual width. */
 /** A `tags` field's `open`: a pill's text sends it with the pill's key and value. */
-const openTag = (form: string, f: Field, emit: Emit) => (f.type === "tags" && f.open && !f.open.disabled ? (t: TagValue) => emit(f.open!.id, { form, field: f.id, key: t.key, value: t.value }) : undefined);
+const openTag = (form: string, f: Field, emit: Emit) => (f.type === "tags" && f.open && !f.open.disabled ? (t: TagValue) => emit(f.open!.id, payloadFor({ kind: "action", action: f.open!.id, form, field: f.id, tag: t })) : undefined);
 
 function FieldControl({ id, field, onChange, onOpen, fill }: { id: string; field: Field; onChange: (v: FieldValue) => void; onOpen?: (tag: TagValue) => void; fill?: boolean }) {
 	switch (field.type) {
@@ -3772,7 +3777,7 @@ function CardNode({ node, emit }: { node: Extract<Node, { type: "card" }>; emit:
 					)}
 					{node.actions && node.actions.length > 0 && (
 						<div className="flex max-w-full flex-wrap items-center gap-2">
-							<ActionButtons actions={node.actions} onRun={(a) => run(a, node.id)} />
+							<ActionButtons actions={node.actions} onRun={(a) => run(a, { card: node.id })} />
 						</div>
 					)}
 				</CardHeader>

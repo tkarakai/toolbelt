@@ -17,6 +17,7 @@ JSON-lines and do not inject browser JavaScript, HTML or React components.
 | Seed installation and declared image assets | `src/bun/seed.ts`, `plugin-assets.ts` |
 | Plugin secrets in the login Keychain (capability `secrets`) | `src/bun/secrets.ts`, `keychain-worker.ts`, `src/ui/renderer/SecretField.tsx`, `EnvironmentEditor.tsx` |
 | Protocol, manifest/capabilities and runtime validation | `src/shared/protocol.ts`, `package.ts`, `validation.ts`, `rpc.ts` |
+| Action resolver: event payloads and the check of every person's event | `src/shared/actions.ts`, `PluginProcess.personEvent` in `src/bun/host.ts` |
 | Public author SDK and fake-host tools | `src/sdk/`, packaged by `scripts/build-sdk.ts` |
 | Main window, popover, manager and renderer | `src/ui/App.tsx`, `Popover.tsx`, `PluginManager.tsx`, `renderer/` |
 | Plugin development mode | `src/bun/development.ts`, `src/shared/development.ts`, `src/ui/Development.tsx` |
@@ -106,7 +107,8 @@ the main screen, `src/ui/Floating.tsx`), each rendered per instance: every perso
 screen (window, popover, paired devices) shares the `person` instance, and agents open
 `agent:…` instances with views of their own. Visibility produces `open`/`close` with the
 instance (and the view to start from); actions, fields, search and sort produce `event` from
-the person's instance, and the host can set an instance's `view`. The SDK owns each instance's
+the person's instance once the host has checked it against that instance's tree (see "Action
+resolver"), and the host can set an instance's `view`. The SDK owns each instance's
 view (search, filters, sort, page controls) and reports the person's, which the host saves in
 `views.json` ([plugins.md](plugins.md#views)). Only the person's instance's trees reach the web
 views and remote clients. Protocol 2 is the only one the host accepts. Plugin messages include complete render trees,
@@ -232,6 +234,52 @@ the manifest's asset map. The host bounds image bytes, checks supported image co
 rejects unsafe SVG content. Lucide names (current names and Lucide's aliases, which
 `src/ui/lib/lucide.ts` resolves) and Finder `app:`/`file:` icons are also supported.
 Assets cannot supply executable webview code.
+
+## Action resolver
+
+`src/shared/actions.ts` is pure code shared by the renderer, the host and (for acting agents) the
+agent core. It knows every place a tree offers an event and the payload the renderer sends from
+there, so the renderer and the host can't drift:
+
+- `payloadFor(address)` builds every action and field payload the renderer sends (`useConfirm`,
+  dialogs, composers, timelines, lists, tags, forms, controls, `select`, `reorder`), keys in the
+  order the renderer always used. `inPane` adds a drawer's `rowId`. View events (`search`,
+  `filter`, `filter-arrange`, `sort`) stay literal. `EventPayloads` in `protocol.ts` documents the
+  shapes.
+- `checkEvent(tree, name, payload, declaration)` maps an event back onto the tree. An action
+  event (named by the action id) must be offered at its place and not `disabled`: page toolbar,
+  table row (its `actions`, their split-button alternatives, its `targets`), a context row in a
+  `contextSelect` table (sent as the row it stands for, as `DataTable` rewrites it), bulk
+  actions (every `rowIds` entry a row of that table), detail item (its `actionRow`, rewritten,
+  and its `target`), boxed card (its `id`) and drawer section (the drawer's row), dialog, list
+  item and list `open`, timeline entry (`entryActions`) and its `edit`, composer, `tags` field
+  `open` on a pill it shows, floating title bar and suggestions. Inside a row's `pane` every
+  event carries that row as `rowId`. `text` is allowed only for `input` actions, composers and
+  timeline edits, and required there. The payload has no other keys. `field` needs the form and
+  field (in the row's drawer when `rowId` is given, a page control when `form` and `field` are
+  its id), a value of the field type's shape, and a `secret` mark only on the field's own secret.
+  `select` needs a `selectEvents` table and one of its rows; `reorder` a `reorder` table, its
+  rows and a section it has (`onto` with `reorderOnto`); `dialog-close` the open dialog. View
+  events pass when the page shows that control (a sortable column for `sort`, every filter id for
+  `filter-arrange`) or the view declaration covers it, as the SDK's `viewChange` applies it.
+  A plugin may name an action like a built-in event; what the tree offers decides.
+- `resolve(tree, address)` is the same check for an address (`{ kind: "action", action, row, … }`)
+  instead of a payload: it builds the payload with `payloadFor`, refuses an action offered in
+  several places unless `table`, `list` or `dialog` narrows it, and returns the action, its place
+  in words, the rows with their titles and the `confirm` text.
+
+`PluginProcess.personEvent` checks every person's event (window, popover and remote clients all
+reach `PluginHost.event`) against the person instance's current tree, after the size check and
+before the Keychain path and delivery. The renderer only shows trees the host sent, so its tree is
+never newer than the host's and a refusal means the target really changed. A refused event is
+dropped and logged in the plugin's log with its reason (never its values), and the person gets a
+quiet toast, "That item changed. Try again.". A refused `select` or `dialog-close` gets no toast
+(the person didn't ask for it: a selection resting on a row that just went, Esc on a dialog that
+just closed), and a refused secret field event keeps its own message. A surface with no cached
+tree refuses: nothing can have been clicked there, and after a plugin restart the old tree
+describes the old process. A render error's host tree offers nothing. Toast buttons (surface
+`toast`) have no tree: the process remembers the last 20 toast actions it sent for 30 minutes,
+and a button's event must match one by id and payload.
 
 ## Secrets
 

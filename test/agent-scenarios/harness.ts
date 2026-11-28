@@ -135,12 +135,16 @@ export async function createWorld(setup: Scenario["setup"] = {}, options: WorldO
 				host.close(plugin, surface);
 			} else if ("event" in action) {
 				const { plugin, surface } = split(action.event.screen);
+				// The person acts on a screen they see: ToolBelt checks the event against it.
+				const glance = !host.snapshot(plugin, surface)?.viewers;
+				if (glance) {
+					host.open(plugin, surface);
+					await until(() => host.snapshot(plugin, surface)?.tree, 4000, `${action.event.screen} to render`);
+				}
 				const before = trees.length;
 				host.event(plugin, surface, action.event.name, action.event.payload);
-				// Rendered again if anyone has it open; otherwise there's nothing to wait for.
-				if ((host.snapshot(plugin, surface)?.viewers ?? 0) > 0)
-					await until(() => trees.slice(before).some((t) => t.plugin === plugin && t.surface === surface), 4000, `${action.event.screen} to render after ${action.event.name}`);
-				else await Bun.sleep(100);
+				await until(() => trees.slice(before).some((t) => t.plugin === plugin && t.surface === surface), 4000, `${action.event.screen} to render after ${action.event.name}`);
+				if (glance) host.close(plugin, surface);
 			} else if ("access" in action) {
 				agents.handle({ operation: "setAccess", plugin: action.access.plugin, access: action.access.level });
 			} else if ("agents" in action) {

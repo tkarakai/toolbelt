@@ -192,7 +192,7 @@ describe("MCP conformance", () => {
 		await until(() => client.notifications().slice(seen).find((n) => n.method === "notifications/resources/updated" && n.params.uri === uri), 2500, "an update");
 		expect((await request("resources/unsubscribe", { uri })).result).toEqual({});
 		const after = client.notifications().length;
-		await world.person({ event: { screen: "desk/tasks", name: "reopen", payload: { rowId: "7" } } });
+		await world.person({ event: { screen: "desk/tasks", name: "reopen-all" } });
 		await Bun.sleep(1300);
 		expect(client.notifications().slice(after).filter((n) => n.method === "notifications/resources/updated")).toEqual([]);
 
@@ -235,7 +235,7 @@ describe("MCP conformance", () => {
 		const seen = client.notifications().length;
 		await world.person({ event: { screen: "desk/tasks", name: "settle", payload: { rowId: "7" } } });
 		await until(() => client.notifications().slice(seen).some((n) => n.method === "notifications/resources/updated" && n.params.uri === uri), 3000, "an update after reconnecting");
-		await world.person({ event: { screen: "desk/tasks", name: "reopen", payload: { rowId: "7" } } });
+		await world.person({ event: { screen: "desk/tasks", name: "reopen-all" } });
 		expect((await request("resources/unsubscribe", { uri })).result).toEqual({});
 	});
 

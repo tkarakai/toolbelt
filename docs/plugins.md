@@ -80,6 +80,18 @@ Field/action events let the plugin update its model, while selection, typing and
 in the renderer. Use stderr for diagnostics; stdout belongs exclusively to the SDK's JSON-lines
 transport.
 
+ToolBelt checks each person's event against the tree their screens show before the plugin gets
+it, whether it came from the window, the menu bar or a paired device. An action must be offered
+where it was used and not `disabled` (a row action on that row, a bulk action on rows the table
+shows, a `target` the row offers), a `field` event needs its form and field and a value of the
+field's type, and a payload has only the keys that place sends (`EventPayloads` in the protocol
+lists them). Anything else is dropped and logged in the plugin's log with the reason, and the
+person sees "That item changed. Try again." Plugins can rely on a person's event naming what their
+latest render offered; they still validate it against their data, which may have changed since.
+A surface the plugin hasn't rendered accepts no events, and a toast button works for 30 minutes
+after the toast was sent. Never put an action's meaning in payload keys of your own: the
+renderer sends only the keys listed there.
+
 ## Views
 
 A surface's search, filters, sort and page controls are its *view*. The SDK owns it: declare the

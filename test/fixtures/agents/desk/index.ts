@@ -2,7 +2,7 @@
 // plugins render. Sections with sub-sections and an empty one, nested rows, row panes with an
 // inline form and a timeline, a filter with a default, search with a highlight, a sortable
 // column and a dialog. Search, the Status filter and the sort are SDK-owned views (each
-// instance has its own); the dialog is per instance too. Events: `settle`/`reopen` ({ rowId }),
+// instance has its own); the dialog is per instance too. Events: `settle` ({ rowId }), `reopen-all`,
 // `new-task` opens the sender's dialog and `dialog-close` closes it. Times are fixed around
 // clock.ts's NOW.
 import type { Node, Row } from "../../../../src/shared/protocol";
@@ -119,7 +119,7 @@ function tasksPage(view: View): Node {
 			},
 		],
 		highlight: query ? [query] : undefined,
-		actions: [{ id: "new-task", label: "New task", primary: true }, { id: "refresh", label: "Refresh" }, { id: "archive", label: "Archive done", disabled: true }],
+		actions: [{ id: "new-task", label: "New task", primary: true }, { id: "refresh", label: "Refresh" }, { id: "archive", label: "Archive done", disabled: true }, { id: "reopen-all", label: "Reopen all" }],
 		children: [
 			{
 				type: "table",
@@ -166,7 +166,7 @@ definePlugin({
 	},
 	onEvent(_surface, name, payload, ctx, { instance }) {
 		if (name === "settle") settled.set(payload.rowId, "done");
-		else if (name === "reopen") settled.delete(payload.rowId);
+		else if (name === "reopen-all") settled.clear();
 		else if (name === "new-task") dialogs.add(instance);
 		else if (name === "dialog-close") dialogs.delete(instance);
 		ctx.invalidate();

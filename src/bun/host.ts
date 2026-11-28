@@ -33,6 +33,7 @@ import {
   checkCompatibility,
 } from "./packages";
 import type { PluginInfo, PluginState } from "../shared/plugin-state";
+import { checkEvent, isRefused } from "../shared/actions";
 import {
   annotateSecrets,
   entrySecret,
@@ -116,6 +117,11 @@ type Listener = {
 
 /** How long after a person's action a plugin may still move them to another screen. */
 export const NAVIGATE_GRACE_MS = 10_000;
+/** How long a toast's action button stays usable (toasts linger while hovered or hidden), and how many are kept. */
+export const TOAST_ACTION_MS = 30 * 60_000;
+const TOAST_ACTIONS = 20;
+/** What the person sees when ToolBelt drops their event because the screen changed under it. */
+export const STALE_EVENT = "That item changed. Try again.";
 
 export class PluginProcess {
   private readyResolve?: () => void;
@@ -268,6 +274,7 @@ export class PluginProcess {
     this.trees.clear();
     this.treeAt.clear();
     this.renderErrors.clear();
+    this.toastActions = [];
     void this.opts.secrets?.load();
     const entry = resolve(this.dir, this.manifest.entry);
     const data =
@@ -678,6 +685,8 @@ export class PluginProcess {
         this.changed();
         break;
       case "toast":
+        if (msg.action)
+          this.toastActions = [...this.toastActions, { id: msg.action.id, payload: JSON.stringify(msg.action.payload ?? null), at: Date.now() }].slice(-TOAST_ACTIONS);
         this.listener.toast(this.manifest.id, msg.text, msg.tone, msg.action);
         break;
       case "clipboard":
@@ -741,10 +750,45 @@ export class PluginProcess {
     }
   }
 
+  /** Toast action buttons this process offered recently (surface "toast" events answer them). */
+  private toastActions: { id: string; payload: string; at: number }[] = [];
+
+  /**
+   * Why a person's event doesn't match what their screen offers (null: it does). Events are
+   * checked against the person instance's current tree (`checkEvent`, src/shared/actions.ts),
+   * which is never older than what their screens show; a surface with no tree offers nothing.
+   * Toast buttons are checked against the toasts this process sent.
+   */
+  private refusal(surface: string, name: string, payload: unknown): string | null {
+    if (surface === "toast") {
+      const sent = JSON.stringify(payload ?? null);
+      const now = Date.now();
+      return this.toastActions.some((t) => t.id === name && t.payload === sent && now - t.at <= TOAST_ACTION_MS) ? null : "no recent toast offers it";
+    }
+    if (!this.declared(surface)) return "the surface isn't declared";
+    const tree = this.trees.get(instanceKey(surface));
+    if (!tree) return "nothing is shown there yet";
+    const resolved = checkEvent(tree, name, payload, this.declaredViews[surface]);
+    return isRefused(resolved) ? resolved.refused : null;
+  }
+
   /** Person's events waiting behind a Keychain write, so they reach the plugin in order. */
   private eventChain: Promise<void> | null = null;
-  /** A person's event. A secret field's value goes to the Keychain; the plugin hears only the outcome. */
+  /**
+   * A person's event, delivered only when their screen offers it. A refused one is dropped and
+   * logged, and the person is told (quietly) unless it was a selection or a dialog closing,
+   * which they didn't ask to happen. A secret field's value goes to the Keychain; the plugin
+   * hears only the outcome.
+   */
   personEvent(surface: string, name: string, payload: unknown) {
+    const refused = this.refusal(surface, name, payload);
+    if (refused !== null) {
+      const marked = name === "field" && !!payload && typeof payload === "object" && (payload as { secret?: unknown }).secret !== undefined;
+      this.log(`refused ${JSON.stringify(name.slice(0, 64))} on ${surface}: ${refused}`);
+      if (marked) this.secretProblem("That field changed before ToolBelt could save it. Type it again.");
+      else if (name !== "select" && name !== "dialog-close") this.listener.toast(this.manifest.id, STALE_EVENT);
+      return;
+    }
     this.userEventAt = Date.now();
     const secret = name === "field" ? this.secretField(surface, payload) : null;
     const deliver = (out: unknown) => this.send({ type: "event", surface, instance: PERSON, name, payload: out });

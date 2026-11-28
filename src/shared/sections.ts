@@ -52,3 +52,14 @@ export function sectionDepth(path: GroupLabel[], ancestors: Map<string, Section[
 	}
 	return depth;
 }
+
+/**
+ * The section a row is in, as drops name it ("" without a group): its sub-section's id inside
+ * one of the table's declared `sections`, else its top-level group key.
+ */
+export function rowSection(row: Row, sections?: Section[]): string {
+	const parents = sectionAncestors(sections);
+	const path = sectionGroup(row.group, parents);
+	const depth = sectionDepth(path, parents);
+	return depth ? groupKey(path[depth - 1]!) : "";
+}

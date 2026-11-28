@@ -92,7 +92,7 @@ const table = (r, cells) => ({ type: "table", id: "runs", columns: [{ key: "a", 
 process.stdin.on("data", (chunk) => {
   for (const line of String(chunk).split("\\n").filter(Boolean)) {
     const m = JSON.parse(line);
-    if (m.type === "open" && m.surface === "screen:main") send({ type: "render", surface: "screen:main", instance: "person", tree: { type: "text", text: "main is fine" } });
+    if (m.type === "open" && m.surface === "screen:main") send({ type: "render", surface: "screen:main", instance: "person", tree: { type: "page", actions: [{ id: "go", label: "Go" }], children: [{ type: "text", text: "main is fine" }] } });
     if (m.type === "open" && m.surface === "screen:activity") {
       send({ type: "render", surface: "screen:activity", instance: "person", tree: table(rows(15000)) });
       send({ type: "render", surface: "screen:activity", instance: "person", tree: table(null, { a: { text: {} } }) });
@@ -119,8 +119,9 @@ setInterval(() => {}, 1000);`,
     expect(shown[1].tree.description).toContain("message.tree.rows[0].cells.a");
     // The snapshot reports the latest reason and no tree, so readers (agents) don't take the error for content.
     expect(host.snapshot("partial", "screen:activity")).toMatchObject({ tree: null, error: "Invalid protocol value at message.tree.rows[0].cells.a" });
-    expect(host.snapshot("partial", "screen:main")?.tree).toEqual({ type: "text", text: "main is fine" });
-    host.event("partial", "screen:activity", "go");
+    expect(JSON.stringify(host.snapshot("partial", "screen:main")?.tree)).toContain("main is fine");
+    // The error screen offers nothing; an action on the healthy one brings the other back.
+    host.event("partial", "screen:main", "go");
     await until(() => host.snapshot("partial", "screen:activity")?.tree !== null);
     expect(host.snapshot("partial", "screen:activity")).toEqual({ tree: { type: "text", text: "activity is back" }, at: expect.any(Number), viewers: 1 });
     expect(host.list()[0].state).toBe("running");

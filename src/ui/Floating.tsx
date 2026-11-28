@@ -10,6 +10,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { ArrowUp, ChevronsUpDown, GripVertical, Loader2, Minus, Sparkles, X } from "lucide-react";
 import type { Node, Suggestion } from "../shared/protocol";
 import type { PluginInfo } from "../shared/rpc";
+import { payloadFor } from "../shared/actions";
 import { Icon } from "@/lib/icon";
 import { cn } from "@/lib/utils";
 import { sendEvent, useNavigate, useSurface } from "@/lib/store";
@@ -502,7 +503,7 @@ function TitleBar({ info, node, emit, focused, onDrag, onMinimize, onSwitch, mob
 			<div className="ml-auto flex shrink-0 items-center gap-1">
 				{node.actions?.map((a) => (
 					<ShortcutTooltip key={a.id} label={a.label}>
-						<Button variant="ghost" size="icon-sm" aria-label={a.label} aria-pressed={a.checked} disabled={a.disabled} onClick={() => emit(a.id, {})} className={cn("text-muted-foreground", a.checked && "bg-accent text-foreground")}>
+						<Button variant="ghost" size="icon-sm" aria-label={a.label} aria-pressed={a.checked} disabled={a.disabled} onClick={() => emit(a.id, payloadFor({ kind: "action", action: a.id }))} className={cn("text-muted-foreground", a.checked && "bg-accent text-foreground")}>
 							<Icon name={a.icon ?? "circle"} />
 						</Button>
 					</ShortcutTooltip>
@@ -576,7 +577,7 @@ function AskBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { inf
 	const keys = keysOf(info);
 	const send = (text: string) => {
 		if (!composer || !text.trim() || composer.action.disabled) return;
-		emit(composer.action.id, { composer: composer.id, text: text.trim() });
+		emit(composer.action.id, payloadFor({ kind: "action", action: composer.action.id, composer: composer.id, text: text.trim() }));
 		setDraft("");
 	};
 	return (
@@ -595,7 +596,7 @@ function AskBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { inf
 									tabIndex={-1}
 									onMouseEnter={() => setPick(i)}
 									onMouseDown={(e) => e.preventDefault()}
-									onClick={() => emit(s.id, {})}
+									onClick={() => emit(s.id, payloadFor({ kind: "action", action: s.id }))}
 									className={cn("flex w-full items-center gap-2.5 rounded-lg px-2 text-left text-sm", mobile ? "py-2.5 active:bg-accent" : "py-1.5", i === pick && !mobile && "bg-accent")}
 								>
 									<Icon name={s.icon ?? "sparkles"} className="size-4 shrink-0 text-muted-foreground" />
@@ -638,7 +639,7 @@ function AskBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { inf
 							if (e.key === "Enter") {
 								e.preventDefault();
 								if (draft.trim()) send(draft);
-								else if (showSuggestions) emit(suggestions[pick].id, {});
+								else if (showSuggestions) emit(suggestions[pick].id, payloadFor({ kind: "action", action: suggestions[pick].id }));
 							} else if (showSuggestions && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
 								e.preventDefault();
 								setPick((p) => (p + (e.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length);
@@ -662,7 +663,7 @@ function AskBar({ info, node, emit, focused, onDrag, onMinimize, mobile }: { inf
 				)}
 				{node.actions?.map((a) => (
 					<ShortcutTooltip key={a.id} label={a.label}>
-						<Button variant="ghost" size="icon-sm" aria-label={a.label} disabled={a.disabled} onClick={() => emit(a.id, {})} className="text-muted-foreground">
+						<Button variant="ghost" size="icon-sm" aria-label={a.label} disabled={a.disabled} onClick={() => emit(a.id, payloadFor({ kind: "action", action: a.id }))} className="text-muted-foreground">
 							<Icon name={a.icon ?? "circle"} />
 						</Button>
 					</ShortcutTooltip>

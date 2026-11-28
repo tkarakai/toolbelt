@@ -250,7 +250,7 @@ definePlugin({
 		try { events.push("start:" + String(await ctx.secrets.has("api/key"))); } catch (e) { events.push("start-error:" + e.message); }
 	},
 	render: {
-		"screen:main": () => ({ type: "page", children: [
+		"screen:main": () => ({ type: "page", actions: [{ id: "use", label: "Use" }, { id: "write", label: "Write" }], children: [
 			{ type: "form", id: "settings", fields: [
 				{ type: "text", id: "key", label: "API key", value: "", secret: "api/key" },
 				{ type: "environment", id: "env", label: "Environment", secretPrefix: "env", value: env },
