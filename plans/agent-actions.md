@@ -30,6 +30,12 @@ channel) is not in this wave.
 - **A call waits up to 60 s for its approval, then is denied,** as `show_screen` does. The
   non-blocking `pending_approval` queue is wave B2.
 - **No plugin management by agents in this wave.**
+- **A change journal records every change, by people and agents alike** (see B1.2). People
+  stop reading approvals they see too often, so knowing who changed what, and when, can't
+  depend on the approvals.
+- **History and reversibility are a wave of their own, right after B1** (roadmap item 11, to be
+  specified then): snapshots of plugin data, per-record history and revert. Once changes can be
+  undone, the approval rules are revisited so that reversible changes ask less (item 12).
 
 ## Trust model
 
@@ -46,7 +52,7 @@ and never text the agent supplies.
 | | Milestone | Contract | Ships as |
 | --- | --- | --- | --- |
 | B1.1 | Action resolver: the host checks every event, from every client | None (host only) | App patch/minor |
-| B1.2 | Protocol 3: action and form declarations, event ids and results, origin, per-instance hooks, wave A's SDK gaps | Protocol 3, SDK major | SDK + app, then every plugin |
+| B1.2 | Protocol 3: action and form declarations, event ids and results, origin, per-instance hooks, wave A's SDK gaps; the change journal | Protocol 3, SDK major | SDK + app, then every plugin |
 | B1.3 | Agents act: `run_action`, `fill_form`, approvals, write grants, result routing, audit, CLI | Agent interface (MCP, CLI) | App minor |
 | B1.4 | Plugin upgrades: OnTrack and Upkeep move to `act`; the others move to protocol 3 | Plugins | Plugin releases |
 
@@ -186,6 +192,52 @@ definePlugin({
 - **Plugins should treat `origin: "agent"` as a person acting through an agent:** same
   validation, no hidden side effects (OnTrack doesn't mark a task read when an agent opens it).
 
+### Change journal
+
+The host records every change made through a plugin's screens, whoever made it. The agent audit
+(B1.3) records what agents read and asked for. The journal records what changed data.
+
+- **What is journaled:** every event the host sends to a plugin for an action declared `write`,
+  `external` or `destructive`, and every `field` event of a form declared `write`, from any
+  actor. Each event writes one entry once its result arrives (or the 10 s wait ends).
+  - Consecutive field events on the same field by the same actor within 10 s are one entry.
+  - View events, `select`, `view` actions and `view` forms (dialog drafts) are not journaled:
+    they change no data. The action that saves a draft is.
+  - Changes a plugin makes on its own (timers, sync) can't be attributed to an event and are
+    not journaled in B1.
+- **Entry:**
+
+  ```ts
+  type JournalEntry = {
+    seq: number; at: number; event: string;
+    actor: { kind: "person"; via: "window" | "popover" | "remote"; device?: string }
+         | { kind: "agent"; client: string; session: string; mode: AgentMode };
+    plugin: string; surface: string;
+    /** The action id, or `form.field` for a field event. */
+    name: string;
+    effect: "write" | "external" | "destructive";
+    rows?: string[];            // ids only, at most 200
+    approval?: "none" | "grant" | "once";   // agents only
+    outcome: "ok" | "not-handled" | "error" | "no-answer";
+    error?: string;
+    /** sha256 of the previous entry's hash and this entry's other fields. */
+    hash: string;
+  };
+  ```
+
+  Like the audit, entries never contain `text`, field values, row titles or the plugin's `data`.
+- **Storage:** `journal/changes.jsonl` in the profile, outside every plugin's data folder.
+  - The host only appends to it, and syncs it at least once a second while entries arrive.
+  - The hash chain makes an edited or removed entry detectable: the host checks the chain at
+    start and reports a break in diagnostics. It can't prevent edits by the person's own
+    account, only reveal them.
+  - Removing a plugin keeps its entries.
+  - The journal is kept for now. Rotation and retention are decided with the History wave.
+- **No tooling changes it.** No operation for agents, the person, the debug API or the CLI edits
+  or deletes entries.
+- **Who reads it in B1:** the debug API and tests. Agents don't. The person's views of it (a
+  change log, a record's history) come with the History wave.
+
 ### Per-instance lifecycle and wave A's SDK gaps
 
 From agent-interface.md 5.5:
@@ -207,7 +259,7 @@ From agent-interface.md 5.5:
 
 Runtime schemas (`validation.ts`), docs/plugins.md, SDK Explorer (every effect, a dialog draft,
 a row pane form, a destructive action with `confirm`, a toast with Undo, an `agent: false`
-action), fake-host tests (results, errors, tags, refusals, per-instance hooks) and
+action), fake-host tests (results, errors, tags, refusals, per-instance hooks), journal tests (one entry per change for people, remote devices and agents; coalesced field events; nothing for view events; chain verification and a detected break) and
 `test/themes.test.ts` for the approval dialog.
 
 ## B1.3 Agents act
@@ -318,6 +370,7 @@ Each action or fill writes one entry:
 - the outcome and the plugin's error.
 
 Entries never contain `text`, field values, row titles or `data`: the log is kept forever.
+An agent's change is also in the change journal (B1.2). Both entries carry the event id.
 `OPERATION_LABELS` gains "Ran an action", "Filled in a form" and "Asked to make a change".
 
 ### Tests
@@ -350,7 +403,9 @@ Entries never contain `text`, field values, row titles or `data`: the log is kep
 
 ## Out of scope (later)
 
-- Typed `params`/`result` on actions and plugin-declared tools (roadmap item 12).
+- History and reversibility (roadmap item 11) and fewer approvals for reversible changes
+  (item 12).
+- Typed `params`/`result` on actions and plugin-declared tools (roadmap item 14).
 - Plugin management by agents (B1b).
 - `pending_approval` and standing grants for autonomous agents (B2).
 - Agents running toast actions, `select` and `reorder`.
