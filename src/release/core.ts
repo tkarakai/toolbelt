@@ -10,6 +10,7 @@ import {
 import { basename, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  HOST_VERSION,
   SDK_VERSION,
   parsePackageManifest,
   type PackageManifest,
@@ -48,8 +49,10 @@ export type ReleaseConfig = {
       }
     >
   >;
-  hostVersion: string;
+  /** The ToolBelt version plugin packages are probed as; default: the SDK's `HOST_VERSION`. */
+  hostVersion?: string;
 };
+export { HOST_VERSION };
 export type RecordFile = { name: string; size: number; sha256: string };
 export type ReleaseRecord = Request & {
   source: string;
@@ -157,7 +160,7 @@ export async function updateJSONVersion(path: string, version: string) {
 /** Use the host's actual archive/schema/lifecycle implementation, never a permissive CLI clone. */
 export async function verifyPlugin(
   archive: string,
-  hostVersion: string,
+  hostVersion: string = HOST_VERSION,
   expected?: { repo: string; version: string; target: string },
 ) {
   const root = mkdtempSync(join(tmpdir(), "toolbelt-release-probe-"));
@@ -264,7 +267,7 @@ export async function verifyPlugin(
 export async function packagePlugin(
   root: string,
   output: string,
-  hostVersion: string,
+  hostVersion: string = HOST_VERSION,
   extras: string[] = [],
 ) {
   const m = validatePackage(root);

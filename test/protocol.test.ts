@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultScreen, floatingOnly, parseManifest, requireProtocol, splitLines } from "../src/shared/protocol";
 
-const base = { id: "demo", name: "Demo", protocol: 2, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "a", title: "A" }] };
+const base = { id: "demo", name: "Demo", protocol: 3, agent: { access: "read" }, entry: "index.ts", screens: [{ id: "a", title: "A" }] };
 
 describe("parseManifest", () => {
 	test("fills defaults", () => {
@@ -22,7 +22,7 @@ describe("parseManifest", () => {
 	test("a manifest for another protocol parses, so its installation survives a ToolBelt update, and is refused by requireProtocol", () => {
 		const old = parseManifest({ ...base, protocol: 1, agent: undefined });
 		expect(old.protocol).toBe(1);
-		expect(() => requireProtocol(old)).toThrow("Plugin needs an update: it was built for plugin protocol 1, and this ToolBelt speaks protocol 2");
+		expect(() => requireProtocol(old)).toThrow("Plugin needs an update: it was built for plugin protocol 1, and this ToolBelt speaks protocol 3");
 		expect(() => requireProtocol(parseManifest(base))).not.toThrow();
 		expect(() => parseManifest({ ...base, protocol: 1, agent: { access: "all" } })).toThrow("`agent.access`");
 	});

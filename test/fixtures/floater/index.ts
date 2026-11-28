@@ -4,6 +4,7 @@ import { definePlugin, type Message, type Node } from "../../../src/sdk";
 
 const messages: Message[] = [];
 definePlugin({
+	actions: { env: { effect: "view" }, "ask-hello": { effect: "write" }, send: { effect: "write" } },
 	render: {
 		floating: (): Node => ({
 			type: "floating",

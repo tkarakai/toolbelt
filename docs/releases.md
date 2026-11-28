@@ -157,6 +157,10 @@ new, approved plugin release. Do not publish another app merely to roll out SDK-
 The engine lives in src/release/. release.config.ts supplies version/changelog/build adapters.
 Plugins consume its public @toolbelt/sdk/release entry and toolbelt-release bin through their
 exact SDK URL and frozen lockfile. Updating tooling requires deliberately updating that SDK pin.
+The tooling probes plugin packages as `HOST_VERSION` (src/shared/package.ts) unless a release
+config names `hostVersion`: the first app release that speaks the SDK's protocol and offers its
+capabilities. A host change that adds to either sets `HOST_VERSION` to the app version that will
+ship it, so the SDK released with it probes plugins as that host.
 The installed SDK archive is tested without a host checkout. Package/protocol/data-schema versions
 remain independent of product and SDK versions.
 

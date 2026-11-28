@@ -28,7 +28,7 @@ async function archive(root: string, version: string) {
       version,
       repo: "test/fixture",
       entry: "index.js",
-      protocol: 2, agent: { access: "read" },
+      protocol: 3, agent: { access: "read" },
       screens: [{ id: "main", title: "Main" }],
       requires: { host: ">=0.1.0", bun: ">=1.3.0", platforms: ["portable"] },
       capabilities: { required: ["ui.core"], optional: [] },

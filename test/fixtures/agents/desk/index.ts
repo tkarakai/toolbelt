@@ -152,6 +152,18 @@ function tasksPage(view: View): Node {
 definePlugin({
 	start: (ctx) => ctx.badge(1),
 	views: { "screen:tasks": { search: true, filters: { status: ["open", "waiting"] }, sort: { tasks: null } } },
+	actions: {
+		"new-task": { effect: "view" },
+		refresh: { effect: "view" },
+		archive: { effect: "write" },
+		"reopen-all": { effect: "write" },
+		settle: { effect: "write" },
+		snooze: { effect: "write", describe: "Hides the task until a later date" },
+		"settle-all": { effect: "write" },
+		create: { effect: "write" },
+	},
+	// A pane form per task: declared from the data, like filters built from labels.
+	forms: () => ({ ...Object.fromEntries(tasks.map((t) => [`task-${t.id}`, { effect: "write" as const }])), new: { effect: "view" }, settings: { effect: "write" } }),
 	render: {
 		"screen:tasks": (_ctx, view) => tasksPage(view),
 		"screen:settings": () => ({

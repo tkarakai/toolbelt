@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- **Plugins need upgrading.** ToolBelt speaks plugin protocol 3 and runs only plugins built for it; older plugins show that they need an update until their next release. Plugins now declare what each of their actions does (whether it only changes the view, changes their data, reaches outside ToolBelt or deletes something), which lets agents be asked before they change anything in a later release.
+- When a plugin answers an action by showing another screen, it shows it on the device you acted on, even if you (or another device) acted elsewhere in the meantime; before, it could land on whichever screen acted last. If that device has disconnected, nothing moves.
 - AI agents can connect with the current MCP version (2026-07-28) as well as earlier ones: ToolBelt answers requests that carry their own version without a handshake, says which versions it speaks, and sends screen updates over the new subscription streams, which survive a ToolBelt restart. Agents that still use the older handshake work as before.
 - ToolBelt checks every plugin action against what the screen offers before the plugin gets it, from the Mac window, the menu bar and paired devices alike: a click on a row that has just gone, a disabled button or an action the screen no longer shows is dropped, and a toast says "That item changed. Try again." Disabled buttons on a row's details and on list items now look disabled too.
 

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { SDK_VERSION } from "../src/shared/package";
+import { HOST_VERSION, SDK_VERSION } from "../src/shared/package";
 import { run } from "../src/release/core";
 test("installed SDK archive supplies runtime, typed release API and executable without a host checkout", async () => {
   const root = mkdtempSync(join(tmpdir(), "toolbelt-sdk-install-"));
@@ -24,7 +24,7 @@ test("installed SDK archive supplies runtime, typed release API and executable w
     await run([process.execPath, "install", "--frozen-lockfile"], root);
     writeFileSync(
       join(root, "check.ts"),
-      `import {definePlugin} from '@toolbelt/sdk';import {packagePlugin,verifyPlugin} from '@toolbelt/sdk/release';if(typeof definePlugin!=='function'||typeof packagePlugin!=='function'||typeof verifyPlugin!=='function')throw Error('Missing exports');`,
+      `import {definePlugin,HOST_VERSION as SDK_HOST} from '@toolbelt/sdk';import {fakeHost} from '@toolbelt/sdk/testing';import {packagePlugin,verifyPlugin,HOST_VERSION} from '@toolbelt/sdk/release';if(typeof definePlugin!=='function'||typeof fakeHost!=='function'||typeof packagePlugin!=='function'||typeof verifyPlugin!=='function')throw Error('Missing exports');if(HOST_VERSION!==${JSON.stringify(HOST_VERSION)}||SDK_HOST!==HOST_VERSION)throw Error('Missing HOST_VERSION');`,
     );
     await run([process.execPath, "check.ts"], root);
     const help = await run(

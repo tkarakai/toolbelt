@@ -22,7 +22,7 @@ const manifest = (id: string, extra: Partial<Manifest> = {}): Manifest => ({
 	name: id[0].toUpperCase() + id.slice(1),
 	icon: "box",
 	version: "1.0.0",
-	protocol: 2,
+	protocol: 3,
 	entry: "index.js",
 	screens: [{ id: "main", title: "Main", default: true }, { id: "settings", title: "Settings" }],
 	agent: { access: "read" },
@@ -1020,6 +1020,17 @@ describe("agent views and the person's view", () => {
 			sort: [{ table: "things", default: null, keys: [] }],
 			controls: [],
 		});
+	});
+
+	test("sort: { table: null } returns a table to unsorted, whatever it starts with", async () => {
+		const seen: (ViewState | undefined)[] = [];
+		const { core } = viewCore({ render: (view) => (seen.push(view), page(3)) });
+		const s = core.openSession("t", "interactive");
+		const r = await core.call(s, "read_screen", { plugin: "tasks", view: { sort: { things: null } } });
+		expect(r.isError).toBeUndefined();
+		expect(r.text).toContain("Your view: things unsorted.");
+		expect(seen.at(-1)).toEqual({ sort: { things: null } });
+		expect((await core.call(s, "read_screen", { plugin: "tasks", view: { sort: { things: 3 } } })).text).toBe('view.sort.things must be a column key, with "-" in front for descending ("-due"), or null for unsorted.');
 	});
 
 	test("show_screen asks once, then uses the grant until it's revoked", async () => {

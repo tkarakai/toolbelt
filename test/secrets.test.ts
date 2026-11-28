@@ -171,7 +171,7 @@ describe("trees", () => {
 });
 
 describe("SDK", () => {
-	const hello = (capabilities: string[]): HostMessage => ({ type: "hello", protocol: 2, capabilities, plugin: { id: "p" }, host: { name: "t", version: "0" } });
+	const hello = (capabilities: string[]): HostMessage => ({ type: "hello", protocol: 3, capabilities, plugin: { id: "p" }, host: { name: "t", version: "0" } });
 
 	test("asks the host and gets answers, also from inside an event handler", async () => {
 		const got: (string | null)[] = [];
@@ -183,7 +183,7 @@ describe("SDK", () => {
 		});
 		h.send(hello(["ui.core", "secrets"]));
 		await until(() => h.messages.some((m) => m.type === "ready"));
-		h.send({ type: "event", surface: "screen:main", instance: "person", name: "go" });
+		h.send({ type: "event", id: "e1", surface: "screen:main", instance: "person", name: "go", origin: "person" });
 		const request = await until(() => h.messages.find((m): m is Extract<PluginMessage, { type: "secret" }> => m.type === "secret"));
 		expect(request).toMatchObject({ op: "get", name: "api/key" });
 		// The event handler is still waiting; the answer must reach it anyway.
@@ -231,7 +231,7 @@ describe("host", () => {
 				id: "vault",
 				name: "Vault",
 				version: "1.0.0",
-				protocol: 2,
+				protocol: 3,
 				repo: "owner/vault",
 				agent: { access: "read" },
 				entry: "index.ts",
@@ -249,6 +249,8 @@ definePlugin({
 		// start() may read a secret before the plugin is ready.
 		try { events.push("start:" + String(await ctx.secrets.has("api/key"))); } catch (e) { events.push("start-error:" + e.message); }
 	},
+	actions: { use: { effect: "external" }, write: { effect: "write" } },
+	forms: { settings: { effect: "write" } },
 	render: {
 		"screen:main": () => ({ type: "page", actions: [{ id: "use", label: "Use" }, { id: "write", label: "Write" }], children: [
 			{ type: "form", id: "settings", fields: [

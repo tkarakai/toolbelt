@@ -1,4 +1,4 @@
-// The Toolbelt plugin protocol, version 0 (the spike).
+// The Toolbelt plugin protocol (version `PROTOCOL_VERSION`; docs/plugins.md is the full contract).
 //
 // A plugin is a program Toolbelt starts with Bun. They talk JSON, one object per line:
 // the host writes to the plugin's stdin, the plugin writes to its stdout (stderr is its log).
@@ -6,8 +6,10 @@
 //   host → plugin   {"type":"hello", …}            once, right after start
 //                   {"type":"open","surface":"…"}  a surface became visible: render it
 //                   {"type":"close","surface":"…"} it's hidden: stop rendering it
-//                   {"type":"event", …}            the person did something on a surface
-//   plugin → host   {"type":"render","surface":"…","tree":{…}}  the surface's whole UI tree
+//                   {"type":"event", …}            someone did something on a surface
+//   plugin → host   {"type":"hello", …}            its protocol, capabilities and declarations
+//                   {"type":"render","surface":"…","tree":{…}}  the surface's whole UI tree
+//                   {"type":"result","id":"…", …}  once per event, after the plugin handled it
 //                   {"type":"badge","value":…}     the count next to the plugin's name
 //                   {"type":"toast", …}            a short notification in the window
 //
@@ -24,7 +26,7 @@
 // Each plugin gets a folder of its own for data: the `TOOLBELT_DATA_DIR` environment variable
 // (`~/Library/Application Support/Toolbelt/data/<id>/`).
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /**
  * The instance every person's view shares: the window, the popover and paired devices show the
@@ -42,8 +44,8 @@ export type ViewState = {
 	search?: string;
 	/** Filter id → checked option values (none: no filtering). */
 	filters?: Record<string, string[]>;
-	/** Table id → the column it's sorted by. */
-	sort?: Record<string, { key: string; desc: boolean }>;
+	/** Table id → the column it's sorted by, or null: unsorted (even when the table declares a starting sort). */
+	sort?: Record<string, { key: string; desc: boolean } | null>;
 	/** Page control id (`segmented`, `choice`) → its value. */
 	controls?: Record<string, string>;
 	/** Filter arrangement (`Filter.group`): every filter id in order, and the grouping ones in level order. */
@@ -65,7 +67,51 @@ export type ViewDeclaration = {
 	controls?: Record<string, string>;
 	/** The filters can be arranged and group rows, starting like this. */
 	arrange?: { order: string[]; grouped: string[] };
+	/**
+	 * The values a filter or control may take. The SDK refuses a view change outside them (the
+	 * instance keeps its view) and drops them from a saved view. Without an entry, any value.
+	 */
+	options?: { filters?: Record<string, string[]>; controls?: Record<string, string[]> };
 };
+
+/**
+ * What running an action does: `view` changes only the instance that sent it (opens or closes a
+ * dialog, expands something, copies to the clipboard); `write` changes the plugin's data;
+ * `external` reaches outside the plugin (opens an app or URL, starts a process, sends a message);
+ * `destructive` deletes, or can't be undone.
+ */
+export type Effect = "view" | "write" | "external" | "destructive";
+
+/** An action id's declaration (`definePlugin({ actions })`): one per id, shared by every surface. */
+export type ActionDeclaration = {
+	effect: Effect;
+	/** False: agents never see or run this action, whatever their access. */
+	agent?: boolean;
+	/** One line for agents when the label isn't enough ("Hides the task until the date"). */
+	describe?: string;
+};
+
+/**
+ * A form id's declaration (`definePlugin({ forms })`). `view`: edits a draft or this instance only
+ * (a dialog before Save). `write`: saves as it changes (a row pane, settings).
+ */
+export type FormDeclaration = { effect: "view" | "write"; agent?: boolean };
+
+/**
+ * Everything a plugin declares, sent in its hello and again in a `declarations` message: each
+ * surface's view controls, and the plugin-wide action and form ids its trees may use.
+ */
+export type Declarations = {
+	views: Record<string, ViewDeclaration>;
+	actions: Record<string, ActionDeclaration>;
+	forms: Record<string, FormDeclaration>;
+};
+
+/** Built-in event names, which can't be action ids. */
+export const RESERVED_EVENTS = ["field", "search", "filter", "filter-arrange", "sort", "select", "reorder", "dialog-close"] as const;
+
+/** Who sent an event: the person (any of their screens) or an agent acting for them. */
+export type Origin = "person" | "agent";
 
 /** `toolbelt.json`, next to the plugin's entry file. */
 export type Manifest = {
@@ -850,7 +896,12 @@ export type HostMessage =
 	| { type: "close"; surface: string; instance: string }
 	/** The host sets an instance's view (an agent showing the person something, Restore). */
 	| { type: "view"; surface: string; instance: string; view: ViewState }
-	| { type: "event"; surface: string; instance: string; name: string; payload?: unknown }
+	/**
+	 * Someone did something on an instance. `id` is unique per event: the plugin answers it with a
+	 * `result`, and tags the toasts, clipboard text and navigation it sends while handling it.
+	 * `agent` is the agent's client name, only when `origin` is `"agent"`.
+	 */
+	| { type: "event"; id: string; surface: string; instance: string; name: string; payload?: unknown; origin: Origin; agent?: string }
 	/**
 	 * The answer to the plugin's `secret` request (capability `secrets`): `value` for `get` (null
 	 * when there's no such secret), `exists` for `has`, or why it failed.
@@ -858,25 +909,36 @@ export type HostMessage =
 	| { type: "secret"; requestId: string; ok: boolean; value?: string | null; exists?: boolean; error?: string };
 
 export type PluginMessage =
-	/** `views`: each surface's view declaration (`ViewDeclaration`). */
-	| { type: "hello"; protocol: number; sdk: string; capabilities: string[]; views?: Record<string, ViewDeclaration> }
+	/** `declarations`: its views, actions and forms (`Declarations`). */
+	| { type: "hello"; protocol: number; sdk: string; capabilities: string[]; declarations: Declarations }
 	| { type: "ready" }
 	| { type: "prepared"; requestId: string; ready: boolean; reason?: string }
 	| { type: "render"; surface: string; instance: string; tree: Node }
-	/** An instance's view changed (a person's search, filter or sort): the host saves the person's. */
-	| { type: "view"; surface: string; instance: string; view: ViewState }
-	/** The view declarations changed (`ctx.declareViews()`), replacing the handshake's. */
-	| { type: "views"; views: Record<string, ViewDeclaration> }
+	/**
+	 * An instance's view changed (a person's search, filter or sort): the host saves the person's.
+	 * With `refused`, a change was refused and the instance keeps `view` (the reason says why).
+	 */
+	| { type: "view"; surface: string; instance: string; view: ViewState; refused?: string }
+	/** The declarations changed (`ctx.declare()`, or after `start`), replacing the hello's. */
+	| { type: "declarations"; declarations: Declarations }
+	/**
+	 * The answer to an event, once its handler settled. `handled` false: the plugin didn't act on it
+	 * (`error` may say why, such as a refused view change). `handled` with `error`: handling failed.
+	 * `data` (JSON, at most `LIMITS.resultBytes`): such as created ids.
+	 */
+	| { type: "result"; id: string; handled: boolean; error?: string; data?: unknown }
 	| { type: "badge"; value: number | string | null }
-	| { type: "toast"; text: string; tone?: "default" | "success" | "error"; action?: ToastAction }
+	/** `event`: the event being handled when it was sent (as on clipboard and navigate). */
+	| { type: "toast"; text: string; tone?: "default" | "success" | "error"; action?: ToastAction; event?: string }
 	/** Put text on the clipboard. */
-	| { type: "clipboard"; text: string }
+	| { type: "clipboard"; text: string; event?: string }
 	/**
 	 * Show one of the plugin's screens in the main window, optionally selecting an item (a
-	 * stable row/list item id). Honored only shortly after the person acted on the plugin, so
-	 * it never steals focus. Needs the `navigate` capability.
+	 * stable row/list item id). Honored only when tagged with an event (`event`) the host sent
+	 * shortly before, on the screen that sent it, so it never steals focus. Needs the `navigate`
+	 * capability.
 	 */
-	| { type: "navigate"; screen: string; select?: string }
+	| { type: "navigate"; screen: string; select?: string; event?: string }
 	/**
 	 * Read, write or delete one of the plugin's secrets in the Keychain (capability `secrets`,
 	 * declared in the manifest). `value` only for `set`. Answered by a host `secret` message.
@@ -936,8 +998,8 @@ export type EventPayloads = {
 	/** The person closed a dialog (Esc, close button, Cancel). */
 	"dialog-close": { dialog: string };
 	search: { query: string };
-	/** A sortable column header was clicked: sort `table` by `key`. */
-	sort: { table: string; key: string; desc: boolean };
+	/** A sortable column header was clicked: sort `table` by `key`; `key: null` makes it unsorted. */
+	sort: { table: string; key: string | null; desc: boolean };
 	/**
 	 * A form field changed, or a page control (`segmented`, `choice`: `form` and `field` are the
 	 * control's id, `value` the option picked). `value` has the field type's shape: text for

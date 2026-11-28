@@ -11,7 +11,7 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "toolbelt-check-update-"));
   mkdirSync(join(root, "plugins"));
   const plugin = (id: string): Installed => ({id, repo:`test/${id}`, version:"1.0.0", hash:"a".repeat(64), packageRoot:join(root,"plugins/packages",id,`1.0.0-${"a".repeat(64)}`), enabled:true, channel:"stable", manifest:parsePackageManifest({
-    formatVersion:1,id,name:id,repo:`test/${id}`,version:"1.0.0",entry:"index.js",protocol:2, agent: { access: "read" },
+    formatVersion:1,id,name:id,repo:`test/${id}`,version:"1.0.0",entry:"index.js",protocol:3, agent: { access: "read" },
     requires:{host:">=0.1.0",bun:">=1.3.0",platforms:["portable"]},capabilities:{required:["ui.core"],optional:[]},data:{schema:1},screens:[{id:"main",title:"Main"}],
   })});
   const registry: Registry = {formatVersion:1, plugins:{first:plugin("first"),second:plugin("second")},updateSchedule:{lastChecked:10,nextCheck:20}};

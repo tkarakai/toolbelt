@@ -1,7 +1,7 @@
 // The action resolver (src/shared/actions.ts): every place a tree offers an event, the payloads
 // the renderer builds for them, and the refusals for events the tree doesn't offer.
 import { describe, expect, test } from "bun:test";
-import { checkEvent, inPane, isRefused, payloadFor, resolve, type Address, type Resolved } from "../src/shared/actions";
+import { checkEvent, inPane, isRefused, payloadFor, resolve, undeclared, type Address, type Resolved } from "../src/shared/actions";
 import type { Node, Row } from "../src/shared/protocol";
 
 const ok = (r: ReturnType<typeof checkEvent>) => {
@@ -356,4 +356,65 @@ describe("payloadFor: byte for byte what the renderer sent", () => {
 		expect(JSON.stringify(inPane({}, "4"))).toBe(`{"rowId":"4"}`);
 	});
 
+});
+
+describe("undeclared: every action and form id a tree uses must be declared", () => {
+	const ACTIONS = ["new", "note", "archive", "update", "update-review", "update-later", "done", "delete", "open", "open-in", "snooze", "stop", "done-all", "delete-all", "edit-note", "peek", "open-label", "add-link", "edit-entry", "remove-entry", "reply", "comment", "check", "check-all", "poke", "open-item", "star", "star-blue", "reply-item", "save", "save-close", "cancel"];
+	const FORMS = ["task", "settings", "draft"];
+	const all = (ids: string[]) => Object.fromEntries(ids.map((id) => [id, { effect: "write" }]));
+	const view = { controls: { layout: "list" } };
+
+	test("a tree whose ids are all declared passes; each missing one is named", () => {
+		expect(undeclared(tree, { actions: all(ACTIONS), forms: all([...FORMS, "mode"]), view })).toBeNull();
+		for (const id of ACTIONS) {
+			const why = undeclared(tree, { actions: all(ACTIONS.filter((a) => a !== id)), forms: all([...FORMS, "mode"]), view });
+			expect(why).toStartWith(`action "${id}" (`);
+			expect(why).toEndWith("isn't declared in actions");
+		}
+		for (const id of FORMS) expect(undeclared(tree, { actions: all(ACTIONS), forms: all([...FORMS, "mode"].filter((f) => f !== id)), view })).toStartWith(`form "${id}" (`);
+	});
+
+	test("controls are view controls or declared forms", () => {
+		// The page's `layout` is a view control; the drawer's `mode` choice isn't, so it's a form.
+		expect(undeclared(tree, { actions: all(ACTIONS), forms: all(FORMS), view })).toBe(`control "Mode" in the drawer of "Plan offsite" isn't a declared view control or form`);
+		expect(undeclared(tree, { actions: all(ACTIONS), forms: all([...FORMS, "mode"]) })).toBe(`control "layout" isn't a declared view control or form`);
+		expect(undeclared(tree, { actions: all(ACTIONS), forms: all([...FORMS, "mode", "layout"]) })).toBeNull();
+	});
+
+	test("ids count before anything offers them: empty tables, lists, timelines and tag fields", () => {
+		const empty: Node = {
+			type: "stack",
+			children: [
+				{ type: "table", id: "t", columns: [{ key: "a", title: "A" }], rows: [], actions: [{ id: "row-action", label: "R", menu: [{ id: "row-alt", label: "Alt" }] }] },
+				{ type: "list", id: "l", items: [], open: { id: "list-open", label: "Open" } },
+				{ type: "timeline", id: "tl", entries: [], edit: { id: "entry-edit", label: "Edit" }, actions: [{ id: "entry-action", label: "E" }] },
+				{ type: "form", id: "f", fields: [{ type: "tags", id: "tags", label: "Tags", value: [], keys: [], open: { id: "tag-open", label: "Open" } }] },
+				{ type: "card", title: "C", actions: [{ id: "card-action", label: "C" }], children: [] },
+			],
+		};
+		const ids = ["row-action", "row-alt", "list-open", "entry-edit", "entry-action", "tag-open", "card-action"];
+		expect(undeclared(empty, { actions: all(ids), forms: all(["f"]) })).toBeNull();
+		for (const id of ids) expect(undeclared(empty, { actions: all(ids.filter((a) => a !== id)), forms: all(["f"]) })).toStartWith(`action "${id}"`);
+	});
+
+	test("floating windows: title bar actions, suggestions and the composer", () => {
+		const floating: Node = {
+			type: "floating",
+			mode: "bar",
+			actions: [{ id: "settings", label: "Settings" }],
+			suggestions: [{ id: "ask-hello", label: "Say hello" }],
+			children: [{ type: "composer", id: "ask", action: { id: "send", label: "Ask" } }],
+		};
+		const ids = ["settings", "ask-hello", "send"];
+		expect(undeclared(floating, { actions: all(ids) })).toBeNull();
+		for (const id of ids) expect(undeclared(floating, { actions: all(ids.filter((a) => a !== id)) })).toStartWith(`action "${id}"`);
+	});
+});
+
+describe("sort: a table can return to unsorted", () => {
+	test("`key: null` passes for a table with a sortable column, or a declared sort", () => {
+		ok(checkEvent(tree, "sort", { table: "tasks", key: null, desc: false }));
+		expect(refused(checkEvent(tree, "sort", { table: "nope", key: null, desc: false }))).toBe(`table "nope" can't be sorted`);
+		expect(refused(checkEvent(tree, "sort", { table: "tasks", key: 3, desc: false }))).toBe("its key must be text (or null: unsorted) and desc true or false");
+	});
 });

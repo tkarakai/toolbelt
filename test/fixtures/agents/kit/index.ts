@@ -112,5 +112,7 @@ const queue = (): Node => ({
 
 definePlugin({
 	start: (ctx) => ctx.badge(2),
+	actions: { check: { effect: "external" }, update: { effect: "external" }, review: { effect: "external" }, pin: { effect: "write" }, "update-all": { effect: "external" } },
+	forms: { connection: { effect: "write" } },
 	render: { "screen:updates": updates, "screen:activity": activity, "screen:connection": connection, "screen:queue": queue },
 });

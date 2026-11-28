@@ -295,8 +295,10 @@ The Mac window, popover and any number of remote connections share one host. Eac
 connection is a view of its own in `index.ts`: it receives every broadcast, tracks the surfaces
 it opened and closes them when it goes away.
 
-- A plugin's navigation goes back to the remote view whose event triggered it (the host honors
-  navigation only within 10 seconds of an event); otherwise it opens the Mac window as before.
+- A plugin's navigation goes back to the view that sent the event it is tagged with (the host
+  honors navigation only within 10 seconds of that event, once): a remote view navigates only
+  that device, and nothing moves if it has disconnected; an event from the Mac's window or
+  popover opens the Mac window as before.
 - The shared selection relay includes remote views, with the existing timestamp ordering.
 - Renderer-local state (typing, scroll, widths, zoom, column layouts) stays per device.
 - The client sends one `open` per surface however many components watch it, and one `close`

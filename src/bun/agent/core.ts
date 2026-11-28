@@ -67,7 +67,7 @@ export type PersonScreens = {
 };
 
 /** What an agent asks to see: the person's own view, or its own (declared defaults overlaid). */
-export type ViewInput = "person" | { search?: string; filters?: Record<string, string[]>; sort?: Record<string, string>; controls?: Record<string, string> };
+export type ViewInput = "person" | { search?: string; filters?: Record<string, string[]>; sort?: Record<string, string | null>; controls?: Record<string, string> };
 
 export type InstalledSummary = {
 	id: string;
@@ -274,7 +274,7 @@ function viewInput(state: ViewState): Exclude<ViewInput, "person"> {
 	return {
 		...(state.search ? { search: state.search } : {}),
 		...(state.filters && Object.keys(state.filters).length ? { filters: state.filters } : {}),
-		...(state.sort && Object.keys(state.sort).length ? { sort: Object.fromEntries(Object.entries(state.sort).map(([t, s]) => [t, sortText(s)!])) } : {}),
+		...(state.sort && Object.keys(state.sort).length ? { sort: Object.fromEntries(Object.entries(state.sort).map(([t, s]) => [t, sortText(s)])) } : {}),
 		...(state.controls && Object.keys(state.controls).length ? { controls: state.controls } : {}),
 	};
 }
@@ -282,7 +282,7 @@ function viewInput(state: ViewState): Exclude<ViewInput, "person"> {
 /** The `view` parameter of read_screen and show_screen. */
 const VIEW_PARAM = {
 	description:
-		'Search, filter and sort the screen in this read, as the person would in ToolBelt (list_screens shows each screen\'s view controls): {"search": "text", "filters": {"<filter id or label>": ["<option value or label>", …]}, "sort": {"<table id>": "<column key or title>" or "-<column key>"}, "controls": {"<control id or label>": "<value or label>"}}. Names match ignoring case; read_screen shows ids and values in brackets where they differ from labels, and the result says how names were read. Unset parts keep the screen\'s defaults; an empty filter list means all. Or "person" for exactly what the person\'s screens show now.',
+		'Search, filter and sort the screen in this read, as the person would in ToolBelt (list_screens shows each screen\'s view controls): {"search": "text", "filters": {"<filter id or label>": ["<option value or label>", …]}, "sort": {"<table id>": "<column key or title>", "-<column key>" or null for unsorted}, "controls": {"<control id or label>": "<value or label>"}}. Names match ignoring case; read_screen shows ids and values in brackets where they differ from labels, and the result says how names were read. Unset parts keep the screen\'s defaults; an empty filter list means all. Or "person" for exactly what the person\'s screens show now.',
 	anyOf: [
 		{ type: "string", enum: ["person"] },
 		{
@@ -290,7 +290,7 @@ const VIEW_PARAM = {
 			properties: {
 				search: { type: "string" },
 				filters: { type: "object", additionalProperties: { type: "array", items: { type: "string" } } },
-				sort: { type: "object", additionalProperties: { type: "string" } },
+				sort: { type: "object", additionalProperties: { type: ["string", "null"] } },
 				controls: { type: "object", additionalProperties: { type: "string" } },
 			},
 			additionalProperties: false,
@@ -582,10 +582,15 @@ export class AgentCore {
 			if (!has(declared.filters, id)) throw new ViewRefusal(`This screen has no filter "${id}". Its filters: ${list(names.filters.map((f) => labelled(f.label, f.id)))}.`);
 			if (!Array.isArray(values) || !values.every((v) => typeof v === "string")) throw new ViewRefusal(`view.filters.${id} must be a list of option values${schema ? ` (${schema.filters.find((f) => f.id === id)?.options?.map((o) => o.value).join(", ") ?? "read the screen for them"})` : ""}; [] means all.`);
 		}
-		const sort: Record<string, { key: string; desc: boolean }> = {};
+		const sort: Record<string, { key: string; desc: boolean } | null> = {};
 		for (const [table, value] of Object.entries(input.sort ?? {})) {
 			if (!has(declared.sort, table)) throw new ViewRefusal(`This screen has no sortable table "${table}". Sortable tables: ${list(Object.keys(declared.sort ?? {}))}.`);
-			if (typeof value !== "string" || !value.replace(/^-/, "")) throw new ViewRefusal(`view.sort.${table} must be a column key, with "-" in front for descending ("-due").`);
+			// null returns the table to unsorted, whatever sort it starts with.
+			if (value === null) {
+				sort[table] = null;
+				continue;
+			}
+			if (typeof value !== "string" || !value.replace(/^-/, "")) throw new ViewRefusal(`view.sort.${table} must be a column key, with "-" in front for descending ("-due"), or null for unsorted.`);
 			sort[table] = { key: value.replace(/^-/, ""), desc: value.startsWith("-") };
 		}
 		for (const [id, value] of Object.entries(input.controls ?? {})) {
@@ -608,6 +613,7 @@ export class AgentCore {
 			if (c && !c.options.some((o) => o.value === value)) throw new ViewRefusal(`Control "${id}" has no option "${value}". Its options: ${c.options.map((o) => o.value).join(", ")}.`);
 		}
 		for (const [table, s] of Object.entries(state.sort ?? {})) {
+			if (s === null) continue;
 			const t = tableNode(tree, table);
 			const keys = t?.columns.filter((c) => c.sortable).map((c) => c.key) ?? [];
 			if (t && !keys.includes(s.key)) throw new ViewRefusal(`Table "${table}" can't be sorted by "${s.key}". Sortable columns: ${keys.join(", ") || "none"}.`);
@@ -623,7 +629,7 @@ export class AgentCore {
 			const f = schema?.filters.find((x) => x.id === id);
 			parts.push(`${f?.label ?? id}: ${values.length ? values.map((v) => f?.options?.find((o) => o.value === v)?.label ?? v).join(", ") : "all"}`);
 		}
-		for (const [table, s] of Object.entries(state.sort ?? {})) parts.push(`${table} sorted by ${sortText(s)}`);
+		for (const [table, s] of Object.entries(state.sort ?? {})) parts.push(s ? `${table} sorted by ${sortText(s)}` : `${table} unsorted`);
 		for (const [id, value] of Object.entries(state.controls ?? {})) parts.push(`${schema?.controls.find((c) => c.id === id)?.label ?? id}: ${value}`);
 		return parts.join("; ");
 	}

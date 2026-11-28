@@ -13,6 +13,8 @@ import {
   type Manifest,
   type Node,
   type PluginMessage,
+  type ActionDeclaration,
+  type FormDeclaration,
   type ToastAction,
   type ViewDeclaration,
   type ViewState,
@@ -33,7 +35,7 @@ import {
   checkCompatibility,
 } from "./packages";
 import type { PluginInfo, PluginState } from "../shared/plugin-state";
-import { checkEvent, isRefused } from "../shared/actions";
+import { checkEvent, isRefused, undeclared } from "../shared/actions";
 import {
   annotateSecrets,
   entrySecret,
@@ -98,25 +100,63 @@ export type PersonViews = {
   save(plugin: string, surface: string, view: ViewState): void;
 };
 
+/**
+ * Who sent an event. A person acts from the Mac's window or popover, or from a paired device
+ * (`remote`, named by `device` when it's paired). Agents act through a session (wave B1.3).
+ */
+export type PersonActor = { kind: "person"; via: "window" | "popover" | "remote"; device?: string };
+export type Actor = PersonActor | { kind: "agent"; client: string; session: string };
+/** The person in the Mac's window: the actor when a caller doesn't say. */
+export const WINDOW: PersonActor = { kind: "person", via: "window" };
+
+/** An event the host sent, once its result arrived or the wait for it ended. */
+export type EventSettled = {
+  id: string;
+  plugin: string;
+  surface: string;
+  name: string;
+  actor: Actor;
+  /** `ok`: handled; `not-handled`: the plugin doesn't handle it; `no-answer`: no result in time (or the plugin stopped). */
+  outcome: "ok" | "not-handled" | "error" | "no-answer";
+  error?: string;
+  data?: unknown;
+};
+
+/** What a plugin message was sent for: the event it handled then (`event`), and who sent that. */
+export type EventTag = { id: string; actor: Actor };
+
 type Listener = {
   plugins(list: PluginInfo[]): void;
   /** A surface instance rendered: `instance` is PERSON for every person's view. */
   tree(plugin: string, surface: string, tree: Node, instance: string): void;
   /** The person's view of a surface changed (saved already). */
   view?(plugin: string, surface: string, view: ViewState): void;
+  /** `event`: the event the plugin was handling when it sent the toast (B1.3 routes agents' ones). */
   toast(
     plugin: string,
     text: string,
     tone?: "default" | "success" | "error",
     action?: ToastAction,
+    event?: EventTag,
   ): void;
-  clipboard?(plugin: string, text: string): void;
-  /** Show the plugin's screen in the main window (already checked: declared, user-initiated). */
-  navigate?(plugin: string, screen: string, select?: string): void;
+  clipboard?(plugin: string, text: string, event?: EventTag): void;
+  /**
+   * Show the plugin's screen on the view that sent `event` (already checked: a declared screen, an
+   * event the host sent within `NAVIGATE_GRACE_MS`, once per event).
+   */
+  navigate?(plugin: string, screen: string, select: string | undefined, event: EventTag): void;
+  /** An event's result arrived, or the wait for it ended. */
+  settled?(event: EventSettled): void;
+  /** The plugin refused a view change; the instance keeps `view`. */
+  viewRefused?(plugin: string, surface: string, instance: string, reason: string, view: ViewState): void;
 };
 
-/** How long after a person's action a plugin may still move them to another screen. */
+/** How long after the host sent an event the plugin may still navigate the view that sent it. */
 export const NAVIGATE_GRACE_MS = 10_000;
+/** What an event's settlement says when no result came in time. */
+export const NO_ANSWER = `no answer in ${LIMITS.resultMs / 1000} s (the plugin may still act)`;
+/** Events kept for tags and navigation after they settle, at most. */
+const RECENT_EVENTS = 200;
 /** How long a toast's action button stays usable (toasts linger while hovered or hidden), and how many are kept. */
 export const TOAST_ACTION_MS = 30 * 60_000;
 const TOAST_ACTIONS = 20;
@@ -186,8 +226,6 @@ export class PluginProcess {
 
   state: PluginState = "stopped";
   badge: number | string | null = null;
-  /** When the host last delivered a person's action (event) to this plugin. */
-  userEventAt = 0;
   error?: string;
   /** Instance key (`instanceKey`) → its latest tree. */
   trees = new Map<string, Node>();
@@ -199,8 +237,14 @@ export class PluginProcess {
   viewers = new Map<string, number>();
   /** Agent instance key → the view it was opened with, as the plugin last reported it. */
   instanceViews = new Map<string, ViewState>();
-  /** Surface → its view declaration, from the handshake. */
+  /** Surface → its view declaration, from the handshake (or the latest `declarations`). */
   declaredViews: Record<string, ViewDeclaration> = {};
+  /** Action id → its declaration; trees may use only these. */
+  declaredActions: Record<string, ActionDeclaration> = {};
+  /** Form id → its declaration; trees may use only these. */
+  declaredForms: Record<string, FormDeclaration> = {};
+  /** Events sent to this process: waiting for their result, or settled within the grace window. */
+  private events = new Map<string, { surface: string; name: string; actor: Actor; sentAt: number; timer?: ReturnType<typeof setTimeout>; settled: boolean; navigated: boolean }>();
   private proc?: ReturnType<typeof Bun.spawn>;
   private stderrTail: string[] = [];
   private restarts = 0;
@@ -275,6 +319,7 @@ export class PluginProcess {
     this.treeAt.clear();
     this.renderErrors.clear();
     this.toastActions = [];
+    this.abandonEvents("the plugin restarted before answering");
     void this.opts.secrets?.load();
     const entry = resolve(this.dir, this.manifest.entry);
     const data =
@@ -458,6 +503,12 @@ export class PluginProcess {
             this.rejectRender(msg.surface, protocolReason(error), typeof msg.instance === "string" ? msg.instance : PERSON);
             continue;
           }
+          // A result too large (or otherwise wrong) costs only that event.
+          const result = msg as { type?: unknown; id?: unknown } | null;
+          if (result && typeof result === "object" && result.type === "result" && typeof result.id === "string" && this.events.has(result.id)) {
+            this.settle(result.id, { outcome: "error", error: `its result was refused (${protocolReason(error)})` });
+            continue;
+          }
           // Say what was wrong (which field, or which limit), so a plugin author can fix it.
           this.fail(`Invalid protocol message: ${protocolReason(error)}`);
           return;
@@ -498,6 +549,7 @@ export class PluginProcess {
   }
 
   private fail(error: string) {
+    this.abandonEvents("the plugin stopped before answering");
     this.readyReject?.(new Error(error));
     this.readyReject = undefined;
     this.stop();
@@ -556,9 +608,12 @@ export class PluginProcess {
       }
       this.greeted = true;
       this.sdk = typeof msg.sdk === "string" ? msg.sdk.slice(0, 64) : undefined;
-      this.declaredViews = Object.fromEntries(
-        Object.entries(msg.views ?? {}).filter(([surface]) => this.declared(surface)),
-      );
+      this.declare(msg.declarations);
+      return;
+    }
+    // Declarations from `start` arrive before ready; renders need them at once.
+    if (msg.type === "declarations" && this.greeted) {
+      this.declare(msg.declarations);
       return;
     }
     if (msg.type === "ready") {
@@ -652,6 +707,9 @@ export class PluginProcess {
           check(msg.tree);
           if (secretFields && !this.opts.secrets)
             throw new Error("Secret fields need the secrets capability in toolbelt.json");
+          // Every action and form id must be declared: the host knows what each one does.
+          const missing = undeclared(msg.tree, { actions: this.declaredActions, forms: this.declaredForms, view: this.declaredViews[msg.surface] });
+          if (missing) throw new Error(missing);
         } catch (error) {
           this.rejectRender(msg.surface, protocolReason(error), msg.instance);
           return;
@@ -671,38 +729,113 @@ export class PluginProcess {
           this.fail("Undeclared surface");
           return;
         }
+        if (msg.refused !== undefined) {
+          this.log(`refused a view of ${msg.surface}${msg.instance === PERSON ? "" : ` (${msg.instance})`}: ${msg.refused.slice(0, 200)}`);
+          this.listener.viewRefused?.(this.manifest.id, msg.surface, msg.instance, msg.refused.slice(0, 1000), msg.view);
+        }
         if (msg.instance === PERSON) {
           this.opts.views?.save(this.manifest.id, msg.surface, msg.view);
           this.listener.view?.(this.manifest.id, msg.surface, msg.view);
         } else if (this.viewers.get(instanceKey(msg.surface, msg.instance)))
           this.instanceViews.set(instanceKey(msg.surface, msg.instance), msg.view);
         break;
-      case "views":
-        this.declaredViews = Object.fromEntries(Object.entries(msg.views).filter(([surface]) => this.declared(surface)));
+      case "result":
+        if (!this.events.get(msg.id) || this.events.get(msg.id)!.settled) {
+          this.log(`result for an unknown or settled event ignored`);
+          break;
+        }
+        this.settle(msg.id, {
+          // Not handled (`error` may say why, such as a refused view change); handled with an error: it failed.
+          outcome: !msg.handled ? "not-handled" : msg.error !== undefined ? "error" : "ok",
+          ...(msg.error !== undefined ? { error: msg.error.slice(0, 1000) } : {}),
+          ...(msg.data !== undefined ? { data: msg.data } : {}),
+        });
         break;
       case "badge":
         this.badge = msg.value;
         this.changed();
         break;
-      case "toast":
-        if (msg.action)
-          this.toastActions = [...this.toastActions, { id: msg.action.id, payload: JSON.stringify(msg.action.payload ?? null), at: Date.now() }].slice(-TOAST_ACTIONS);
-        this.listener.toast(this.manifest.id, msg.text, msg.tone, msg.action);
+      case "toast": {
+        let action = msg.action;
+        // A toast button runs an action like any other: its id must be declared.
+        if (action && !Object.hasOwn(this.declaredActions, action.id)) {
+          this.log(`toast shown without its button: action ${JSON.stringify(action.id.slice(0, 64))} isn't declared in actions`);
+          action = undefined;
+        }
+        if (action)
+          this.toastActions = [...this.toastActions, { id: action.id, payload: JSON.stringify(action.payload ?? null), at: Date.now() }].slice(-TOAST_ACTIONS);
+        this.listener.toast(this.manifest.id, msg.text, msg.tone, action, this.tagOf(msg.event));
         break;
+      }
       case "clipboard":
-        this.listener.clipboard?.(this.manifest.id, msg.text);
+        this.listener.clipboard?.(this.manifest.id, msg.text, this.tagOf(msg.event));
         break;
-      case "navigate":
+      case "navigate": {
+        // Navigation goes back to the view that sent the event the plugin was handling.
+        const event = msg.event !== undefined ? this.events.get(msg.event) : undefined;
         if (!this.manifest.screens.some((s) => s.id === msg.screen))
           this.log(`navigate ignored: undeclared screen ${JSON.stringify(msg.screen.slice(0, 64))}`);
-        else if (Date.now() - this.userEventAt > NAVIGATE_GRACE_MS)
-          this.log("navigate ignored: not in response to a recent action");
+        else if (!event || Date.now() - event.sentAt > NAVIGATE_GRACE_MS)
+          this.log("navigate ignored: not in response to a recent event");
+        else if (event.navigated) this.log("navigate ignored: the event already navigated");
         else {
-          this.userEventAt = 0; // one navigation per action
-          this.listener.navigate?.(this.manifest.id, msg.screen, msg.select);
+          event.navigated = true; // one navigation per event
+          this.listener.navigate?.(this.manifest.id, msg.screen, msg.select, { id: msg.event!, actor: event.actor });
         }
         break;
+      }
     }
+  }
+
+  /** Takes the plugin's declarations, keeping views only for surfaces the manifest has. */
+  private declare(d: { views: Record<string, ViewDeclaration>; actions: Record<string, ActionDeclaration>; forms: Record<string, FormDeclaration> }) {
+    this.declaredViews = Object.fromEntries(Object.entries(d.views).filter(([surface]) => this.declared(surface)));
+    this.declaredActions = d.actions;
+    this.declaredForms = d.forms;
+  }
+
+  /** The event a plugin message is tagged with, while the host still knows it. */
+  private tagOf(id: string | undefined): EventTag | undefined {
+    const event = id !== undefined ? this.events.get(id) : undefined;
+    return event ? { id: id!, actor: event.actor } : undefined;
+  }
+
+  /** Sends an event and waits (`LIMITS.resultMs`) for its result. */
+  private sendEvent(id: string, surface: string, instance: string, name: string, payload: unknown, actor: Actor) {
+    const record = { surface, name, actor, sentAt: Date.now(), settled: false, navigated: false, timer: undefined as ReturnType<typeof setTimeout> | undefined };
+    record.timer = setTimeout(() => this.settle(id, { outcome: "no-answer", error: NO_ANSWER }), LIMITS.resultMs);
+    this.events.set(id, record);
+    this.send({
+      type: "event",
+      id,
+      surface,
+      instance,
+      name,
+      payload,
+      origin: actor.kind,
+      ...(actor.kind === "agent" ? { agent: actor.client } : {}),
+    });
+    // Forget settled events past the grace window, and the oldest beyond a bound.
+    const now = Date.now();
+    for (const [key, e] of this.events)
+      if (e.settled && (now - e.sentAt > NAVIGATE_GRACE_MS || this.events.size > RECENT_EVENTS)) this.events.delete(key);
+  }
+
+  /** Records an event's outcome once, and tells the listeners. */
+  private settle(id: string, outcome: Pick<EventSettled, "outcome" | "error" | "data">) {
+    const event = this.events.get(id);
+    if (!event || event.settled) return;
+    event.settled = true;
+    clearTimeout(event.timer);
+    if (outcome.outcome === "error" || outcome.outcome === "no-answer")
+      this.log(`event ${JSON.stringify(event.name.slice(0, 64))} on ${event.surface}: ${outcome.outcome}${outcome.error ? ` (${outcome.error.slice(0, 200)})` : ""}`);
+    this.listener.settled?.({ id, plugin: this.manifest.id, surface: event.surface, name: event.name, actor: event.actor, ...outcome });
+  }
+
+  /** Events this process will never answer (it stopped or restarted): no answer. */
+  private abandonEvents(reason: string) {
+    for (const [id, e] of this.events) if (!e.settled) this.settle(id, { outcome: "no-answer", error: reason });
+    this.events.clear();
   }
 
   /** Answers a plugin's `secret` request; values never reach the logs. */
@@ -778,26 +911,28 @@ export class PluginProcess {
    * A person's event, delivered only when their screen offers it. A refused one is dropped and
    * logged, and the person is told (quietly) unless it was a selection or a dialog closing,
    * which they didn't ask to happen. A secret field's value goes to the Keychain; the plugin
-   * hears only the outcome.
+   * hears only the outcome. Returns the event's id, or null when it was refused.
    */
-  personEvent(surface: string, name: string, payload: unknown) {
+  personEvent(surface: string, name: string, payload: unknown, actor: PersonActor = WINDOW): string | null {
     const refused = this.refusal(surface, name, payload);
     if (refused !== null) {
       const marked = name === "field" && !!payload && typeof payload === "object" && (payload as { secret?: unknown }).secret !== undefined;
       this.log(`refused ${JSON.stringify(name.slice(0, 64))} on ${surface}: ${refused}`);
       if (marked) this.secretProblem("That field changed before ToolBelt could save it. Type it again.");
       else if (name !== "select" && name !== "dialog-close") this.listener.toast(this.manifest.id, STALE_EVENT);
-      return;
+      return null;
     }
-    this.userEventAt = Date.now();
+    const id = crypto.randomUUID();
     const secret = name === "field" ? this.secretField(surface, payload) : null;
-    const deliver = (out: unknown) => this.send({ type: "event", surface, instance: PERSON, name, payload: out });
-    if (!secret && !this.eventChain) return deliver(payload);
+    const deliver = (out: unknown) => this.sendEvent(id, surface, PERSON, name, out, actor);
+    if (!secret && !this.eventChain) {
+      deliver(payload);
+      return id;
+    }
     const chain: Promise<void> = (this.eventChain ?? Promise.resolve())
       .then(async () => {
         const out = secret ? await secret() : payload;
         if (out === undefined) return;
-        this.userEventAt = Date.now();
         deliver(out);
       })
       .catch((error) => this.log(`event failed: ${error instanceof Error ? error.message : String(error)}`))
@@ -805,6 +940,7 @@ export class PluginProcess {
         if (this.eventChain === chain) this.eventChain = null;
       });
     this.eventChain = chain;
+    return id;
   }
 
   private secretProblem(text: string) {
@@ -883,6 +1019,7 @@ export class PluginProcess {
   private async exited(proc: ReturnType<typeof Bun.spawn>, code: number | null) {
     if (proc !== this.proc) return; // an older process after a restart
     clearTimeout(this.handshakeTimer);
+    this.abandonEvents("the plugin stopped before answering");
     this.readyReject?.(
       new Error(
         `Plugin exited before ready (${code}): ${this.stderrTail.slice(-8).join("\n")}`,
@@ -1035,6 +1172,11 @@ export class PluginHost {
     return this.opts.views?.load(plugin, surface) ?? {};
   }
 
+  /** An agent instance's view, as the plugin last reported it (undefined when it isn't open). */
+  instanceView(plugin: string, surface: string, instance: string): ViewState | undefined {
+    return this.plugins.get(plugin)?.instanceViews.get(instanceKey(surface, instance));
+  }
+
   /** The latest tree of a surface's person instance, without counting a viewer. */
   tree(plugin: string, surface: string) {
     return this.get(plugin).trees.get(surface) ?? null;
@@ -1053,8 +1195,12 @@ export class PluginHost {
     };
   }
 
-  /** A person's event (every person's screen is the PERSON instance). */
-  event(plugin: string, surface: string, name: string, payload?: unknown) {
+  /**
+   * A person's event (every person's screen is the PERSON instance), from `actor` (the Mac's window
+   * by default). Returns its id, which tags what the plugin sends while handling it and names its
+   * result (`settled`), or null when the person's screen doesn't offer it.
+   */
+  event(plugin: string, surface: string, name: string, payload?: unknown, actor: PersonActor = WINDOW): string | null {
     if (
       typeof name !== "string" ||
       name.length > 256 ||
@@ -1063,7 +1209,7 @@ export class PluginHost {
     )
       throw new Error("Invalid event metadata");
     validateEventPayload(payload);
-    this.get(plugin).personEvent(surface, name, payload);
+    return this.get(plugin).personEvent(surface, name, payload, actor);
   }
 
   async restart(plugin: string) {
@@ -1184,22 +1330,34 @@ export class PluginHost {
               l.view?.(plugin, surface, view);
             } catch {}
           }),
-        toast: (plugin, text, tone, action) =>
+        toast: (plugin, text, tone, action, event) =>
           this.listeners.forEach((l) => {
             try {
-              l.toast(plugin, text, tone, action);
+              l.toast(plugin, text, tone, action, event);
             } catch {}
           }),
-        clipboard: (plugin, text) =>
+        clipboard: (plugin, text, event) =>
           this.listeners.forEach((l) => {
             try {
-              l.clipboard?.(plugin, text);
+              l.clipboard?.(plugin, text, event);
             } catch {}
           }),
-        navigate: (plugin, screen, select) =>
+        navigate: (plugin, screen, select, event) =>
           this.listeners.forEach((l) => {
             try {
-              l.navigate?.(plugin, screen, select);
+              l.navigate?.(plugin, screen, select, event);
+            } catch {}
+          }),
+        settled: (event) =>
+          this.listeners.forEach((l) => {
+            try {
+              l.settled?.(event);
+            } catch {}
+          }),
+        viewRefused: (plugin, surface, instance, reason, view) =>
+          this.listeners.forEach((l) => {
+            try {
+              l.viewRefused?.(plugin, surface, instance, reason, view);
             } catch {}
           }),
       },

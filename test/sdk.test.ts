@@ -19,7 +19,8 @@ function harness() {
 			}
 		},
 	};
-	const write = (line: string) => JSON.parse(line).type!=="hello" && JSON.parse(line).type!=="ready" && out.push(JSON.parse(line));
+	// The handshake and results are tested on their own; these tests look at what the plugin shows.
+	const write = (line: string) => !["hello", "ready", "result", "declarations"].includes(JSON.parse(line).type) && out.push(JSON.parse(line));
 	return { out, input, write, send: (m: HostMessage) => push(m) };
 }
 
@@ -31,7 +32,7 @@ test("renders open surfaces, skips unchanged trees, coalesces invalidations", as
 	let renders = 0;
 	const ctx = definePlugin({ render: { "screen:a": () => (renders++, { type: "text", text: `n=${n}` }) } }, { write: h.write, input: h.input });
 	await tick();
-	h.send({ type: "hello", protocol: 2, plugin: { id: "t" }, host: { name: "test", version: "0" } });
+	h.send({ type: "hello", protocol: 3, plugin: { id: "t" }, host: { name: "test", version: "0" } });
 	h.send({ type: "open", surface: "screen:a", instance: "person" });
 	await tick();
 	expect(h.out).toEqual([{ type: "render", surface: "screen:a", instance: "person", tree: { type: "text", text: "n=0" } }]);
@@ -71,7 +72,7 @@ test("events reach onEvent with the surface and payload", async () => {
 	const seen: unknown[] = [];
 	definePlugin({ render: {}, onEvent: (surface, name, payload) => void seen.push([surface, name, payload]) }, { write: h.write, input: h.input });
 	await tick();
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "action", payload: { rowId: "7" } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "action", payload: { rowId: "7" } });
 	await tick();
 	expect(seen).toEqual([["screen:a", "action", { rowId: "7" }]]);
 });
@@ -79,7 +80,7 @@ test("events reach onEvent with the surface and payload", async () => {
 test('host capabilities are negotiated independently of SDK version', async () => {
  const h=harness();let capabilities:string[]=[];
  definePlugin({render:{},start:ctx=>{capabilities=[...ctx.capabilities]}},{write:h.write,input:h.input});await tick();
- h.send({type:'hello',protocol:2,capabilities:['ui.core'],plugin:{id:'test'},host:{name:'old host',version:'0.1.0'}});await tick();
+ h.send({type:'hello',protocol:3,capabilities:['ui.core'],plugin:{id:'test'},host:{name:'old host',version:'0.1.0'}});await tick();
  expect(capabilities).toEqual(['ui.core']);
 });
 
@@ -88,7 +89,7 @@ test("SDK preserves column-bound group summaries through the fake host", async (
  const tree = {type:"table" as const,id:"totals",columns:[{key:"name",title:"Name"},{key:"value",title:"Value"}],rows:[{id:"a",cells:{name:"A",value:42},group:[{label:"Group",summary:{label:"Total",value:"42",column:"value"}}]}]};
  definePlugin({render:{"screen:a":()=>tree}},{write:h.write,input:h.input});
  await tick();
- h.send({type:"hello",protocol:2,plugin:{id:"t"},host:{name:"test",version:"0.2.2"}});
+ h.send({type:"hello",protocol:3,plugin:{id:"t"},host:{name:"test",version:"0.2.2"}});
  h.send({type:"open",surface:"screen:a", instance: "person"});
  await tick();
  expect(h.out.at(-1)).toEqual({type:"render",surface:"screen:a", instance: "person",tree});
@@ -98,11 +99,11 @@ test("navigate is sent only when the host offers it", async () => {
 	const h = harness();
 	const ctx = definePlugin({ render: {} }, { write: h.write, input: h.input });
 	await tick();
-	h.send({ type: "hello", protocol: 2, capabilities: ["ui.core"], plugin: { id: "t" }, host: { name: "test", version: "0" } });
+	h.send({ type: "hello", protocol: 3, capabilities: ["ui.core"], plugin: { id: "t" }, host: { name: "test", version: "0" } });
 	await tick();
 	expect(ctx.navigate("main")).toBe(false);
 	expect(h.out).toEqual([]);
-	h.send({ type: "hello", protocol: 2, capabilities: ["ui.core", "navigate"], plugin: { id: "t" }, host: { name: "test", version: "0" } });
+	h.send({ type: "hello", protocol: 3, capabilities: ["ui.core", "navigate"], plugin: { id: "t" }, host: { name: "test", version: "0" } });
 	await tick();
 	expect(ctx.navigate("main", { select: "row-1" })).toBe(true);
 	expect(ctx.navigate("other")).toBe(true);
@@ -119,10 +120,10 @@ test("SDK carries context rows, drops onto rows and choice controls through the 
 	};
 	definePlugin({ render: { "screen:a": () => tree }, onEvent: (_s, name, payload) => { events.push([name, payload]); } }, { write: h.write, input: h.input });
 	await tick();
-	h.send({ type: "hello", protocol: 2, capabilities: ["ui.core", "ui.row-reorder", "ui.row-tree", "ui.choice-control"], plugin: { id: "t" }, host: { name: "test", version: "0.3.18" } });
+	h.send({ type: "hello", protocol: 3, capabilities: ["ui.core", "ui.row-reorder", "ui.row-tree", "ui.choice-control"], plugin: { id: "t" }, host: { name: "test", version: "0.3.18" } });
 	h.send({ type: "open", surface: "screen:a", instance: "person" });
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "reorder", payload: { table: "t", rowId: "2", section: "working", before: null, onto: "1" } });
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "field", payload: { form: "subtasks", field: "subtasks", value: "parent" } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "reorder", payload: { table: "t", rowId: "2", section: "working", before: null, onto: "1" } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "field", payload: { form: "subtasks", field: "subtasks", value: "parent" } });
 	await tick();
 	expect(h.out.find((m: any) => m.type === "render")).toEqual({ type: "render", surface: "screen:a", instance: "person", tree });
 	expect(events.map(([n]) => n)).toEqual(["reorder", "field"]);
@@ -136,7 +137,7 @@ test("SDK carries selectable context rows, row dots, section pills and pane butt
 	};
 	definePlugin({ render: { "screen:a": () => tree } }, { write: h.write, input: h.input });
 	await tick();
-	h.send({ type: "hello", protocol: 2, capabilities: ["ui.core", "ui.row-tree", "ui.context-select", "ui.row-dot", "ui.section-pill", "ui.pane-buttons"], plugin: { id: "t" }, host: { name: "test", version: "0.3.19" } });
+	h.send({ type: "hello", protocol: 3, capabilities: ["ui.core", "ui.row-tree", "ui.context-select", "ui.row-dot", "ui.section-pill", "ui.pane-buttons"], plugin: { id: "t" }, host: { name: "test", version: "0.3.19" } });
 	h.send({ type: "open", surface: "screen:a", instance: "person" });
 	await tick();
 	expect(h.out.find((m: any) => m.type === "render")).toEqual({ type: "render", surface: "screen:a", instance: "person", tree });
@@ -157,10 +158,10 @@ test("SDK carries nested sections, arranged filters and filter-arrange through t
 	};
 	definePlugin({ render: { "screen:a": () => tree }, onEvent: (_s, name, payload) => { events.push([name, payload]); } }, { write: h.write, input: h.input });
 	await tick();
-	h.send({ type: "hello", protocol: 2, capabilities: ["ui.core", "ui.row-reorder", "ui.sub-sections", "ui.nested-sections", "ui.filter-group"], plugin: { id: "t" }, host: { name: "test", version: "0.3.17" } });
+	h.send({ type: "hello", protocol: 3, capabilities: ["ui.core", "ui.row-reorder", "ui.sub-sections", "ui.nested-sections", "ui.filter-group"], plugin: { id: "t" }, host: { name: "test", version: "0.3.17" } });
 	h.send({ type: "open", surface: "screen:a", instance: "person" });
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "filter-arrange", payload: { order: ["status", "project", "due"], grouped: ["status"] } });
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "reorder", payload: { table: "t", rowId: "a", section: "web/inbox", before: null } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "filter-arrange", payload: { order: ["status", "project", "due"], grouped: ["status"] } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "reorder", payload: { table: "t", rowId: "a", section: "web/inbox", before: null } });
 	await tick();
 	expect(h.out.find((m: any) => m.type === "render")).toEqual({ type: "render", surface: "screen:a", instance: "person", tree });
 	expect(events).toEqual([["filter-arrange", { order: ["status", "project", "due"], grouped: ["status"] }], ["reorder", { table: "t", rowId: "a", section: "web/inbox", before: null }]]);
@@ -176,12 +177,12 @@ test("SDK carries sections, sub-sections, reorder, rich fields and their events 
 	};
 	definePlugin({ render: { "screen:a": () => tree }, onEvent: (_s, name, payload) => { events.push([name, payload]); } }, { write: h.write, input: h.input });
 	await tick();
-	h.send({ type: "hello", protocol: 2, capabilities: ["ui.core", "ui.rich-fields", "ui.row-select", "ui.row-reorder", "ui.modifier-keys", "ui.sub-sections", "ui.options-field"], plugin: { id: "t" }, host: { name: "test", version: "0.3.9" } });
+	h.send({ type: "hello", protocol: 3, capabilities: ["ui.core", "ui.rich-fields", "ui.row-select", "ui.row-reorder", "ui.modifier-keys", "ui.sub-sections", "ui.options-field"], plugin: { id: "t" }, host: { name: "test", version: "0.3.9" } });
 	h.send({ type: "open", surface: "screen:a", instance: "person" });
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "reorder", payload: { table: "t", rowId: "a", section: "snoozed", before: null } });
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "select", payload: { table: "t", rowId: "a" } });
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "field", payload: { form: "f", field: "l", value: [{ key: "p", value: "High" }] } });
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "field", payload: { form: "f", field: "v", value: [{ key: "1", text: "Top", color: "red" }, { text: "Low", color: "sky" }] } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "reorder", payload: { table: "t", rowId: "a", section: "snoozed", before: null } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "select", payload: { table: "t", rowId: "a" } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "field", payload: { form: "f", field: "l", value: [{ key: "p", value: "High" }] } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "field", payload: { form: "f", field: "v", value: [{ key: "1", text: "Top", color: "red" }, { text: "Low", color: "sky" }] } });
 	await tick();
 	expect(h.out.find((m: any) => m.type === "render")).toEqual({ type: "render", surface: "screen:a", instance: "person", tree });
 	expect(events.map(([n]) => n)).toEqual(["reorder", "select", "field", "field"]);
@@ -211,7 +212,7 @@ test("views: the SDK owns each instance's search, filters, sort and controls", a
 		{ write: h.write, input: h.input },
 	);
 	await tick();
-	h.send({ type: "hello", protocol: 2, plugin: { id: "t" }, host: { name: "test", version: "0" } });
+	h.send({ type: "hello", protocol: 3, plugin: { id: "t" }, host: { name: "test", version: "0" } });
 	h.send({ type: "open", surface: "screen:a", instance: "person", view: { search: "saved" } });
 	await tick();
 	const person = h.out.at(-1) as Extract<PluginMessage, { type: "render" }>;
@@ -224,13 +225,14 @@ test("views: the SDK owns each instance's search, filters, sort and controls", a
 	expect(JSON.stringify(page.children)).toContain("saved|open|list");
 
 	// A person's filter event is the SDK's: it never reaches onEvent, and the host hears the view.
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "filter", payload: { filter: "status", values: ["done"] } });
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "sort", payload: { table: "items", key: "name", desc: true } });
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "field", payload: { form: "mode", field: "mode", value: "board" } });
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "settle", payload: { rowId: "1" } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "filter", payload: { filter: "status", values: ["done"] } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "sort", payload: { table: "items", key: "name", desc: true } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "field", payload: { form: "mode", field: "mode", value: "board" } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "settle", payload: { rowId: "1" } });
 	await tick();
 	expect(seen).toEqual(["settle@person"]);
-	expect(views).toEqual(["person", "person", "person"]);
+	// onView: the person's instance opening with a view, then the filter, sort and control.
+	expect(views).toEqual(["person", "person", "person", "person"]);
 	expect(h.out.filter((m) => m.type === "view").at(-1)).toEqual({ type: "view", surface: "screen:a", instance: "person", view: { search: "saved", filters: { status: ["done"] }, sort: { items: { key: "name", desc: true } }, controls: { mode: "board" } } });
 	const after = (h.out.filter((m) => m.type === "render").at(-1) as Extract<PluginMessage, { type: "render" }>).tree as Extract<Node, { type: "page" }>;
 	expect((after.children[0] as Extract<Node, { type: "table" }>).sort).toEqual({ key: "name", desc: true });
@@ -256,7 +258,7 @@ test("views: the SDK owns each instance's search, filters, sort and controls", a
 	expect(ctx.open.has("screen:a")).toBe(false);
 });
 
-test("views from data: declareViews re-reads them, tells the host and drops what's gone", async () => {
+test("views from data: declare re-reads them, tells the host and drops what's gone", async () => {
 	const h = harness();
 	const raw: string[] = [];
 	let labels = ["home", "work"];
@@ -268,19 +270,19 @@ test("views from data: declareViews re-reads them, tells the host and drops what
 		{ write: (line) => (raw.push(line), h.write(line)), input: h.input },
 	);
 	await tick();
-	h.send({ type: "hello", protocol: 2, plugin: { id: "t" }, host: { name: "test", version: "0" } });
+	h.send({ type: "hello", protocol: 3, plugin: { id: "t" }, host: { name: "test", version: "0" } });
 	await tick();
-	expect(JSON.parse(raw.find((l) => l.includes('"hello"'))!).views).toEqual({ "screen:a": { filters: { "label:home": [], "label:work": [] } } });
+	expect(JSON.parse(raw.find((l) => l.includes('"hello"'))!).declarations.views).toEqual({ "screen:a": { filters: { "label:home": [], "label:work": [] } } });
 	h.send({ type: "open", surface: "screen:a", instance: "person", view: { filters: { "label:work": ["x"], "label:gone": ["y"] } } });
 	await tick();
 	expect(h.out.at(-1)).toMatchObject({ type: "render", tree: { text: '{"label:home":[],"label:work":["x"]}' } });
 	labels = ["home", "garden"];
-	ctx.declareViews();
+	ctx.declare();
 	await tick();
-	expect(h.out.find((m) => m.type === "views")).toEqual({ type: "views", views: { "screen:a": { filters: { "label:home": [], "label:garden": [] } } } });
+	expect(raw.map((l) => JSON.parse(l)).find((m) => m.type === "declarations")).toEqual({ type: "declarations", declarations: { views: { "screen:a": { filters: { "label:home": [], "label:garden": [] } } }, actions: {}, forms: {} } });
 	expect(h.out.at(-1)).toMatchObject({ type: "render", tree: { text: '{"label:home":[],"label:garden":[]}' } });
 	// A filter that's declared now is the SDK's.
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "filter", payload: { filter: "label:garden", values: ["roses"] } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "filter", payload: { filter: "label:garden", values: ["roses"] } });
 	await tick();
 	expect(h.out.at(-1)).toMatchObject({ type: "render", tree: { text: '{"label:home":[],"label:garden":["roses"]}' } });
 });
@@ -323,10 +325,10 @@ test("SDK carries a collapsible card, opened from an action, through the fake ho
 		{ write: h.write, input: h.input },
 	);
 	await tick();
-	h.send({ type: "hello", protocol: 2, capabilities: ["ui.core", "ui.collapsible-cards"], plugin: { id: "t" }, host: { name: "test", version: "0.7.2" } });
+	h.send({ type: "hello", protocol: 3, capabilities: ["ui.core", "ui.collapsible-cards"], plugin: { id: "t" }, host: { name: "test", version: "0.7.2" } });
 	h.send({ type: "open", surface: "screen:a", instance: "person" });
 	await tick();
-	h.send({ type: "event", surface: "screen:a", instance: "person", name: "test", payload: { rowId: "guide" } });
+	h.send({ type: "event", id: "e", origin: "person", surface: "screen:a", instance: "person", name: "test", payload: { rowId: "guide" } });
 	await tick();
 	const renders = h.out.filter((m: any) => m.type === "render") as Extract<PluginMessage, { type: "render" }>[];
 	expect(renders.map((r: any) => r.tree.children[0].open)).toEqual([undefined, true]);

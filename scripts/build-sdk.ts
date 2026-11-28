@@ -7,7 +7,7 @@ rmSync(root, { recursive: true, force: true });
 mkdirSync(join(root, "src"), { recursive: true });
 cpSync("src/sdk", join(root, "src/sdk"), { recursive: true });
 mkdirSync(join(root, "src/shared"), { recursive: true });
-for (const file of ["protocol.ts", "time.ts", "hues.ts", "package.ts", "validation.ts", "views.ts"])
+for (const file of ["protocol.ts", "time.ts", "hues.ts", "package.ts", "validation.ts", "views.ts", "actions.ts", "sections.ts"])
   cpSync(`src/shared/${file}`, join(root, "src/shared", file));
 cpSync("packages/sdk/README.md", join(root, "README.md"));
 cpSync("packages/sdk/CHANGELOG.md", join(root, "CHANGELOG.md"));

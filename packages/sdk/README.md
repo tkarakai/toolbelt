@@ -2,7 +2,7 @@
 
 Bun SDK for Toolbelt's declarative plugin protocol. Install a pinned SDK release archive in
 your plugin repository; no Toolbelt source checkout is required. The current SDK version is
-`0.2.0-dev.5`, package format 1 and protocol 2. SDK build version is diagnostic; host/Bun
+`0.2.0-dev.5`, package format 1 and protocol 3. SDK build version is diagnostic; host/Bun
 ranges and negotiated capabilities determine compatibility. Hosts run only plugins built for
 their protocol.
 
@@ -18,7 +18,7 @@ import { definePlugin, dataDir, packageRoot, payload, asset } from "@toolbelt/sd
 | `validatePackage(root)` | Check a built output directory before archiving |
 | `@toolbelt/sdk/package` | Manifest types, schema parser, capabilities and limits |
 | `@toolbelt/sdk/validation` | Runtime message/tree validation |
-| `@toolbelt/sdk/testing` | `fakeHost` in-memory production-SDK transport |
+| `@toolbelt/sdk/testing` | `fakeHost`: the production SDK in memory with the host's checks (results, tags, refusals, undeclared ids) |
 | `@toolbelt/sdk/search` | Search, edit distance and highlighting helpers |
 
 Render keys are `screen:<manifest-screen-id>` and optional `quick`. `Context.invalidate()`
@@ -27,16 +27,24 @@ coalesces renders; unchanged trees are not resent.
 `views` declares each surface's search, filters, sort and page controls with their starting
 values. The SDK keeps one view per open instance (every person's screen shares `PERSON`, each
 agent view has its own), applies the view events itself, writes the view into the tree's
-controls and calls `render(ctx, view)` per instance; filter the data by `view`. `onEvent`'s
-fifth argument names the instance that sent an event. The host saves the person's view, so
-plugins don't persist view state. `Context.capabilities` contains negotiated
+controls and calls `render(ctx, view)` per instance; filter the data by `view`. The host saves
+the person's view, so plugins don't persist view state.
+
+`actions` and `forms` declare, plugin-wide, every action id the trees and toasts use and every
+form, with its `effect` (`view`, `write`, `external`, `destructive`; forms `view` or `write`);
+the host rejects a render that uses anything undeclared. `onEvent`'s fifth argument is
+`{ id, instance, origin, agent?, view }`; its return value (nothing, `false` or `{ data }`) and
+thrown errors become the event's `result`, which the SDK sends. `onOpen`/`onClose` fire per
+instance, `onView` may refuse a view change by returning `false`, and `ctx.declare()` re-sends
+the declarations. See docs/plugins.md, "Actions, forms and events". `Context.capabilities` contains negotiated
 host support. Declare used features required or implement an actual fallback when optional
 capabilities are absent. Keep stdout protocol-only; use stderr for diagnostics.
 
-`Context.navigate(screen, {select?})` shows one of the plugin's declared screens in the main
-window and selects a stable row/list item ID there. Call it only in response to an event, such
-as a toast button (`surface: "toast"`). The host ignores calls that come more than 10 s after
-the last event it delivered, and allows one navigation per event. It requires the `navigate`
+`Context.navigate(screen, {select?})` shows one of the plugin's declared screens on the screen
+that sent the event being handled and selects a stable row/list item ID there. Call it while
+handling an event, such as a toast button (`surface: "toast"`): the SDK tags it with the event,
+and the host ignores untagged calls, calls more than 10 s after the event, and a second call for
+the same event. It requires the `navigate`
 capability; without it the method returns false and sends nothing. `Action.menu` turns a
 button into a split button with one level of alternatives (`ui.split-action`).
 

@@ -25,7 +25,8 @@ import {
   developmentRoot,
 } from "./development";
 import type { DevelopmentRequest } from "../shared/development";
-import { PluginHost, configDir } from "./host";
+import { PluginHost, configDir, type PersonActor } from "./host";
+import { EventRoutes } from "./event-routes";
 import { PATHS } from "electrobun/main";
 import { PackageManager, type Installed } from "./packages";
 import { PluginManagerService } from "./plugin-manager-service";
@@ -241,8 +242,18 @@ const views = new Set<View>();
 // Which surfaces each view has open, so a closed window releases them.
 const opened = new Map<View, Set<string>>();
 const remoteViews = new WeakSet<View>();
-/** The view that sent the latest plugin event: a plugin's navigation goes back to it. */
-let lastEvent: { view: View; plugin: string; at: number } | null = null;
+/** Paired devices' names, by their connection's view. */
+const remoteDevices = new WeakMap<View, string>();
+/** The view that sent each recent plugin event: its navigation goes back there. */
+const eventViews = new EventRoutes<View>();
+/** Who an event from this view comes from, for the host's records. */
+function actorOf(view: View): PersonActor {
+  if (remoteViews.has(view)) {
+    const device = remoteDevices.get(view);
+    return { kind: "person", via: "remote", ...(device ? { device } : {}) };
+  }
+  return { kind: "person", via: view === popRPC ? "popover" : "window" };
+}
 let pluginUpdateAvailable = manager.read().plugins.some(p => !p.removed && !!p.availableVersion);
 manager.subscribe((state) => {
   views.forEach((view) => view.send.pluginManagerState(state));
@@ -300,7 +311,6 @@ function requestHandlers(view: () => View): RequestHandlers {
             throw new Error(
               "ToolBelt is preparing to update; plugin actions are temporarily deferred",
             );
-          lastEvent = { view: view(), plugin, at: Date.now() };
           // Register ToolBelt as the foreground application before handing focus away.
           if (
             host
@@ -312,7 +322,7 @@ function requestHandlers(view: () => View): RequestHandlers {
             await win.activate();
             prepareAppHandoff();
           }
-          host.event(plugin, surface, name, payload);
+          eventViews.record(host.event(plugin, surface, name, payload, actorOf(view())), view());
           return true;
         },
         openUrl: ({ url }) =>
@@ -424,13 +434,16 @@ host.subscribe({
   toast: (plugin, text, tone, action) =>
     views.forEach((v) => v.send.toast({ plugin, text, tone, action })),
   clipboard: (_plugin, text) => Utils.clipboardWriteText(text),
-  navigate: (plugin, screen, select) => {
+  navigate: (plugin, screen, select, event) => {
     const selection = select ? { item: select } : undefined;
-    // The host honors navigation only shortly after an event; it belongs to the view that sent it.
-    const origin = lastEvent?.plugin === plugin && Date.now() - lastEvent.at < 10_000 ? lastEvent.view : null;
-    if (origin && remoteViews.has(origin) && views.has(origin))
-      return origin.send.navigate({ plugin, screen, selection });
-    showWindow(plugin, screen, selection);
+    // The host honors navigation only for an event it sent moments ago; it goes to the view that
+    // sent that event: a paired device, or the Mac's window (from the window or the popover).
+    const origin = eventViews.viewOf(event.id);
+    if (origin && remoteViews.has(origin)) {
+      if (views.has(origin)) origin.send.navigate({ plugin, screen, selection });
+      return;
+    }
+    if (event.actor.kind === "person" && event.actor.via !== "remote") showWindow(plugin, screen, selection);
   },
 });
 
@@ -457,6 +470,7 @@ const remoteAccess = new RemoteAccess({
     opened: (client) => {
       const view: View = { send: remoteSender<ViewRPC["send"]>(client) };
       remoteViews.add(view);
+      if (client.device) remoteDevices.set(view, client.device.name);
       views.add(view);
       opened.set(view, client.opened);
       remoteClients.set(client.id, { view, handlers: requestHandlers(() => view) });
