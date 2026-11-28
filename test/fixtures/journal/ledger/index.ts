@@ -3,6 +3,7 @@
 // (write, on a row; returns data), `done-all` (write, bulk), `purge` (destructive, on a row; a
 // toast with a write Undo), `open-link` (external), `skip` (not handled), `fail` (throws), `stall`
 // (never answers), `new` (view: opens the dialog) and `create` (write: saves the dialog's draft).
+// The table can be reordered (`reorder` events, journaled as writes).
 // Forms: each row's `pane` (write), the page's `prefs` (write) and the dialog's `draft` (view).
 import { definePlugin, type Node } from "../../../../src/sdk";
 
@@ -38,6 +39,7 @@ definePlugin({
 					type: "table",
 					id: "tasks",
 					selectEvents: true,
+					reorder: true,
 					columns: [{ key: "title", title: "Title" }],
 					actions: [{ id: "done", label: "Done" }, { id: "purge", label: "Purge" }],
 					bulkActions: [{ id: "done-all", label: "Done" }],

@@ -328,7 +328,7 @@ drawer row of a pane field; toast buttons name none). The change rides with the 
 `settled`, and `PluginHost` hands every settled event to the journal before its listeners. View
 events, `select`, `dialog-close`, `view` actions, `view` forms (dialog drafts) and page controls
 the SDK keeps in the view change no data and aren't journaled; the action that saves a draft is.
-`reorder` (a row dragged between sections) has no declaration in protocol 3 and isn't journaled. Changes a plugin makes on its own (timers, sync) have no event and aren't
+`reorder` (a row moved, often into another section) has no declaration in protocol 3 but changes data, so it is journaled as a `write` naming the moved row. Changes a plugin makes on its own (timers, sync) have no event and aren't
 journaled. Every actor is: the window, the popover and paired devices now, agents with B1.3.
 
 **Entries.** One JSON line per change, written once the event settles (`JournalEntry` in

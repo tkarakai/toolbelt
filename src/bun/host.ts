@@ -931,12 +931,14 @@ export class PluginProcess {
 
   /**
    * What an event may change, from the declarations as they are now: `write`, `external` and
-   * `destructive` actions, and fields of `write` forms. Undefined for everything else (view
-   * events, `select`, `view` actions and forms, page controls the SDK keeps in the view), which
-   * changes no data. Built-in event names can't be declared as actions.
+   * `destructive` actions, fields of `write` forms, and `reorder` (a row moved, often into another
+   * section: a write, though it has no declaration). Undefined for everything else (view events,
+   * `select`, `view` actions and forms, page controls the SDK keeps in the view), which changes no
+   * data. Built-in event names can't be declared as actions.
    */
   private changeOf(name: string, payload: unknown, rows: string[]): Omit<EventChange, "at"> | undefined {
     const capped = rows.slice(0, CHANGE_ROWS);
+    if (name === "reorder") return { name, effect: "write", rows: capped };
     if (name === "field") {
       const p = payload as { form?: unknown; field?: unknown } | null;
       if (!p || typeof p.form !== "string" || typeof p.field !== "string" || !Object.hasOwn(this.declaredForms, p.form)) return undefined;

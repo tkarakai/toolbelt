@@ -89,6 +89,13 @@ describe("the host journals changes made through plugin screens (the ledger fixt
 		expect(journal.read(2).map((e) => e.seq)).toEqual([5, 4]);
 	});
 
+	test("moving a row (reorder) is journaled as a write", async () => {
+		const { journal, journalFile, send } = await start();
+		await send("reorder", { table: "tasks", rowId: "r2", section: "", before: "r1" });
+		journal.flush();
+		expect(lines(journalFile).map(({ name, effect, rows, outcome }) => ({ name, effect, rows, outcome }))).toEqual([{ name: "reorder", effect: "write", rows: ["r2"], outcome: "ok" }]);
+	});
+
 	test("view events, view actions, view forms and select change nothing and aren't journaled", async () => {
 		const { journal, journalFile, settled, send } = await start();
 		await send("search", { query: "secret" });
