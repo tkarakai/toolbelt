@@ -438,8 +438,11 @@ other agents' and the person's screens never show them.
 
 ### Finding what the agent names
 
-- **Names**, as for views (`act.ts`): an action by id or label, ignoring case (a label two
-  actions share is refused with their ids, `Done [done], Done [done-all]`); a form by id or title
+- **Names**, as for views (`act.ts`): an action by id or label, ignoring case. A label that
+  actions in different places share is read by the address: with `row`, that row's own action
+  (else a bulk action covering it); with `rows`, the bulk action (else, for one row, its own);
+  without rows, an action on no row. A label the address can't settle is refused with the ids
+  (`Snooze [snooze], Snooze [snooze-week]`); a form by id or title
   (a dialog's untitled form by the dialog's title); a field by id or label; an option of a
   `select`, `combobox` or `tags` field by value or label. The result says how names were read
   (`Names read as: …`).

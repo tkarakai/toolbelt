@@ -51,7 +51,8 @@ export type Picked = {
 
 /**
  * The action an agent names, where it's offered in the tree: by id, else by id or label ignoring
- * case (a label two actions share is refused with their ids). `rows` addresses bulk actions,
+ * case (a label two actions share where the address can't tell them apart is refused with their
+ * ids). `rows` addresses bulk actions,
  * `row` row actions (and a bulk action on that one row); without rows, an open dialog is searched
  * first, then the page and its cards. An action offered in several places is refused with them.
  */
@@ -65,7 +66,24 @@ export function pickAction(tree: Node, declared: Declared, input: ActionInput): 
 	let name: string;
 	if (offered.some((o) => o.name === wanted)) name = wanted;
 	else {
-		const ids = [...new Set(offered.filter((o) => norm(o.name) === norm(wanted) || norm(o.action.label) === norm(wanted)).map((o) => o.name))];
+		const matching = offered.filter((o) => norm(o.name) === norm(wanted) || norm(o.action.label) === norm(wanted));
+		const idsOf = (os: Offering[]) => [...new Set(os.map((o) => o.name))];
+		let ids = idsOf(matching);
+		if (ids.length > 1) {
+			// A label actions share in different places (a row's "Done" and the bulk "Done"): the address
+			// says which kind is meant. `row`: that row's actions, else bulk ones covering it; `rows`: bulk
+			// ones, else (one row) its own; neither: actions on no row.
+			const own = (id: string) => matching.filter((o) => o.kind !== "bulk" && o.rows[0]?.id === id);
+			const bulk = matching.filter((o) => o.kind === "bulk");
+			const tiers =
+				input.row !== undefined
+					? [own(input.row), bulk.filter((o) => o.bulk?.has(input.row!))]
+					: input.rows
+						? [bulk, input.rows.length === 1 ? own(input.rows[0]) : []]
+						: [matching.filter((o) => o.kind !== "bulk" && !o.rows.length)];
+			const tier = tiers.find((t) => t.length);
+			if (tier) ids = idsOf(tier);
+		}
 		if (ids.length > 1) return { refused: `${quote(wanted)} names more than one action: ${ids.map((id) => labelled(labelOf(id), id)).join(", ")}. Pass the id in brackets.`, reason: "ambiguous action" };
 		if (!ids.length) {
 			if (hidden.some((o) => o.name === wanted || norm(o.name) === norm(wanted) || norm(o.action.label) === norm(wanted)))

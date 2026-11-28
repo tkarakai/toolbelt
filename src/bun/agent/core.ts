@@ -1919,7 +1919,7 @@ export class AgentCore {
 					properties: {
 						plugin: str("Plugin id."),
 						screen: str("Screen id; omit for the plugin's default screen."),
-						action: str("The action's id or label, as read_screen lists it (a label two actions share is refused with their ids)."),
+						action: str("The action's id or label, as read_screen lists it (a label shared by a row action and a bulk action is read by row/rows; one the address can't settle is refused with the ids)."),
 						row: str("The row it acts on: the row's id as read_screen shows it in {id: …}."),
 						rows: { type: "array", items: { type: "string" }, minItems: 1, maxItems: BULK_ROWS, description: `Rows for a bulk action (at most ${BULK_ROWS}).` },
 						table: str("The table, when row ids repeat across tables."),

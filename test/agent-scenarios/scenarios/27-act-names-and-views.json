@@ -8,7 +8,7 @@
 	"steps": [
 		{
 			"call": "run_action",
-			"args": { "plugin": "errands", "screen": "list", "action": "Mark done", "rows": ["e1", "e2"] },
+			"args": { "plugin": "errands", "screen": "list", "action": "Mark done" },
 			"expect": { "refused": true, "contains": ["\"Mark done\" names more than one action: Mark done [done], Mark done [done-all]. Pass the id in brackets."] }
 		},
 		{

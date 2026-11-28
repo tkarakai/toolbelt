@@ -55,12 +55,15 @@ describe("which action an agent names", () => {
 		for (const k of ["toolbar:new", "card:refresh", "row:done", "row:star", "bulk:done-all", "composer:reply", "dialog:save"]) expect(kinds).toContain(k);
 		expect(offerings(tree()).actions.find((o) => o.kind === "composer")!.payload).toEqual({ composer: "comments", rowId: "t1" });
 	});
-	test("by id or label; a shared label is refused with the ids", () => {
+	test("by id or label; a shared label is read by the address, else refused with the ids", () => {
 		const t = tree();
 		const ok = pickAction(t, declared, { action: "SNOOZE", row: "t1", target: "tomorrow" });
 		expect(ok).toMatchObject({ offering: { name: "snooze" }, payload: { rowId: "t1", target: "tomorrow" }, notes: [] });
 		expect(pickAction(t, declared, { action: "Postpone", row: "t1" })).toMatchObject({ reason: "unknown action", refused: expect.stringContaining("Actions here: New, Refresh, Done, Snooze, Star, Purge, Reply") });
-		expect(pickAction(t, declared, { action: "Done", rows: ["t1"] })).toMatchObject({ refused: expect.stringContaining("names more than one action: Done, Done [done-all]") });
+		// A label a row action and a bulk action share: the address picks (row: the row's; rows: the bulk one).
+		expect(pickAction(t, declared, { action: "Done", row: "t1" })).toMatchObject({ offering: { name: "done" } });
+		expect(pickAction(t, declared, { action: "Done", rows: ["t1", "t2"] })).toMatchObject({ offering: { name: "done-all" } });
+		expect(pickAction(t, declared, { action: "Done", rows: ["t1"] })).toMatchObject({ offering: { name: "done-all" } });
 		expect(pickAction(t, declared, { action: "star", row: "t1" })).toMatchObject({ offering: { name: "star" } });
 	});
 	test("rows address bulk actions; one row takes a bulk action too", () => {
