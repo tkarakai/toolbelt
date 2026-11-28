@@ -19,6 +19,7 @@ JSON-lines and do not inject browser JavaScript, HTML or React components.
 | Plugin secrets in the login Keychain (capability `secrets`) | `src/bun/secrets.ts`, `keychain-worker.ts`, `src/ui/renderer/SecretField.tsx`, `EnvironmentEditor.tsx` |
 | Protocol, manifest/capabilities and runtime validation | `src/shared/protocol.ts`, `package.ts`, `validation.ts`, `rpc.ts` |
 | Action resolver: event payloads and the check of every person's event | `src/shared/actions.ts`, `PluginProcess.personEvent` in `src/bun/host.ts` |
+| Change journal: every change made through a plugin's screens | `src/bun/journal.ts`, `PluginProcess.changeOf` in `src/bun/host.ts` |
 | Public author SDK and fake-host tools | `src/sdk/`, packaged by `scripts/build-sdk.ts` |
 | Main window, popover, manager and renderer | `src/ui/App.tsx`, `Popover.tsx`, `PluginManager.tsx`, `renderer/` |
 | Plugin development mode | `src/bun/development.ts`, `src/shared/development.ts`, `src/ui/Development.tsx` |
@@ -68,6 +69,7 @@ layout below and shares only `settings.json`; see [plugin-development.md](plugin
 | `settings.json` | Host appearance, shortcut, remote access and agent access preferences |
 | `agent.sock` | The agent interface's Unix socket while it is on (config folder, not the development profile) |
 | `agent-audit.jsonl` | Every agent operation, append-only ([agent-interface.md](agent-interface.md)) |
+| `journal/changes.jsonl` | Every change made through a plugin's screens, append-only and hash-chained (see "Change journal") |
 | `views.json` | The person's view (search, filters, sort, controls) of each plugin surface, saved by the host ([plugins.md](plugins.md#views)) |
 | `plugins/registry.json` | Source bindings, active selections, channel, enabled/removal/data state, history and update schedule |
 | `plugins/packages/<id>/<version>-<hash>/` | Verified package files; plugins treat them as immutable |
@@ -125,9 +127,10 @@ id it gave the event (null when the event was refused). The actor is `{ kind: "p
 message carries `id` and `origin` (and `agent`, the client name, for an agent). `PluginProcess`
 keeps each event it sent with its actor until its `result` arrives or `LIMITS.resultMs` (10 s)
 passes, then once tells listeners `settled` with `{ id, plugin, surface, name, actor, outcome,
-error?, data? }`: `ok`, `not-handled`, `error` (a handled event with `error`, or a result the host
+error?, data?, change? }`: `ok`, `not-handled`, `error` (a handled event with `error`, or a result the host
 refused, such as data over 64 KiB) or `no-answer` (including events a stopped or restarted
-process never answered). A late or unknown result is logged and ignored. Toasts, clipboard and
+process never answered). `change` is what the event may have changed, taken when it was sent (see
+"Change journal"). A late or unknown result is logged and ignored. Toasts, clipboard and
 navigation carry the event the plugin was handling (`event`); listeners get it with its actor.
 The host honors navigation only for a declared screen, tagged with an event it sent within
 `NAVIGATE_GRACE_MS` (10 s), once per event; untagged navigation is ignored. `index.ts` records
@@ -309,6 +312,70 @@ tree refuses: nothing can have been clicked there, and after a plugin restart th
 describes the old process. A render error's host tree offers nothing. Toast buttons (surface
 `toast`) have no tree: the process remembers the last 20 toast actions it sent for 30 minutes,
 and a button's event must match one by id and payload.
+
+## Change journal
+
+`journal/changes.jsonl` in the plugin profile (beside `agent-audit.jsonl`; the development profile
+in development mode) records every change made through a plugin's screens, whoever made it. The
+agent audit records what agents read and asked for; the journal records what changed data. Both
+name the event id, so an agent's change can be matched to its audit entry (wave B1.3).
+
+**What is journaled.** When `PluginProcess` sends an event it takes its change (`changeOf`) from
+the declarations as they are then: an action declared `write`, `external` or `destructive` (named
+by its id), or a `field` event of a form declared `write` (named `form.field`), with the ids of the
+rows the action resolver found (at most 200: a row's action, a bulk action's checked rows, the
+drawer row of a pane field; toast buttons name none). The change rides with the event to
+`settled`, and `PluginHost` hands every settled event to the journal before its listeners. View
+events, `select`, `dialog-close`, `view` actions, `view` forms (dialog drafts) and page controls
+the SDK keeps in the view change no data and aren't journaled; the action that saves a draft is.
+`reorder` (a row moved, often into another section) has no declaration in protocol 3 but changes data, so it is journaled as a `write` naming the moved row. Changes a plugin makes on its own (timers, sync) have no event and aren't
+journaled. Every actor is: the window, the popover and paired devices now, agents with B1.3.
+
+**Entries.** One JSON line per change, written once the event settles (`JournalEntry` in
+`journal.ts`): `seq` (1, 2, …), `at` (when the host sent the event), `event` (its id), `actor`
+(`{ kind: "person", via: "window" | "popover" | "remote", device? }` or `{ kind: "agent", client,
+session, mode }`), `plugin`, `surface`, `name`, `effect`, `rows?`, `approval?` (`none`, `grant`
+or `once`, agents only), `outcome` (`ok`, `not-handled`, `error`, `no-answer`, as `settled` has
+it), `error?` (the plugin's message, at most 500 characters) and `hash`. Entries never contain
+`text`, field values, row titles or the plugin's result `data`. Lines are in the order events
+settled.
+
+**Coalescing.** Consecutive field events on the same plugin, surface, form field and row by the
+same actor, with the same outcome, sent within 10 s (`COALESCE_MS`) of the first one, are one
+entry. The journal holds that entry until its window closes, another entry is written, or
+`flush`; an event with another outcome starts a new entry. The entry keeps the first event's
+`event` and `at` (when the edit began) and takes the latest event's `error`.
+
+**Hash chain.** `hash` is the sha256 (hex) of the previous entry's hash (64 zeros for the first)
+followed by the entry's canonical form without `hash`: JSON with no whitespace, object keys sorted
+by UTF-16 code unit at every level, array order kept, absent fields left out (`canonical`,
+`entryHash`). Any reader can recompute it.
+
+**Writing.** The journal only appends (`a+`, mode 0600), and fsyncs within a second
+(`SYNC_MS`) of each write while entries arrive. `PluginHost.stop` writes a held entry and syncs
+(quitting ToolBelt and stopping the preview call it). A failed write or sync (a full disk, lost
+permissions) never holds up or fails the event: the entry is dropped and counted, the failure is
+logged once on stderr (`change journal: can't write …`) and `status()` reports `writable: false`,
+the error and `dropped`. The next entry opens the file afresh and tries again, starting with a
+newline if the failed write left a partial line. Removing a plugin or deleting its data keeps its
+entries: the file is outside every plugin's folder. Nothing rotates or prunes it yet; retention is
+decided with the History wave.
+
+**Check at start.** `new ChangeJournal` reads the whole file (`verifyJournal`) and checks that each
+entry's `seq` follows the one before and its hash covers the previous hash. It reports, never
+repairs: `changed` (an entry doesn't hash to its chain: it, or the entry before it, was edited),
+`missing` (a seq gap: lines removed), `out-of-order` (a seq that goes back: a moved or copied line,
+skipped), `unreadable` (a line that isn't an entry) and `torn` (a write that didn't finish). After
+a break the check goes on from that entry's stored seq and hash, so one edit reports once. Breaks
+are logged on stderr at start and kept in `status()` (the first 100, plus a count). A last line
+without its newline (ToolBelt stopped mid-write) is left as it is: the next write ends it with a
+newline and the chain continues from the last complete entry, so the next start reports it as a
+`torn` line the chain continues past. The chain reveals edits by the person's own account; it can't
+prevent them, and removing the newest entries can't be told from never having written them.
+
+**Reading.** In B1 only the debug API (`/journal`, see [maintenance.md](maintenance.md#debugging))
+and tests read it. No operation, for agents, the person, the debug API, the CLI, renderer RPC or
+remote clients, edits or deletes entries. The person's views of it come with the History wave.
 
 ## Secrets
 

@@ -259,6 +259,8 @@ The host records every change made through a plugin's screens, whoever made it. 
   - Consecutive field events on the same field by the same actor within 10 s are one entry.
   - View events, `select`, `view` actions and `view` forms (dialog drafts) are not journaled:
     they change no data. The action that saves a draft is.
+  - `reorder` (a row moved, often into another section) is journaled as a `write`: it changes
+    data, though it has no declaration.
   - Changes a plugin makes on its own (timers, sync) can't be attributed to an event and are
     not journaled in B1.
 - **Entry:**

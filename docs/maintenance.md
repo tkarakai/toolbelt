@@ -80,6 +80,7 @@ or restarts an app. The browser preview also has its existing simulated update f
 | Development mode | Development tests; preview with `TOOLBELT_DEVELOPMENT_PROFILE`; isolated native enter/exit relaunch, refusal, local load/watch/reset |
 | Remote access | Tailscale, remote-server, remote-access and remote-client tests; preview Tailscale scenarios and phone emulation; isolated native server and owner-check probe |
 | Plugin secrets | `test/secrets.test.ts` (memory backend, host write path, SDK); `TOOLBELT_TEST_KEYCHAIN=1 bun test test/secrets.test.ts` also round-trips the real login Keychain under a throwaway service it deletes. Preview keeps secrets in memory (`PREVIEW_KEYCHAIN=1` uses the preview profile's own Keychain services) |
+| Change journal | `test/journal.test.ts`: entries per actor from a real fixture process, what isn't journaled, coalescing, outcomes, no values, the chain's checks, an unwritable journal and plugin removal |
 | Agent interface | Agents unit tests, agent scenarios over MCP and the CLI, MCP conformance; optional MCP Inspector smoke check (`TOOLBELT_MCP_INSPECTOR=1`). Serializer or tool changes: add or update a scenario ([docs/agent-interface.md](agent-interface.md#testing)) |
 | App updater/packaging | Updater unit tests, clean app builds, mounted DMG identity/version/signature and disposable updater rehearsal |
 
@@ -127,6 +128,14 @@ update feed/debug setting. `window.__tbEvent(plugin, surface, name, payload)` se
 events; `window.__tbPerf` records render timing. Hidden windows are throttled by WebKit.
 `/state` reports the mode and plugin profile; POST `/development` drives plugin development
 mode (see [plugin-development.md](plugin-development.md#automation)).
+
+The change journal ([architecture.md](architecture.md#change-journal)) is checked at start: problems
+are logged on stderr as `change journal: N problems in …` with each line number and kind, and
+write failures as `change journal: can't write …`. `/state` carries a `journal` summary (entries,
+last `seq`, break count, `writable`, `error`, `dropped`). `GET /journal?limit=N` returns the full
+status with every break the check found (the first 100) and `newest`: the newest N entries
+(default 50, at most 1,000), newest first. It only reads; nothing edits or deletes entries. In the browser preview, read the
+preview profile's `journal/changes.jsonl` directly.
 
 Protocol stdout must remain JSON-lines; diagnostics use stderr. Inspect manager activity,
 errors and development-mode diagnostics before restarting. Never edit active package files: integrity

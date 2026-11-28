@@ -35,6 +35,8 @@ import {
   checkCompatibility,
 } from "./packages";
 import type { PluginInfo, PluginState } from "../shared/plugin-state";
+import type { AgentMode } from "../shared/agents";
+import type { ChangeJournal } from "./journal";
 import { checkEvent, isRefused, undeclared } from "../shared/actions";
 import {
   annotateSecrets,
@@ -105,7 +107,7 @@ export type PersonViews = {
  * (`remote`, named by `device` when it's paired). Agents act through a session (wave B1.3).
  */
 export type PersonActor = { kind: "person"; via: "window" | "popover" | "remote"; device?: string };
-export type Actor = PersonActor | { kind: "agent"; client: string; session: string };
+export type Actor = PersonActor | { kind: "agent"; client: string; session: string; mode: AgentMode };
 /** The person in the Mac's window: the actor when a caller doesn't say. */
 export const WINDOW: PersonActor = { kind: "person", via: "window" };
 
@@ -120,6 +122,27 @@ export type EventSettled = {
   outcome: "ok" | "not-handled" | "error" | "no-answer";
   error?: string;
   data?: unknown;
+  /** What it may have changed (the change journal): absent for events that change no data. */
+  change?: EventChange;
+};
+
+/** Rows an event's change names, at most (the rest aren't recorded). */
+export const CHANGE_ROWS = 200;
+
+/**
+ * What a `write`, `external` or `destructive` action, or a field of a `write` form, asked to
+ * change, taken from the declarations and the resolved event when the host sent it.
+ */
+export type EventChange = {
+  /** The action id, or `form.field` for a field event. */
+  name: string;
+  effect: "write" | "external" | "destructive";
+  /** The ids of the rows it acts on (at most `CHANGE_ROWS`). */
+  rows: string[];
+  /** When the host sent the event (epoch ms). */
+  at: number;
+  /** For an agent's event: how it was allowed (wave B1.3). */
+  approval?: "none" | "grant" | "once";
 };
 
 /** What a plugin message was sent for: the event it handled then (`event`), and who sent that. */
@@ -244,7 +267,7 @@ export class PluginProcess {
   /** Form id → its declaration; trees may use only these. */
   declaredForms: Record<string, FormDeclaration> = {};
   /** Events sent to this process: waiting for their result, or settled within the grace window. */
-  private events = new Map<string, { surface: string; name: string; actor: Actor; sentAt: number; timer?: ReturnType<typeof setTimeout>; settled: boolean; navigated: boolean }>();
+  private events = new Map<string, { surface: string; name: string; actor: Actor; sentAt: number; change?: EventChange; timer?: ReturnType<typeof setTimeout>; settled: boolean; navigated: boolean }>();
   private proc?: ReturnType<typeof Bun.spawn>;
   private stderrTail: string[] = [];
   private restarts = 0;
@@ -800,9 +823,10 @@ export class PluginProcess {
     return event ? { id: id!, actor: event.actor } : undefined;
   }
 
-  /** Sends an event and waits (`LIMITS.resultMs`) for its result. */
-  private sendEvent(id: string, surface: string, instance: string, name: string, payload: unknown, actor: Actor) {
-    const record = { surface, name, actor, sentAt: Date.now(), settled: false, navigated: false, timer: undefined as ReturnType<typeof setTimeout> | undefined };
+  /** Sends an event and waits (`LIMITS.resultMs`) for its result. `change`: what it may change (`changeOf`). */
+  private sendEvent(id: string, surface: string, instance: string, name: string, payload: unknown, actor: Actor, change?: Omit<EventChange, "at">) {
+    const sentAt = Date.now();
+    const record = { surface, name, actor, sentAt, ...(change ? { change: { ...change, at: sentAt } } : {}), settled: false, navigated: false, timer: undefined as ReturnType<typeof setTimeout> | undefined };
     record.timer = setTimeout(() => this.settle(id, { outcome: "no-answer", error: NO_ANSWER }), LIMITS.resultMs);
     this.events.set(id, record);
     this.send({
@@ -829,7 +853,7 @@ export class PluginProcess {
     clearTimeout(event.timer);
     if (outcome.outcome === "error" || outcome.outcome === "no-answer")
       this.log(`event ${JSON.stringify(event.name.slice(0, 64))} on ${event.surface}: ${outcome.outcome}${outcome.error ? ` (${outcome.error.slice(0, 200)})` : ""}`);
-    this.listener.settled?.({ id, plugin: this.manifest.id, surface: event.surface, name: event.name, actor: event.actor, ...outcome });
+    this.listener.settled?.({ id, plugin: this.manifest.id, surface: event.surface, name: event.name, actor: event.actor, ...outcome, ...(event.change ? { change: event.change } : {}) });
   }
 
   /** Events this process will never answer (it stopped or restarted): no answer. */
@@ -887,22 +911,41 @@ export class PluginProcess {
   private toastActions: { id: string; payload: string; at: number }[] = [];
 
   /**
-   * Why a person's event doesn't match what their screen offers (null: it does). Events are
-   * checked against the person instance's current tree (`checkEvent`, src/shared/actions.ts),
-   * which is never older than what their screens show; a surface with no tree offers nothing.
-   * Toast buttons are checked against the toasts this process sent.
+   * Whether a person's event matches what their screen offers: the rows it acts on, or why not.
+   * Events are checked against the person instance's current tree (`checkEvent`,
+   * src/shared/actions.ts), which is never older than what their screens show; a surface with no
+   * tree offers nothing. Toast buttons are checked against the toasts this process sent.
    */
-  private refusal(surface: string, name: string, payload: unknown): string | null {
+  private check(surface: string, name: string, payload: unknown): { refused: string } | { rows: string[] } {
     if (surface === "toast") {
       const sent = JSON.stringify(payload ?? null);
       const now = Date.now();
-      return this.toastActions.some((t) => t.id === name && t.payload === sent && now - t.at <= TOAST_ACTION_MS) ? null : "no recent toast offers it";
+      return this.toastActions.some((t) => t.id === name && t.payload === sent && now - t.at <= TOAST_ACTION_MS) ? { rows: [] } : { refused: "no recent toast offers it" };
     }
-    if (!this.declared(surface)) return "the surface isn't declared";
+    if (!this.declared(surface)) return { refused: "the surface isn't declared" };
     const tree = this.trees.get(instanceKey(surface));
-    if (!tree) return "nothing is shown there yet";
+    if (!tree) return { refused: "nothing is shown there yet" };
     const resolved = checkEvent(tree, name, payload, this.declaredViews[surface]);
-    return isRefused(resolved) ? resolved.refused : null;
+    return isRefused(resolved) ? resolved : { rows: resolved.rows.map((r) => r.id) };
+  }
+
+  /**
+   * What an event may change, from the declarations as they are now: `write`, `external` and
+   * `destructive` actions, fields of `write` forms, and `reorder` (a row moved, often into another
+   * section: a write, though it has no declaration). Undefined for everything else (view events,
+   * `select`, `view` actions and forms, page controls the SDK keeps in the view), which changes no
+   * data. Built-in event names can't be declared as actions.
+   */
+  private changeOf(name: string, payload: unknown, rows: string[]): Omit<EventChange, "at"> | undefined {
+    const capped = rows.slice(0, CHANGE_ROWS);
+    if (name === "reorder") return { name, effect: "write", rows: capped };
+    if (name === "field") {
+      const p = payload as { form?: unknown; field?: unknown } | null;
+      if (!p || typeof p.form !== "string" || typeof p.field !== "string" || !Object.hasOwn(this.declaredForms, p.form)) return undefined;
+      return this.declaredForms[p.form].effect === "write" ? { name: `${p.form}.${p.field}`, effect: "write", rows: capped } : undefined;
+    }
+    const effect = Object.hasOwn(this.declaredActions, name) ? this.declaredActions[name].effect : "view";
+    return effect === "view" ? undefined : { name, effect, rows: capped };
   }
 
   /** Person's events waiting behind a Keychain write, so they reach the plugin in order. */
@@ -914,8 +957,9 @@ export class PluginProcess {
    * hears only the outcome. Returns the event's id, or null when it was refused.
    */
   personEvent(surface: string, name: string, payload: unknown, actor: PersonActor = WINDOW): string | null {
-    const refused = this.refusal(surface, name, payload);
-    if (refused !== null) {
+    const checked = this.check(surface, name, payload);
+    if ("refused" in checked) {
+      const refused = checked.refused;
       const marked = name === "field" && !!payload && typeof payload === "object" && (payload as { secret?: unknown }).secret !== undefined;
       this.log(`refused ${JSON.stringify(name.slice(0, 64))} on ${surface}: ${refused}`);
       if (marked) this.secretProblem("That field changed before ToolBelt could save it. Type it again.");
@@ -924,7 +968,8 @@ export class PluginProcess {
     }
     const id = crypto.randomUUID();
     const secret = name === "field" ? this.secretField(surface, payload) : null;
-    const deliver = (out: unknown) => this.sendEvent(id, surface, PERSON, name, out, actor);
+    const change = this.changeOf(name, payload, checked.rows);
+    const deliver = (out: unknown) => this.sendEvent(id, surface, PERSON, name, out, actor, change);
     if (!secret && !this.eventChain) {
       deliver(payload);
       return id;
@@ -1084,6 +1129,8 @@ export class PluginHost {
       agentCommand?: () => string[] | null;
       /** Where plugins that declare `secrets` keep them; without it they're refused. */
       secrets?: SecretStore;
+      /** Records every settled event that may have changed data (src/bun/journal.ts). */
+      journal?: ChangeJournal;
     },
   ) {}
 
@@ -1137,6 +1184,8 @@ export class PluginHost {
 
   stop() {
     for (const p of this.plugins.values()) p.stop();
+    // Stopping settles what plugins never answered; write and sync it before ToolBelt quits.
+    this.opts.journal?.flush();
   }
 
   subscribe(l: Listener) {
@@ -1348,12 +1397,15 @@ export class PluginHost {
               l.navigate?.(plugin, screen, select, event);
             } catch {}
           }),
-        settled: (event) =>
+        settled: (event) => {
+          // The journal never throws: a journal that can't be written doesn't hold up an event.
+          this.opts.journal?.record(event);
           this.listeners.forEach((l) => {
             try {
               l.settled?.(event);
             } catch {}
-          }),
+          });
+        },
         viewRefused: (plugin, surface, instance, reason, view) =>
           this.listeners.forEach((l) => {
             try {

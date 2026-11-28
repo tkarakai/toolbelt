@@ -7,6 +7,7 @@ import { localControlRequest } from "../src/bun/loopback";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { PluginHost, configDir } from "../src/bun/host";
+import { ChangeJournal } from "../src/bun/journal";
 import { EventRoutes } from "../src/bun/event-routes";
 import { PackageManager } from "../src/bun/packages";
 import { PluginManagerService } from "../src/bun/plugin-manager-service";
@@ -62,6 +63,7 @@ const root = developmentProfile
 mkdirSync(root, { recursive: true });
 const developmentLog = new DiagnosticLog();
 const personViews = new ViewStore(join(root, "views.json"));
+const journal = new ChangeJournal(join(root, "journal/changes.jsonl"));
 // Set once the agent interface exists (below); plugins started before that don't get it.
 let agentCommand: string[] | null = null;
 // Plugin secrets stay in memory unless PREVIEW_KEYCHAIN=1, which uses the login Keychain under
@@ -79,6 +81,7 @@ const host = new PluginHost({
   host: { name: "Toolbelt preview", version: pkg.version },
   data: join(root, "data"),
   views: personViews,
+  journal,
   diagnostic: (plugin, kind, detail) => developmentLog.record(kind, { plugin, detail }),
 });
 const packages = new PackageManager(
