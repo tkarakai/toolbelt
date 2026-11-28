@@ -3,7 +3,7 @@
 // the end is an optional smoke check: TOOLBELT_MCP_INSPECTOR=1 (needs the network for bunx).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import Ajv2020 from "ajv/dist/2020";
-import { MCP_VERSIONS } from "../src/bun/agent/mcp";
+import { MCP_VERSIONS, MODERN_VERSIONS } from "../src/bun/agent/mcp";
 import { createWorld, until, type World } from "./agent-scenarios/harness";
 import { CLI, McpAdapter } from "./agent-scenarios/adapters";
 
@@ -237,6 +237,126 @@ describe("MCP conformance", () => {
 		await until(() => client.notifications().slice(seen).some((n) => n.method === "notifications/resources/updated" && n.params.uri === uri), 3000, "an update after reconnecting");
 		await world.person({ event: { screen: "desk/tasks", name: "reopen", payload: { rowId: "7" } } });
 		expect((await request("resources/unsubscribe", { uri })).result).toEqual({});
+	});
+
+	// MCP 2026-07-28: requests name their version in _meta, with no handshake.
+	const META = (version = "2026-07-28", extra: Record<string, unknown> = {}) => ({
+		"io.modelcontextprotocol/protocolVersion": version,
+		"io.modelcontextprotocol/clientInfo": { name: "modern-conformance", version: "1" },
+		"io.modelcontextprotocol/clientCapabilities": {},
+		...extra,
+	});
+	const SUB = "io.modelcontextprotocol/subscriptionId";
+
+	test("modern: server/discover, version and _meta checks, removed methods", async () => {
+		const { request } = await rpc(false);
+		const d = (await request("server/discover", { _meta: META() })).result;
+		expect(d).toMatchObject({
+			resultType: "complete",
+			supportedVersions: [...MODERN_VERSIONS, ...MCP_VERSIONS],
+			capabilities: { tools: { listChanged: false }, resources: { subscribe: true, listChanged: true } },
+			ttlMs: expect.any(Number),
+			cacheScope: "private",
+		});
+		expect(d._meta["io.modelcontextprotocol/serverInfo"]).toMatchObject({ name: "toolbelt" });
+		expect(d.instructions).toContain("read_screen");
+		// A legacy client probing without _meta gets an error and falls back to initialize.
+		expect((await request("server/discover", {})).error.code).toBe(-32602);
+		const old = (await request("tools/list", { _meta: META("1999-01-01") })).error;
+		expect(old.code).toBe(-32022);
+		expect(old.data).toEqual({ supported: [...MODERN_VERSIONS, ...MCP_VERSIONS], requested: "1999-01-01" });
+		const noCaps = { "io.modelcontextprotocol/protocolVersion": "2026-07-28" };
+		expect((await request("tools/list", { _meta: noCaps })).error.code).toBe(-32602);
+		expect((await request("ping", { _meta: META() })).error.code).toBe(-32601);
+		expect((await request("resources/subscribe", { uri: "toolbelt://screens/desk/tasks", _meta: META() })).error.code).toBe(-32601);
+	});
+
+	test("modern: tools and resources without a handshake carry resultType, identity and cache hints", async () => {
+		const { request } = await rpc(false);
+		const list = (await request("tools/list", { _meta: META() })).result;
+		expect(list).toMatchObject({ resultType: "complete", ttlMs: 3_600_000, cacheScope: "public" });
+		expect(list.tools.map((t: { name: string }) => t.name)).toContain("read_screen");
+		const call = (await request("tools/call", { name: "toolbelt_status", arguments: {}, _meta: META() })).result;
+		expect(call.resultType).toBe("complete");
+		expect(call.content[0].text).toContain("Desk (desk)");
+		expect(call._meta["io.modelcontextprotocol/serverInfo"].name).toBe("toolbelt");
+		// Tool results aren't cacheable.
+		expect(call.ttlMs).toBeUndefined();
+		// The first request's clientInfo named the session.
+		expect(world.agents.core.state().sessions.some((s) => s.client === "modern-conformance")).toBe(true);
+		const resources = (await request("resources/list", { _meta: META() })).result;
+		expect(resources).toMatchObject({ resultType: "complete", cacheScope: "private", ttlMs: expect.any(Number) });
+		expect((await request("resources/templates/list", { _meta: META() })).result).toMatchObject({ resultType: "complete", cacheScope: "public" });
+		const read = (await request("resources/read", { uri: "toolbelt://screens/desk/settings", _meta: META() })).result;
+		expect(read).toMatchObject({ resultType: "complete", cacheScope: "private", ttlMs: 1_000 });
+		expect(read.contents[0].text).toContain("Mark stalled tasks: on");
+		// Resource not found is Invalid Params since 2026-07-28; legacy requests keep -32002.
+		expect((await request("resources/read", { uri: "toolbelt://screens/vault/processes", _meta: META() })).error.code).toBe(-32602);
+		expect((await request("resources/read", { uri: "toolbelt://screens/vault/processes" })).error.code).toBe(-32002);
+		expect((await request("prompts/list", { _meta: META() })).result).toMatchObject({ resultType: "complete", prompts: [] });
+	});
+
+	test("modern: subscriptions/listen acknowledges, tags notifications and ends on cancel", async () => {
+		const { request, send, client } = await rpc(false);
+		const uri = "toolbelt://screens/desk/tasks";
+		const before = client.notifications().length;
+		send({ jsonrpc: "2.0", id: "listen-1", method: "subscriptions/listen", params: { _meta: META(), notifications: { toolsListChanged: true, resourcesListChanged: true, resourceSubscriptions: [uri, "toolbelt://screens/vault/processes"] } } });
+		const ack = await until(() => client.notifications().slice(before).find((n) => n.method === "notifications/subscriptions/acknowledged"), 2000, "the acknowledgment");
+		expect(ack.params._meta[SUB]).toBe("listen-1");
+		// Only what ToolBelt honors: the tool list never changes, and a hidden screen isn't watched.
+		expect(ack.params.notifications).toEqual({ resourcesListChanged: true, resourceSubscriptions: [uri] });
+		// Other requests go on while the stream is open; the stream itself gets no response.
+		expect((await request("tools/list", { _meta: META() })).result.resultType).toBe("complete");
+		expect(client.lines.some((l) => JSON.parse(l).id === "listen-1" && !("method" in JSON.parse(l)))).toBe(false);
+		const seen = client.notifications().length;
+		await world.person({ event: { screen: "desk/tasks", name: "settle", payload: { rowId: "7" } } });
+		const update = await until(() => client.notifications().slice(seen).find((n) => n.method === "notifications/resources/updated"), 2500, "a tagged update");
+		expect(update.params).toEqual({ uri, _meta: { [SUB]: "listen-1" } });
+		const changed = client.notifications().length;
+		await world.person({ access: { plugin: "kit", level: "none" } });
+		const list = await until(() => client.notifications().slice(changed).find((n) => n.method === "notifications/resources/list_changed"), 1000, "a tagged list_changed");
+		expect(list.params._meta[SUB]).toBe("listen-1");
+		await world.person({ access: { plugin: "kit", level: null } });
+		// Cancelling the stream (stdio) stops its notifications.
+		send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: "listen-1" } });
+		await request("tools/list", { _meta: META() });
+		const after = client.notifications().length;
+		await world.person({ event: { screen: "desk/tasks", name: "reopen", payload: { rowId: "7" } } });
+		await Bun.sleep(1300);
+		expect(client.notifications().slice(after).filter((n) => n.method === "notifications/resources/updated")).toEqual([]);
+	});
+
+	test("both eras on one connection", async () => {
+		const { request } = await rpc(true);
+		expect((await request("tools/list")).result.resultType).toBeUndefined();
+		expect((await request("tools/list", { _meta: META() })).result.resultType).toBe("complete");
+		expect((await request("ping")).result).toEqual({});
+	});
+
+	test("the stdio shim reopens a modern client's streams after ToolBelt goes away", { timeout: 20_000 }, async () => {
+		const { request, send, client } = await rpc(false);
+		const uri = "toolbelt://screens/desk/tasks";
+		const start = client.notifications().length;
+		send({ jsonrpc: "2.0", id: 41, method: "subscriptions/listen", params: { _meta: META(), notifications: { resourcesListChanged: true, resourceSubscriptions: [uri] } } });
+		await until(() => client.notifications().slice(start).find((n) => n.method === "notifications/subscriptions/acknowledged"), 2000, "the acknowledgment");
+		await world.person({ agents: false });
+		const down = await request("tools/call", { name: "toolbelt_status", arguments: {}, _meta: META() });
+		expect(down.error.data.reason).toBe("unreachable");
+		const before = client.notifications().length;
+		await world.person({ agents: true });
+		const up = await request("tools/call", { name: "toolbelt_status", arguments: {}, _meta: META() });
+		expect(up.result.content[0].text).toContain("Desk (desk)");
+		// The stream was told things may have changed, without a second acknowledgment or its end.
+		await until(() => client.notifications().slice(before).some((n) => n.method === "notifications/resources/list_changed" && n.params?._meta?.[SUB] === 41), 2000, "list_changed after reconnecting");
+		expect(client.notifications().slice(before).some((n) => n.method === "notifications/resources/updated" && n.params.uri === uri && n.params._meta[SUB] === 41)).toBe(true);
+		expect(client.notifications().slice(start).filter((n) => n.method === "notifications/subscriptions/acknowledged")).toHaveLength(1);
+		expect(client.lines.some((l) => { const m = JSON.parse(l); return m.id === 41 && !("method" in m); })).toBe(false);
+		// The reopened stream gets the screen's updates.
+		const seen = client.notifications().length;
+		await world.person({ event: { screen: "desk/tasks", name: "settle", payload: { rowId: "7" } } });
+		await until(() => client.notifications().slice(seen).some((n) => n.method === "notifications/resources/updated" && n.params._meta[SUB] === 41), 3000, "an update after reconnecting");
+		await world.person({ event: { screen: "desk/tasks", name: "reopen", payload: { rowId: "7" } } });
+		send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 41 } });
 	});
 
 	test.skipIf(!process.env.TOOLBELT_MCP_INSPECTOR)("MCP Inspector CLI lists and calls tools (optional smoke check)", { timeout: 120_000 }, async () => {

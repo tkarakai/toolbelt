@@ -74,8 +74,12 @@ answers requests with JSON-RPC error `-32000` (`data.reason: "unreachable"`, say
 is restarting or off), reconnects with backoff from 250 ms to 5 s and right away when a request
 arrives, replays the client's `initialize` (its reply swallowed), `notifications/initialized`
 and resource subscriptions on the new session, and sends the client
-`notifications/resources/list_changed`. The other
-commands (`status`, `screens`, `read`, `show`, `search`, `plugins`) make one MCP tool call each and print
+`notifications/resources/list_changed`. A modern client (MCP 2026-07-28) has no handshake to
+replay: the shim sends its open `subscriptions/listen` streams again with their own ids, swallows
+their second acknowledgment, and sends each stream a tagged `notifications/resources/list_changed`
+(when it asked for list changes) and `notifications/resources/updated` for each of its screens.
+A stream's graceful end when ToolBelt stops isn't passed on: for the client, the stream continues. The other
+commands (`status`, `screens`, `read`, `show`, `search`, `plugins`) make one modern MCP tool call each (no handshake) and print
 its text, or with `--json` ask for `format: "json"` and print the structured content. Each command
 accepts only its own options; an unknown option, a missing value or a wrong number is a usage
 error. Exit codes: 1 when the socket can't be reached, 2 when the call was refused or failed or
@@ -98,10 +102,30 @@ agent configuration itself.
 
 ## MCP surface
 
-The server negotiates protocol versions `2025-11-25`, `2025-06-18`, `2025-03-26` and
-`2024-11-05`, and answers with server instructions. Capabilities: `tools` with
-`listChanged: false` (the tool list never changes), and `resources` with `subscribe` and
-`listChanged: true`.
+The server is dual-era (MCP 2026-07-28, Versioning). It serves both kinds of request, also on one
+connection:
+
+- **Modern requests**, revision `2026-07-28`, are those whose `params._meta` names
+  `io.modelcontextprotocol/protocolVersion`. They are served statelessly, with no handshake:
+  - Each must carry `io.modelcontextprotocol/clientCapabilities`; a missing field is `-32602`.
+  - A version ToolBelt doesn't speak is `-32022` with `data.supported` and `data.requested`.
+  - The first request's `io.modelcontextprotocol/clientInfo` names the session, unless the hello
+    did.
+  - `server/discover` returns the supported versions (modern, then legacy), capabilities and
+    instructions.
+  - Every result carries `resultType: "complete"` and `io.modelcontextprotocol/serverInfo` in
+    `_meta`.
+  - Cache hints: `server/discover` (1 h, private), `tools/list`, `prompts/list` and
+    `resources/templates/list` (1 h, public), `resources/list` (5 s, private) and
+    `resources/read` (1 s, private).
+  - `ping`, `resources/subscribe` and `resources/unsubscribe` don't exist (`-32601`). A
+    resource that doesn't exist is `-32602`.
+- **Legacy requests** follow the `initialize` handshake, negotiating `2025-11-25`, `2025-06-18`,
+  `2025-03-26` or `2024-11-05`, with server instructions. Their results have no `resultType` or
+  cache hints, and a resource that doesn't exist is `-32002`.
+
+Capabilities, in both eras: `tools` with `listChanged: false` (the tool list never changes), and
+`resources` with `subscribe` and `listChanged: true`.
 
 | Tool | What it returns |
 | --- | --- |
@@ -141,10 +165,23 @@ parameter, or a view control or option the screen doesn't offer, is `-32602`. A 
 paging notes name the URI to read next, keeping its view
 (`toolbelt://screens/kit/queue?filter.state=failed&table=jobs&offset=50`), rather than
 `read_screen` options.
-`resources/subscribe` keeps that URI's instance open for the session and sends
+`resources/subscribe` (legacy) keeps that URI's instance open for the session and sends
 `notifications/resources/updated` at most once a second per URI while that instance's tree
 changes; the shim replays subscriptions, views included, after a ToolBelt restart. A change in
-plugins or access sends `notifications/resources/list_changed`.
+plugins or access sends `notifications/resources/list_changed` to initialized legacy clients.
+
+`subscriptions/listen` (modern) opens a stream; its response comes only when the stream ends.
+- **Acknowledgment:** ToolBelt first sends `notifications/subscriptions/acknowledged` with what
+  it honors: `resourcesListChanged` and the requested screen URIs that exist for agents. It
+  omits `toolsListChanged` and `promptsListChanged`, since those lists never change, and any
+  URI it can't watch.
+- **Notifications:** the stream's resource updates (at most once a second per URI) and list
+  changes carry `io.modelcontextprotocol/subscriptionId`, the listen request's id. A
+  connection may hold several streams. Streams and legacy subscriptions to one URI share one
+  instance.
+- **Ending:** `notifications/cancelled` naming the listen request ends it. When ToolBelt stops
+  serving agents, each open stream gets its graceful-closure response (`resultType: "complete"`
+  with the subscription id).
 
 ## Reading surfaces
 
@@ -371,7 +408,7 @@ Three layers run in `bun test` (and so in CI), without a model:
 | --- | --- | --- |
 | Unit | `test/agents.test.ts`, `test/views.test.ts`, `test/sdk.test.ts` | Access levels, the manifest key, grants and their ends, redaction, text and JSON paging, the core against a fake host (hiding, refusals, holds and release, crashed plugins, search, access changes, view instances and checks, show_screen's questions, grants, timeouts, Restore), the socket and CLI; views and instances through a real SDK plugin (the person's saved view, agent instances, restarts, per-instance render errors) and the SDK's view handling |
 | Scenarios | `test/agent-scenarios.test.ts`, `test/agent-scenarios/` | Life-like prompts with the tool calls an agent makes to answer them, run through every channel each lists, against real plugin processes |
-| MCP conformance | `test/agent-mcp-conformance.test.ts` | Version negotiation (also unsupported versions), tool input schemas compiled as JSON Schema 2020-12 in strict mode, annotations, JSON-RPC error codes (-32601, -32602, -32600, -32700), refusals as `isError` results, in-order answers, hello-less connections, resources (list, read, templates, subscribe and unsubscribe, `list_changed`) |
+| MCP conformance | `test/agent-mcp-conformance.test.ts` | Both eras: modern `server/discover`, `_meta` checks (`-32602`, `-32022`), `resultType`, server identity and cache hints, removed methods, `subscriptions/listen` (acknowledgment, tagging, cancel), both eras on one connection, and the shim reopening modern streams; legacy version negotiation (also unsupported versions), tool input schemas compiled as JSON Schema 2020-12 in strict mode, annotations, JSON-RPC error codes (-32601, -32602, -32600, -32700), refusals as `isError` results, in-order answers, hello-less connections, resources (list, read, templates, subscribe and unsubscribe, `list_changed`) |
 
 ### Scenarios
 
